@@ -198,6 +198,33 @@ h1.page-title {
   transform: rotate(-2deg);
 }
 
+/* čtvercové ikonové tlačítko (viz design tokens: .tb-btn) */
+.tb-btn {
+  width: 34px;
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--cream);
+  color: var(--ink);
+  border: 2px solid var(--ink);
+  border-radius: 10px;
+  box-shadow: 0 2px 0 var(--ink);
+  font-weight: 800;
+  cursor: pointer;
+  transition: transform 60ms ease, box-shadow 60ms ease, opacity 80ms ease;
+}
+
+.tb-btn:active {
+  transform: translateY(2px);
+  box-shadow: none;
+}
+
+/* přepínače zvuků/hudby: vypnuto = ztlumená ikona, nikdy šedé pozadí */
+.tb-btn.audio-toggle.off {
+  opacity: 0.4;
+}
+
 /* ---------- tlačítka ---------- */
 
 .pill-btn {

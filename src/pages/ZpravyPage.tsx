@@ -6,6 +6,7 @@ import {
   type ThreadDetail,
   type ThreadStatus,
 } from '../api';
+import { audio } from '../audio';
 import { useSession } from '../auth';
 import { ErrorBox, Spinner, errMsg, formatDateTime } from '../ui';
 import {
@@ -98,10 +99,12 @@ function ComposeModal({
   const create = async () => {
     if (!subject.trim()) {
       setError('Předmět nesmí být prázdný.');
+      audio.play('error');
       return;
     }
     if (!body.trim()) {
       setError('Zpráva nesmí být prázdná.');
+      audio.play('error');
       return;
     }
     setBusy(true);
@@ -113,9 +116,11 @@ function ComposeModal({
         body,
         kontakt?.id ?? null
       );
+      audio.play('success');
       onCreated(thread_id);
     } catch (e) {
       setError(errMsg(e));
+      audio.play('error');
       setBusy(false);
     }
   };
@@ -303,6 +308,7 @@ function ThreadView({
     setError('');
     try {
       const msg = await getApi().postThreadMessage(session.token, threadId, draft, applyAlways);
+      audio.play('send');
       setDraft('');
       setApplyAlways(false);
       onSent({
@@ -311,6 +317,7 @@ function ThreadView({
       });
     } catch (e) {
       setError(errMsg(e));
+      audio.play('error');
     } finally {
       setSending(false);
     }
@@ -322,9 +329,11 @@ function ThreadView({
     setError('');
     try {
       await getApi().resolveThread(session.token, threadId);
+      audio.play('success');
       onResolved();
     } catch (e) {
       setError(errMsg(e));
+      audio.play('error');
     } finally {
       setResolving(false);
     }
@@ -402,6 +411,7 @@ function ThreadView({
           />
           <button
             className="pill-btn hot send-btn"
+            data-sfx="none"
             onClick={() => void send()}
             disabled={sending || !draft.trim()}
             title="Odeslat"
@@ -443,7 +453,10 @@ export default function ZpravyPage() {
         setThreads(list);
         setError('');
       } catch (e) {
-        if (!silent) setError(errMsg(e));
+        if (!silent) {
+          setError(errMsg(e));
+          audio.play('error');
+        }
       } finally {
         if (!silent) setLoading(false);
       }
@@ -466,7 +479,10 @@ export default function ZpravyPage() {
         });
         if (!silent) setError('');
       } catch (e) {
-        if (!silent) setError(errMsg(e));
+        if (!silent) {
+          setError(errMsg(e));
+          audio.play('error');
+        }
       } finally {
         if (!silent) setDetailLoading(false);
       }
@@ -515,6 +531,7 @@ export default function ZpravyPage() {
                   <button
                     key={f}
                     type="button"
+                    data-sfx="nav"
                     className={filter === f ? 'active' : ''}
                     onClick={() => setFilter(f)}
                   >

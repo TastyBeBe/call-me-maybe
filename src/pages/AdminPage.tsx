@@ -6,6 +6,7 @@ import {
   type KontaktStatus,
   type UserStats,
 } from '../api';
+import { audio } from '../audio';
 import { useSession } from '../auth';
 import {
   ALL_STATUSES,
@@ -70,11 +71,13 @@ function KontaktDrawer({
     setError('');
     try {
       const updated = await getApi().updateKontakt(session.token, kontakt.id, patch);
+      audio.play('success');
       onSaved(updated);
       setSavedFlash(true);
       setTimeout(() => setSavedFlash(false), 1500);
     } catch (e) {
       setError(errMsg(e));
+      audio.play('error');
     } finally {
       setBusy(false);
     }
@@ -85,9 +88,11 @@ function KontaktDrawer({
     setError('');
     try {
       const updated = await getApi().updateKontakt(session.token, kontakt.id, { clear_lock: true });
+      audio.play('success');
       onSaved(updated);
     } catch (e) {
       setError(errMsg(e));
+      audio.play('error');
     } finally {
       setBusy(false);
     }
@@ -267,6 +272,7 @@ export default function AdminPage() {
       setTotal(r.total);
     } catch (e) {
       setError(errMsg(e));
+      audio.play('error');
     } finally {
       setLoading(false);
     }

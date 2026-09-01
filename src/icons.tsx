@@ -261,6 +261,47 @@ export function PlusIcon(props: IconProps) {
   );
 }
 
+export function SpeakerIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
+      <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
+      <path d="M19.07 4.93a10 10 0 0 1 0 14.14" />
+    </Icon>
+  );
+}
+
+export function SpeakerOffIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
+      <line x1="23" x2="17" y1="9" y2="15" />
+      <line x1="17" x2="23" y1="9" y2="15" />
+    </Icon>
+  );
+}
+
+export function MusicIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="M9 18V5l12-2v13" />
+      <circle cx="6" cy="18" r="3" />
+      <circle cx="18" cy="16" r="3" />
+    </Icon>
+  );
+}
+
+export function MusicOffIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="M9 18V9.5m0-4.5 12-2v13" />
+      <circle cx="6" cy="18" r="3" />
+      <circle cx="18" cy="16" r="3" />
+      <line x1="22" x2="2" y1="2" y2="22" />
+    </Icon>
+  );
+}
+
 export function PartyIcon(props: IconProps) {
   return (
     <Icon {...props}>

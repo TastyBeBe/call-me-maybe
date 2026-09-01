@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from 'react';
 import { Link, Navigate, useNavigate } from 'react-router-dom';
+import { audio } from '../audio';
 import { useAuth } from '../auth';
 import { getConfig } from '../config';
 import { ErrorBox, errMsg } from '../ui';
@@ -24,6 +25,7 @@ export default function LoginPage() {
       navigate('/');
     } catch (err) {
       setError(errMsg(err));
+      audio.play('error');
     } finally {
       setBusy(false);
     }

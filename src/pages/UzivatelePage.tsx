@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { getApi, type Role, type UserStats } from '../api';
+import { audio } from '../audio';
 import { useSession } from '../auth';
 import { ErrorBox, Spinner, errMsg } from '../ui';
 import { CheckIcon } from '../icons';
@@ -27,6 +28,7 @@ export default function UzivatelePage() {
       setUsers(all);
     } catch (e) {
       setError(errMsg(e));
+      audio.play('error');
     } finally {
       setLoading(false);
     }
@@ -43,6 +45,7 @@ export default function UzivatelePage() {
     setBusy(true);
     try {
       await getApi().createUser(session.token, username, password, displayName, role);
+      audio.play('success');
       setFormOk(`Uživatel „${username.trim()}" založen.`);
       setUsername('');
       setDisplayName('');
@@ -51,6 +54,7 @@ export default function UzivatelePage() {
       await load();
     } catch (err) {
       setFormError(errMsg(err));
+      audio.play('error');
     } finally {
       setBusy(false);
     }

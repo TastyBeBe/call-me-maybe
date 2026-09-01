@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { getApi, type Kontakt, type Rating } from '../api';
+import { audio } from '../audio';
 import { useSession } from '../auth';
 import {
   ConfirmModal,
@@ -66,6 +67,7 @@ export default function CallPage() {
     } catch (e) {
       setKontakt(null);
       setError(errMsg(e));
+      audio.play('error');
     } finally {
       setLoading(false);
     }
@@ -89,6 +91,7 @@ export default function CallPage() {
         rating: outcome === 'zajem' ? rating || null : null,
         email: outcome === 'zajem' ? email.trim() || null : null,
       });
+      audio.play('success');
       await loadNext();
     } catch (e) {
       const msg = errMsg(e);
@@ -97,6 +100,7 @@ export default function CallPage() {
       } else {
         setError(msg);
       }
+      audio.play('error');
     } finally {
       setBusy(false);
     }
