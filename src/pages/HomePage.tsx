@@ -31,7 +31,7 @@ export default function HomePage() {
             <Link to="/zpravy" className="big-tile">
               <span className="tile-emoji"><MessageIcon size={42} /></span>
               <span className="tile-label">ZPRÁVY</span>
-              <span className="tile-sub">dotazy od AI agentů</span>
+              <span className="tile-sub">chat s AI agenty</span>
             </Link>
             <Link to="/uzivatele" className="big-tile">
               <span className="tile-emoji"><UsersIcon size={42} /></span>

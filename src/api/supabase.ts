@@ -5,6 +5,8 @@ import { getConfig } from '../config';
 import type {
   AdminMessage,
   Api,
+  ChatMessage,
+  ChatThread,
   Kontakt,
   ListKontaktyFilters,
   ListKontaktyResult,
@@ -13,6 +15,8 @@ import type {
   ResolveCallArgs,
   Role,
   Session,
+  ThreadDetail,
+  ThreadStatus,
   UserStats,
 } from './types';
 
@@ -132,6 +136,45 @@ export const supabaseApi: Api = {
       p_id: id,
       p_reply: reply,
       p_apply_always: applyAlways,
+    });
+  },
+
+  /* ---- chat (migrace 002) ---- */
+
+  async listThreads(token: string, status?: ThreadStatus | null): Promise<ChatThread[]> {
+    const out = await rpc<{ threads: ChatThread[] }>('list_threads', {
+      p_token: token,
+      p_status: status ?? null,
+    });
+    return out?.threads ?? [];
+  },
+
+  async getThread(token: string, threadId: number): Promise<ThreadDetail> {
+    return rpc<ThreadDetail>('get_thread', { p_token: token, p_thread_id: threadId });
+  },
+
+  async postThreadMessage(token: string, threadId: number, body: string, applyAlways: boolean) {
+    return rpc<ChatMessage>('post_thread_message', {
+      p_token: token,
+      p_thread_id: threadId,
+      p_body: body,
+      p_apply_always: applyAlways,
+    });
+  },
+
+  async createThread(token: string, subject: string, body: string, kontaktId?: number | null) {
+    return rpc<{ thread_id: number }>('create_thread', {
+      p_token: token,
+      p_subject: subject,
+      p_body: body,
+      p_kontakt_id: kontaktId ?? null,
+    });
+  },
+
+  async resolveThread(token: string, threadId: number) {
+    return rpc<{ ok: boolean; thread_id: number; status: string }>('resolve_thread', {
+      p_token: token,
+      p_thread_id: threadId,
     });
   },
 };

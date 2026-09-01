@@ -81,6 +81,43 @@ export interface AdminMessage {
   kontakt_phone: string | null;
 }
 
+export type ChatSender = 'agent' | 'admin';
+export type ThreadStatus = 'open' | 'resolved';
+
+/** Vlákno tak, jak ho vrací get_thread (bez preview polí). */
+export interface ChatThreadInfo {
+  id: number;
+  kontakt_id: number | null;
+  kontakt_name: string | null;
+  subject: string;
+  status: ThreadStatus;
+  created_by: string;
+  last_message_at: string;
+  created_at: string;
+}
+
+/** Řádek seznamu vláken z list_threads (s preview poslední zprávy). */
+export interface ChatThread extends ChatThreadInfo {
+  last_message_preview: string | null;
+  last_sender_type: ChatSender | null;
+  message_count: number;
+}
+
+export interface ChatMessage {
+  id: number;
+  thread_id?: number;
+  sender_type: ChatSender;
+  sender_name: string;
+  body: string;
+  apply_always: boolean;
+  created_at: string;
+}
+
+export interface ThreadDetail {
+  thread: ChatThreadInfo;
+  messages: ChatMessage[];
+}
+
 export interface ListKontaktyResult {
   total: number;
   rows: Kontakt[];
@@ -140,4 +177,23 @@ export interface Api {
     reply: string,
     applyAlways: boolean
   ): Promise<AdminMessage>;
+  /* ---- chat (migrace 002) ---- */
+  listThreads(token: string, status?: ThreadStatus | null): Promise<ChatThread[]>;
+  getThread(token: string, threadId: number): Promise<ThreadDetail>;
+  postThreadMessage(
+    token: string,
+    threadId: number,
+    body: string,
+    applyAlways: boolean
+  ): Promise<ChatMessage>;
+  createThread(
+    token: string,
+    subject: string,
+    body: string,
+    kontaktId?: number | null
+  ): Promise<{ thread_id: number }>;
+  resolveThread(
+    token: string,
+    threadId: number
+  ): Promise<{ ok: boolean; thread_id: number; status: string }>;
 }

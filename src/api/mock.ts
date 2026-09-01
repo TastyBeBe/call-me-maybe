@@ -4,6 +4,10 @@
 import type {
   AdminMessage,
   Api,
+  ChatMessage,
+  ChatSender,
+  ChatThread,
+  ChatThreadInfo,
   Kontakt,
   KontaktStatus,
   ListKontaktyFilters,
@@ -14,6 +18,8 @@ import type {
   ResolveCallArgs,
   Role,
   Session,
+  ThreadDetail,
+  ThreadStatus,
   UserStats,
 } from './types';
 
@@ -232,6 +238,120 @@ const messages: AdminMessage[] = [
 ];
 
 let nextMessageId = 4;
+
+/* ---- chat (migrace 002): vlákna + zprávy ---- */
+
+interface MockThread {
+  id: number;
+  kontakt_id: number | null;
+  subject: string;
+  status: ThreadStatus;
+  created_by: string;
+  last_message_at: string;
+  created_at: string;
+}
+
+interface MockChatMessage {
+  id: number;
+  thread_id: number;
+  sender_type: ChatSender;
+  sender_name: string;
+  body: string;
+  apply_always: boolean;
+  created_at: string;
+}
+
+const hoursAgo = (h: number) => new Date(Date.now() - h * 3600000).toISOString();
+
+const chatThreads: MockThread[] = [
+  {
+    id: 1,
+    kontakt_id: 5,
+    subject: 'Chybí fotky pro Chatu Lipno',
+    status: 'open',
+    created_by: 'agent',
+    last_message_at: hoursAgo(1),
+    created_at: daysAgo(1),
+  },
+  {
+    id: 2,
+    kontakt_id: 9,
+    subject: 'Klient neodpovídá — poslat upomínku?',
+    status: 'open',
+    created_by: 'agent',
+    last_message_at: hoursAgo(3),
+    created_at: hoursAgo(3),
+  },
+  {
+    id: 3,
+    kontakt_id: 7,
+    subject: 'Doména penzion-sumava.cz je obsazená',
+    status: 'resolved',
+    created_by: 'agent',
+    last_message_at: daysAgo(8),
+    created_at: daysAgo(9),
+  },
+];
+
+const chatMessages: MockChatMessage[] = [
+  {
+    id: 1,
+    thread_id: 1,
+    sender_type: 'agent',
+    sender_name: 'Agent — Chata Lipno',
+    body: 'Klientka poslala jen 2 fotky v nízkém rozlišení. Mám použít ilustrační fotky Lipna, nebo počkat na lepší od klientky?',
+    apply_always: false,
+    created_at: daysAgo(1),
+  },
+  {
+    id: 2,
+    thread_id: 1,
+    sender_type: 'admin',
+    sender_name: 'Albert',
+    body: 'Napiš jí ještě jednou o fotky, dej jí do zítřka. Kdyby nic, použij ilustrační.',
+    apply_always: false,
+    created_at: hoursAgo(5),
+  },
+  {
+    id: 3,
+    thread_id: 1,
+    sender_type: 'agent',
+    sender_name: 'Agent — Chata Lipno',
+    body: 'Napsáno. Klientka slíbila poslat nové fotky dnes večer — čekám do zítřejšího rána, pak nasadím ilustrační.',
+    apply_always: false,
+    created_at: hoursAgo(1),
+  },
+  {
+    id: 4,
+    thread_id: 2,
+    sender_type: 'agent',
+    sender_name: 'Agent — fakturace',
+    body: 'Pan Malý 14 dní nereaguje na fakturu ani maily. Mám poslat druhou upomínku, nebo to řešíte telefonicky?',
+    apply_always: false,
+    created_at: hoursAgo(3),
+  },
+  {
+    id: 5,
+    thread_id: 3,
+    sender_type: 'agent',
+    sender_name: 'Agent — domény',
+    body: 'Chtěná doména penzion-sumava.cz je registrovaná někým jiným. Použil jsem subdoménu penzion-sumava.webdomov.cz — je to OK?',
+    apply_always: false,
+    created_at: daysAgo(9),
+  },
+  {
+    id: 6,
+    thread_id: 3,
+    sender_type: 'admin',
+    sender_name: 'Albert',
+    body: 'Ano, subdoména je v pořádku. Vlastní doménu řešíme jen když ji klient výslovně chce.',
+    apply_always: true,
+    created_at: daysAgo(8),
+  },
+];
+
+let nextThreadId = 4;
+let nextChatMessageId = 7;
 
 const sessions = new Map<string, number>(); // token -> user_id
 
@@ -536,6 +656,129 @@ export const mockApi: Api = {
     msg.status = 'resolved';
     msg.resolved_at = now();
     return { ...msg };
+  },
+
+  /* ---- chat (migrace 002) ---- */
+
+  async listThreads(token: string, status?: ThreadStatus | null): Promise<ChatThread[]> {
+    await delay();
+    authAdmin(token);
+    if (status && status !== 'open' && status !== 'resolved') {
+      fail(`Neplatný status: ${status}. Povolené: open, resolved.`);
+    }
+    return chatThreads
+      .filter((t) => !status || t.status === status)
+      .slice()
+      .sort(
+        (a, b) =>
+          new Date(b.last_message_at).getTime() - new Date(a.last_message_at).getTime() ||
+          b.id - a.id
+      )
+      .map((t) => {
+        const msgs = chatMessages
+          .filter((m) => m.thread_id === t.id)
+          .sort(
+            (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime() || a.id - b.id
+          );
+        const last = msgs[msgs.length - 1] ?? null;
+        return {
+          id: t.id,
+          kontakt_id: t.kontakt_id,
+          kontakt_name: kontakty.find((c) => c.id === t.kontakt_id)?.name ?? null,
+          subject: t.subject,
+          status: t.status,
+          created_by: t.created_by,
+          last_message_at: t.last_message_at,
+          created_at: t.created_at,
+          last_message_preview: last ? last.body.slice(0, 140) : null,
+          last_sender_type: last ? last.sender_type : null,
+          message_count: msgs.length,
+        };
+      });
+  },
+
+  async getThread(token: string, threadId: number): Promise<ThreadDetail> {
+    await delay();
+    authAdmin(token);
+    const t = chatThreads.find((x) => x.id === threadId);
+    if (!t) fail(`Vlákno id=${threadId} neexistuje.`);
+    const thread: ChatThreadInfo = {
+      id: t.id,
+      kontakt_id: t.kontakt_id,
+      kontakt_name: kontakty.find((c) => c.id === t.kontakt_id)?.name ?? null,
+      subject: t.subject,
+      status: t.status,
+      created_by: t.created_by,
+      last_message_at: t.last_message_at,
+      created_at: t.created_at,
+    };
+    const messagesAsc: ChatMessage[] = chatMessages
+      .filter((m) => m.thread_id === t.id)
+      .sort(
+        (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime() || a.id - b.id
+      )
+      .map((m) => ({ ...m }));
+    return { thread, messages: messagesAsc };
+  },
+
+  async postThreadMessage(token: string, threadId: number, body: string, applyAlways: boolean) {
+    await delay();
+    const user = authAdmin(token);
+    if (!body.trim()) fail('Zpráva nesmí být prázdná.');
+    const t = chatThreads.find((x) => x.id === threadId);
+    if (!t) fail(`Vlákno id=${threadId} neexistuje.`);
+    const msg: MockChatMessage = {
+      id: nextChatMessageId++,
+      thread_id: t.id,
+      sender_type: 'admin',
+      sender_name: user.display_name,
+      body: body.trim(),
+      apply_always: applyAlways,
+      created_at: now(),
+    };
+    chatMessages.push(msg);
+    t.last_message_at = msg.created_at;
+    t.status = 'open'; // resolved vlákno se odpovědí znovu otevře
+    return { ...msg };
+  },
+
+  async createThread(token: string, subject: string, body: string, kontaktId?: number | null) {
+    await delay();
+    const user = authAdmin(token);
+    if (!subject.trim()) fail('Předmět nesmí být prázdný.');
+    if (!body.trim()) fail('Zpráva nesmí být prázdná.');
+    if (kontaktId != null && !kontakty.some((c) => c.id === kontaktId)) {
+      fail(`Kontakt id=${kontaktId} neexistuje.`);
+    }
+    const t: MockThread = {
+      id: nextThreadId++,
+      kontakt_id: kontaktId ?? null,
+      subject: subject.trim(),
+      status: 'open',
+      created_by: user.display_name,
+      last_message_at: now(),
+      created_at: now(),
+    };
+    chatThreads.push(t);
+    chatMessages.push({
+      id: nextChatMessageId++,
+      thread_id: t.id,
+      sender_type: 'admin',
+      sender_name: user.display_name,
+      body: body.trim(),
+      apply_always: false,
+      created_at: t.created_at,
+    });
+    return { thread_id: t.id };
+  },
+
+  async resolveThread(token: string, threadId: number) {
+    await delay();
+    authAdmin(token);
+    const t = chatThreads.find((x) => x.id === threadId);
+    if (!t) fail(`Vlákno id=${threadId} neexistuje.`);
+    t.status = 'resolved';
+    return { ok: true, thread_id: t.id, status: 'resolved' };
   },
 };
 
