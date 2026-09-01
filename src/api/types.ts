@@ -1,0 +1,143 @@
+export type Role = 'admin' | 'caller';
+
+export interface Session {
+  token: string;
+  user_id: number;
+  display_name: string;
+  role: Role;
+}
+
+export type KontaktStatus =
+  | 'nekontaktovano'
+  | 'nedovolano'
+  | 'odmitnuto'
+  | 'zajem'
+  | 'web_ve_vyrobe'
+  | 'navrh_odeslan'
+  | 'ceka_na_klienta'
+  | 'upravy_ve_vyrobe'
+  | 'schvaleno'
+  | 'faktura_odeslana'
+  | 'zaplaceno'
+  | 'domena_pripojena'
+  | 'hotovo'
+  | 'pozastaveno'
+  | 'eskalace';
+
+export type Rating = 'A' | 'B' | 'C';
+
+export interface Kontakt {
+  id: number;
+  phone: string | null;
+  name: string | null;
+  ma_web: string | null;
+  web: string | null;
+  email: string | null;
+  note: string | null;
+  status: KontaktStatus;
+  rating: Rating | null;
+  cena_web: string | null;
+  cena_hosting: string | null;
+  last_caller: string | null;
+  lock_by: number | null;
+  lock_at: string | null;
+  obor: string;
+  lovable_project_id: string | null;
+  live_url: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface MyStats {
+  calls: number;
+  reached: number;
+  zajem: number;
+  odmitnuto: number;
+  nedovolano: number;
+  conversion: number;
+  sold: number;
+}
+
+export interface UserStats extends MyStats {
+  user_id: number;
+  username: string;
+  display_name: string;
+  role: Role;
+  active: boolean;
+}
+
+export interface AdminMessage {
+  id: number;
+  kontakt_id: number | null;
+  from_agent: string | null;
+  subject: string | null;
+  body: string | null;
+  status: 'open' | 'resolved';
+  reply: string | null;
+  apply_always: boolean;
+  created_at: string;
+  resolved_at: string | null;
+  kontakt_name: string | null;
+  kontakt_phone: string | null;
+}
+
+export interface ListKontaktyResult {
+  total: number;
+  rows: Kontakt[];
+}
+
+export interface ResolveCallArgs {
+  kontakt_id: number;
+  outcome: 'nedovolano' | 'odmitnuto' | 'zajem';
+  cena_web?: string | null;
+  cena_hosting?: string | null;
+  note?: string | null;
+  rating?: string | null;
+  email?: string | null;
+}
+
+export interface ListKontaktyFilters {
+  status?: string | null;
+  caller?: string | null;
+  rating?: string | null;
+  search?: string | null;
+  limit?: number;
+  offset?: number;
+}
+
+export interface MeInfo {
+  user_id: number;
+  username: string;
+  display_name: string;
+  role: Role;
+}
+
+/** Jednotné API rozhraní — implementuje ho reálný Supabase klient i demo mock. */
+export interface Api {
+  login(username: string, password: string): Promise<Session>;
+  logout(token: string): Promise<void>;
+  me(token: string): Promise<MeInfo>;
+  nextContact(token: string): Promise<Kontakt | null>;
+  resolveCall(
+    token: string,
+    args: ResolveCallArgs
+  ): Promise<{ ok: boolean; kontakt_id: number; status: string }>;
+  myStats(token: string): Promise<MyStats>;
+  allStats(token: string): Promise<UserStats[]>;
+  listKontakty(token: string, filters: ListKontaktyFilters): Promise<ListKontaktyResult>;
+  updateKontakt(token: string, id: number, patch: Record<string, unknown>): Promise<Kontakt>;
+  createUser(
+    token: string,
+    username: string,
+    password: string,
+    displayName: string,
+    role: Role
+  ): Promise<{ ok: boolean; user_id: number }>;
+  listAdminMessages(token: string, status?: 'open' | 'resolved' | null): Promise<AdminMessage[]>;
+  replyAdminMessage(
+    token: string,
+    id: number,
+    reply: string,
+    applyAlways: boolean
+  ): Promise<AdminMessage>;
+}
