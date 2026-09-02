@@ -8,6 +8,7 @@ import type {
   ChatSender,
   ChatThread,
   ChatThreadInfo,
+  FlagKind,
   Kontakt,
   KontaktStatus,
   ListKontaktyFilters,
@@ -74,6 +75,10 @@ function k(partial: Partial<Kontakt> & { id: number }): Kontakt {
     obor: 'chata',
     lovable_project_id: null,
     live_url: null,
+    flag_kind: null,
+    flag_note: null,
+    flagged_at: null,
+    flagged_by: null,
     created_at: daysAgo(30),
     updated_at: daysAgo(5),
     ...partial,
@@ -620,6 +625,7 @@ export const mockApi: Api = {
       'phone', 'name', 'ma_web', 'web', 'email', 'note', 'status', 'rating',
       'cena_web', 'cena_hosting', 'last_caller', 'obor',
       'lovable_project_id', 'live_url', 'clear_lock',
+      'flag_kind', 'flag_note',
     ];
     if (!patch || Object.keys(patch).length === 0) fail('Prázdný patch — není co měnit.');
     for (const key of Object.keys(patch)) {
@@ -644,6 +650,46 @@ export const mockApi: Api = {
     }
     kontakt.updated_at = now();
     return { ...kontakt };
+  },
+
+  /* ---- příznaky (migrace 005) ---- */
+
+  async setFlag(token: string, id: number, kind: FlagKind, note: string): Promise<Kontakt> {
+    await delay();
+    const user = authAdmin(token);
+    const kontakt = kontakty.find((c) => c.id === id);
+    if (!kontakt) fail(`Kontakt id=${id} neexistuje.`);
+    kontakt.flag_kind = kind;
+    kontakt.flag_note = note.trim() || null;
+    kontakt.flagged_at = now();
+    kontakt.flagged_by = user.display_name;
+    kontakt.updated_at = now();
+    return { ...kontakt };
+  },
+
+  async clearFlag(token: string, id: number): Promise<Kontakt> {
+    await delay();
+    authAdmin(token);
+    const kontakt = kontakty.find((c) => c.id === id);
+    if (!kontakt) fail(`Kontakt id=${id} neexistuje.`);
+    kontakt.flag_kind = null;
+    kontakt.flag_note = null;
+    kontakt.flagged_at = null;
+    kontakt.flagged_by = null;
+    kontakt.updated_at = now();
+    return { ...kontakt };
+  },
+
+  async listFlagged(token: string, kind?: FlagKind | null): Promise<Kontakt[]> {
+    await delay();
+    authAdmin(token);
+    const order: Record<string, number> = {
+      chybi_info: 0, chybi_email: 1, email_neoveren: 2, info_neoverene: 3, jine: 4,
+    };
+    return kontakty
+      .filter((c) => c.flag_kind && (!kind || c.flag_kind === kind))
+      .sort((a, b) => (order[a.flag_kind!] ?? 9) - (order[b.flag_kind!] ?? 9) || a.id - b.id)
+      .map((c) => ({ ...c }));
   },
 
   async createUser(token: string, username: string, password: string, displayName: string, role: Role) {

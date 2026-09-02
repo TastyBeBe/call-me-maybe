@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
-import type { KontaktStatus } from './api';
+import type { FlagKind, Kontakt, KontaktStatus } from './api';
+import { FlagIcon } from './icons';
 
 /** České popisky statusů kontaktu. */
 export const STATUS_LABELS: Record<KontaktStatus, string> = {
@@ -46,6 +47,67 @@ export function StatusBadge({ status }: { status: KontaktStatus }) {
   return (
     <span className="badge" style={{ background: c.bg, color: c.fg }}>
       {STATUS_LABELS[status] ?? status}
+    </span>
+  );
+}
+
+/* ---------- červené příznaky (migrace 005) ---------- */
+
+/** Krátké popisky příznaků — to, co uvidí volající i admin. */
+export const FLAG_LABELS: Record<FlagKind, string> = {
+  chybi_info: 'Nevíme, o koho jde',
+  chybi_email: 'Chybí e-mail',
+  email_neoveren: 'Neověřený e-mail',
+  info_neoverene: 'Údaje z internetu',
+  jine: 'Něco není v pořádku',
+};
+
+/** Delší vysvětlení pro detail kontaktu. */
+export const FLAG_HINTS: Record<FlagKind, string> = {
+  chybi_info:
+    'Nedokázali jsme dohledat, o jaký objekt jde — chybí lokalita i inzerát. Web nejde postavit naslepo.',
+  chybi_email:
+    'Na tohoto klienta nemáme e-mail, takže mu nejde poslat návrh. Až ho zjistíš při hovoru, zapiš ho — příznak pak zmizí sám.',
+  email_neoveren:
+    'E-mail jsme dohledali na internetu, ale klient ho nepotvrdil. Při hovoru ho prosím ověř.',
+  info_neoverene:
+    'Texty a fotky na webu pocházejí z internetu, klient je zatím nepotvrdil. Může v nich být nepřesnost.',
+  jine: 'U tohoto klienta je něco nedořešeného — podrobnosti jsou v poznámce níže.',
+};
+
+export const ALL_FLAGS = Object.keys(FLAG_LABELS) as FlagKind[];
+
+export const FLAG_COLORS: Record<FlagKind, { bg: string; fg: string }> = {
+  chybi_info: { bg: '#c0392b', fg: '#fdf6e9' },
+  chybi_email: { bg: '#e2596f', fg: '#fdf6e9' },
+  email_neoveren: { bg: '#e4926f', fg: '#221e33' },
+  info_neoverene: { bg: '#e8b04b', fg: '#221e33' },
+  jine: { bg: '#a2988a', fg: '#221e33' },
+};
+
+/** Červený praporek v seznamech. Bez příznaku nevykreslí nic. */
+export function FlagBadge({
+  kontakt,
+  compact = false,
+}: {
+  kontakt: Pick<Kontakt, 'flag_kind' | 'flag_note'>;
+  compact?: boolean;
+}) {
+  const kind = kontakt.flag_kind;
+  if (!kind) return null;
+  const c = FLAG_COLORS[kind] ?? { bg: '#c0392b', fg: '#fdf6e9' };
+  const label = FLAG_LABELS[kind] ?? kind;
+  const title = kontakt.flag_note ? `${label} — ${kontakt.flag_note}` : label;
+  if (compact) {
+    return (
+      <span className="flag-dot" style={{ color: c.bg }} title={title} aria-label={title}>
+        <FlagIcon size={15} />
+      </span>
+    );
+  }
+  return (
+    <span className="badge flag-badge" style={{ background: c.bg, color: c.fg }} title={title}>
+      <FlagIcon size={13} /> {label}
     </span>
   );
 }

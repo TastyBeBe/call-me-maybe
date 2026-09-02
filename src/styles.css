@@ -1383,3 +1383,121 @@ table.kontakty tr:last-child td {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+
+/* ---------------------------------------------------------------------------
+   Červené příznaky (migrace 005) — klienti, kteří nejsou 100 % vyřešení.
+   --------------------------------------------------------------------------- */
+
+.flag-dot {
+  display: inline-flex;
+  vertical-align: -2px;
+  margin-right: 4px;
+}
+
+.badge.flag-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+}
+
+.flag-panel {
+  border: var(--border-w) solid var(--pink);
+  border-radius: var(--r-ctl);
+  background: var(--cream);
+  box-shadow: var(--shadow-hard-sm);
+  overflow: hidden;
+  margin-top: 14px;
+}
+
+.flag-panel-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  font-size: 14px;
+}
+
+.flag-panel-body {
+  padding: 10px 12px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.flag-hint {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.flag-note {
+  margin: 0;
+  border: 2px solid var(--ink);
+  border-radius: 10px;
+  background: var(--cream-deep);
+  padding: 8px 10px;
+  font-size: 14px;
+  font-weight: 700;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.flag-meta {
+  margin: 0;
+  font-size: 12px;
+}
+
+.flag-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.flag-add-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.flag-filter-bar {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 14px 0 16px;
+}
+
+.flag-note-cell {
+  max-width: 340px;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+/* Cedulka pro volajícího přímo na kartě hovoru. */
+.call-flag {
+  border: var(--border-w) solid var(--pink);
+  border-radius: var(--r-ctl);
+  background: #fdeaed;
+  padding: 10px 12px;
+  margin: 0 0 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.call-flag-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--pink);
+  font-size: 15px;
+}
+
+.call-flag p {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.35;
+}

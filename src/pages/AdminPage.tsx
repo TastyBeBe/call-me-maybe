@@ -11,6 +11,7 @@ import KontaktDrawer from '../components/KontaktDrawer';
 import {
   ALL_STATUSES,
   ErrorBox,
+  FlagBadge,
   Spinner,
   STATUS_LABELS,
   StatusBadge,
@@ -220,7 +221,9 @@ export default function AdminPage() {
                   className={selected?.id === r.id ? 'selected' : ''}
                   onClick={() => setSelected(r)}
                 >
-                  <td className="row-name">{r.name || '(beze jména)'}</td>
+                  <td className="row-name">
+                    <FlagBadge kontakt={r} compact /> {r.name || '(beze jména)'}
+                  </td>
                   <td style={{ whiteSpace: 'nowrap' }}>{r.phone || '—'}</td>
                   <td>
                     <StatusBadge status={r.status} />

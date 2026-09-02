@@ -6,6 +6,7 @@ import { useCallback, useEffect, useState } from 'react';
 import {
   getApi,
   type ChatMessage,
+  type FlagKind,
   type Kontakt,
   type KontaktStatus,
   type ThreadDetail,
@@ -13,8 +14,12 @@ import {
 import { audio } from '../audio';
 import { useSession } from '../auth';
 import {
+  ALL_FLAGS,
   ALL_STATUSES,
   ErrorBox,
+  FLAG_COLORS,
+  FLAG_HINTS,
+  FLAG_LABELS,
   STATUS_LABELS,
   Spinner,
   StatusBadge,
@@ -23,6 +28,7 @@ import {
 } from '../ui';
 import {
   CheckIcon,
+  FlagIcon,
   GlobeIcon,
   MessageIcon,
   PhoneIcon,
@@ -30,6 +36,161 @@ import {
   SendIcon,
   XIcon,
 } from '../icons';
+
+/* ---------- červený příznak (migrace 005) ---------- */
+
+/**
+ * Panel příznaku. Volající ho vidí jen jako červenou cedulku s vysvětlením,
+ * admin může příznak nasadit, přepsat nebo označit za vyřešený.
+ */
+function FlagPanel({
+  kontakt,
+  readOnly,
+  onSaved,
+}: {
+  kontakt: Kontakt;
+  readOnly: boolean;
+  onSaved?: (updated: Kontakt) => void;
+}) {
+  const session = useSession();
+  const [editing, setEditing] = useState(false);
+  const [kind, setKind] = useState<FlagKind>(kontakt.flag_kind ?? 'jine');
+  const [note, setNote] = useState(kontakt.flag_note ?? '');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    setEditing(false);
+    setKind(kontakt.flag_kind ?? 'jine');
+    setNote(kontakt.flag_note ?? '');
+    setError('');
+  }, [kontakt.id, kontakt.flag_kind, kontakt.flag_note]);
+
+  const save = async () => {
+    setBusy(true);
+    setError('');
+    try {
+      const updated = await getApi().setFlag(session.token, kontakt.id, kind, note);
+      audio.play('success');
+      onSaved?.(updated);
+      setEditing(false);
+    } catch (e) {
+      setError(errMsg(e));
+      audio.play('error');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const clear = async () => {
+    setBusy(true);
+    setError('');
+    try {
+      const updated = await getApi().clearFlag(session.token, kontakt.id);
+      audio.play('success');
+      onSaved?.(updated);
+    } catch (e) {
+      setError(errMsg(e));
+      audio.play('error');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const flagged = kontakt.flag_kind !== null && kontakt.flag_kind !== undefined;
+
+  if (!flagged && (readOnly || editing === false)) {
+    if (readOnly) return null;
+    return (
+      <button
+        className="pill-btn sm flag-add-btn"
+        onClick={() => setEditing(true)}
+        style={{ marginTop: 12 }}
+      >
+        <FlagIcon size={14} /> Označit klienta
+      </button>
+    );
+  }
+
+  const color = flagged
+    ? FLAG_COLORS[kontakt.flag_kind as FlagKind]
+    : { bg: '#c0392b', fg: '#fdf6e9' };
+
+  return (
+    <div className="flag-panel" style={{ borderColor: color.bg }}>
+      <div className="flag-panel-head" style={{ background: color.bg, color: color.fg }}>
+        <FlagIcon size={16} />
+        <strong>
+          {flagged ? FLAG_LABELS[kontakt.flag_kind as FlagKind] : 'Označit klienta'}
+        </strong>
+      </div>
+
+      {flagged && !editing && (
+        <div className="flag-panel-body">
+          <p className="flag-hint">{FLAG_HINTS[kontakt.flag_kind as FlagKind]}</p>
+          {kontakt.flag_note && <p className="flag-note">{kontakt.flag_note}</p>}
+          <p className="muted flag-meta">
+            označil/a {kontakt.flagged_by || '—'}
+            {kontakt.flagged_at ? ` · ${formatDateTime(kontakt.flagged_at)}` : ''}
+          </p>
+          {!readOnly && (
+            <div className="flag-actions">
+              <button className="pill-btn go sm" onClick={() => void clear()} disabled={busy}>
+                <CheckIcon size={14} /> Vyřešeno
+              </button>
+              <button className="pill-btn sm" onClick={() => setEditing(true)} disabled={busy}>
+                Upravit
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {!readOnly && editing && (
+        <div className="flag-panel-body">
+          <div className="field">
+            <label>Co je špatně</label>
+            <select value={kind} onChange={(e) => setKind(e.target.value as FlagKind)}>
+              {ALL_FLAGS.map((f) => (
+                <option key={f} value={f}>
+                  {FLAG_LABELS[f]}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="field">
+            <label>Poznámka pro ostatní</label>
+            <textarea
+              rows={3}
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              placeholder="Napiš konkrétně, co u klienta chybí nebo není ověřené…"
+            />
+          </div>
+          <ErrorBox>{error}</ErrorBox>
+          <div className="flag-actions">
+            <button className="pill-btn go sm" onClick={() => void save()} disabled={busy}>
+              {busy ? 'Ukládám…' : 'Uložit příznak'}
+            </button>
+            <button
+              className="pill-btn sm"
+              onClick={() => {
+                setEditing(false);
+                setKind(kontakt.flag_kind ?? 'jine');
+                setNote(kontakt.flag_note ?? '');
+              }}
+              disabled={busy}
+            >
+              Zpět
+            </button>
+          </div>
+        </div>
+      )}
+
+      {flagged && !editing && <ErrorBox>{error}</ErrorBox>}
+    </div>
+  );
+}
 
 /* ---------- Vzkazy agentovi (vlákna kontaktu + composer) ---------- */
 
@@ -276,6 +437,8 @@ export default function KontaktDrawer({
             </button>
           </div>
         )}
+
+        <FlagPanel kontakt={kontakt} readOnly={readOnly} onSaved={onSaved} />
 
         {readOnly ? (
           <>

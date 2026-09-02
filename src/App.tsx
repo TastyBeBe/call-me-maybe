@@ -17,6 +17,7 @@ import CallPage from './pages/CallPage';
 import HomePage from './pages/HomePage';
 import LoginPage from './pages/LoginPage';
 import MojiPage from './pages/MojiPage';
+import OznacenePage from './pages/OznacenePage';
 import SetupPage from './pages/SetupPage';
 import StatsPage from './pages/StatsPage';
 import UzivatelePage from './pages/UzivatelePage';
@@ -150,6 +151,13 @@ function TopBar() {
               kontakty
             </NavLink>
             <NavLink
+              to="/oznacene"
+              data-sfx="none"
+              className={({ isActive }) => `nav-pill${isActive ? ' active' : ''}`}
+            >
+              označené
+            </NavLink>
+            <NavLink
               to="/zpravy"
               data-sfx="none"
               className={({ isActive }) => `nav-pill${isActive ? ' active' : ''}`}
@@ -226,6 +234,14 @@ export default function App() {
           element={
             <RequireAuth admin>
               <AdminPage />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/oznacene"
+          element={
+            <RequireAuth admin>
+              <OznacenePage />
             </RequireAuth>
           }
         />

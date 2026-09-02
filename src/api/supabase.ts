@@ -7,6 +7,7 @@ import type {
   Api,
   ChatMessage,
   ChatThread,
+  FlagKind,
   Kontakt,
   ListKontaktyFilters,
   ListKontaktyResult,
@@ -115,6 +116,25 @@ export const supabaseApi: Api = {
 
   async updateKontakt(token: string, id: number, patch: Record<string, unknown>): Promise<Kontakt> {
     return rpc<Kontakt>('update_kontakt', { p_token: token, p_id: id, p_patch: patch });
+  },
+
+  /* ---- příznaky (migrace 005) ---- */
+
+  async setFlag(token: string, id: number, kind: FlagKind, note: string): Promise<Kontakt> {
+    return rpc<Kontakt>('set_flag', {
+      p_token: token,
+      p_id: id,
+      p_kind: kind,
+      p_note: note,
+    });
+  },
+
+  async clearFlag(token: string, id: number): Promise<Kontakt> {
+    return rpc<Kontakt>('clear_flag', { p_token: token, p_id: id });
+  },
+
+  async listFlagged(token: string, kind?: FlagKind | null): Promise<Kontakt[]> {
+    return (await rpc<Kontakt[]>('list_flagged', { p_token: token, p_kind: kind ?? null })) ?? [];
   },
 
   async createUser(

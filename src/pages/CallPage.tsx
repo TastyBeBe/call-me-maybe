@@ -5,6 +5,8 @@ import { useSession } from '../auth';
 import {
   ConfirmModal,
   ErrorBox,
+  FLAG_HINTS,
+  FLAG_LABELS,
   PhoneLinks,
   Spinner,
   StatusBadge,
@@ -13,6 +15,7 @@ import {
 import {
   ArrowDownIcon,
   CheckIcon,
+  FlagIcon,
   PartyIcon,
   PhoneOffIcon,
   StarIcon,
@@ -170,6 +173,16 @@ export default function CallPage() {
 
       <div className="card call-card">
         <h2 className="call-name">{kontakt.name || '(beze jména)'}</h2>
+
+        {kontakt.flag_kind && (
+          <div className="call-flag">
+            <div className="call-flag-head">
+              <FlagIcon size={16} /> <strong>{FLAG_LABELS[kontakt.flag_kind]}</strong>
+            </div>
+            <p>{FLAG_HINTS[kontakt.flag_kind]}</p>
+            {kontakt.flag_note && <p className="flag-note">{kontakt.flag_note}</p>}
+          </div>
+        )}
 
         <div className="call-row">
           <span className="k">telefon</span>

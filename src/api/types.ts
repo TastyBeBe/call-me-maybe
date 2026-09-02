@@ -26,6 +26,21 @@ export type KontaktStatus =
 
 export type Rating = 'A' | 'B' | 'C';
 
+/**
+ * Červený příznak (migrace 005) — klient, který není 100 % vyřešený.
+ * chybi_info     = nevíme vůbec, o jaký objekt jde
+ * chybi_email    = nemáme e-mail, není kam poslat návrh
+ * email_neoveren = e-mail jsme dohledali, ale není potvrzený od klienta
+ * info_neoverene = informace/fotky pocházejí z internetu, klient je nepotvrdil
+ * jine           = cokoli dalšího, popsané v poznámce
+ */
+export type FlagKind =
+  | 'chybi_info'
+  | 'chybi_email'
+  | 'email_neoveren'
+  | 'info_neoverene'
+  | 'jine';
+
 export interface Kontakt {
   id: number;
   phone: string | null;
@@ -44,6 +59,10 @@ export interface Kontakt {
   obor: string;
   lovable_project_id: string | null;
   live_url: string | null;
+  flag_kind: FlagKind | null;
+  flag_note: string | null;
+  flagged_at: string | null;
+  flagged_by: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -182,6 +201,13 @@ export interface Api {
   /** Kontakty přihlášeného uživatele (obě role) — migrace 003. */
   myKontakty(token: string, limit?: number, offset?: number): Promise<ListKontaktyResult>;
   updateKontakt(token: string, id: number, patch: Record<string, unknown>): Promise<Kontakt>;
+  /* ---- příznaky (migrace 005) ---- */
+  /** Nasadí červený příznak s poznámkou, co je u klienta špatně. */
+  setFlag(token: string, id: number, kind: FlagKind, note: string): Promise<Kontakt>;
+  /** Zruší příznak — klient je vyřešený. */
+  clearFlag(token: string, id: number): Promise<Kontakt>;
+  /** Přehled všech označených klientů (nevyřešených). */
+  listFlagged(token: string, kind?: FlagKind | null): Promise<Kontakt[]>;
   createUser(
     token: string,
     username: string,
