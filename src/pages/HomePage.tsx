@@ -1,6 +1,6 @@
 import { Link } from 'react-router-dom';
 import { useSession } from '../auth';
-import { ChartIcon, MessageIcon, PhoneIcon, TableIcon, UsersIcon } from '../icons';
+import { ChartIcon, FlagIcon, MessageIcon, PhoneIcon, TableIcon, UsersIcon } from '../icons';
 
 export default function HomePage() {
   const session = useSession();
@@ -32,6 +32,11 @@ export default function HomePage() {
               <span className="tile-emoji"><TableIcon size={42} /></span>
               <span className="tile-label">KONTAKTY</span>
               <span className="tile-sub">celá databáze + úpravy</span>
+            </Link>
+            <Link to="/oznacene" className="big-tile">
+              <span className="tile-emoji"><FlagIcon size={42} /></span>
+              <span className="tile-label">OZNAČENÉ</span>
+              <span className="tile-sub">klienti, co nejsou dořešení</span>
             </Link>
             <Link to="/zpravy" className="big-tile">
               <span className="tile-emoji"><MessageIcon size={42} /></span>
