@@ -20,6 +20,8 @@ import type {
   Session,
   ThreadDetail,
   ThreadStatus,
+  UpdatedUser,
+  UpdateUserArgs,
   UserStats,
 } from './types';
 
@@ -663,6 +665,49 @@ export const mockApi: Api = {
     };
     users.push(user);
     return { ok: true, user_id: user.id };
+  },
+
+  async updateUser(token: string, userId: number, args: UpdateUserArgs): Promise<UpdatedUser> {
+    await delay();
+    const admin = authAdmin(token);
+    const dn = args.display_name ?? null;
+    const pw = args.password ?? null;
+    const role = args.role ?? null;
+    const active = args.active ?? null;
+
+    if (dn === null && pw === null && role === null && active === null) {
+      fail('Není co měnit — zadejte alespoň jedno pole.');
+    }
+    if (dn !== null && (dn.trim().length < 2 || dn.trim().length > 60)) {
+      fail('Zobrazované jméno musí mít 2–60 znaků.');
+    }
+    if (pw !== null && pw.length < 6) {
+      fail('Heslo musí mít alespoň 6 znaků.');
+    }
+    if (role !== null && role !== 'admin' && role !== 'caller') {
+      fail(`Neplatná role: ${role}. Povolené: admin, caller.`);
+    }
+    // pojistky proti sebedestrukci admina (zrcadlí migraci 004)
+    if (userId === admin.id) {
+      if (active === false) fail('Nemůžete deaktivovat sám sebe.');
+      if (role !== null && role !== 'admin') fail('Nemůžete si odebrat admin roli.');
+    }
+
+    const user = users.find((u) => u.id === userId);
+    if (!user) fail(`Uživatel id=${userId} neexistuje.`);
+
+    if (dn !== null) user.display_name = dn.trim();
+    if (pw !== null) user.password = pw;
+    if (role !== null) user.role = role;
+    if (active !== null) user.active = active;
+
+    return {
+      id: user.id,
+      username: user.username,
+      display_name: user.display_name,
+      role: user.role,
+      active: user.active,
+    };
   },
 
   async listAdminMessages(token: string, status?: 'open' | 'resolved' | null) {

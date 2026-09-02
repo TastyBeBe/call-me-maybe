@@ -17,6 +17,8 @@ import type {
   Session,
   ThreadDetail,
   ThreadStatus,
+  UpdatedUser,
+  UpdateUserArgs,
   UserStats,
 } from './types';
 
@@ -128,6 +130,17 @@ export const supabaseApi: Api = {
       p_password: password,
       p_display_name: displayName,
       p_role: role,
+    });
+  },
+
+  async updateUser(token: string, userId: number, args: UpdateUserArgs): Promise<UpdatedUser> {
+    return rpc<UpdatedUser>('update_user', {
+      p_token: token,
+      p_user_id: userId,
+      p_display_name: args.display_name ?? null,
+      p_password: args.password ?? null,
+      p_role: args.role ?? null,
+      p_active: args.active ?? null,
     });
   },
 

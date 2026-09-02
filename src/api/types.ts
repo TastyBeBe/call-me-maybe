@@ -142,6 +142,23 @@ export interface ListKontaktyFilters {
   offset?: number;
 }
 
+/** Argumenty update_user (migrace 004) — aplikují se jen ne-null/ne-undefined pole. */
+export interface UpdateUserArgs {
+  display_name?: string | null;
+  password?: string | null;
+  role?: Role | null;
+  active?: boolean | null;
+}
+
+/** Řádek uživatele, jak ho vrací update_user. */
+export interface UpdatedUser {
+  id: number;
+  username: string;
+  display_name: string;
+  role: Role;
+  active: boolean;
+}
+
 export interface MeInfo {
   user_id: number;
   username: string;
@@ -172,6 +189,8 @@ export interface Api {
     displayName: string,
     role: Role
   ): Promise<{ ok: boolean; user_id: number }>;
+  /** Úprava uživatele (admin) — migrace 004; aplikují se jen zadaná pole. */
+  updateUser(token: string, userId: number, args: UpdateUserArgs): Promise<UpdatedUser>;
   listAdminMessages(token: string, status?: 'open' | 'resolved' | null): Promise<AdminMessage[]>;
   replyAdminMessage(
     token: string,

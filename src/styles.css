@@ -1258,6 +1258,26 @@ table.kontakty tr:last-child td {
   font-size: 16px;
 }
 
+/* inline editace uživatele (rozbaluje se pod řádkem) */
+.user-edit {
+  background: var(--cream-deep);
+  border: 2px solid var(--ink);
+  border-radius: 14px;
+  padding: 12px 14px 10px;
+  margin: 4px 0 12px;
+}
+
+.user-edit input,
+.user-edit select {
+  background: var(--cream);
+}
+
+.user-edit .edit-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+}
+
 /* ---------- drobnosti ---------- */
 
 .count-pill {
