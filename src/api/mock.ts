@@ -372,6 +372,19 @@ function authAdmin(token: string): MockUser {
   return user;
 }
 
+/** Množina kontaktů uživatele — zrcadlí app_my_kontakt_ids z migrace 003:
+ *  last_caller = jeho display_name NEBO kontakt, kterému kdy volal (call_log). */
+function myKontaktIds(user: MockUser): Set<number> {
+  const ids = new Set<number>();
+  for (const c of kontakty) {
+    if (c.last_caller !== null && c.last_caller === user.display_name) ids.add(c.id);
+  }
+  for (const l of callLog) {
+    if (l.user_id === user.id) ids.add(l.kontakt_id);
+  }
+  return ids;
+}
+
 function statsFor(userId: number): MyStats {
   const logs = callLog.filter((l) => l.user_id === userId);
   const calls = logs.length;
@@ -575,6 +588,29 @@ export const mockApi: Api = {
     };
   },
 
+  async myKontakty(token: string, limit = 200, offset = 0): Promise<ListKontaktyResult> {
+    await delay();
+    const user = auth(token);
+    const ids = myKontaktIds(user);
+    const filtered = kontakty
+      .filter((c) => ids.has(c.id))
+      .sort((a, b) => {
+        const oa = STATUS_ORDER[a.status] ?? 40;
+        const ob = STATUS_ORDER[b.status] ?? 40;
+        if (oa !== ob) return oa - ob;
+        const ua = new Date(a.updated_at).getTime();
+        const ub = new Date(b.updated_at).getTime();
+        if (ua !== ub) return ub - ua;
+        return a.id - b.id;
+      });
+    const off = Math.max(offset, 0);
+    const lim = Math.max(limit, 1);
+    return {
+      total: filtered.length,
+      rows: filtered.slice(off, off + lim).map((c) => ({ ...c })),
+    };
+  },
+
   async updateKontakt(token: string, id: number, patch: Record<string, unknown>): Promise<Kontakt> {
     await delay();
     authAdmin(token);
@@ -662,12 +698,15 @@ export const mockApi: Api = {
 
   async listThreads(token: string, status?: ThreadStatus | null): Promise<ChatThread[]> {
     await delay();
-    authAdmin(token);
+    const user = auth(token);
     if (status && status !== 'open' && status !== 'resolved') {
       fail(`Neplatný status: ${status}. Povolené: open, resolved.`);
     }
+    // admin vše; caller jen vlákna svých kontaktů (nikdy samostatná vlákna bez kontaktu)
+    const ids = user.role === 'admin' ? null : myKontaktIds(user);
     return chatThreads
       .filter((t) => !status || t.status === status)
+      .filter((t) => ids === null || (t.kontakt_id !== null && ids.has(t.kontakt_id)))
       .slice()
       .sort(
         (a, b) =>
@@ -699,9 +738,14 @@ export const mockApi: Api = {
 
   async getThread(token: string, threadId: number): Promise<ThreadDetail> {
     await delay();
-    authAdmin(token);
+    const user = auth(token);
     const t = chatThreads.find((x) => x.id === threadId);
     if (!t) fail(`Vlákno id=${threadId} neexistuje.`);
+    if (user.role !== 'admin') {
+      if (t.kontakt_id === null || !myKontaktIds(user).has(t.kontakt_id)) {
+        fail('Jen ke svým klientům.');
+      }
+    }
     const thread: ChatThreadInfo = {
       id: t.id,
       kontakt_id: t.kontakt_id,
@@ -723,10 +767,15 @@ export const mockApi: Api = {
 
   async postThreadMessage(token: string, threadId: number, body: string, applyAlways: boolean) {
     await delay();
-    const user = authAdmin(token);
+    const user = auth(token);
     if (!body.trim()) fail('Zpráva nesmí být prázdná.');
     const t = chatThreads.find((x) => x.id === threadId);
     if (!t) fail(`Vlákno id=${threadId} neexistuje.`);
+    if (user.role !== 'admin') {
+      if (t.kontakt_id === null || !myKontaktIds(user).has(t.kontakt_id)) {
+        fail('Jen ke svým klientům.');
+      }
+    }
     const msg: MockChatMessage = {
       id: nextChatMessageId++,
       thread_id: t.id,
@@ -744,9 +793,14 @@ export const mockApi: Api = {
 
   async createThread(token: string, subject: string, body: string, kontaktId?: number | null) {
     await delay();
-    const user = authAdmin(token);
+    const user = auth(token);
     if (!subject.trim()) fail('Předmět nesmí být prázdný.');
     if (!body.trim()) fail('Zpráva nesmí být prázdná.');
+    if (user.role !== 'admin') {
+      if (kontaktId == null || !myKontaktIds(user).has(kontaktId)) {
+        fail('Jen ke svým klientům');
+      }
+    }
     if (kontaktId != null && !kontakty.some((c) => c.id === kontaktId)) {
       fail(`Kontakt id=${kontaktId} neexistuje.`);
     }

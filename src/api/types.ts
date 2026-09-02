@@ -162,6 +162,8 @@ export interface Api {
   myStats(token: string): Promise<MyStats>;
   allStats(token: string): Promise<UserStats[]>;
   listKontakty(token: string, filters: ListKontaktyFilters): Promise<ListKontaktyResult>;
+  /** Kontakty přihlášeného uživatele (obě role) — migrace 003. */
+  myKontakty(token: string, limit?: number, offset?: number): Promise<ListKontaktyResult>;
   updateKontakt(token: string, id: number, patch: Record<string, unknown>): Promise<Kontakt>;
   createUser(
     token: string,

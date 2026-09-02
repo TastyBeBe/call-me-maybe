@@ -1307,3 +1307,59 @@ table.kontakty tr:last-child td {
     min-width: 100%;
   }
 }
+
+/* ---------- vzkazy agentovi v detailu kontaktu (sdílený drawer) ---------- */
+
+.drawer-section-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  font-weight: 800;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: var(--orange);
+  margin-top: 22px;
+}
+
+.drawer-chat {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.drawer-thread {
+  border: 2px solid var(--ink);
+  border-radius: 14px;
+  background: var(--cream);
+  box-shadow: 0 2px 0 var(--ink);
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.drawer-thread-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.drawer-thread-subject {
+  font-size: 14px;
+  font-weight: 800;
+  flex: 1;
+  min-width: 120px;
+}
+
+.drawer-note-ro {
+  border: 2px solid var(--ink);
+  border-radius: 10px;
+  background: var(--cream-deep);
+  padding: 8px 10px;
+  font-size: 14px;
+  font-weight: 600;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

@@ -103,6 +103,14 @@ export const supabaseApi: Api = {
     });
   },
 
+  async myKontakty(token: string, limit = 200, offset = 0): Promise<ListKontaktyResult> {
+    return rpc<ListKontaktyResult>('my_kontakty', {
+      p_token: token,
+      p_limit: limit,
+      p_offset: offset,
+    });
+  },
+
   async updateKontakt(token: string, id: number, patch: Record<string, unknown>): Promise<Kontakt> {
     return rpc<Kontakt>('update_kontakt', { p_token: token, p_id: id, p_patch: patch });
   },

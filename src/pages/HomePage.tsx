@@ -21,6 +21,11 @@ export default function HomePage() {
           <span className="tile-label">MOJE STATISTIKY</span>
           <span className="tile-sub">hovory, zájem, konverze</span>
         </Link>
+        <Link to="/moji" className="big-tile">
+          <span className="tile-emoji"><TableIcon size={42} /></span>
+          <span className="tile-label">MOJI KLIENTI</span>
+          <span className="tile-sub">moje kontakty + vzkazy agentům</span>
+        </Link>
         {isAdmin && (
           <>
             <Link to="/admin" className="big-tile">

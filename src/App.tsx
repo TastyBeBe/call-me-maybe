@@ -16,6 +16,7 @@ import AdminPage from './pages/AdminPage';
 import CallPage from './pages/CallPage';
 import HomePage from './pages/HomePage';
 import LoginPage from './pages/LoginPage';
+import MojiPage from './pages/MojiPage';
 import SetupPage from './pages/SetupPage';
 import StatsPage from './pages/StatsPage';
 import UzivatelePage from './pages/UzivatelePage';
@@ -132,6 +133,13 @@ function TopBar() {
         >
           statistiky
         </NavLink>
+        <NavLink
+          to="/moji"
+          data-sfx="none"
+          className={({ isActive }) => `nav-pill${isActive ? ' active' : ''}`}
+        >
+          moji klienti
+        </NavLink>
         {isAdmin && (
           <>
             <NavLink
@@ -202,6 +210,14 @@ export default function App() {
           element={
             <RequireAuth>
               <StatsPage />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/moji"
+          element={
+            <RequireAuth>
+              <MojiPage />
             </RequireAuth>
           }
         />

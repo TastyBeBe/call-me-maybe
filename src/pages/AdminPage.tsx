@@ -3,11 +3,11 @@ import { useSearchParams } from 'react-router-dom';
 import {
   getApi,
   type Kontakt,
-  type KontaktStatus,
   type UserStats,
 } from '../api';
 import { audio } from '../audio';
 import { useSession } from '../auth';
+import KontaktDrawer from '../components/KontaktDrawer';
 import {
   ALL_STATUSES,
   ErrorBox,
@@ -20,181 +20,10 @@ import {
 import {
   ArrowLeftIcon,
   ArrowRightIcon,
-  CheckIcon,
-  GlobeIcon,
-  PhoneIcon,
-  RocketIcon,
   SearchIcon,
-  XIcon,
 } from '../icons';
 
 const PAGE_SIZE = 50;
-
-function KontaktDrawer({
-  kontakt,
-  onClose,
-  onSaved,
-}: {
-  kontakt: Kontakt;
-  onClose: () => void;
-  onSaved: (updated: Kontakt) => void;
-}) {
-  const session = useSession();
-  const [status, setStatus] = useState<KontaktStatus>(kontakt.status);
-  const [email, setEmail] = useState(kontakt.email ?? '');
-  const [note, setNote] = useState(kontakt.note ?? '');
-  const [cenaWeb, setCenaWeb] = useState(kontakt.cena_web ?? '');
-  const [cenaHosting, setCenaHosting] = useState(kontakt.cena_hosting ?? '');
-  const [rating, setRating] = useState(kontakt.rating ?? '');
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
-  const [savedFlash, setSavedFlash] = useState(false);
-
-  const dirty =
-    status !== kontakt.status ||
-    email !== (kontakt.email ?? '') ||
-    note !== (kontakt.note ?? '') ||
-    cenaWeb !== (kontakt.cena_web ?? '') ||
-    cenaHosting !== (kontakt.cena_hosting ?? '') ||
-    rating !== (kontakt.rating ?? '');
-
-  const save = async () => {
-    const patch: Record<string, unknown> = {};
-    if (status !== kontakt.status) patch.status = status;
-    if (email !== (kontakt.email ?? '')) patch.email = email.trim() || null;
-    if (note !== (kontakt.note ?? '')) patch.note = note || null;
-    if (cenaWeb !== (kontakt.cena_web ?? '')) patch.cena_web = cenaWeb.trim() || null;
-    if (cenaHosting !== (kontakt.cena_hosting ?? '')) patch.cena_hosting = cenaHosting.trim() || null;
-    if (rating !== (kontakt.rating ?? '')) patch.rating = rating;
-    if (Object.keys(patch).length === 0) return;
-    setBusy(true);
-    setError('');
-    try {
-      const updated = await getApi().updateKontakt(session.token, kontakt.id, patch);
-      audio.play('success');
-      onSaved(updated);
-      setSavedFlash(true);
-      setTimeout(() => setSavedFlash(false), 1500);
-    } catch (e) {
-      setError(errMsg(e));
-      audio.play('error');
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const clearLock = async () => {
-    setBusy(true);
-    setError('');
-    try {
-      const updated = await getApi().updateKontakt(session.token, kontakt.id, { clear_lock: true });
-      audio.play('success');
-      onSaved(updated);
-    } catch (e) {
-      setError(errMsg(e));
-      audio.play('error');
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <>
-      <div className="drawer-scrim" onClick={onClose} />
-      <div className="drawer">
-        <button className="drawer-close" onClick={onClose} aria-label="Zavřít">
-          <XIcon size={20} />
-        </button>
-        <p className="eyebrow">kontakt #{kontakt.id}</p>
-        <h2>{kontakt.name || '(beze jména)'}</h2>
-        <p className="meta-line">
-          <PhoneIcon size={15} /> {kontakt.phone || '—'} · obor: {kontakt.obor}
-        </p>
-        <p className="meta-line">
-          naposledy volal/a: {kontakt.last_caller || '—'} · změněno {formatDateTime(kontakt.updated_at)}
-        </p>
-        {kontakt.web && (
-          <p className="meta-line">
-            <GlobeIcon size={15} />{' '}
-            <a href={kontakt.web} target="_blank" rel="noreferrer">
-              {kontakt.web}
-            </a>
-          </p>
-        )}
-        {kontakt.live_url && (
-          <p className="meta-line">
-            <RocketIcon size={15} /> nový web:{' '}
-            <a href={kontakt.live_url} target="_blank" rel="noreferrer">
-              {kontakt.live_url}
-            </a>
-          </p>
-        )}
-        {kontakt.lock_by !== null && (
-          <div className="info-box">
-            Kontakt je zamčený (volající id {kontakt.lock_by}).{' '}
-            <button className="pill-btn sm" onClick={() => void clearLock()} disabled={busy}>
-              Uvolnit zámek
-            </button>
-          </div>
-        )}
-
-        <div className="field" style={{ marginTop: 14 }}>
-          <label>Status</label>
-          <select value={status} onChange={(e) => setStatus(e.target.value as KontaktStatus)}>
-            {ALL_STATUSES.map((s) => (
-              <option key={s} value={s}>
-                {STATUS_LABELS[s]}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div className="field">
-          <label>Známka zájmu</label>
-          <select value={rating} onChange={(e) => setRating(e.target.value)}>
-            <option value="">—</option>
-            <option value="A">A</option>
-            <option value="B">B</option>
-            <option value="C">C — chtějí, ale vlažně</option>
-          </select>
-        </div>
-        <div className="field">
-          <label>E-mail</label>
-          <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
-        </div>
-        <div className="form-grid">
-          <div className="field">
-            <label>Cena webu</label>
-            <input value={cenaWeb} onChange={(e) => setCenaWeb(e.target.value)} />
-          </div>
-          <div className="field">
-            <label>Cena hostingu</label>
-            <input value={cenaHosting} onChange={(e) => setCenaHosting(e.target.value)} />
-          </div>
-        </div>
-        <div className="field">
-          <label>Poznámky</label>
-          <textarea rows={7} value={note} onChange={(e) => setNote(e.target.value)} />
-        </div>
-
-        <ErrorBox>{error}</ErrorBox>
-        {savedFlash && (
-          <div className="info-box">
-            Uloženo <CheckIcon size={16} />
-          </div>
-        )}
-
-        <div style={{ display: 'flex', gap: 10 }}>
-          <button className="pill-btn go" onClick={() => void save()} disabled={busy || !dirty}>
-            {busy ? 'Ukládám…' : 'Uložit změny'}
-          </button>
-          <button className="pill-btn" onClick={onClose} disabled={busy}>
-            Zavřít
-          </button>
-        </div>
-      </div>
-    </>
-  );
-}
 
 export default function AdminPage() {
   const session = useSession();
