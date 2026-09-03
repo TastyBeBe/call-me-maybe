@@ -470,26 +470,30 @@ export const mockApi: Api = {
     await delay();
     const user = auth(token);
     const cutoff = Date.now() - 2 * 3600 * 1000;
-    const candidates = kontakty
-      .filter(
-        (c) =>
-          (c.status === 'nekontaktovano' || c.status === 'nedovolano') &&
-          (c.lock_by === null ||
-            (c.lock_at !== null && new Date(c.lock_at).getTime() < cutoff) ||
-            c.lock_by === user.id)
-      )
-      .sort((a, b) => {
-        const prio = (c: Kontakt) => {
-          const calledToday = callLog.some(
-            (l) => l.kontakt_id === c.id && new Date(l.created_at).getTime() >= startOfToday()
-          );
-          if (c.status === 'nedovolano' && !calledToday) return 0;
-          if (c.status === 'nekontaktovano') return 1;
-          return 2;
-        };
-        return prio(a) - prio(b) || a.id - b.id;
-      });
-    const next = candidates[0] ?? null;
+    // Musí zůstat shodné s db/migration_007_next_contact_random.sql:
+    // jen nekontaktovano + nedovolano, koho jsme dnes už volali se dnes
+    // znovu nenabídne, a výběr je NÁHODNÝ (ne podle id).
+    const callable = kontakty.filter(
+      (c) =>
+        (c.status === 'nekontaktovano' || c.status === 'nedovolano') &&
+        (c.lock_by === null ||
+          (c.lock_at !== null && new Date(c.lock_at).getTime() < cutoff) ||
+          c.lock_by === user.id)
+    );
+    const lastCall = (c: Kontakt) =>
+      Math.max(
+        0,
+        ...callLog
+          .filter((l) => l.kontakt_id === c.id)
+          .map((l) => new Date(l.created_at).getTime())
+      );
+    const pick = (pool: Kontakt[]) =>
+      pool.length === 0 ? null : pool[Math.floor(Math.random() * pool.length)];
+    const next =
+      // 1. průchod: dnes na ně nikdo nevolal
+      pick(callable.filter((c) => lastCall(c) < startOfToday())) ??
+      // 2. průchod (záloha): povolí opakování, ale ne do 4 hodin
+      pick(callable.filter((c) => lastCall(c) < Date.now() - 4 * 3600 * 1000));
     if (!next) return null;
     next.lock_by = user.id;
     next.lock_at = now();
