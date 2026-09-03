@@ -367,7 +367,13 @@ function fail(message: string): never {
 }
 
 function auth(token: string): MockUser {
-  const uid = sessions.get(token);
+  let uid = sessions.get(token);
+  // Demo relace dřív umřela při každém reloadu (mapa v paměti je prázdná, ale token
+  // v localStorage přežije) — správně tvarovaný demo token se sám zaregistruje.
+  if (uid === undefined) {
+    const m = /^demo-(\d+)-/.exec(token);
+    if (m) { const id = Number(m[1]); if (users.some((u) => u.id === id && u.active)) { sessions.set(token, id); uid = id; } }
+  }
   const user = users.find((u) => u.id === uid && u.active);
   if (!user) fail('Neplatná nebo vypršelá relace. Přihlaste se znovu.');
   return user;

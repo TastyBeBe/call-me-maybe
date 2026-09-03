@@ -1,0 +1,183 @@
+/* ---------- PROCOP layer: full-window transparent canvas over the app ---------- */
+.pig-canvas {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  z-index: 1000;
+  pointer-events: none;   /* NEVER takes clicks: the app stays fully usable, weapon or not */
+}
+
+/* the column needs its own lane: inset the page so it never covers content */
+body.pig-layer .page { padding-left: 74px; }
+@media (max-width: 720px) { body.pig-layer .page { padding-left: 58px; } }
+
+/* the ITEM COLUMN — left edge, high enough that his floor walk-in never touches it */
+.pig-col {
+  position: fixed;
+  left: 10px;
+  top: 76px;
+  z-index: 1001;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  background: var(--cream);
+  border: var(--border);
+  border-radius: 18px;
+  box-shadow: var(--shadow-hard-sm);
+  padding: 8px 6px;
+}
+/* only the SLOTS scroll; everything below stays put (Albert: the collapse arrow must always be
+   visible, and the power button must not cover it) */
+.pig-col-slots {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  /* NO scrolling of any kind - every tool fits when it is expanded (Albert: it must not slide) */
+  overflow: visible;
+  flex: 0 0 auto;
+}
+.pig-slot {
+  position: relative;
+  flex: 0 0 auto;
+  width: 38px;
+  height: 38px;
+  border: 2px solid var(--ink);
+  border-radius: 12px;
+  background: var(--cream-deep);
+  box-shadow: 0 2px 0 var(--ink);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  transition: transform 80ms ease, box-shadow 80ms ease, background 80ms ease;
+}
+.pig-slot img { max-width: 28px; max-height: 28px; pointer-events: none; }
+.pig-slot:hover { background: var(--yellow); }
+.pig-slot.sel { background: var(--orange); transform: translateX(3px); box-shadow: 0 2px 0 var(--ink), 0 0 0 3px var(--yellow); }
+.pig-slot.locked { cursor: default; }
+.pig-slot.locked img { opacity: 0.32; filter: grayscale(1); }
+.pig-slot.locked:hover { background: var(--cream-deep); }
+.pig-lock {
+  position: absolute; right: -6px; bottom: -6px;
+  width: 22px; height: 22px; border-radius: 50%;
+  background: var(--ink); color: var(--paper-on-dark);
+  display: flex; align-items: center; justify-content: center;
+  border: 2px solid var(--cream);
+}
+.pig-tip {
+  position: absolute; left: calc(100% + 12px); top: 50%; transform: translateY(-50%);
+  display: none; flex-direction: column; gap: 2px; white-space: nowrap;
+  background: var(--ink); color: var(--paper-on-dark);
+  border: 2px solid var(--ink); border-radius: 10px; padding: 7px 11px;
+  font-size: 13px; font-weight: 700; z-index: 5; pointer-events: none; min-width: 150px;
+}
+.pig-tip b { font-size: 13px; }
+.pig-tip span { font-size: 12px; opacity: 0.85; font-weight: 700; }
+.pig-tip .req { color: var(--yellow); opacity: 1; }
+.pig-tip .prog { display: block; height: 6px; border-radius: 3px; background: rgba(253,246,233,.25); overflow: hidden; margin: 2px 0 1px; }
+.pig-tip .prog i { display: block; height: 100%; background: var(--yellow); }
+.pig-slot:hover .pig-tip { display: flex; }
+
+/* the unlock REVEAL — "záře": a pulsing gold glow + a scale pop (the canvas adds the burst) */
+@keyframes pigReveal {
+  0%   { transform: scale(0.6) rotate(-12deg); box-shadow: 0 2px 0 var(--ink), 0 0 0 0 rgba(246, 205, 94, 0.9); background: #fff2b8; }
+  30%  { transform: scale(1.22) rotate(6deg);  box-shadow: 0 2px 0 var(--ink), 0 0 0 14px rgba(246, 205, 94, 0.55), 0 0 40px 10px rgba(246, 205, 94, 0.8); }
+  60%  { transform: scale(0.96) rotate(-2deg); box-shadow: 0 2px 0 var(--ink), 0 0 0 22px rgba(246, 205, 94, 0.0), 0 0 26px 6px rgba(246, 205, 94, 0.6); }
+  100% { transform: scale(1) rotate(0);         box-shadow: 0 2px 0 var(--ink), 0 0 0 0 rgba(246, 205, 94, 0); background: var(--cream-deep); }
+}
+.pig-slot.reveal { animation: pigReveal 1.6s ease-out 2; z-index: 3; }
+.pig-slot.reveal img { animation: pigRevealImg 0.8s ease-in-out 4 alternate; }
+@keyframes pigRevealImg { from { filter: drop-shadow(0 0 2px #fff) brightness(1.15); } to { filter: drop-shadow(0 0 10px #f6cd5e) brightness(1.4); } }
+
+.pig-arrow, .pig-power {
+  width: 38px; height: 26px;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--cream-deep); color: var(--ink);
+  border: 2px solid var(--ink); border-radius: 10px; box-shadow: 0 2px 0 var(--ink);
+  cursor: pointer; font-family: var(--font-ui); font-weight: 800; font-size: 11px; padding: 0;
+}
+.pig-arrow:active, .pig-power:active { transform: translateY(2px); box-shadow: none; }
+.pig-power { width: 38px; height: 30px; opacity: 0.55; }
+.pig-power.on { opacity: 1; background: var(--green); color: var(--paper-on-dark); }
+
+
+@media (max-width: 720px) {
+  .pig-col { left: 4px; top: 84px; padding: 6px 4px; }
+  .pig-slot { width: 44px; height: 44px; }
+  .pig-slot img { max-width: 32px; max-height: 32px; }
+}
+
+
+/* ---------- the CENTRE-SCREEN unlock reveal (the canvas draws the rays behind it) ---------- */
+.pig-reveal {
+  position: fixed; left: 50%; top: 42%; transform: translate(-50%, 150px);
+  z-index: 1003; pointer-events: none; text-align: center;
+  animation: pigRevealIn 2.6s ease-out both;
+}
+.pig-reveal h2 {
+  margin: 0; font-family: var(--font-ui); font-size: 40px; font-weight: 800; letter-spacing: .5px;
+  color: var(--paper-on-dark); text-shadow: 0 3px 0 var(--ink), 0 0 22px rgba(246,205,94,.9);
+}
+.pig-reveal-kicker {
+  margin: 0 0 2px; font-size: 14px; font-weight: 800; letter-spacing: 3px; text-transform: uppercase;
+  color: var(--yellow); text-shadow: 0 2px 0 var(--ink);
+}
+.pig-reveal-sub {
+  margin: 6px 0 0; font-size: 20px; font-weight: 800; letter-spacing: 4px;
+  color: var(--yellow); text-shadow: 0 2px 0 var(--ink);
+}
+@keyframes pigRevealIn {
+  0%   { opacity: 0; transform: translate(-50%, 168px) scale(.8); }
+  12%  { opacity: 1; transform: translate(-50%, 150px) scale(1.06); }
+  20%  { transform: translate(-50%, 150px) scale(1); }
+  82%  { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+/* ---------- the CLOSET ---------- */
+.pig-closet-panel {
+  position: fixed; left: 66px; top: 76px; z-index: 1002;
+  width: min(620px, calc(100vw - 100px)); max-height: calc(100vh - 130px); overflow: hidden;
+  display: flex; flex-direction: column; padding: 14px 16px 10px;
+}
+.pig-closet-head { display: flex; align-items: center; gap: 10px; }
+.pig-closet-head b { font-size: 16px; flex: 1; letter-spacing: 2px; }
+.pig-chops { display: inline-flex; align-items: center; gap: 6px; font-weight: 800; font-size: 16px; }
+.pig-chops img { width: 22px; image-rendering: pixelated; }
+.pig-closet-body { display: grid; grid-template-columns: 190px minmax(0, 1fr); gap: 14px; margin-top: 10px; min-height: 0; }
+.pig-preview {
+  width: 190px; height: 210px; border: 2px solid var(--ink); border-radius: 14px;
+  background: var(--butter); box-shadow: 0 2px 0 var(--ink);
+}
+.pig-closet-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 8px;
+  overflow-y: auto; padding-right: 4px; align-content: start; max-height: 46vh;
+}
+.pig-cos {
+  display: flex; flex-direction: column; align-items: center; gap: 3px;
+  border: 2px solid var(--ink); border-radius: 12px; background: var(--cream-deep);
+  box-shadow: 0 2px 0 var(--ink); padding: 6px 4px 5px; cursor: pointer;
+  font-family: var(--font-ui); color: var(--ink);
+}
+.pig-cos:hover { background: var(--yellow); }
+.pig-cos.sel { background: var(--orange); color: var(--paper-on-dark); }
+.pig-cos.locked .pig-cos-ico img { opacity: .45; filter: grayscale(.7); }
+/* one fixed icon box: every hat is letterboxed into the same square, none can grow out of its tile */
+.pig-cos-ico { width: 62px; height: 46px; display: flex; align-items: center; justify-content: center; }
+.pig-cos-ico img { max-width: 100%; max-height: 100%; width: auto; height: auto; object-fit: contain; }
+
+.pig-cos-lbl { font-size: 11px; font-weight: 800; line-height: 1.1; text-align: center; }
+.pig-cos-price { display: inline-flex; align-items: center; gap: 3px; font-size: 11px; font-weight: 800; opacity: .85; }
+.pig-cos-price img { height: 14px; width: auto; image-rendering: pixelated; }
+.pig-closet-foot { margin: 8px 0 0; font-size: 11.5px; }
+
+.pig-closet {
+  width: 38px; height: 28px; display: flex; align-items: center; justify-content: center;
+  background: var(--cream-deep); color: var(--ink); border: 2px solid var(--ink);
+  border-radius: 10px; box-shadow: 0 2px 0 var(--ink); cursor: pointer; padding: 0; flex: 0 0 auto;
+}
+.pig-closet.open { background: var(--orange); color: var(--paper-on-dark); }
+.pig-arrow, .pig-power { flex: 0 0 auto; }

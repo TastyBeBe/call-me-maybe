@@ -14,7 +14,10 @@ import { useSyncExternalStore } from 'react';
  *   randomizací je to nejlevnější způsob, jak opakovaný zvuk působí "živě".
  * - Hudba: <audio> loop /audio/lofi.mp3, volume 0.22. Soubor zatím nemusí
  *   existovat — selhání načtení je jen console.info a přepínač dál funguje.
- * - Dva nezávislé persistované přepínače v localStorage.
+ * - TŘI nezávislé kanály (Albert 2026-09-03): UI zvuky, Procop a hudba.
+ *   Každý má vlastní vypínač i vlastní hlasitost 0–100 %, všechno persistované
+ *   v localStorage. Procopovy zvuky jdou přes `pigOn` / `pigVolume`, které si
+ *   čte jeho runtime — díky tomu se dá ztlumit prase, aniž zmlknou tlačítka.
  */
 
 export type SfxName = 'click' | 'nav' | 'success' | 'error' | 'send';
@@ -27,6 +30,10 @@ export function isSfxName(v: string | null | undefined): v is SfxName {
 
 const LS_SFX = 'volacka_sfx_enabled';
 const LS_MUSIC = 'volacka_music_enabled';
+const LS_PIG = 'volacka_pig_enabled';
+const LS_VOL_SFX = 'volacka_vol_sfx';
+const LS_VOL_MUSIC = 'volacka_vol_music';
+const LS_VOL_PIG = 'volacka_vol_pig';
 
 const SFX_BASE_VOLUME = 0.8; // rezerva, ať jitter +10 % nikdy neklipuje
 const MUSIC_VOLUME = 0.22;
@@ -52,6 +59,18 @@ function lsGet(key: string): string | null {
   }
 }
 
+/** Uložená hlasitost; chybí-li nebo je rozbitá, jede se na plné. */
+function readVol(key: string): number {
+  const raw = lsGet(key);
+  if (raw === null) return 1;
+  const n = Number(raw);
+  return Number.isFinite(n) ? clamp01(n) : 1;
+}
+
+function clamp01(v: number): number {
+  return v < 0 ? 0 : v > 1 ? 1 : v;
+}
+
 function lsSet(key: string, value: string) {
   try {
     localStorage.setItem(key, value);
@@ -69,9 +88,13 @@ class AudioManager {
   private musicWarned = false;
   private listeners = new Set<() => void>();
 
-  // default: obojí zapnuto
+  // default: všechny tři kanály zapnuté, hlasitost na maximu
   private sfxEnabled = lsGet(LS_SFX) !== '0';
   private musicEnabled = lsGet(LS_MUSIC) !== '0';
+  private pigEnabled = lsGet(LS_PIG) !== '0';
+  private sfxVol = readVol(LS_VOL_SFX);
+  private musicVol = readVol(LS_VOL_MUSIC);
+  private pigVol = readVol(LS_VOL_PIG);
 
   /* ---------- stav + odběry pro React ---------- */
 
@@ -81,6 +104,24 @@ class AudioManager {
 
   get musicOn(): boolean {
     return this.musicEnabled;
+  }
+
+  /** Procopovy zvuky (kviky, zbraně, fanfáry) — čte jeho runtime. */
+  get pigOn(): boolean {
+    return this.pigEnabled;
+  }
+
+  /** 0–1. Runtime jimi násobí hlasitost každého svého zvuku. */
+  get pigVolume(): number {
+    return this.pigVol;
+  }
+
+  get sfxVolume(): number {
+    return this.sfxVol;
+  }
+
+  get musicVolume(): number {
+    return this.musicVol;
   }
 
   subscribe = (fn: () => void): (() => void) => {
@@ -96,6 +137,33 @@ class AudioManager {
     if (this.sfxEnabled === on) return;
     this.sfxEnabled = on;
     lsSet(LS_SFX, on ? '1' : '0');
+    this.emit();
+  }
+
+  setPig(on: boolean) {
+    if (this.pigEnabled === on) return;
+    this.pigEnabled = on;
+    lsSet(LS_PIG, on ? '1' : '0');
+    this.emit();
+  }
+
+  /** Posuvníky. Hodnota se ořízne na 0–1 a hned se projeví (i u běžící hudby). */
+  setSfxVolume(v: number) {
+    this.sfxVol = clamp01(v);
+    lsSet(LS_VOL_SFX, String(this.sfxVol));
+    this.emit();
+  }
+
+  setPigVolume(v: number) {
+    this.pigVol = clamp01(v);
+    lsSet(LS_VOL_PIG, String(this.pigVol));
+    this.emit();
+  }
+
+  setMusicVolume(v: number) {
+    this.musicVol = clamp01(v);
+    lsSet(LS_VOL_MUSIC, String(this.musicVol));
+    if (this.musicEl) this.musicEl.volume = MUSIC_VOLUME * this.musicVol;
     this.emit();
   }
 
@@ -152,7 +220,7 @@ class AudioManager {
   /* ---------- SFX ---------- */
 
   play(name: SfxName) {
-    if (!this.sfxEnabled) return;
+    if (!this.sfxEnabled || this.sfxVol <= 0) return;
     const ctx = this.ctx;
     const buf = this.buffers.get(name);
     if (!ctx || !buf) return;
@@ -165,7 +233,7 @@ class AudioManager {
       src.playbackRate.value = 1 + (Math.random() * 2 - 1) * spread;
       const gain = ctx.createGain();
       // volume jitter ±10 % — druhá půlka triku proti monotónnosti
-      gain.gain.value = SFX_BASE_VOLUME * (1 + (Math.random() * 2 - 1) * 0.1);
+      gain.gain.value = SFX_BASE_VOLUME * this.sfxVol * (1 + (Math.random() * 2 - 1) * 0.1);
       src.connect(gain);
       gain.connect(ctx.destination);
       src.start();
@@ -180,7 +248,7 @@ class AudioManager {
     if (!this.musicEl) {
       const el = new Audio(audioUrl('lofi.mp3'));
       el.loop = true;
-      el.volume = MUSIC_VOLUME;
+      el.volume = MUSIC_VOLUME * this.musicVol;
       el.preload = 'auto';
       el.addEventListener('error', () => {
         if (!this.musicWarned) {
@@ -214,14 +282,26 @@ class AudioManager {
 /** Jediná instance pro celou appku. */
 export const audio = new AudioManager();
 
-/** React hook: stav obou přepínačů + settery. */
+/** React hook: stav všech tří kanálů (vypínač + hlasitost) a jejich settery. */
 export function useAudioSettings() {
   const sfxOn = useSyncExternalStore(audio.subscribe, () => audio.sfxOn);
   const musicOn = useSyncExternalStore(audio.subscribe, () => audio.musicOn);
+  const pigOn = useSyncExternalStore(audio.subscribe, () => audio.pigOn);
+  const sfxVolume = useSyncExternalStore(audio.subscribe, () => audio.sfxVolume);
+  const musicVolume = useSyncExternalStore(audio.subscribe, () => audio.musicVolume);
+  const pigVolume = useSyncExternalStore(audio.subscribe, () => audio.pigVolume);
   return {
     sfxOn,
     musicOn,
+    pigOn,
+    sfxVolume,
+    musicVolume,
+    pigVolume,
     setSfx: (on: boolean) => audio.setSfx(on),
     setMusic: (on: boolean) => audio.setMusic(on),
+    setPig: (on: boolean) => audio.setPig(on),
+    setSfxVolume: (v: number) => audio.setSfxVolume(v),
+    setMusicVolume: (v: number) => audio.setMusicVolume(v),
+    setPigVolume: (v: number) => audio.setPigVolume(v),
   };
 }

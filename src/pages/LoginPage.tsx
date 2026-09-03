@@ -34,6 +34,7 @@ export default function LoginPage() {
   return (
     <div className="auth-wrap">
       <div className="card auth-card">
+        <img className="auth-logo" src={import.meta.env.BASE_URL + 'icons/procop_logo_256.png'} alt="Procop" />
         <p className="eyebrow">webdomov</p>
         <h1>Call me maybe</h1>
         <p className="sub">interní nástroj pro obvolávání majitelů chat</p>
