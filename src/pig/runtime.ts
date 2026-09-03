@@ -218,6 +218,24 @@ export class PigRuntime {
   buzz(on) { if (on && this.sfxOn()) { if (!this.sawA && this.SND['saw_loop']) { this.sawA = this.SND['saw_loop'].cloneNode(); this.sawA.loop = true; }
       if (this.sawA) this.sawA.volume = Math.max(0, Math.min(1, .65*this.sfxVol()));
       if (this.sawA) this.sawA.play().catch(() => {}); } else if (this.sawA) { this.sawA.pause(); this.sawA.currentTime = 0; } }
+  /** Hlídá zvuk KAŽDÝ SNÍMEK, ne jen při stisku myši (Albert 2026-09-04:
+   *  "vypnul jsem všechen zvuk a něco pořád hraje"). Smyčka motorovky se totiž
+   *  zastavovala jen přes buzz(false) — když si člověk vypnul Procopa uprostřed
+   *  řezání, hrála dál donekonečna (naměřeno: volume 0.65, čas běžel dál).
+   *  Tady se navíc drží hlasitost smyčky na posuvníku a při vypnutí kanálu se
+   *  utnou i doznívající jednorázové zvuky. */
+  syncAudio() {
+    const on = this.sfxOn(), g = this.sfxVol();
+    const want = on && g > 0 && this.held && this.tool && this.tool.kind === 'saw' && !this.dead && !this.party;
+    if (this.sawA) {
+      this.sawA.volume = Math.max(0, Math.min(1, .65*g));
+      if (want && this.sawA.paused) this.sawA.play().catch(() => {});
+      else if (!want && !this.sawA.paused) { this.sawA.pause(); try { this.sawA.currentTime = 0; } catch (e) { /* ignore */ } }
+    }
+    if (!on || g <= 0) {
+      for (const k in this.SPOOL) for (const a of this.SPOOL[k].a) if (a && !a.paused) { a.pause(); try { a.currentTime = 0; } catch (e) { /* ignore */ } }
+    }
+  }
   thwack(big) { this.play('body_thud', big ? 1 : .72); }
 
   // ---------- bubbles / effects ----------
@@ -272,8 +290,18 @@ export class PigRuntime {
     return [(b[1]-a[1])/dt, (b[2]-a[2])/dt]; }
   onMove(e) { this._inWin = true; [this.mx, this.my] = this.devXY(e); const t = performance.now()/1000;
     this.hist.push([t, this.mx, this.my]); if (this.hist.length > 8) this.hist.shift(); this.pushSample(t, this.mx, this.my); }
+  /** Prvky, na kterých se zbraň NESMÍ spustit: klik na tlačítko/odkaz/pole je
+   *  ovládání aplikace, ne rána do prasete. Kurzor se pořád posouvá (mx/my se
+   *  aktualizuje výš), jen se nevystřelí. Klik do prázdna nebo na plochu karty
+   *  zbraň spustí dál — plátno má pointer-events:none, takže e.target je vždy
+   *  skutečný prvek pod kurzorem. */
+  isAppUI(e) { const t = e && e.target;
+    if (!t || typeof t.closest !== 'function') return false;
+    return !!t.closest('a, button, input, select, textarea, label, summary, [role="button"], [role="link"], [role="tab"], [contenteditable="true"], [data-pig-ui]'); }
   onDown(e) { [this.mx, this.my] = this.devXY(e); this.mdown = true; this.lastTouch = performance.now()/1000;
-    if (this.dead || this.party || !this.shown) return; const w = this.tool; if (!w) return;
+    if (this.dead || this.party || !this.shown) return;
+    if (this.isAppUI(e)) return;                       // ovládání appky - zbraň nespouštět
+    const w = this.tool; if (!w) return;
     const P = this.P;
     if (w.kind === 'hand') { const hit = this.pigAtDev(this.mx, this.my);
       if (hit) { this.standUpNow(); this.sprawl = 0; this.mode = 'idle'; this.grab = { lx: hit[0], ly: hit[1] }; this.anim = null; this.oneshot = null;
@@ -288,14 +316,11 @@ export class PigRuntime {
     if (this.grab) { const [cvx, cvy] = this.releaseVel(); P.vx = cvx/GS*1.2; P.vy = cvy/GS*1.2;
       if (Math.abs(P.vx) > 700 && P.y > P.ground-6) P.vy = Math.min(P.vy, -430); P.rvel += cvx*.06/GS;
       this.grab = null; this.anim = null; this.oneshot = null; this.ballistic = true; this.roam = null;
-      // DROPPED inside a card (not thrown): bump him to the nearest free spot, deterministically -
-      // the collision resolver alone can settle him half inside a tall tile
-      if (this.overlapsWall()) { this.ghost = false; this._evict = 45;
-        if (Math.abs(P.vx) < 500 && Math.abs(P.vy) < 500) {
-          const cells = this.freeCells();
-          if (cells.length) { const c = cells.reduce((a, b) =>
-              (Math.hypot(b.x-P.x, b.y-P.y) < Math.hypot(a.x-P.x, a.y-P.y) ? b : a));
-            P.x = c.x; P.y = c.y; P.vx = 0; P.vy = 0; this.squash(1.12, .9); this.thwack(false); } } }
+      // PUŠTĚNÝ DO KARTY: dřív se tady "odklidil" skokem na nejbližší volné místo.
+      // To byl teleport přes půl obrazovky v jednom snímku a přesně ten dělal dojem,
+      // že je prasat na obrazovce několik (Albert 2026-09-04). Teď se nikam neskáče:
+      // zapne se ghost, prase se prostě PŘEKRÝVÁ s UI a odejde po svých.
+      if (this.overlapsWall()) { this.ghost = true; this.emit('ghost', true); }
     } }
   setTool(id) { this.tool = id ? TOOLS.find(t => t.id === id) || null : null; this.strike = null; this.held = false; this.buzz(false);
     if (this.grab) this.onUp(); this._rope = null;
@@ -386,7 +411,13 @@ export class PigRuntime {
   startParty(name) { const P = this.P;
     this.goldParty = name === 'dance_ultratwerk';
     this.party = { t: 0, name, dur: this.goldParty ? 6.0 : 4.6 }; this.grab = null; this.strike = null; this.held = false; this.buzz(false); this.eat = null; this.sprawl = 0; this.hyperPause = true;
-    P.vx = 0; P.vy = 0; P.rot = 0; P.rvel = 0; P.y = P.ground; this.mode = 'party'; this.startAnim(name);
+    // Tancuje TAM, KDE PRÁVĚ JE (Albert 2026-09-04). Dřív tu bylo P.y = P.ground,
+    // takže start tance prase teleportoval na zem — a on se přitom běžně pohybuje
+    // ve vzduchu a po vrškách karet. Dolů ho tedy netaháme; jen ho vytáhneme zpátky,
+    // kdyby byl POD zemí, ať netančí zapadlý v podlaze.
+    P.vx = 0; P.vy = 0; P.rot = 0; P.rvel = 0;
+    if (P.y > P.ground) P.y = P.ground;
+    this.mode = 'party'; this.startAnim(name);
     this.play('victory_fanfare', .9); this.play('confetti_pop', .8); this.spawnConfetti(this.goldParty ? 220 : 140, this.goldParty); this.emit('danceStart', name); }
   partyTick(dt) { const { FLOOR, DPR } = this;
     if (this.party) { this.party.t += dt; if (this.party.t > this.party.dur) { const nm = this.party.name; this.party = null; this.goldParty = false; this.mode = 'idle'; this.startAnim('wave', true); this.say('Kvík!', 1.2); this.aiTimer = 2.2; this.hyperPause = false;
@@ -482,6 +513,13 @@ export class PigRuntime {
     if (B.w >= W) return;                       // uzsi okno nez prase: nic neresime
     if (B.x < 0) { P.x += -B.x/GS; P.facing = -1; }
     else if (B.x+B.w > W) { P.x -= (B.x+B.w-W)/GS; P.facing = 1; } }
+  /** HOZENE prase se od kraje ODRAZI misto teleportu na druhou stranu.
+   *  Albert 2026-09-04: "muze prekryvat UI, ale nikdy se takhle teleportovat".
+   *  Wrap uz tedy zustava jen prichodu/odchodu ze sceny, kdy je stejne mimo obraz. */
+  ballisticEdgeBounce() { const B = this.pigBox(), W = this.W, P = this.P, GS = this.GS;
+    if (B.w >= W) return;
+    if (B.x < 0) { P.x += -B.x/GS; if (P.vx < 0) { P.vx = -P.vx*.55; P.rvel *= -.5; } }
+    else if (B.x+B.w > W) { P.x -= (B.x+B.w-W)/GS; if (P.vx > 0) { P.vx = -P.vx*.55; P.rvel *= -.5; } } }
   /** under his own steam he stays WHOLE and on screen - no half pig hanging off an edge */
   keepOnScreen() { const B = this.pigBox(), W = this.W, P = this.P, GS = this.GS;
     if (B.w >= W) return;                       // a window narrower than he is: nothing to do
@@ -530,7 +568,14 @@ export class PigRuntime {
   // ---------- walls ----------
   setWalls(cssRects) { const D = this.DPR; this.walls = cssRects.map(r => ({ x: r.x*D, y: r.y*D, w: r.w*D, h: r.h*D })); this._fc = null; }
   /** push him out of every wall he overlaps; returns which sides hit */
+  /** Vystrkování z UI prvků. Malé posuny jsou v pořádku (díky nim chodí po
+   *  vrškách karet), ale VELKÝ posun v jednom snímku vypadá jako teleport a oko
+   *  z něj udělá druhé prase. Když je někde tak vklíněný, že by se musel posunout
+   *  o víc než MAX_PUSH, radši se nechá překrývat (ghost) - Albertovo pravidlo:
+   *  překrývat UI ano, teleportovat nikdy. */
   resolveWalls(heldMode) { const P = this.P, GS = this.GS; let n = 0;
+    const x0 = P.x, y0 = P.y;
+    const MAX_PUSH = Math.max(90, (this.EXT ? (this.EXT.r-this.EXT.l) : 300)*0.5);
     for (let it = 0; it < 3; it++) { const B = this.pigBox(); let moved = false;
       for (const r of this.walls) {
         const ox = Math.min(B.x+B.w, r.x+r.w)-Math.max(B.x, r.x), oy = Math.min(B.y+B.h, r.y+r.h)-Math.max(B.y, r.y);
@@ -545,6 +590,12 @@ export class PigRuntime {
           if (sign < 0) { this.land(heldMode, (r.y-this.FLOOR)/GS); } else { if (P.vy < 0) { P.vy = heldMode ? 0 : Math.abs(P.vy)*.45; if (!heldMode) { this.thwack(false); this.kick(nm => { this.jigv[nm] += (Math.random()-.5)*260; }); } } } }
         moved = true; }
       if (!moved) break; }
+    // Kdyby ho vystrkování hodilo o velký kus, je to teleport - vrať ho zpátky
+    // a nech ho překrývat. Radši prase přes kartu než prase na dvou místech.
+    if (Math.hypot(P.x-x0, P.y-y0) > MAX_PUSH) {
+      P.x = x0; P.y = y0;
+      if (!this.ghost) { this.ghost = true; this.emit('ghost', true); }
+    }
     if (!this.grab && this.overlapsWall()) { if (++this.stuckFrames > 20) { this.stuckFrames = 0; if (!this.ghost) { this.ghost = true; this.emit('ghost', true); } } } else this.stuckFrames = 0;
     return n; }
   wallHit(sign, heldMode) { const P = this.P; const sp = Math.abs(P.vx);
@@ -598,6 +649,7 @@ export class PigRuntime {
 
   // ---------- main loop ----------
   tick() { if (this.destroyed) return; requestAnimationFrame(this.tick);
+    this.syncAudio();
     if (this.W === 0 || this.H === 0 || !this.RIG) { this.resize(); if (this.W === 0 || this.H === 0 || !this.RIG) return; }
     this._seq++; const now = performance.now()/1000, rdt = Math.min(.05, now-this.last); this.last = now;
     let dt = rdt; if (this.hitstop > 0) { this.hitstop = Math.max(0, this.hitstop-rdt); this._froz = (this._froz || 0)+rdt; if (this._froz < .14) dt = 0; else this.hitstop = 0; } else this._froz = 0;
@@ -711,8 +763,10 @@ export class PigRuntime {
     }
     // Hozene prase a prichod/odchod ze sceny se pres kraj prenesou (to je zamer).
     // HYPER uz ne - ten se odrazi, viz hyperEdgeTurn().
-    if (this.ballistic || this.enter || (this.visit && this.visit.phase === 'out')) this.wrapScreen();
+    // Wrap uz jen kdyz prichazi nebo odchazi ze sceny (tam je stejne mimo obraz).
+    if (this.enter || (this.visit && this.visit.phase === 'out')) this.wrapScreen();
     else if (this.hyper) this.hyperEdgeTurn();
+    else if (this.ballistic) this.ballisticEdgeBounce();
     // walking / idling / lured / fleeing: he is kept whole and on screen. Only the walk-in-out,
     // a throw (ballistic) and a hyper dash are allowed to cross an edge, and those wrap instantly.
     if (!this.enter && !(this.visit && this.visit.phase === 'out') && !this.hyper && !this.ballistic && !this.grab) this.keepOnScreen();

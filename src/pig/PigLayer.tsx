@@ -115,6 +115,12 @@ export default function PigLayer() {
   // tsc nechytí, PigBoundary to spolkne a Procop jen tiše zmizí.
   const isOwner = uid === OWNER_USER_ID;
   const unlocked = useCallback((id: string) => isOwner || isUnlocked(id, counters), [isOwner, counters]);
+  /** Albert má všechny čepice, ALE swagger brýle zůstávají odměnou za #1 prodejce —
+   *  ty si musí zasloužit stejně jako ostatní (jeho výslovné přání). */
+  const ownsCos = useCallback(
+    (id: string) => progress.owned.includes(id) || (isOwner && id !== TOP_COSMETIC),
+    [progress.owned, isOwner]
+  );
 
   /* ---------- runtime lifecycle (the canvas exists only while logged in) ---------- */
   useEffect(() => {
@@ -289,12 +295,12 @@ export default function PigLayer() {
   const buy = useCallback((id: string) => {
     const c = COSMETICS.find((x) => x.id === id);
     if (!c || c.price === null) return;
-    if (progress.owned.includes(id)) { setProgress((p) => ({ ...p, cos: p.cos === id ? null : id })); rtRef.current?.play('plunger_stick', .6); return; }
+    if (ownsCos(id)) { setProgress((p) => ({ ...p, cos: p.cos === id ? null : id })); rtRef.current?.play('plunger_stick', .6); return; }
     if (chops < c.price) { rtRef.current?.play('squeal_hit', .4); return; }
     setProgress((p) => ({ ...p, spent: (p.spent || 0) + c.price!, owned: [...p.owned, id], cos: id }));
     rtRef.current?.play('buy', .95);
     showReveal('cos', id, c.label);
-  }, [progress.owned, chops, setProgress, showReveal]);
+  }, [ownsCos, chops, setProgress, showReveal]);
 
   if (!session) return null;
 
@@ -407,6 +413,7 @@ export default function PigLayer() {
       {closetOpen && (
         <Closet
           rt={rtRef.current}
+          ownsCos={ownsCos}
           chops={chops}
           progress={progress}
           onBuy={buy}
@@ -419,8 +426,8 @@ export default function PigLayer() {
 }
 
 /* ---------- the CLOSET: him, wearing what you pick ---------- */
-function Closet({ rt, chops, progress, onBuy, onWear, onClose }: {
-  rt: PigRuntime | null; chops: number; progress: Progress;
+function Closet({ rt, ownsCos, chops, progress, onBuy, onWear, onClose }: {
+  rt: PigRuntime | null; ownsCos: (id: string) => boolean; chops: number; progress: Progress;
   onBuy: (id: string) => void; onWear: (id: string | null) => void; onClose: () => void;
 }) {
   const prevRef = useRef<HTMLCanvasElement | null>(null);
@@ -453,7 +460,7 @@ function Closet({ rt, chops, progress, onBuy, onWear, onClose }: {
             </span>
           </button>
           {COSMETICS.map((c) => {
-            const owned = progress.owned.includes(c.id);
+            const owned = ownsCos(c.id);
             const award = c.price === null;
             return (
               <button
