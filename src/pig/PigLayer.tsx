@@ -4,7 +4,7 @@ import { getApi } from '../api';
 import { audio } from '../audio';
 import { useAuth } from '../auth';
 import { LockIcon } from '../icons';
-import { PigRuntime, TOOLS } from './runtime';
+import { DANCES, PigRuntime, TOOLS } from './runtime';
 import {
   COSMETICS, COS_PRICE, MILESTONES, TOP_COSMETIC, UNLOCKS, balance, dayWord,
   isUnlocked, loadProgress, progressFrac, progressLabel, requirement,
@@ -16,6 +16,22 @@ const BASE = import.meta.env.BASE_URL + 'pig/';
 window.addEventListener('error', (e) => { console.error('[pig] ' + ((e.error && e.error.stack) || e.message)); });
 window.addEventListener('unhandledrejection', (e) => { const r = e.reason as { stack?: string } | undefined; console.error('[pig] rejection ' + ((r && r.stack) || String(e.reason))); });
 const PIG_SCALE = 0.18;                        // css px per rig px
+
+/** Albertův vlastní účet (users.id = 1, albertbrundaa@gmail.com).
+ *  Jen on má odemčené všechny nástroje a tlačítko s tanci — NE každý admin,
+ *  adminů je víc (Mikuláš). Session nenese username, jen id, jméno a roli,
+ *  takže se to pozná podle id. Kdyby to měl mít někdo další, přidá se sem. */
+const OWNER_USER_ID = 1;
+
+/** názvy tanců pro Albertovo tlačítko */
+const DANCE_LABEL: Record<string, string> = {
+  dance_wave: 'Mává',
+  dance_ovcacek: 'Ovčáček',
+  dance_buckbuck: 'Buck buck',
+  dance_twerk: 'Twerk',
+  dance_handstand: 'Stojka',
+  dance_ultratwerk: 'ULTRA TWERK',
+};
 
 interface Rect { x: number; y: number; w: number; h: number }
 
@@ -83,6 +99,7 @@ export default function PigLayer() {
   const [real, setReal] = useState<Counters>({ calls: 0, accepted: 0, sold: 0 });
   const [progress, setProgressState] = useState<Progress>(loadProgress('anon'));
   const [closetOpen, setClosetOpen] = useState(false);
+  const [dancesOpen, setDancesOpen] = useState(false);
   const [reveal, setReveal] = useState<{ kind: 'tool' | 'cos'; id: string; label: string; kicker?: string; sub?: string } | null>(null);
   const queueRef = useRef<string[]>([]);
   const dancingRef = useRef(false);
@@ -92,6 +109,12 @@ export default function PigLayer() {
   const hasSession = !!session;
   const counters = real;
   const chops = balance(counters, progress);
+  // Albert má všechno odemčené; ostatní si to musí odemknout hovory a prodeji.
+  // POZOR na pořadí: `unlocked` čte `counters`, takže musí být AŽ ZA ním —
+  // jinak je to TDZ ("Cannot access 'counters' before initialization"), což
+  // tsc nechytí, PigBoundary to spolkne a Procop jen tiše zmizí.
+  const isOwner = uid === OWNER_USER_ID;
+  const unlocked = useCallback((id: string) => isOwner || isUnlocked(id, counters), [isOwner, counters]);
 
   /* ---------- runtime lifecycle (the canvas exists only while logged in) ---------- */
   useEffect(() => {
@@ -168,11 +191,11 @@ export default function PigLayer() {
     rtRef.current?.setTool(id);
   }, []);
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') { setTool(null); setClosetOpen(false); } };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') { setTool(null); setClosetOpen(false); setDancesOpen(false); } };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [setTool]);
-  useEffect(() => { if (tool && !isUnlocked(tool, counters)) setTool(null); }, [tool, counters, setTool]);
+  useEffect(() => { if (tool && !unlocked(tool)) setTool(null); }, [tool, unlocked, setTool]);
 
   /* ---------- milestones -> dances, unlocks -> the centre-screen reveal ---------- */
   const nextDance = useCallback(() => {
@@ -280,16 +303,16 @@ export default function PigLayer() {
 
   const slot = (id: string) => {
     const t = toolById(id);
-    const unlocked = isUnlocked(id, counters);
+    const isOpen = unlocked(id);
     const sel = tool === id;
     return (
       <button
         key={id}
         type="button"
         data-sfx="none"
-        className={`pig-slot${sel ? ' sel' : ''}${unlocked ? '' : ' locked'}`}
+        className={`pig-slot${sel ? ' sel' : ''}${isOpen ? '' : ' locked'}`}
         aria-label={t.nm}
-        onClick={() => { if (!unlocked) return; setTool(sel ? null : id); rtRef.current?.play('plunger_stick', 0.6); }}
+        onClick={() => { if (!isOpen) return; setTool(sel ? null : id); rtRef.current?.play('plunger_stick', 0.6); }}
       >
         <img src={toolImg(id)} alt="" draggable={false} />
         {!unlocked && <span className="pig-lock"><LockIcon size={16} /></span>}
@@ -329,6 +352,23 @@ export default function PigLayer() {
             <path d="M12 7 3.8 12.9a1 1 0 0 0 .6 1.8h15.2a1 1 0 0 0 .6-1.8L12 7z" />
           </svg>
         </button>
+        {isOwner && (
+          <button
+            type="button"
+            className={`pig-dance-btn${dancesOpen ? ' open' : ''}`}
+            data-sfx="none"
+            title="Tance"
+            aria-label="Tance"
+            aria-expanded={dancesOpen}
+            onClick={() => { setDancesOpen((o) => !o); rtRef.current?.play('plunger_stick', .6); }}
+          >
+            {/* dvojitá nota - tancovat */}
+            <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M9 18V5l12-2v13" />
+              <circle cx="6" cy="18" r="3" /><circle cx="18" cy="16" r="3" />
+            </svg>
+          </button>
+        )}
         <button
           type="button"
           className={`pig-power${pigOn ? ' on' : ''}`}
@@ -342,6 +382,28 @@ export default function PigLayer() {
           </svg>
         </button>
       </div>
+      {isOwner && dancesOpen && (
+        <div className="pig-dance-panel card" data-pig-ui="">
+          <div className="pig-dance-head">
+            <b>TANCE</b>
+            <button type="button" className="pill-btn sm" data-sfx="none" onClick={() => setDancesOpen(false)}>zavřít</button>
+          </div>
+          <div className="pig-dance-grid">
+            {DANCES.map((d) => (
+              <button
+                key={d}
+                type="button"
+                className="pig-dance-item"
+                data-sfx="none"
+                onClick={() => { queueRef.current.push(d); nextDance(); setDancesOpen(false); }}
+              >
+                {DANCE_LABEL[d] ?? d}
+              </button>
+            ))}
+          </div>
+          <p className="pig-dance-foot muted">Zatančí hned. Když zrovna tancuje, tenhle přijde na řadu potom.</p>
+        </div>
+      )}
       {closetOpen && (
         <Closet
           rt={rtRef.current}

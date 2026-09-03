@@ -181,3 +181,31 @@ body.pig-layer .page { padding-left: 74px; }
 }
 .pig-closet.open { background: var(--orange); color: var(--paper-on-dark); }
 .pig-arrow, .pig-power { flex: 0 0 auto; }
+
+/* ---------------------------------------------------------------------------
+   Tance — tlačítko pod šatníkem a výběr. Jen Albertův účet (OWNER_USER_ID).
+--------------------------------------------------------------------------- */
+.pig-dance-btn {
+  width: 38px; height: 28px; display: flex; align-items: center; justify-content: center;
+  background: var(--cream-deep); color: var(--ink); border: 2px solid var(--ink);
+  border-radius: 10px; box-shadow: 0 2px 0 var(--ink); cursor: pointer; padding: 0; flex: 0 0 auto;
+}
+.pig-dance-btn:active { transform: translateY(2px); box-shadow: none; }
+.pig-dance-btn.open { background: var(--orange); color: var(--paper-on-dark); }
+
+.pig-dance-panel {
+  position: fixed; left: 66px; top: 76px; z-index: 1002;
+  width: min(300px, calc(100vw - 100px));
+  display: flex; flex-direction: column; padding: 14px 16px 10px;
+}
+.pig-dance-head { display: flex; align-items: center; gap: 10px; }
+.pig-dance-head b { font-size: 16px; flex: 1; letter-spacing: 2px; }
+.pig-dance-grid { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
+.pig-dance-item {
+  text-align: left; font-weight: 700; font-size: 14px; padding: 9px 12px;
+  background: var(--cream-deep); color: var(--ink); border: 2px solid var(--ink);
+  border-radius: 12px; box-shadow: 0 2px 0 var(--ink); cursor: pointer;
+}
+.pig-dance-item:hover { background: var(--orange); color: var(--paper-on-dark); }
+.pig-dance-item:active { transform: translateY(2px); box-shadow: none; }
+.pig-dance-foot { margin: 10px 0 0; font-size: 11.5px; }
