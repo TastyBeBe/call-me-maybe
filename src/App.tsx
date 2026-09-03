@@ -1,4 +1,4 @@
-import { useEffect, useRef, type ReactNode } from 'react';
+import { Component, useEffect, useRef, type ErrorInfo, type ReactNode } from 'react';
 import {
   Link,
   Navigate,
@@ -8,10 +8,12 @@ import {
   useLocation,
   useNavigate,
 } from 'react-router-dom';
-import { audio, isSfxName, useAudioSettings } from './audio';
+import { audio, isSfxName } from './audio';
 import { useAuth } from './auth';
 import { getConfig } from './config';
-import { MusicIcon, MusicOffIcon, SpeakerIcon, SpeakerOffIcon } from './icons';
+
+/** Logo = Procopova pochroumaná hlava v party čepici (public/icons). */
+const logoUrl = import.meta.env.BASE_URL + 'icons/procop_logo_256.png';
 import AdminPage from './pages/AdminPage';
 import CallPage from './pages/CallPage';
 import HomePage from './pages/HomePage';
@@ -22,6 +24,16 @@ import SetupPage from './pages/SetupPage';
 import StatsPage from './pages/StatsPage';
 import UzivatelePage from './pages/UzivatelePage';
 import ZpravyPage from './pages/ZpravyPage';
+import PigLayer from './pig/PigLayer';
+import SoundMenu from './SoundMenu';
+
+/** Procop je dekorace: když spadne, zaloguj to a vrstvu zahoď — appka jede dál. */
+class PigBoundary extends Component<{ children: ReactNode }, { broken: boolean }> {
+  state = { broken: false };
+  static getDerivedStateFromError() { return { broken: true }; }
+  componentDidCatch(error: Error, info: ErrorInfo) { console.error('[pig] layer crashed: ' + (error.stack || error.message) + info.componentStack); }
+  render() { return this.state.broken ? null : this.props.children; }
+}
 
 /**
  * Globální zvuková vrstva:
@@ -60,40 +72,6 @@ function AudioLayer() {
   return null;
 }
 
-/** Přepínače zvuků + hudby v topbaru. */
-function AudioToggles() {
-  const { sfxOn, musicOn, setSfx, setMusic } = useAudioSettings();
-  return (
-    <>
-      <button
-        type="button"
-        className={`tb-btn audio-toggle${sfxOn ? '' : ' off'}`}
-        data-sfx="none"
-        aria-label={sfxOn ? 'Zvuky zapnuty' : 'Zvuky vypnuty'}
-        aria-pressed={sfxOn}
-        title={sfxOn ? 'Vypnout zvuky' : 'Zapnout zvuky'}
-        onClick={() => {
-          const next = !sfxOn;
-          setSfx(next);
-          // zapnutí potvrdíme clickem; vypnutí je schválně tiché (data-sfx="none")
-          if (next) audio.play('click');
-        }}
-      >
-        {sfxOn ? <SpeakerIcon size={18} /> : <SpeakerOffIcon size={18} />}
-      </button>
-      <button
-        type="button"
-        className={`tb-btn audio-toggle${musicOn ? '' : ' off'}`}
-        aria-label={musicOn ? 'Hudba zapnuta' : 'Hudba vypnuta'}
-        aria-pressed={musicOn}
-        title={musicOn ? 'Vypnout hudbu' : 'Zapnout hudbu'}
-        onClick={() => setMusic(!musicOn)}
-      >
-        {musicOn ? <MusicIcon size={18} /> : <MusicOffIcon size={18} />}
-      </button>
-    </>
-  );
-}
 
 function RequireAuth({ children, admin = false }: { children: ReactNode; admin?: boolean }) {
   const { session } = useAuth();
@@ -117,6 +95,7 @@ function TopBar() {
   return (
     <header className="card topbar">
       <Link to="/" className="brand" data-sfx="none">
+        <img className="brand-logo" src={logoUrl} alt="" aria-hidden="true" />
         Call me maybe<b>.</b>
       </Link>
       <nav>
@@ -175,7 +154,7 @@ function TopBar() {
         )}
       </nav>
       <span className="spacer" />
-      <AudioToggles />
+      <SoundMenu />
       {demo && (
         <Link to="/setup" style={{ textDecoration: 'none' }} data-sfx="none">
           <span className="demo-chip">DEMO</span>
@@ -194,6 +173,9 @@ export default function App() {
     <div className="page wide">
       <AudioLayer />
       <TopBar />
+      <PigBoundary>
+        <PigLayer />
+      </PigBoundary>
       <Routes>
         <Route path="/login" element={<LoginPage />} />
         <Route path="/setup" element={<SetupPage />} />

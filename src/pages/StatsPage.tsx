@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { getApi, type MyStats, type UserStats } from '../api';
 import { useSession } from '../auth';
+import { dayWord, topDaysFor } from '../pig/progress';
 import { ErrorBox, Spinner, errMsg } from '../ui';
 
 function StatCards({ stats }: { stats: MyStats }) {
@@ -63,6 +64,9 @@ export default function StatsPage() {
       ? myStats
       : (allStats?.find((u) => u.user_id === selectedUser) ?? null);
 
+  const shownUid = selectedUser === 'me' ? session.user_id : selectedUser;
+  const topDays = topDaysFor(shownUid).days;
+
   const shownName =
     selectedUser === 'me'
       ? session.display_name
@@ -112,6 +116,11 @@ export default function StatsPage() {
             <div className="card stat-card">
               <div className="stat-value">{shown.nedovolano}</div>
               <div className="stat-label">Nedovoláno</div>
+            </div>
+            {/* kolik dní drží tenhle člověk korunu #1 prodejce (Procopovo počítadlo) */}
+            <div className="card stat-card">
+              <div className="stat-value">{topDays}</div>
+              <div className="stat-label">{dayWord(topDays)} jako #1 prodejce</div>
             </div>
           </div>
         </>

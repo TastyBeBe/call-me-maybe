@@ -150,6 +150,25 @@ h1.page-title {
   color: var(--orange);
 }
 
+.topbar .brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.brand-logo {
+  height: 36px;
+  width: auto;
+  display: block;
+}
+
+.auth-logo {
+  height: 96px;
+  width: auto;
+  display: block;
+  margin: -6px 0 6px;
+}
+
 .topbar nav {
   display: flex;
   flex-wrap: wrap;
@@ -1500,4 +1519,117 @@ table.kontakty tr:last-child td {
   font-size: 14px;
   font-weight: 600;
   line-height: 1.35;
+}
+
+/* ---------------------------------------------------------------------------
+   Zvukové menu (tři kanály: aplikace / Procop / hudba)
+   Albert 2026-09-03: Procop je hlasitý a hraje často, klikání tlačítek chce
+   člověk slyšet pořád — proto má každý kanál vlastní vypínač i posuvník.
+--------------------------------------------------------------------------- */
+.snd-wrap {
+  position: relative;
+  display: inline-flex;
+}
+
+.tb-btn.audio-toggle.open {
+  background: var(--orange);
+  color: var(--paper-on-dark);
+}
+
+.snd-panel {
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  z-index: 60;
+  width: min(310px, calc(100vw - 32px));
+  padding: 14px 16px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  text-align: left;
+  cursor: default;
+}
+
+.snd-title {
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: var(--orange);
+}
+
+.snd-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.snd-row.off .snd-label,
+.snd-row.off .snd-pct {
+  opacity: 0.5;
+}
+
+.snd-toggle {
+  flex: 0 0 auto;
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  border: 2px solid var(--ink);
+  border-radius: 12px;
+  background: var(--paper);
+  color: var(--ink);
+  cursor: pointer;
+  box-shadow: 0 2px 0 var(--ink);
+}
+
+.snd-toggle:active {
+  transform: translateY(2px);
+  box-shadow: none;
+}
+
+.snd-row.off .snd-toggle {
+  background: var(--paper-dim, #efe6c8);
+  opacity: 0.75;
+}
+
+.snd-pig-ico {
+  width: 22px;
+  height: 22px;
+  display: block;
+}
+
+.snd-body {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.snd-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 2px;
+}
+
+.snd-label {
+  font-weight: 700;
+  font-size: 14px;
+}
+
+.snd-pct {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.75;
+}
+
+.snd-range {
+  width: 100%;
+  accent-color: var(--orange);
+  cursor: pointer;
+}
+
+.snd-range:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
 }

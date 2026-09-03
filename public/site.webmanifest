@@ -1,0 +1,21 @@
+{
+  "name": "Call me maybe — WEBDOMOV",
+  "short_name": "Call me maybe",
+  "icons": [
+    {
+      "src": "./icons/procop_icon_192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "./icons/procop_icon_512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ],
+  "theme_color": "#d95b32",
+  "background_color": "#fbf1d1",
+  "display": "standalone",
+  "start_url": "./",
+  "scope": "./"
+}
