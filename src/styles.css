@@ -1550,6 +1550,22 @@ table.kontakty tr:last-child td {
   cursor: default;
 }
 
+/* Na úzkém displeji se panel kotvený k tlačítku (right: 0) vysunul mimo
+   obrazovku — v topbaru, který se na mobilu zalomí, sedí tlačítko vlevo, takže
+   levý okraj panelu skončil na -100 px. Naměřeno na 375 px. Proto je z něj na
+   mobilu spodní lišta přes celou šířku: vždy se vejde a líp se trefuje prstem. */
+@media (max-width: 560px) {
+  .snd-panel {
+    position: fixed;
+    left: 10px;
+    right: 10px;
+    bottom: 10px;
+    top: auto;
+    width: auto;
+    z-index: 200;
+  }
+}
+
 .snd-title {
   font-size: 12px;
   font-weight: 800;
@@ -1623,13 +1639,81 @@ table.kontakty tr:last-child td {
   opacity: 0.75;
 }
 
-.snd-range {
+/* Posuvník hlasitosti.
+   POZOR: globální pravidla výš v tomhle souboru střelí i do range inputu —
+   `input, select, textarea` mu dá rámeček, pozadí, padding a rádius a
+   `input[type='checkbox'], input[type='range']` mu nastaví 18x18 px.
+   To druhé má specificitu 0-1-1, takže samotné `.snd-range` (0-1-0) prohrálo
+   a posuvník se vykresloval jako maličká krabička 24x18 px. Proto je selektor
+   níž `.snd-panel input[type='range'].snd-range` (0-2-1) a proto se tady
+   všechny zděděné vlastnosti výslovně ruší.
+   Vyplněnou část kreslíme gradientem podle proměnné --pct, kterou nastavuje React. */
+.snd-panel input[type='range'].snd-range {
+  -webkit-appearance: none;
+  appearance: none;
+  display: block;
   width: 100%;
-  accent-color: var(--orange);
+  max-width: 100%;
+  height: 22px;
+  margin: 2px 0 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
   cursor: pointer;
 }
 
-.snd-range:disabled {
+/* --- dráha --- */
+.snd-panel input[type='range'].snd-range::-webkit-slider-runnable-track {
+  height: 12px;
+  border: 2px solid var(--ink);
+  border-radius: 999px;
+  background:
+    linear-gradient(var(--orange), var(--orange)) 0 / var(--pct, 100%) 100% no-repeat,
+    var(--cream-deep);
+}
+
+.snd-panel input[type='range'].snd-range::-moz-range-track {
+  height: 12px;
+  border: 2px solid var(--ink);
+  border-radius: 999px;
+  background: var(--cream-deep);
+}
+
+.snd-panel input[type='range'].snd-range::-moz-range-progress {
+  height: 12px;
+  border-radius: 999px;
+  background: var(--orange);
+}
+
+/* --- jezdec --- */
+.snd-panel input[type='range'].snd-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 20px;
+  height: 20px;
+  margin-top: -6px; /* (track 12 + 2*2 border - 20) / 2 */
+  border: 2px solid var(--ink);
+  border-radius: 50%;
+  background: var(--cream);
+  box-shadow: 0 2px 0 var(--ink);
+}
+
+.snd-panel input[type='range'].snd-range::-moz-range-thumb {
+  width: 20px;
+  height: 20px;
+  border: 2px solid var(--ink);
+  border-radius: 50%;
+  background: var(--cream);
+  box-shadow: 0 2px 0 var(--ink);
+}
+
+.snd-panel input[type='range'].snd-range:active::-webkit-slider-thumb {
+  transform: translateY(2px);
+  box-shadow: none;
+}
+
+.snd-panel input[type='range'].snd-range:disabled {
   cursor: not-allowed;
   opacity: 0.45;
 }

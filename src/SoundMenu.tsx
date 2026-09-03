@@ -73,6 +73,8 @@ function Row({
           max={100}
           step={1}
           value={pct}
+          /* vyplněnou část dráhy kreslí CSS gradient podle --pct */
+          style={{ ['--pct' as string]: `${pct}%` } as React.CSSProperties}
           disabled={disabled || !on}
           aria-label={`Hlasitost: ${label}`}
           onChange={(e) => onValue(Number(e.target.value) / 100)}
