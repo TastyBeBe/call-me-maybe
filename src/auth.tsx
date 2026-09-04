@@ -10,6 +10,9 @@ import { getApi, type Session } from './api';
 
 export const LS_SESSION = 'volacka_session';
 
+/** Albertův účet (users.id = 1): jediný, kdo smí přepínat účet automatizace. */
+export const OWNER_USER_ID = 1;
+
 interface AuthCtx {
   session: Session | null;
   login: (username: string, password: string) => Promise<Session>;

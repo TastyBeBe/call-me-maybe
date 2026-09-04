@@ -9,12 +9,13 @@ import {
   useNavigate,
 } from 'react-router-dom';
 import { audio, isSfxName } from './audio';
-import { useAuth } from './auth';
+import { OWNER_USER_ID, useAuth } from './auth';
 import { getConfig } from './config';
 
 /** Logo = Procopova pochroumaná hlava v party čepici (public/icons). */
 const logoUrl = import.meta.env.BASE_URL + 'icons/procop_logo_256.png';
 import AdminPage from './pages/AdminPage';
+import AutomatizacePage from './pages/AutomatizacePage';
 import CallPage from './pages/CallPage';
 import HomePage from './pages/HomePage';
 import LoginPage from './pages/LoginPage';
@@ -73,10 +74,19 @@ function AudioLayer() {
 }
 
 
-function RequireAuth({ children, admin = false }: { children: ReactNode; admin?: boolean }) {
+function RequireAuth({
+  children,
+  admin = false,
+  owner = false,
+}: {
+  children: ReactNode;
+  admin?: boolean;
+  owner?: boolean;
+}) {
   const { session } = useAuth();
   if (!session) return <Navigate to="/login" replace />;
   if (admin && session.role !== 'admin') return <Navigate to="/" replace />;
+  if (owner && session.user_id !== OWNER_USER_ID) return <Navigate to="/" replace />;
   return <>{children}</>;
 }
 
@@ -86,6 +96,7 @@ function TopBar() {
   const { demo } = getConfig();
   if (!session) return null;
   const isAdmin = session.role === 'admin';
+  const isOwner = isAdmin && session.user_id === OWNER_USER_ID;
 
   const onLogout = async () => {
     await logout();
@@ -150,6 +161,15 @@ function TopBar() {
             >
               uživatelé
             </NavLink>
+            {isOwner && (
+              <NavLink
+                to="/automatizace"
+                data-sfx="none"
+                className={({ isActive }) => `nav-pill${isActive ? ' active' : ''}`}
+              >
+                automatizace
+              </NavLink>
+            )}
           </>
         )}
       </nav>
@@ -240,6 +260,14 @@ export default function App() {
           element={
             <RequireAuth admin>
               <UzivatelePage />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/automatizace"
+          element={
+            <RequireAuth admin owner>
+              <AutomatizacePage />
             </RequireAuth>
           }
         />

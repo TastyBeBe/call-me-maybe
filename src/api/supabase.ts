@@ -5,6 +5,7 @@ import { getConfig } from '../config';
 import type {
   AdminMessage,
   Api,
+  AutomationStatus,
   ChatMessage,
   ChatThread,
   FlagKind,
@@ -217,5 +218,15 @@ export const supabaseApi: Api = {
       p_token: token,
       p_thread_id: threadId,
     });
+  },
+
+  /* ---- přepínání účtů Claude (migrace 011) ---- */
+
+  async getAutomationStatus(token: string): Promise<AutomationStatus> {
+    return rpc<AutomationStatus>('get_automation_status', { p_token: token });
+  },
+
+  async requestAccountSwitch(token: string, slug: string): Promise<AutomationStatus> {
+    return rpc<AutomationStatus>('request_account_switch', { p_token: token, p_slug: slug });
   },
 };

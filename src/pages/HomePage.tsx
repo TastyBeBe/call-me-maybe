@@ -1,10 +1,11 @@
 import { Link } from 'react-router-dom';
-import { useSession } from '../auth';
-import { ChartIcon, FlagIcon, MessageIcon, PhoneIcon, TableIcon, UsersIcon } from '../icons';
+import { OWNER_USER_ID, useSession } from '../auth';
+import { ChartIcon, FlagIcon, MessageIcon, PhoneIcon, RocketIcon, TableIcon, UsersIcon } from '../icons';
 
 export default function HomePage() {
   const session = useSession();
   const isAdmin = session.role === 'admin';
+  const isOwner = isAdmin && session.user_id === OWNER_USER_ID;
 
   return (
     <div>
@@ -48,6 +49,13 @@ export default function HomePage() {
               <span className="tile-label">UŽIVATELÉ</span>
               <span className="tile-sub">volající a admini</span>
             </Link>
+            {isOwner && (
+              <Link to="/automatizace" className="big-tile">
+                <span className="tile-emoji"><RocketIcon size={42} /></span>
+                <span className="tile-label">AUTOMATIZACE</span>
+                <span className="tile-sub">který účet Claude veze agenty</span>
+              </Link>
+            )}
           </>
         )}
       </div>

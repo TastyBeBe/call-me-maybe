@@ -4,6 +4,10 @@
 import type {
   AdminMessage,
   Api,
+  AutomationAccount,
+  AutomationControl,
+  AutomationRunningJob,
+  AutomationStatus,
   ChatMessage,
   ChatSender,
   ChatThread,
@@ -447,6 +451,53 @@ function startOfToday(): number {
   const d = new Date();
   d.setHours(0, 0, 0, 0);
   return d.getTime();
+}
+
+/* ---- přepínání účtů Claude (migrace 011) — demo stav v paměti ---- */
+const mockAccounts: AutomationAccount[] = [
+  { slug: 'albert', label: 'Albert Brunda', email: 'albertbrundaa@gmail.com', token_present: true, updated_at: daysAgo(3) },
+  { slug: 'druhy', label: 'Druhý účet', email: null, token_present: false, updated_at: daysAgo(3) },
+];
+const mockControl: AutomationControl = {
+  id: 1,
+  active_account: 'albert',
+  requested_account: 'albert',
+  phase: 'running',
+  requested_by: null,
+  requested_at: null,
+  drain_started_at: null,
+  switched_at: null,
+  notified_at: null,
+  updated_at: now(),
+};
+let mockRunning: AutomationRunningJob[] = [];
+
+function mockAuthAdmin(token: string): MockUser {
+  const uid = sessions.get(token);
+  const u = users.find((x) => x.id === uid && x.active);
+  if (!u) throw new Error('Neplatná nebo vypršelá relace. Přihlaste se znovu.');
+  if (u.role !== 'admin') throw new Error('Přístup zamítnut: vyžadována role admin.');
+  return u;
+}
+
+/** Demo: během přepínání „doběhne" jeden job každých 8 s; po posledním se přepne. */
+function mockAutomationStatus(): AutomationStatus {
+  if (mockControl.phase === 'draining' && mockControl.drain_started_at) {
+    const t = Date.now() - new Date(mockControl.drain_started_at).getTime();
+    mockRunning = mockRunning.filter((_, i) => t < (i + 1) * 8000);
+    if (mockRunning.length === 0) {
+      mockControl.active_account = mockControl.requested_account;
+      mockControl.phase = 'running';
+      mockControl.switched_at = now();
+      mockControl.updated_at = now();
+    }
+  }
+  return {
+    control: { ...mockControl },
+    accounts: mockAccounts.map((a) => ({ ...a })),
+    running: mockRunning.map((j) => ({ ...j })),
+    queued: 2,
+  };
 }
 
 export const mockApi: Api = {
@@ -934,6 +985,38 @@ export const mockApi: Api = {
     if (!t) fail(`Vlákno id=${threadId} neexistuje.`);
     t.status = 'resolved';
     return { ok: true, thread_id: t.id, status: 'resolved' };
+  },
+
+  /* ---- přepínání účtů Claude (migrace 011) ---- */
+
+  async getAutomationStatus(token: string): Promise<AutomationStatus> {
+    await delay();
+    mockAuthAdmin(token);
+    return mockAutomationStatus();
+  },
+
+  async requestAccountSwitch(token: string, slug: string): Promise<AutomationStatus> {
+    await delay();
+    const u = mockAuthAdmin(token);
+    if (u.id !== 1) throw new Error('Přepínat účet automatizace smí jen Albert.');
+    if (!mockAccounts.some((a) => a.slug === slug)) throw new Error(`Neznámý účet: ${slug}`);
+    if (slug === mockControl.active_account) {
+      mockControl.requested_account = slug;
+      mockControl.phase = 'running';
+      mockRunning = [];
+    } else {
+      mockControl.requested_account = slug;
+      mockControl.phase = 'draining';
+      mockControl.requested_by = u.display_name;
+      mockControl.requested_at = now();
+      mockControl.drain_started_at = now();
+      mockRunning = [
+        { id: 901, type: 'build', kontakt_id: 1, kontakt_name: 'Chata Balcar', account: mockControl.active_account, created_at: now(), updated_at: now() },
+        { id: 902, type: 'photo', kontakt_id: 2, kontakt_name: 'Chalupa Pod Lesem', account: mockControl.active_account, created_at: now(), updated_at: now() },
+      ];
+    }
+    mockControl.updated_at = now();
+    return mockAutomationStatus();
   },
 };
 

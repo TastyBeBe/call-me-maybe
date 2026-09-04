@@ -178,6 +178,49 @@ export interface UpdatedUser {
   active: boolean;
 }
 
+/* ---- přepínání účtů Claude (migrace 011) ---- */
+export type AutomationPhase = 'running' | 'draining';
+
+/** Účet Claude, který umí vézt automatizaci (token má orchestrátor v config.env). */
+export interface AutomationAccount {
+  slug: string;
+  label: string;
+  email: string | null;
+  token_present: boolean;
+  updated_at: string;
+}
+
+/** Jediný řádek automation_control: kdo veze automatizaci a jestli probíhá přepnutí. */
+export interface AutomationControl {
+  id: number;
+  active_account: string;
+  requested_account: string;
+  phase: AutomationPhase;
+  requested_by: string | null;
+  requested_at: string | null;
+  drain_started_at: string | null;
+  switched_at: string | null;
+  notified_at: string | null;
+  updated_at: string;
+}
+
+export interface AutomationRunningJob {
+  id: number;
+  type: string;
+  kontakt_id: number | null;
+  kontakt_name: string | null;
+  account: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AutomationStatus {
+  control: AutomationControl;
+  accounts: AutomationAccount[];
+  running: AutomationRunningJob[];
+  queued: number;
+}
+
 export interface MeInfo {
   user_id: number;
   username: string;
@@ -243,4 +286,9 @@ export interface Api {
     token: string,
     threadId: number
   ): Promise<{ ok: boolean; thread_id: number; status: string }>;
+  /* ---- přepínání účtů Claude (migrace 011) ---- */
+  /** Stav přepínače: kdo veze automatizaci, běžící joby, fronta (admin). */
+  getAutomationStatus(token: string): Promise<AutomationStatus>;
+  /** Požadavek na přepnutí (jen users.id = 1). Cíl = aktivní účet ⇒ zrušení. */
+  requestAccountSwitch(token: string, slug: string): Promise<AutomationStatus>;
 }
