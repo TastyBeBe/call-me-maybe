@@ -229,4 +229,18 @@ export const supabaseApi: Api = {
   async requestAccountSwitch(token: string, slug: string): Promise<AutomationStatus> {
     return rpc<AutomationStatus>('request_account_switch', { p_token: token, p_slug: slug });
   },
+
+  /* ---- vypínač automatizace (migrace 012) ---- */
+
+  async requestAutomationStop(token: string): Promise<AutomationStatus> {
+    return rpc<AutomationStatus>('request_automation_stop', { p_token: token });
+  },
+
+  async cancelAutomationStop(token: string): Promise<AutomationStatus> {
+    return rpc<AutomationStatus>('cancel_automation_stop', { p_token: token });
+  },
+
+  async requestAutomationStart(token: string): Promise<AutomationStatus> {
+    return rpc<AutomationStatus>('request_automation_start', { p_token: token });
+  },
 };

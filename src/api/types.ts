@@ -178,8 +178,10 @@ export interface UpdatedUser {
   active: boolean;
 }
 
-/* ---- přepínání účtů Claude (migrace 011) ---- */
-export type AutomationPhase = 'running' | 'draining';
+/* ---- přepínání účtů Claude (migrace 011) + vypínač automatizace (migrace 012) ---- */
+export type AutomationPhase = 'running' | 'draining' | 'stopped';
+/** Proč se vyprazdňuje: přepnutí účtu, nebo vypnutí celé automatizace. */
+export type AutomationDrainReason = 'switch' | 'stop';
 
 /** Účet Claude, který umí vézt automatizaci (token má orchestrátor v config.env). */
 export interface AutomationAccount {
@@ -190,17 +192,22 @@ export interface AutomationAccount {
   updated_at: string;
 }
 
-/** Jediný řádek automation_control: kdo veze automatizaci a jestli probíhá přepnutí. */
+/** Jediný řádek automation_control: kdo veze automatizaci, jestli probíhá přepnutí/vypnutí a jestli je vypnutá. */
 export interface AutomationControl {
   id: number;
   active_account: string;
   requested_account: string;
   phase: AutomationPhase;
+  drain_reason: AutomationDrainReason | null;
   requested_by: string | null;
   requested_at: string | null;
   drain_started_at: string | null;
   switched_at: string | null;
   notified_at: string | null;
+  stop_requested_at: string | null;
+  stopped_at: string | null;
+  stop_notified_at: string | null;
+  started_at: string | null;
   updated_at: string;
 }
 
@@ -291,4 +298,11 @@ export interface Api {
   getAutomationStatus(token: string): Promise<AutomationStatus>;
   /** Požadavek na přepnutí (jen users.id = 1). Cíl = aktivní účet ⇒ zrušení. */
   requestAccountSwitch(token: string, slug: string): Promise<AutomationStatus>;
+  /* ---- vypínač automatizace (migrace 012), jen users.id = 1 ---- */
+  /** Vypnout šetrně: rozdělané joby doběhnou (draining/stop), pak stopped; bez jobů hned. */
+  requestAutomationStop(token: string): Promise<AutomationStatus>;
+  /** Zrušit probíhající vypínání (draining/stop ⇒ running). */
+  cancelAutomationStop(token: string): Promise<AutomationStatus>;
+  /** Zapnout (stopped ⇒ running); orchestrátor pokračuje dalším tikem (do 15 min). */
+  requestAutomationStart(token: string): Promise<AutomationStatus>;
 }

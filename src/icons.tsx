@@ -215,6 +215,15 @@ export function GlobeIcon(props: IconProps) {
   );
 }
 
+export function PowerIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="M18.36 6.64a9 9 0 1 1-12.73 0" />
+      <line x1="12" y1="2" x2="12" y2="12" />
+    </Icon>
+  );
+}
+
 export function RocketIcon(props: IconProps) {
   return (
     <Icon {...props}>

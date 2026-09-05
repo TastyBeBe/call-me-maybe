@@ -1841,3 +1841,97 @@ table.kontakty tr:last-child td {
   font-weight: 600;
   opacity: 0.85;
 }
+
+/* ---------- automatizace: vypínač celé automatizace (migrace 012) ---------- */
+
+.power-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 18px 22px;
+  margin: 16px 0 4px;
+}
+
+.power-card.on {
+  background: var(--cream);
+}
+
+.power-card.draining {
+  background: var(--yellow);
+}
+
+.power-card.off {
+  background: var(--cream-deep);
+}
+
+.power-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+.power-text {
+  font-size: var(--fs-title);
+  font-weight: 800;
+  line-height: 1.2;
+}
+
+.power-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  border: 2px solid var(--ink);
+  border-radius: var(--r-pill);
+  box-shadow: 0 2px 0 var(--ink);
+  padding: 3px 12px;
+  white-space: nowrap;
+}
+
+.power-pill.on {
+  background: var(--green);
+  color: var(--paper-on-dark);
+}
+
+.power-pill.draining {
+  background: var(--orange-soft);
+  color: var(--ink);
+}
+
+.power-pill.off {
+  background: var(--disabled);
+  color: var(--paper-on-dark);
+}
+
+.power-pill.sm {
+  font-size: 11px;
+  padding: 1px 8px;
+  box-shadow: 0 1px 0 var(--ink);
+}
+
+.power-card .auto-meta {
+  margin: 0;
+}
+
+.power-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-top: 2px;
+}
+
+.section-eyebrow {
+  margin: 22px 0 -8px;
+}
+
+.big-tile .tile-sub.power {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}

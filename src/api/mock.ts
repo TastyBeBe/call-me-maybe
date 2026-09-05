@@ -463,14 +463,23 @@ const mockControl: AutomationControl = {
   active_account: 'albert',
   requested_account: 'albert',
   phase: 'running',
+  drain_reason: null,
   requested_by: null,
   requested_at: null,
   drain_started_at: null,
   switched_at: null,
   notified_at: null,
+  stop_requested_at: null,
+  stopped_at: null,
+  stop_notified_at: null,
+  started_at: null,
   updated_at: now(),
 };
 let mockRunning: AutomationRunningJob[] = [];
+const mockDemoJobs = (): AutomationRunningJob[] => [
+  { id: 901, type: 'build', kontakt_id: 1, kontakt_name: 'Chata Balcar', account: mockControl.active_account, created_at: now(), updated_at: now() },
+  { id: 902, type: 'photo', kontakt_id: 2, kontakt_name: 'Chalupa Pod Lesem', account: mockControl.active_account, created_at: now(), updated_at: now() },
+];
 
 function mockAuthAdmin(token: string): MockUser {
   const uid = sessions.get(token);
@@ -480,15 +489,21 @@ function mockAuthAdmin(token: string): MockUser {
   return u;
 }
 
-/** Demo: během přepínání „doběhne" jeden job každých 8 s; po posledním se přepne. */
+/** Demo: během vyprazdňování „doběhne" jeden job každých 8 s; po posledním se přepne / vypne. */
 function mockAutomationStatus(): AutomationStatus {
   if (mockControl.phase === 'draining' && mockControl.drain_started_at) {
     const t = Date.now() - new Date(mockControl.drain_started_at).getTime();
     mockRunning = mockRunning.filter((_, i) => t < (i + 1) * 8000);
     if (mockRunning.length === 0) {
-      mockControl.active_account = mockControl.requested_account;
-      mockControl.phase = 'running';
-      mockControl.switched_at = now();
+      if (mockControl.drain_reason === 'stop') {
+        mockControl.phase = 'stopped';
+        mockControl.stopped_at = now();
+      } else {
+        mockControl.active_account = mockControl.requested_account;
+        mockControl.phase = 'running';
+        mockControl.switched_at = now();
+      }
+      mockControl.drain_reason = null;
       mockControl.updated_at = now();
     }
   }
@@ -1000,22 +1015,81 @@ export const mockApi: Api = {
     const u = mockAuthAdmin(token);
     if (u.id !== 1) throw new Error('Přepínat účet automatizace smí jen Albert.');
     if (!mockAccounts.some((a) => a.slug === slug)) throw new Error(`Neznámý účet: ${slug}`);
-    if (slug === mockControl.active_account) {
+    if (mockControl.phase === 'draining' && mockControl.drain_reason === 'stop') {
+      throw new Error('Automatizace se právě vypíná. Nejdřív zruš vypnutí, pak přepni účet.');
+    }
+    if (mockControl.phase === 'stopped') {
+      // vypnuto = nic neběží, přepne se hned
+      mockControl.active_account = slug;
+      mockControl.requested_account = slug;
+      mockControl.switched_at = now();
+    } else if (slug === mockControl.active_account) {
       mockControl.requested_account = slug;
       mockControl.phase = 'running';
+      mockControl.drain_reason = null;
       mockRunning = [];
     } else {
       mockControl.requested_account = slug;
       mockControl.phase = 'draining';
+      mockControl.drain_reason = 'switch';
       mockControl.requested_by = u.display_name;
       mockControl.requested_at = now();
       mockControl.drain_started_at = now();
-      mockRunning = [
-        { id: 901, type: 'build', kontakt_id: 1, kontakt_name: 'Chata Balcar', account: mockControl.active_account, created_at: now(), updated_at: now() },
-        { id: 902, type: 'photo', kontakt_id: 2, kontakt_name: 'Chalupa Pod Lesem', account: mockControl.active_account, created_at: now(), updated_at: now() },
-      ];
+      mockRunning = mockDemoJobs();
     }
     mockControl.updated_at = now();
+    return mockAutomationStatus();
+  },
+
+  /* ---- vypínač automatizace (migrace 012) ---- */
+
+  async requestAutomationStop(token: string): Promise<AutomationStatus> {
+    await delay();
+    const u = mockAuthAdmin(token);
+    if (u.id !== 1) throw new Error('Vypínat automatizaci smí jen Albert.');
+    if (mockControl.phase === 'draining' && mockControl.drain_reason === 'switch') {
+      throw new Error('Právě probíhá přepnutí účtu. Počkej, až doběhne, nebo ho nejdřív zruš.');
+    }
+    if (mockControl.phase === 'running') {
+      mockControl.phase = 'draining';
+      mockControl.drain_reason = 'stop';
+      mockControl.stop_requested_at = now();
+      mockControl.drain_started_at = now();
+      mockRunning = mockDemoJobs();
+      mockControl.updated_at = now();
+    }
+    return mockAutomationStatus();
+  },
+
+  async cancelAutomationStop(token: string): Promise<AutomationStatus> {
+    await delay();
+    const u = mockAuthAdmin(token);
+    if (u.id !== 1) throw new Error('Vypínat automatizaci smí jen Albert.');
+    if (mockControl.phase === 'draining' && mockControl.drain_reason === 'stop') {
+      mockControl.phase = 'running';
+      mockControl.drain_reason = null;
+      mockControl.stop_requested_at = null;
+      mockRunning = [];
+      mockControl.updated_at = now();
+    }
+    return mockAutomationStatus();
+  },
+
+  async requestAutomationStart(token: string): Promise<AutomationStatus> {
+    await delay();
+    const u = mockAuthAdmin(token);
+    if (u.id !== 1) throw new Error('Zapínat automatizaci smí jen Albert.');
+    if (mockControl.phase === 'stopped') {
+      mockControl.phase = 'running';
+      mockControl.drain_reason = null;
+      mockControl.stop_requested_at = null;
+      mockControl.stopped_at = null;
+      mockControl.stop_notified_at = null;
+      mockControl.started_at = now();
+      mockControl.updated_at = now();
+    } else if (mockControl.phase === 'draining' && mockControl.drain_reason === 'stop') {
+      return this.cancelAutomationStop(token);
+    }
     return mockAutomationStatus();
   },
 };
