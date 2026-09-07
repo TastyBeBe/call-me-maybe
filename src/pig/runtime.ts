@@ -902,8 +902,20 @@ export class PigRuntime {
     // --- particles (real time) ---
     for (let i = this.parts.length-1; i >= 0; i--) { const q = this.parts[i]; q.t += rdt;
       if (q.kind === 'ring') { if (q.t > .5) this.parts.splice(i, 1); }
-      else if (q.kind === 'bullet') { q.x += q.vx*rdt; q.y += q.vy*rdt;
-        if (!this.dead && !this.party && this.pigAtDev(q.x, q.y)) { this._shotDir = [q.vx, q.vy]; this.impact(q.w, q.x, q.y); this.parts.splice(i, 1); continue; }
+      else if (q.kind === 'bullet') {
+        // Kulka letí ~2800 px/s, takže za jeden snímek přeskočí i 45 px — bez dělení
+        // dráhy PROLETÍ prasetem, aniž by se trefila (Albert 2026-09-07: krev se
+        // skoro nikdy neobjevila). Testujeme proto po malých krocích celou dráhu.
+        const dx = q.vx*rdt, dy = q.vy*rdt;
+        const steps = Math.max(1, Math.ceil(Math.hypot(dx, dy)/(6*DPR)));
+        let hit = false;
+        for (let k = 1; k <= steps; k++) {
+          const nx = q.x + dx*k/steps, ny = q.y + dy*k/steps;
+          if (!this.dead && !this.party && this.pigAtDev(nx, ny)) {
+            this._shotDir = [q.vx, q.vy]; this.impact(q.w, nx, ny); this.parts.splice(i, 1); hit = true; break; }
+        }
+        if (hit) continue;
+        q.x += dx; q.y += dy;
         if (q.t > .9 || q.x < -80*DPR || q.x > this.W+80*DPR || q.y < -80*DPR || q.y > this.H+80*DPR) this.parts.splice(i, 1); }
       else if (q.kind === 'blood') { q.vy += 2000*DPR*rdt; q.x += q.vx*rdt; q.y += q.vy*rdt;
         if (q.y > FLOOR) { q.y = FLOOR; q.vy *= -.22; q.vx *= .55; }
