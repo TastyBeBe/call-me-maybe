@@ -40,8 +40,13 @@ export const TOOLS = [
 export const DANCES = ['dance_wave', 'dance_ovcacek', 'dance_buckbuck', 'dance_twerk', 'dance_handstand', 'dance_ultratwerk'];
 
 // sprite px contact points (measured on the art, v6) — the same transform draws and tests
-// ústí hlavně a výhozné okno v px sprajtu weapon_gun.png (kotva je (48,183))
-const GUN_MUZZLE = [230, 80], GUN_EJECT = [70, 96];
+// ústí hlavně a výhozné okno v px sprajtu weapon_gun.png (260x248, kresba z ChatGPT)
+const GUN_MUZZLE = [256, 62], GUN_EJECT = [117, 58];
+// Kotva sprajtu (kde je kurzor) jako podíl šířky/výšky. Výchozí (.2,.8) sedí ostatním
+// zbraním; glock má rukojeť jinde, tak má vlastní hodnotu změřenou na obrázku.
+const WANCHOR = { gun: [0.2217, 0.68] };
+// úhel z rukojeti do ústí hlavně — o tolik se sprajt natáčí, aby mířil na cíl
+const GUN_AIM_OFF = 0.4846;
 const WCONTACT = { glove: [[125,18],[80,32],[170,32]], bat: [[212,28],[185,50],[228,18]],
   pan: [[140,80],[140,20],[140,140],[80,80],[200,80]], knife: [[205,42],[234,6],[160,88]],
   hammer: [[95,48],[111,31],[57,96]], chainsaw: [[232,18],[195,24],[155,40]] };
@@ -389,7 +394,7 @@ export class PigRuntime {
     this.parts.push({ kind: 'shell', x: ex, y: ey, vx: (100+Math.random()*170)*DPR, vy: -(430+Math.random()*170)*DPR,
                       rot: Math.random()*6.28, rvel: (Math.random()-.5)*26, t: 0, rang: false });
     this.recoil = .16; this.shake = Math.max(this.shake, 7);
-    this.fx('e_ringburst', mx, my, .22, .1);   // záblesk z hlavně (malý, jen cuknutí u ústí)
+    this.fxs.push({ key: 'e_gunflash', x: mx, y: my, t: 0, scale: .5, life: .1, rot: ang });  // záblesk z hlavně
     this.play('gun_shot', .8);
   }
   weaponM(w, u) { const im = this.IMG[w.img], s = .6*this.IS, DPR = this.DPR; let M = T(this.mx, this.my), ang = -.35;
@@ -397,10 +402,14 @@ export class PigRuntime {
     else if (w.kind === 'punch') { if (u > 0) { const bp = this.pigScreen(), d = Math.atan2(bp[1]-this.my, bp[0]-this.mx); M = mul(M, mul(ROT(d*57.29578+90), T(0, -Math.sin(u*Math.PI)*120*DPR))); } }
     else if (w.kind === 'saw') { const bp = this.pigScreen(); ang = Math.atan2(bp[1]-this.my, bp[0]-this.mx)+(this.held ? (Math.random()-.5)*.1 : 0); }
     else if (w.kind === 'gun') { const bp = this.pigScreen();
-      // sprajt míří o 0.515 rad nad osu kotva->ústí; zpětný ráz kopne hlavní nahoru
-      ang = Math.atan2(bp[1]-this.my, bp[0]-this.mx)+.515-(this.recoil||0)*2.4; }
+      // sprajt míří o GUN_AIM_OFF nad osu kotva->ústí; zpětný ráz kopne hlavní nahoru
+      ang = Math.atan2(bp[1]-this.my, bp[0]-this.mx)+GUN_AIM_OFF-(this.recoil||0)*2.4; }
     if (w.kind !== 'punch') M = mul(M, ROT(ang*57.29578));
-    return mul(M, mul(T(-im.width*s*.2, -im.height*s*.8), SCL(s, s))); }
+    // Zbraň mířící doleva by po otočení stála vzhůru nohama (u pistole to bije do očí),
+    // tak ji zrcadlíme kolem osy hlavně — pažbička pak míří dolů jako ve skutečnosti.
+    if (w.kind === 'gun' && Math.cos(ang) < 0) M = mul(M, SCL(1, -1));
+    const [ax, ay] = WANCHOR[w.id] || [.2, .8];
+    return mul(M, mul(T(-im.width*s*ax, -im.height*s*ay), SCL(s, s))); }
   weaponContact(w, u) { const M = this.weaponM(w, u); return (WCONTACT[w.id] || []).map(([x, y]) => apply(M, x, y)); }
   weaponHit(w, u) { for (const [x, y] of this.weaponContact(w, u)) { if (this.pigAtDev(x, y)) return [x, y]; } return null; }
 

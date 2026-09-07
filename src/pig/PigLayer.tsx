@@ -114,12 +114,11 @@ export default function PigLayer() {
   // jinak je to TDZ ("Cannot access 'counters' before initialization"), což
   // tsc nechytí, PigBoundary to spolkne a Prokchop jen tiše zmizí.
   const isOwner = uid === OWNER_USER_ID;
-  // placený nástroj (růžový glock) se musí koupit i Albertovi — jinak by ho nikdy nekupoval
+  // Albert má všechno (i placený glock, jeho rozhodnutí 2026-09-07); ostatní si ho kupují
   const unlocked = useCallback(
     (id: string) =>
-      TOOL_PRICES[id] !== undefined
-        ? progress.owned.includes(id)
-        : isOwner || isUnlocked(id, counters),
+      isOwner ||
+      (TOOL_PRICES[id] !== undefined ? progress.owned.includes(id) : isUnlocked(id, counters)),
     [isOwner, counters, progress.owned]
   );
   /** Albert má všechny čepice, ALE swagger brýle zůstávají odměnou za #1 prodejce —
