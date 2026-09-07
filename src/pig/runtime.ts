@@ -34,7 +34,7 @@ export const TOOLS = [
   { id: 'whip',     nm: 'bič',          kind: 'whip',  img: 'weapon_whip',     dmg: 24, force: 900,  fx: 'e_welt',      snd: 'whip_hit' },
   { id: 'chainsaw', nm: 'motorovka',    kind: 'saw',   img: 'weapon_chainsaw', dmg: 6,  force: 120,  fx: 'e_sputter',   snd: 'hit_soft' },
   { id: 'grenade',  nm: 'granát',       kind: 'throw', img: 'weapon_grenade',  dmg: 90, force: 1100, fx: 'e_boom',      snd: 'explosion',  stop: .09 },
-  { id: 'gun',      nm: 'růžový glock', kind: 'gun',   img: 'weapon_gun',      dmg: 34, force: 780,  fx: 'e_blood',     snd: 'gun_shot',   stop: .05, fxScale: .55, fxLife: .5 },
+  { id: 'gun',      nm: 'růžový glock', kind: 'gun',   img: 'weapon_gun',      dmg: 34, force: 780,  fx: 'e_blood',     snd: 'gun_shot',   stop: .05, fxScale: .3, fxLife: .55, blood: true },
   { id: 'crystal',  nm: 'magický krystal', kind: 'crystal', img: 'weapon_crystal' },
 ];
 export const DANCES = ['dance_wave', 'dance_ovcacek', 'dance_buckbuck', 'dance_twerk', 'dance_handstand', 'dance_ultratwerk'];
@@ -97,7 +97,7 @@ export class PigRuntime {
     this.bubble = null; this.parts = []; this.fxs = []; this.glows = []; this.hitstop = 0; this.shake = 0;
     this.lastHitPart = 'body'; this._seq = 0; this._mc = null; this.enter = null; this.lastTouch = 0;
     this.IS = 1; this.ghost = false; this.roam = null; this.showWalls = false; this.ballistic = false; this.reenterAfter = false; this.stuckFrames = 0; this._ghostT = 0;
-    this.recoil = 0;
+    this.recoil = 0; this._lastShot = 0;
     this.flee = 0; this.fleeFrom = 0; this.rotTarget = 0; this.cos = null; this.reveal = null; this.goldParty = false; this._evict = 0; this._inWin = true;
     this.tick = this.tick.bind(this); this.running = false; this.destroyed = false;
     this._onMove = e => this.onMove(e); this._onDown = e => this.onDown(e); this._onUp = () => this.onUp();
@@ -386,6 +386,7 @@ export class PigRuntime {
     this.addDmg(w.dmg, px, py); if (this.dead) return;
     const fxRot = (w.kind === 'cut' && this.strike) ? (.15+Math.sin(Math.min(1, this.strike.t/.16)*Math.PI)*1.1) : undefined;
     this.fxPig(w.fx, px, py, (w.fxScale || 1)*(1+w.dmg*.012), w.fxLife || .38, fxRot);
+    if (w.blood) this.bloodBurst(px, py);
     if (w.id === 'pan') this.squash(1.18, .84); else if (w.id === 'hammer') { this.squash(1.2, .62); P.vy -= 120; }
     else if (w.id === 'glove') { this.squash(.88, 1.08); P.vx += dir*260; } else if (w.id === 'bat') P.rvel += dir*140;
     else if (w.id === 'knife') P.vx -= dir*f*.4; else if (w.id === 'whip') { this.squash(.94, 1.05); P.rvel += dir*90; }
@@ -399,8 +400,26 @@ export class PigRuntime {
     if (!this.hyper) { this.flee = 2.6+Math.random()*1.6; this.fleeFrom = px;          // terrified for a few seconds
       setTimeout(() => { if (this.flee > 0 && !this.dead) this.play('flee', .85); }, 260); }
     this.emit('hit', w.id); }
+  /** Krev z rány: kousky letí VEN z prasete po směru střely, padají a mizí.
+   *  Albert 2026-09-07: nechtěl placatou kaňku před prasetem, ale stříkanec z rány. */
+  bloodBurst(x, y) {
+    const DPR = this.DPR, d = this._shotDir || [1, 0];
+    const base = Math.atan2(d[1], d[0]);
+    const n = 8 + Math.floor(Math.random()*5);
+    for (let i = 0; i < n; i++) {
+      const a = base + (Math.random()-.5)*1.7;              // úzký kužel po směru střely
+      const sp = (150 + Math.random()*480)*DPR;
+      this.parts.push({ kind: 'blood', x, y, vx: Math.cos(a)*sp, vy: Math.sin(a)*sp - (60+Math.random()*160)*DPR,
+                        r: (2 + Math.random()*3.6)*DPR, t: 0, life: .45 + Math.random()*.55 });
+    }
+  }
   /** RŮŽOVÝ GLOCK: kulka letí z hlavně na prase, nábojnice vyletí z výhozného okna a spadne na zem. */
   shoot(w) {
+    // Jeden klik = JEDEN výstřel (Albert 2026-09-07: ozvalo se dvakrát). Zároveň to
+    // drží rozumnou kadenci, i kdyby se pointerdown z nějakého důvodu zopakoval.
+    const now = performance.now()/1000;
+    if (this._lastShot && now - this._lastShot < .12) return;
+    this._lastShot = now;
     const DPR = this.DPR, M = this.weaponM(w, 0);
     const [mx, my] = apply(M, GUN_MUZZLE[0], GUN_MUZZLE[1]);
     const [ex, ey] = apply(M, GUN_EJECT[0], GUN_EJECT[1]);
@@ -884,8 +903,11 @@ export class PigRuntime {
     for (let i = this.parts.length-1; i >= 0; i--) { const q = this.parts[i]; q.t += rdt;
       if (q.kind === 'ring') { if (q.t > .5) this.parts.splice(i, 1); }
       else if (q.kind === 'bullet') { q.x += q.vx*rdt; q.y += q.vy*rdt;
-        if (!this.dead && !this.party && this.pigAtDev(q.x, q.y)) { this.impact(q.w, q.x, q.y); this.parts.splice(i, 1); continue; }
+        if (!this.dead && !this.party && this.pigAtDev(q.x, q.y)) { this._shotDir = [q.vx, q.vy]; this.impact(q.w, q.x, q.y); this.parts.splice(i, 1); continue; }
         if (q.t > .9 || q.x < -80*DPR || q.x > this.W+80*DPR || q.y < -80*DPR || q.y > this.H+80*DPR) this.parts.splice(i, 1); }
+      else if (q.kind === 'blood') { q.vy += 2000*DPR*rdt; q.x += q.vx*rdt; q.y += q.vy*rdt;
+        if (q.y > FLOOR) { q.y = FLOOR; q.vy *= -.22; q.vx *= .55; }
+        if (q.t > q.life) this.parts.splice(i, 1); }
       else if (q.kind === 'shell') { q.vy += 2200*DPR*rdt; q.x += q.vx*rdt; q.y += q.vy*rdt; q.rot += q.rvel*rdt;
         if (q.y > FLOOR) { q.y = FLOOR; q.vy *= -.4; q.vx *= .72; q.rvel *= .6;
           if (!q.rang) { this.play('shell_drop', .3); q.rang = true; } }
@@ -942,6 +964,11 @@ export class PigRuntime {
       const AX = 486, AY = 365, RX = 0, RY = 163; const wing = (ph, k) => { ctx.save(); ctx.translate(AX, AY); ctx.rotate(-.3+flap*ph); ctx.scale(k, k); ctx.drawImage(wi, -RX, -RY); ctx.restore(); };
       wing(-1, .8); ctx.drawImage(bi, 0, 0); wing(1, 1); ctx.restore(); }
     for (const c of this.confetti) { ctx.save(); ctx.globalAlpha = c.rest > 1.5 ? Math.max(0, 1-(c.rest-1.5)) : 1; ctx.translate(c.x, c.y); ctx.rotate(c.rot); ctx.fillStyle = c.col; ctx.fillRect(-c.w/2, -c.h/2, c.w, c.h); ctx.restore(); }
+    for (const q of this.parts) { if (q.kind !== 'blood') continue; const u = Math.min(1, q.t/q.life);
+      ctx.save(); ctx.globalAlpha = u > .72 ? Math.max(0, (1-u)/.28) : 1;
+      ctx.beginPath(); ctx.arc(q.x, q.y, Math.max(.8, q.r*(1-u*.3)), 0, 7);
+      ctx.fillStyle = '#8E1220'; ctx.fill();
+      ctx.lineWidth = Math.max(1, q.r*.45); ctx.strokeStyle = '#1A0207'; ctx.stroke(); ctx.restore(); }
     for (const q of this.parts) { if (q.kind === 'bullet' || q.kind === 'shell') { const im = I['bullet']; if (!im || !im.width) continue;
       const s = (q.kind === 'bullet' ? .30 : .24)*this.IS; ctx.save(); ctx.translate(q.x, q.y);
       ctx.rotate(q.kind === 'bullet' ? Math.atan2(q.vy, q.vx) : q.rot);
