@@ -1,0 +1,95 @@
+{
+  "source": "ChatGPT sheet 1448x1086, born transparent",
+  "pieces": {
+    "blood_drop_s": {
+      "file": "blood_drop_s.png",
+      "size": [
+        115,
+        114
+      ],
+      "parts": 1,
+      "opaque_px": 8231,
+      "sheet_bbox": [
+        188,
+        259,
+        302,
+        372
+      ]
+    },
+    "blood_drop_m": {
+      "file": "blood_drop_m.png",
+      "size": [
+        166,
+        248
+      ],
+      "parts": 1,
+      "opaque_px": 23794,
+      "sheet_bbox": [
+        610,
+        174,
+        775,
+        421
+      ]
+    },
+    "blood_drop_l": {
+      "file": "blood_drop_l.png",
+      "size": [
+        412,
+        131
+      ],
+      "parts": 1,
+      "opaque_px": 27227,
+      "sheet_bbox": [
+        1002,
+        246,
+        1413,
+        376
+      ]
+    },
+    "blood_gob": {
+      "file": "blood_gob.png",
+      "size": [
+        423,
+        291
+      ],
+      "parts": 1,
+      "opaque_px": 76873,
+      "sheet_bbox": [
+        37,
+        612,
+        459,
+        902
+      ]
+    },
+    "blood_splat_a": {
+      "file": "blood_splat_a.png",
+      "size": [
+        408,
+        364
+      ],
+      "parts": 6,
+      "opaque_px": 69634,
+      "sheet_bbox": [
+        515,
+        561,
+        922,
+        924
+      ]
+    },
+    "blood_splat_b": {
+      "file": "blood_splat_b.png",
+      "size": [
+        448,
+        363
+      ],
+      "parts": 5,
+      "opaque_px": 68912,
+      "sheet_bbox": [
+        979,
+        565,
+        1426,
+        927
+      ]
+    }
+  }
+}

@@ -34,7 +34,9 @@ export const TOOLS = [
   { id: 'whip',     nm: 'bič',          kind: 'whip',  img: 'weapon_whip',     dmg: 24, force: 900,  fx: 'e_welt',      snd: 'whip_hit' },
   { id: 'chainsaw', nm: 'motorovka',    kind: 'saw',   img: 'weapon_chainsaw', dmg: 6,  force: 120,  fx: 'e_sputter',   snd: 'hit_soft' },
   { id: 'grenade',  nm: 'granát',       kind: 'throw', img: 'weapon_grenade',  dmg: 90, force: 1100, fx: 'e_boom',      snd: 'explosion',  stop: .09 },
-  { id: 'gun',      nm: 'růžový glock', kind: 'gun',   img: 'weapon_gun',      dmg: 34, force: 780,  fx: 'e_blood',     snd: 'gun_shot',   stop: .05, fxScale: .3, fxLife: .55, blood: true },
+  // Albert 2026-09-07: na praseti NEMÁ zůstat žádná kaňka — proto tahle zbraň
+  // jako jediná nemá `fx`. Zásah je vidět jen podle krve, která letí VEN z rány.
+  { id: 'gun',      nm: 'růžový glock', kind: 'gun',   img: 'weapon_gun',      dmg: 34, force: 780,                     snd: 'gun_shot',   stop: .05, blood: true },
   { id: 'crystal',  nm: 'magický krystal', kind: 'crystal', img: 'weapon_crystal' },
 ];
 export const DANCES = ['dance_wave', 'dance_ovcacek', 'dance_buckbuck', 'dance_twerk', 'dance_handstand', 'dance_ultratwerk'];
@@ -42,6 +44,16 @@ export const DANCES = ['dance_wave', 'dance_ovcacek', 'dance_buckbuck', 'dance_t
 // sprite px contact points (measured on the art, v6) — the same transform draws and tests
 // ústí hlavně a výhozné okno v px sprajtu weapon_gun.png (260x248, kresba z ChatGPT)
 const GUN_MUZZLE = [256, 62], GUN_EJECT = [117, 58];
+// KREV (kresba z ChatGPT, stejný styl jako zbraně). Kapky letí, cáknutí padá na zem.
+const BLOOD_DROPS = ['blood_drop_s', 'blood_drop_m', 'blood_drop_l'];
+const BLOOD_GOB = 'blood_gob';
+const BLOOD_SPLATS = ['blood_splat_a', 'blood_splat_b'];
+// Sprajt se kreslí otočený po směru letu (jeho osa +x míří tam, kam kapka letí).
+// Slza je nakreslená špičkou VZHŮRU, takže potřebuje vlastní posun, aby jí špička
+// zůstala vzadu za letem — jinak by mířila do strany. Otáčí se KRESLENÍ, ne pixely.
+const BLOOD_ROT = { blood_drop_m: -Math.PI/2 };
+// Cáknutí drží plnou barvu prvních 34 % života a pak mizí; celé je pryč do 0,35 s.
+const BLOODMARK_LIFE = .35, BLOODMARK_HOLD = .34;
 // Kotva sprajtu (kde je kurzor) jako podíl šířky/výšky. Výchozí (.2,.8) sedí ostatním
 // zbraním; glock má rukojeť jinde, tak má vlastní hodnotu změřenou na obrázku.
 const WANCHOR = { gun: [0.2217, 0.68] };
@@ -385,7 +397,7 @@ export class PigRuntime {
     P.vx += dir*f*(.9+Math.random()*.4); P.vy -= f*.45; P.rvel += dir*(f*.05)*(Math.random()*.6+.7); this.ballistic = true; this.roam = null;
     this.addDmg(w.dmg, px, py); if (this.dead) return;
     const fxRot = (w.kind === 'cut' && this.strike) ? (.15+Math.sin(Math.min(1, this.strike.t/.16)*Math.PI)*1.1) : undefined;
-    this.fxPig(w.fx, px, py, (w.fxScale || 1)*(1+w.dmg*.012), w.fxLife || .38, fxRot);
+    if (w.fx) this.fxPig(w.fx, px, py, (w.fxScale || 1)*(1+w.dmg*.012), w.fxLife || .38, fxRot);
     if (w.blood) this.bloodBurst(px, py);
     if (w.id === 'pan') this.squash(1.18, .84); else if (w.id === 'hammer') { this.squash(1.2, .62); P.vy -= 120; }
     else if (w.id === 'glove') { this.squash(.88, 1.08); P.vx += dir*260; } else if (w.id === 'bat') P.rvel += dir*140;
@@ -405,12 +417,29 @@ export class PigRuntime {
   bloodBurst(x, y) {
     const DPR = this.DPR, d = this._shotDir || [1, 0];
     const base = Math.atan2(d[1], d[0]);
-    const n = 8 + Math.floor(Math.random()*5);
-    for (let i = 0; i < n; i++) {
-      const a = base + (Math.random()-.5)*1.7;              // úzký kužel po směru střely
-      const sp = (150 + Math.random()*480)*DPR;
-      this.parts.push({ kind: 'blood', x, y, vx: Math.cos(a)*sp, vy: Math.sin(a)*sp - (60+Math.random()*160)*DPR,
-                        r: (2 + Math.random()*3.6)*DPR, t: 0, life: .45 + Math.random()*.55 });
+    // Dvě populace, protože právě jejich rozdíl dělá z broků kapalinu:
+    //   MLHA  — hodně malých, velký odpor vzduchu, skoro hned se zastaví
+    //   KLAKY — pár těžkých, malý odpor, viditelně opíšou oblouk a dopadnou
+    // Kapky se rodí KOUSEK VEN z rány, ne v těle prasete — jinak se první snímky
+    // kreslí přes jeho záda a vypadá to jako flek na praseti místo stříkance.
+    const ox = x + Math.cos(base)*14*DPR, oy = y + Math.sin(base)*14*DPR;
+    const mist = 10 + Math.floor(Math.random()*5);
+    for (let i = 0; i < mist; i++) {
+      const a = base + (Math.random()-.5)*0.9;             // úzký kužel PO SMĚRU střely
+      const sp = (420 + Math.random()*620)*DPR;
+      this.parts.push({ kind: 'blood', img: BLOOD_DROPS[Math.floor(Math.random()*2)],
+        x: ox, y: oy, vx: Math.cos(a)*sp, vy: Math.sin(a)*sp - (60+Math.random()*170)*DPR,
+        r: (1.0 + Math.random()*1.3)*DPR, drag: 2.2 + Math.random()*1.4,
+        rot: Math.random()*6.28, t: 0, life: .26 + Math.random()*.20 });
+    }
+    const gobs = 3 + Math.floor(Math.random()*2);
+    for (let i = 0; i < gobs; i++) {
+      const a = base + (Math.random()-.5)*0.7;
+      const sp = (240 + Math.random()*300)*DPR;
+      this.parts.push({ kind: 'blood', img: Math.random() < .5 ? BLOOD_DROPS[2] : BLOOD_GOB,
+        x: ox, y: oy, vx: Math.cos(a)*sp, vy: Math.sin(a)*sp - (110+Math.random()*150)*DPR,
+        r: (2.6 + Math.random()*1.6)*DPR, drag: 0.4 + Math.random()*0.4,
+        rot: Math.random()*6.28, t: 0, life: .70 + Math.random()*.40 });
     }
   }
   /** RŮŽOVÝ GLOCK: kulka letí z hlavně na prase, nábojnice vyletí z výhozného okna a spadne na zem. */
@@ -917,9 +946,21 @@ export class PigRuntime {
         if (hit) continue;
         q.x += dx; q.y += dy;
         if (q.t > .9 || q.x < -80*DPR || q.x > this.W+80*DPR || q.y < -80*DPR || q.y > this.H+80*DPR) this.parts.splice(i, 1); }
-      else if (q.kind === 'blood') { q.vy += 2000*DPR*rdt; q.x += q.vx*rdt; q.y += q.vy*rdt;
-        if (q.y > FLOOR) { q.y = FLOOR; q.vy *= -.22; q.vx *= .55; }
+      else if (q.kind === 'blood') {
+        // Odpor vzduchu podle velikosti kapky: mlha se zastaví skoro hned,
+        // těžké klaky doletí. Bez tohohle to lítá jako broky, ne jako krev.
+        const k = Math.max(0, 1 - q.drag*rdt);
+        q.vx *= k; q.vy *= k;
+        q.vy += 2000*DPR*rdt; q.x += q.vx*rdt; q.y += q.vy*rdt;
+        if (q.y >= FLOOR) {
+          // ŽÁDNÝ ODRAZ (Albert 2026-09-07). Kapka cákne a hned mizí.
+          this.parts.splice(i, 1);
+          this.parts.push({ kind: 'bloodmark', img: BLOOD_SPLATS[Math.floor(Math.random()*BLOOD_SPLATS.length)],
+            x: q.x, y: FLOOR, r: q.r*(1.5 + Math.random()*.7), rot: (Math.random()-.5)*.5,
+            t: 0, life: BLOODMARK_LIFE });
+          continue; }
         if (q.t > q.life) this.parts.splice(i, 1); }
+      else if (q.kind === 'bloodmark') { if (q.t > q.life) this.parts.splice(i, 1); }
       else if (q.kind === 'shell') { q.vy += 2200*DPR*rdt; q.x += q.vx*rdt; q.y += q.vy*rdt; q.rot += q.rvel*rdt;
         if (q.y > FLOOR) { q.y = FLOOR; q.vy *= -.4; q.vx *= .72; q.rvel *= .6;
           if (!q.rang) { this.play('shell_drop', .3); q.rang = true; } }
@@ -976,11 +1017,22 @@ export class PigRuntime {
       const AX = 486, AY = 365, RX = 0, RY = 163; const wing = (ph, k) => { ctx.save(); ctx.translate(AX, AY); ctx.rotate(-.3+flap*ph); ctx.scale(k, k); ctx.drawImage(wi, -RX, -RY); ctx.restore(); };
       wing(-1, .8); ctx.drawImage(bi, 0, 0); wing(1, 1); ctx.restore(); }
     for (const c of this.confetti) { ctx.save(); ctx.globalAlpha = c.rest > 1.5 ? Math.max(0, 1-(c.rest-1.5)) : 1; ctx.translate(c.x, c.y); ctx.rotate(c.rot); ctx.fillStyle = c.col; ctx.fillRect(-c.w/2, -c.h/2, c.w, c.h); ctx.restore(); }
-    for (const q of this.parts) { if (q.kind !== 'blood') continue; const u = Math.min(1, q.t/q.life);
-      ctx.save(); ctx.globalAlpha = u > .72 ? Math.max(0, (1-u)/.28) : 1;
-      ctx.beginPath(); ctx.arc(q.x, q.y, Math.max(.8, q.r*(1-u*.3)), 0, 7);
-      ctx.fillStyle = '#8E1220'; ctx.fill();
-      ctx.lineWidth = Math.max(1, q.r*.45); ctx.strokeStyle = '#1A0207'; ctx.stroke(); ctx.restore(); }
+    // Cáknutí na zemi: drží chvilku a zmizí (Albert: nemá tam zůstávat dlouho).
+    for (const q of this.parts) { if (q.kind !== 'bloodmark') continue; const im = I[q.img]; if (!im || !im.width) continue;
+      const u = Math.min(1, q.t/q.life);
+      ctx.save(); ctx.globalAlpha = u > BLOODMARK_HOLD ? Math.max(0, (1-u)/(1-BLOODMARK_HOLD)) : 1;
+      const s = (q.r*2.6)/im.height; ctx.translate(q.x, q.y); ctx.rotate(q.rot); ctx.scale(s, s);
+      ctx.drawImage(im, -im.width/2, -im.height*.72); ctx.restore(); }
+    // Letící krev: sprajt otočený po směru letu a NATAŽENÝ podle rychlosti —
+    // rychlá kapka je čárka, pomalá kulička. To je to, co vypadá jako kapalina.
+    for (const q of this.parts) { if (q.kind !== 'blood') continue; const im = I[q.img]; if (!im || !im.width) continue;
+      const u = Math.min(1, q.t/q.life);
+      const sp = Math.hypot(q.vx, q.vy);
+      const stretch = Math.min(2.2, 1 + sp/(900*DPR));
+      ctx.save(); ctx.globalAlpha = u > .78 ? Math.max(0, (1-u)/.22) : 1;
+      ctx.translate(q.x, q.y); ctx.rotate((sp > 12*DPR ? Math.atan2(q.vy, q.vx) : q.rot) + (BLOOD_ROT[q.img] || 0));
+      const s = (q.r*2)/im.height; ctx.scale(s*stretch, s);
+      ctx.drawImage(im, -im.width/2, -im.height/2); ctx.restore(); }
     for (const q of this.parts) { if (q.kind === 'bullet' || q.kind === 'shell') { const im = I['bullet']; if (!im || !im.width) continue;
       const s = (q.kind === 'bullet' ? .30 : .24)*this.IS; ctx.save(); ctx.translate(q.x, q.y);
       ctx.rotate(q.kind === 'bullet' ? Math.atan2(q.vy, q.vx) : q.rot);

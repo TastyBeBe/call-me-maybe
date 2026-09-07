@@ -73,7 +73,12 @@
     "weapon_gun": "weapon_gun.png",
     "bullet": "bullet.png",
     "e_gunflash": "e_gunflash.png",
-    "e_blood": "e_blood.png"
+    "blood_drop_s": "blood_drop_s.png",
+    "blood_drop_m": "blood_drop_m.png",
+    "blood_drop_l": "blood_drop_l.png",
+    "blood_gob": "blood_gob.png",
+    "blood_splat_a": "blood_splat_a.png",
+    "blood_splat_b": "blood_splat_b.png"
   },
   "sounds": {
     "angel_rise": "angel_rise.mp3",
