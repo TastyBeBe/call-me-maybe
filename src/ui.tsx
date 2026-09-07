@@ -226,8 +226,8 @@ export const ALL_CEKANI = Object.keys(CEKANI_LABELS) as CekaniKind[];
 export const KOS_LABELS: Record<CekaniKos, string> = {
   cerstve: 'Čerstvé (do 7 dní)',
   k_zavolani: 'K zavolání (7–30 dní)',
-  vlazne: 'Vlažné (1–3 měsíce)',
-  vychladle: 'Vychladlé (3+ měsíce)',
+  vlazne: 'Vlažné (1–2 měsíce)',
+  vychladle: 'Vychladlé (2+ měsíce)',
 };
 
 export const ALL_KOSE = Object.keys(KOS_LABELS) as CekaniKos[];
@@ -252,6 +252,6 @@ export function kosOf(since: string | null | undefined): CekaniKos | null {
   const dny = (Date.now() - t) / 86_400_000;
   if (dny < 7) return 'cerstve';
   if (dny < 30) return 'k_zavolani';
-  if (dny < 90) return 'vlazne';
+  if (dny < 60) return 'vlazne';
   return 'vychladle';
 }

@@ -109,7 +109,7 @@ function kosOfMock(since: string | null): CekaniKos | null {
   const d = (Date.now() - new Date(since).getTime()) / 86_400_000;
   if (d < 7) return 'cerstve';
   if (d < 30) return 'k_zavolani';
-  if (d < 90) return 'vlazne';
+  if (d < 60) return 'vlazne';
   return 'vychladle';
 }
 

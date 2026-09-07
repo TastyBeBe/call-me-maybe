@@ -6,7 +6,7 @@ import { useAuth } from '../auth';
 import { LockIcon } from '../icons';
 import { DANCES, PigRuntime, TOOLS } from './runtime';
 import {
-  COSMETICS, COS_PRICE, MILESTONES, TOP_COSMETIC, UNLOCKS, balance, dayWord,
+  COSMETICS, COS_PRICE, MILESTONES, TOOL_PRICES, TOP_COSMETIC, UNLOCKS, balance, dayWord,
   isUnlocked, loadProgress, progressFrac, progressLabel, requirement,
   saveProgress, tickTopDays, topDaysFor, type Counters, type Progress,
 } from './progress';
@@ -114,7 +114,14 @@ export default function PigLayer() {
   // jinak je to TDZ ("Cannot access 'counters' before initialization"), což
   // tsc nechytí, PigBoundary to spolkne a Prokchop jen tiše zmizí.
   const isOwner = uid === OWNER_USER_ID;
-  const unlocked = useCallback((id: string) => isOwner || isUnlocked(id, counters), [isOwner, counters]);
+  // placený nástroj (růžový glock) se musí koupit i Albertovi — jinak by ho nikdy nekupoval
+  const unlocked = useCallback(
+    (id: string) =>
+      TOOL_PRICES[id] !== undefined
+        ? progress.owned.includes(id)
+        : isOwner || isUnlocked(id, counters),
+    [isOwner, counters, progress.owned]
+  );
   /** Albert má všechny čepice, ALE swagger brýle zůstávají odměnou za #1 prodejce —
    *  ty si musí zasloužit stejně jako ostatní (jeho výslovné přání). */
   const ownsCos = useCallback(
@@ -292,6 +299,17 @@ export default function PigLayer() {
   }, [ready, session, uid, awardTop]);
 
   /* ---------- the closet ---------- */
+  /** Koupě NÁSTROJE za PROKCHOPY (růžový glock, 100). Málo chopů = jen kviknutí. */
+  const buyTool = useCallback((id: string) => {
+    const price = TOOL_PRICES[id];
+    if (price === undefined || progress.owned.includes(id)) return;
+    if (chops < price) { rtRef.current?.play('squeal_hit', .4); return; }
+    setProgress((p) => ({ ...p, spent: (p.spent || 0) + price, owned: [...p.owned, id] }));
+    rtRef.current?.play('buy', .95);
+    setTool(id);
+    showReveal('tool', id, toolById(id).nm);
+  }, [chops, progress.owned, setProgress, showReveal]);
+
   const buy = useCallback((id: string) => {
     const c = COSMETICS.find((x) => x.id === id);
     if (!c || c.price === null) return;
@@ -310,6 +328,7 @@ export default function PigLayer() {
   const slot = (id: string) => {
     const t = toolById(id);
     const isOpen = unlocked(id);
+    const price = TOOL_PRICES[id];
     const sel = tool === id;
     return (
       <button
@@ -318,16 +337,24 @@ export default function PigLayer() {
         data-sfx="none"
         className={`pig-slot${sel ? ' sel' : ''}${isOpen ? '' : ' locked'}`}
         aria-label={t.nm}
-        onClick={() => { if (!isOpen) return; setTool(sel ? null : id); rtRef.current?.play('plunger_stick', 0.6); }}
+        onClick={() => {
+          if (!isOpen) { if (price !== undefined) buyTool(id); return; }
+          setTool(sel ? null : id); rtRef.current?.play('plunger_stick', 0.6);
+        }}
       >
         <img src={toolImg(id)} alt="" draggable={false} />
-        {!unlocked && <span className="pig-lock"><LockIcon size={16} /></span>}
+        {!isOpen && <span className="pig-lock"><LockIcon size={16} /></span>}
+        {!isOpen && price !== undefined && (
+          <span className="pig-slot-price"><img src={BASE + 'prokchop.png'} alt="" />{price}</span>
+        )}
         <span className="pig-tip">
           <b>{t.nm}</b>
-          {!unlocked && (<>
+          {!isOpen && (<>
             <span className="req">{requirement(id)}</span>
-            <span className="prog"><i style={{ width: `${Math.round(progressFrac(id, counters) * 100)}%` }} /></span>
-            <span>{progressLabel(id, counters)}</span>
+            {price === undefined && (
+              <span className="prog"><i style={{ width: `${Math.round(progressFrac(id, counters) * 100)}%` }} /></span>
+            )}
+            <span>{price !== undefined ? `máš ${chops}` : progressLabel(id, counters)}</span>
           </>)}
         </span>
       </button>

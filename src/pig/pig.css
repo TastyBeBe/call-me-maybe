@@ -209,3 +209,14 @@ body.pig-layer .page { padding-left: 74px; }
 .pig-dance-item:hover { background: var(--orange); color: var(--paper-on-dark); }
 .pig-dance-item:active { transform: translateY(2px); box-shadow: none; }
 .pig-dance-foot { margin: 10px 0 0; font-size: 11.5px; }
+
+/* Cena placeného nástroje (růžový glock) přímo na jeho ikoně v liště. */
+.pig-slot-price {
+  position: absolute; left: 50%; bottom: -3px; transform: translateX(-50%);
+  display: inline-flex; align-items: center; gap: 2px;
+  font-size: 10px; font-weight: 900; line-height: 1;
+  padding: 2px 4px; border-radius: 7px;
+  background: var(--ink, #221e33); color: var(--butter, #fdf6e9);
+  border: 1.5px solid var(--butter, #fdf6e9); pointer-events: none;
+}
+.pig-slot-price img { width: 11px; image-rendering: pixelated; }

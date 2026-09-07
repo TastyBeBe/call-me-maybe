@@ -29,6 +29,9 @@ export const MILESTONES: Milestone[] = [
   { id: 'sold100', counter: 'sold',     need: 100, dance: 'dance_handstand', label: '100 prodaných webů' },
 ];
 
+/** Nástroje, které se KUPUJÍ za PROKCHOPY místo odemykání počítadly (Albert 2026-09-07). */
+export const TOOL_PRICES: Record<string, number> = { gun: 100 };
+
 export interface Unlock { counter: CounterKey; need: number; hidden?: boolean }
 /** null = available from the start */
 export const UNLOCKS: Record<string, Unlock | null> = {
@@ -40,6 +43,7 @@ export const UNLOCKS: Record<string, Unlock | null> = {
   whip: { counter: 'accepted', need: 20 },
   chainsaw: { counter: 'sold', need: 20 },
   grenade: { counter: 'accepted', need: 50 },
+  gun: null, // růžový glock se kupuje za PROKCHOPY, ne odemyká — viz TOOL_PRICES
   crystal: { counter: 'sold', need: 100, hidden: true },
 };
 
@@ -55,12 +59,16 @@ export function unit(k: CounterKey, n: number): string {
 }
 const VERB: Record<CounterKey, string> = { calls: 'Zavolej', accepted: 'Získej', sold: 'Prodej' };
 
-export function isUnlocked(toolId: string, c: Counters): boolean {
+export function isUnlocked(toolId: string, c: Counters, owned: string[] = []): boolean {
+  // placené nástroje: rozhoduje nákup, ne počítadla (a nedostane je zadarmo ani Albert)
+  if (TOOL_PRICES[toolId] !== undefined) return owned.includes(toolId);
   const u = UNLOCKS[toolId];
   return !u || c[u.counter] >= u.need;
 }
 /** what the user must DO, for the hover card of a locked item */
 export function requirement(toolId: string): string {
+  const price = TOOL_PRICES[toolId];
+  if (price !== undefined) return `Kup si ho za ${price} PROKCHOPŮ`;
   const u = UNLOCKS[toolId];
   if (!u) return 'Odemčeno od začátku';
   if (u.hidden) return 'Tajný předmět — prodávej dál…';
@@ -68,12 +76,14 @@ export function requirement(toolId: string): string {
 }
 /** `have / need`; the crystal shows progress but never its target */
 export function progressLabel(toolId: string, c: Counters): string {
+  if (TOOL_PRICES[toolId] !== undefined) return 'k zakoupení';
   const u = UNLOCKS[toolId];
   if (!u) return 'odemčeno';
   const have = c[u.counter];
   return u.hidden ? `${have} / ?` : `${have} / ${u.need}`;
 }
 export function progressFrac(toolId: string, c: Counters): number {
+  if (TOOL_PRICES[toolId] !== undefined) return 0;
   const u = UNLOCKS[toolId];
   if (!u) return 1;
   if (u.hidden) return Math.min(0.92, c[u.counter] / u.need);
