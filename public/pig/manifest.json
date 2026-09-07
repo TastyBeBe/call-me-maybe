@@ -72,7 +72,8 @@
     "whip_straight": "whip_straight.png",
     "weapon_gun": "weapon_gun.png",
     "bullet": "bullet.png",
-    "e_gunflash": "e_gunflash.png"
+    "e_gunflash": "e_gunflash.png",
+    "e_blood": "e_blood.png"
   },
   "sounds": {
     "angel_rise": "angel_rise.mp3",

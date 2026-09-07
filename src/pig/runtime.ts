@@ -34,7 +34,7 @@ export const TOOLS = [
   { id: 'whip',     nm: 'bič',          kind: 'whip',  img: 'weapon_whip',     dmg: 24, force: 900,  fx: 'e_welt',      snd: 'whip_hit' },
   { id: 'chainsaw', nm: 'motorovka',    kind: 'saw',   img: 'weapon_chainsaw', dmg: 6,  force: 120,  fx: 'e_sputter',   snd: 'hit_soft' },
   { id: 'grenade',  nm: 'granát',       kind: 'throw', img: 'weapon_grenade',  dmg: 90, force: 1100, fx: 'e_boom',      snd: 'explosion',  stop: .09 },
-  { id: 'gun',      nm: 'růžový glock', kind: 'gun',   img: 'weapon_gun',      dmg: 34, force: 780,  fx: 'e_ringburst', snd: 'gun_shot',   stop: .05 },
+  { id: 'gun',      nm: 'růžový glock', kind: 'gun',   img: 'weapon_gun',      dmg: 34, force: 780,  fx: 'e_blood',     snd: 'gun_shot',   stop: .05, fxScale: .55, fxLife: .5 },
   { id: 'crystal',  nm: 'magický krystal', kind: 'crystal', img: 'weapon_crystal' },
 ];
 export const DANCES = ['dance_wave', 'dance_ovcacek', 'dance_buckbuck', 'dance_twerk', 'dance_handstand', 'dance_ultratwerk'];
@@ -101,6 +101,9 @@ export class PigRuntime {
     this.flee = 0; this.fleeFrom = 0; this.rotTarget = 0; this.cos = null; this.reveal = null; this.goldParty = false; this._evict = 0; this._inWin = true;
     this.tick = this.tick.bind(this); this.running = false; this.destroyed = false;
     this._onMove = e => this.onMove(e); this._onDown = e => this.onDown(e); this._onUp = () => this.onUp();
+    // pointerdown sám o sobě odkaz nezastaví — prohlížeč pošle ještě click
+    this._onClick = e => { if (this.gunBlocks(e)) {
+      e.preventDefault(); e.stopPropagation(); if (e.stopImmediatePropagation) e.stopImmediatePropagation(); } };
     this._onResize = () => this.resize();
   }
   on(ev, fn) { (this.listeners[ev] = this.listeners[ev] || []).push(fn); return () => { this.listeners[ev] = (this.listeners[ev] || []).filter(f => f !== fn); }; }
@@ -139,11 +142,13 @@ export class PigRuntime {
   start() { if (this.running) return; this.running = true; this.resize();
     addEventListener('resize', this._onResize);
     addEventListener('pointermove', this._onMove); addEventListener('pointerdown', this._onDown, true);
+    addEventListener('click', this._onClick, true);
     addEventListener('pointerup', this._onUp);
     this.last = performance.now()/1000; requestAnimationFrame(this.tick); }
   destroy() { this.destroyed = true; this.running = false; this.buzz(false); if (LIVE === this) LIVE = null;
     removeEventListener("resize", this._onResize); removeEventListener('pointerup', this._onUp);
     removeEventListener('pointermove', this._onMove); removeEventListener('pointerdown', this._onDown, true);
+    removeEventListener('click', this._onClick, true);
     try { document.body.style.cursor = ''; } catch (e) { /* ignore */ } }
 
   // ---------- animator transform (verbatim port) ----------
@@ -304,10 +309,24 @@ export class PigRuntime {
    *  aktualizuje výš), jen se nevystřelí. Klik do prázdna nebo na plochu karty
    *  zbraň spustí dál — plátno má pointer-events:none, takže e.target je vždy
    *  skutečný prvek pod kurzorem. */
+  /** Ovládání samotného Prokchopa (lišta nástrojů, šatník) — to musí zůstat klikatelné
+   *  i s pistolí v ruce, jinak by nešlo zbraň odložit. */
+  isPigUI(e) { const t = e && e.target;
+    return !!(t && typeof t.closest === 'function' && t.closest('[data-pig-ui]')); }
   isAppUI(e) { const t = e && e.target;
     if (!t || typeof t.closest !== 'function') return false;
     return !!t.closest('a, button, input, select, textarea, label, summary, [role="button"], [role="link"], [role="tab"], [contenteditable="true"], [data-pig-ui]'); }
+  /** S pistolí v ruce klik NIKDY neprojde do appky (Albert 2026-09-07) — jen se střílí.
+   *  Ovládání Prokchopa (lišta nástrojů, šatník) klikatelné zůstává, jinak by nešlo
+   *  zbraň odložit. Platí i když prase zrovna není vidět nebo je mrtvé. */
+  gunBlocks(e) { return !!(this.tool && this.tool.kind === 'gun' && this.enabled && !this.isPigUI(e)); }
   onDown(e) { [this.mx, this.my] = this.devXY(e); this.mdown = true; this.lastTouch = performance.now()/1000;
+    if (this.gunBlocks(e)) {
+      e.preventDefault(); e.stopPropagation();
+      if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+      if (!this.dead && !this.party && this.shown) this.shoot(this.tool);
+      return;
+    }
     if (this.dead || this.party || !this.shown) return;
     if (this.isAppUI(e)) return;                       // ovládání appky - zbraň nespouštět
     const w = this.tool; if (!w) return;
@@ -319,7 +338,6 @@ export class PigRuntime {
     else if (w.kind === 'crystal') { if (!this.eat) { this.eat = { t: 0, x: this.mx, y: this.my, phase: 'fly', crystal: true }; this.play('oink_happy', .5); this.say('Kvík?! Co to je?!', 1.2); this.standUpNow(); } }
     else if (w.kind === 'swing' || w.kind === 'punch' || w.kind === 'cut') { this.strike = { t: 0, w, x: this.mx, y: this.my }; }
     else if (w.kind === 'saw') { this.held = true; this.buzz(true); }
-    else if (w.kind === 'gun') { this.shoot(w); }
     else if (w.kind === 'throw') { this.parts.push({ kind: 'grenade', x: this.mx, y: this.my-40*this.DPR, vx: (Math.random()-.5)*80*this.DPR, vy: -180*this.DPR, t: 0 }); }
   }
   onUp() { this.mdown = false; this.held = false; this.buzz(false); const P = this.P, GS = this.GS;
@@ -367,7 +385,7 @@ export class PigRuntime {
     P.vx += dir*f*(.9+Math.random()*.4); P.vy -= f*.45; P.rvel += dir*(f*.05)*(Math.random()*.6+.7); this.ballistic = true; this.roam = null;
     this.addDmg(w.dmg, px, py); if (this.dead) return;
     const fxRot = (w.kind === 'cut' && this.strike) ? (.15+Math.sin(Math.min(1, this.strike.t/.16)*Math.PI)*1.1) : undefined;
-    this.fxPig(w.fx, px, py, 1+w.dmg*.012, .38, fxRot);
+    this.fxPig(w.fx, px, py, (w.fxScale || 1)*(1+w.dmg*.012), w.fxLife || .38, fxRot);
     if (w.id === 'pan') this.squash(1.18, .84); else if (w.id === 'hammer') { this.squash(1.2, .62); P.vy -= 120; }
     else if (w.id === 'glove') { this.squash(.88, 1.08); P.vx += dir*260; } else if (w.id === 'bat') P.rvel += dir*140;
     else if (w.id === 'knife') P.vx -= dir*f*.4; else if (w.id === 'whip') { this.squash(.94, 1.05); P.rvel += dir*90; }
@@ -394,7 +412,9 @@ export class PigRuntime {
     this.parts.push({ kind: 'shell', x: ex, y: ey, vx: (100+Math.random()*170)*DPR, vy: -(430+Math.random()*170)*DPR,
                       rot: Math.random()*6.28, rvel: (Math.random()-.5)*26, t: 0, rang: false });
     this.recoil = .16; this.shake = Math.max(this.shake, 7);
-    this.fxs.push({ key: 'e_gunflash', x: mx, y: my, t: 0, scale: .5, life: .1, rot: ang });  // záblesk z hlavně
+    // záblesk sedí LEVÝM okrajem na ústí hlavně (ax:.04) a je natočený po ose výstřelu,
+    // takže plamen jde z díry ven, ne přes celou zbraň (Albert 2026-09-07)
+    this.fxs.push({ key: 'e_gunflash', x: mx, y: my, t: 0, scale: .34, life: .12, rot: ang, ax: .04 });
     this.play('gun_shot', .8);
   }
   weaponM(w, u) { const im = this.IMG[w.img], s = .6*this.IS, DPR = this.DPR; let M = T(this.mx, this.my), ang = -.35;
@@ -935,7 +955,7 @@ export class PigRuntime {
       ctx.save(); ctx.translate(this.eat.dx || this.eat.x, this.eat.dy || this.eat.y); ctx.rotate(this.eat.phase === 'fly' ? this.eat.t*7 : -.3); ctx.drawImage(im, -im.width*s/2, -im.height*s/2, im.width*s, im.height*s); ctx.restore(); } }
     for (const q of this.fxs) { const im = I[q.key]; if (!im || !im.width) continue; const LT = q.life || .38, life = q.t/LT; let s = (0.55+Math.min(1, q.t/.08)*.6)*q.scale*GS*0.95; if (q.on !== 'pig') s *= 1.4;
       let px2 = q.x, py2 = q.y; if (q.on === 'pig') { if (!this.shown) continue; const w2 = apply(this.outerM(), q.rx, q.ry); px2 = w2[0]; py2 = w2[1]; }
-      ctx.save(); ctx.globalAlpha = life > .7 ? (1-life)/.3 : 1; ctx.translate(px2, py2); ctx.rotate(q.rot); ctx.drawImage(im, -im.width*s/2, -im.height*s/2, im.width*s, im.height*s); ctx.restore(); }
+      ctx.save(); ctx.globalAlpha = life > .7 ? (1-life)/.3 : 1; ctx.translate(px2, py2); ctx.rotate(q.rot); ctx.drawImage(im, -im.width*s*(q.ax === undefined ? .5 : q.ax), -im.height*s/2, im.width*s, im.height*s); ctx.restore(); }
     if (this.sprawl > 0 && I['e_dizzy'] && this.shown) { const hs = this.headScreen(), im = I['e_dizzy'], s = .5*GS; ctx.save(); ctx.translate(hs[0], hs[1]-40*GS); ctx.rotate(now*4%6.28); ctx.drawImage(im, -im.width*s/2, -im.height*s/2, im.width*s, im.height*s); ctx.restore(); }
     if (this.bubble && this.shown) { if (now > this.bubble.until) this.bubble = null; else {
       const [hx, hy] = this.headScreen(); ctx.font = '800 '+(15*DPR)+'px "Baloo 2", Nunito, sans-serif';
