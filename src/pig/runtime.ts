@@ -1,6 +1,6 @@
 // @ts-nocheck
 /*
- * PROCOP THE PIG — the Kick-the-Procop runtime ported into Call Me Maybe as a full-window
+ * PROKCHOP THE PIG — the Kick-the-Prokchop runtime ported into Call Me Maybe as a full-window
  * transparent canvas layer. Ported from ~/Gamesky/procop-pig/game/template.html (v17):
  * the animator transform, walk/idle/wave AI, grab/throw/hit physics, per-part alpha hitboxes,
  * damage stages, death + angel + respawn, party dances. What is NEW here:
@@ -72,7 +72,7 @@ export class PigRuntime {
     this.base = opts.base || '/pig/';
     this.scale = opts.scale || 0.16;                       // css px per rig px
     this.sfxOn = opts.sfxOn || (() => true);
-    this.sfxVol = opts.sfxVol || (() => 1);   // vlastní posuvník hlasitosti Procopa
+    this.sfxVol = opts.sfxVol || (() => 1);   // vlastní posuvník hlasitosti Prokchopa
     this.listeners = {};
     this.IMG = {}; this.SND = {}; this.SPOOL = {}; this.MASK = {};
     this.walls = [];                                       // device px rects {x,y,w,h}
@@ -220,7 +220,7 @@ export class PigRuntime {
       if (this.sawA) this.sawA.play().catch(() => {}); } else if (this.sawA) { this.sawA.pause(); this.sawA.currentTime = 0; } }
   /** Hlídá zvuk KAŽDÝ SNÍMEK, ne jen při stisku myši (Albert 2026-09-04:
    *  "vypnul jsem všechen zvuk a něco pořád hraje"). Smyčka motorovky se totiž
-   *  zastavovala jen přes buzz(false) — když si člověk vypnul Procopa uprostřed
+   *  zastavovala jen přes buzz(false) — když si člověk vypnul Prokchopa uprostřed
    *  řezání, hrála dál donekonečna (naměřeno: volume 0.65, čas běžel dál).
    *  Tady se navíc drží hlasitost smyčky na posuvníku a při vypnutí kanálu se
    *  utnou i doznívající jednorázové zvuky. */

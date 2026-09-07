@@ -2,6 +2,8 @@
 // Umožňuje plně proklikat UI bez backendu. Data žijí jen v paměti (reload = reset).
 
 import type {
+  CekaniKind,
+  CekaniKos,
   AdminMessage,
   Api,
   AutomationAccount,
@@ -83,13 +85,70 @@ function k(partial: Partial<Kontakt> & { id: number }): Kontakt {
     flag_note: null,
     flagged_at: null,
     flagged_by: null,
+    first_proposal_at: null,
+    last_our_reply_at: null,
+    last_client_reply_at: null,
     created_at: daysAgo(30),
     updated_at: daysAgo(5),
     ...partial,
   } as Kontakt;
 }
 
+/** Čekání na odpověď (migrace 014) — stejná pravidla jako SQL kontakt_cekani/kontakt_kos. */
+function cekaniOf(c: Kontakt): { kind: CekaniKind | null; since: string | null } {
+  if (['zaplaceno', 'domena_pripojena', 'hotovo', 'odmitnuto', 'pozastaveno'].includes(c.status))
+    return { kind: null, since: null };
+  if (c.last_client_reply_at && c.last_our_reply_at && c.last_our_reply_at > c.last_client_reply_at)
+    return { kind: 'ceka_po_odpovedi', since: c.last_our_reply_at };
+  if (!c.last_client_reply_at && c.first_proposal_at)
+    return { kind: 'ceka_prvni', since: c.first_proposal_at };
+  return { kind: null, since: null };
+}
+function kosOfMock(since: string | null): CekaniKos | null {
+  if (!since) return null;
+  const d = (Date.now() - new Date(since).getTime()) / 86_400_000;
+  if (d < 7) return 'cerstve';
+  if (d < 30) return 'k_zavolani';
+  if (d < 90) return 'vlazne';
+  return 'vychladle';
+}
+
 const kontakty: Kontakt[] = [
+  // --- ukázka pro filtry čekání (migrace 014) ---
+  k({
+    id: 90,
+    name: 'Chalupa Tichá — čeká na první odpověď',
+    phone: '+420 606 100 100',
+    email: 'ticha@example.cz',
+    status: 'navrh_odeslan',
+    live_url: 'https://chalupa-ticha.example.app',
+    first_proposal_at: daysAgo(12),
+    last_our_reply_at: daysAgo(12),
+  }),
+  k({
+    id: 91,
+    name: 'Chata Mlčenlivá — mlčí rok',
+    phone: '+420 606 200 200',
+    email: 'mlcenliva@example.cz',
+    status: 'navrh_odeslan',
+    first_proposal_at: daysAgo(300),
+    last_our_reply_at: daysAgo(300),
+  }),
+  k({
+    id: 92,
+    name: 'Penzion U Kašny — neodpovídá po naší odpovědi',
+    phone: '+420 606 300 300',
+    email: 'kasna@example.cz',
+    status: 'ceka_na_klienta',
+    live_url: 'https://penzion-u-kasny.example.app',
+    first_proposal_at: daysAgo(40),
+    last_client_reply_at: daysAgo(25),
+    last_our_reply_at: daysAgo(11),
+    flag_kind: 'neodpovida',
+    flag_note: 'Klient si web vyžádal, my mu odpověděli a od té doby mlčí (11 dní). Zavolat mu.',
+    flagged_at: daysAgo(4),
+    flagged_by: 'automatizace',
+  }),
   k({
     id: 1,
     name: 'Chata Pod Smrkem — Novákovi',
@@ -650,11 +709,19 @@ export const mockApi: Api = {
       (!f.status || c.status === f.status) &&
       (!f.caller || c.last_caller === f.caller) &&
       (!f.rating || c.rating === f.rating) &&
+      (!f.cekani || cekaniOf(c).kind === f.cekani) &&
+      (!f.kos || kosOfMock(cekaniOf(c).since) === f.kos) &&
       (!search ||
         [c.name, c.phone, c.web, c.email, c.note].some(
           (v) => v && v.toLowerCase().includes(search)
         ));
     const filtered = kontakty.filter(matches).sort((a, b) => {
+      // při filtru čekání: nejdéle čekající nahoře (Albert 2026-09-07)
+      if (f.cekani) {
+        const sa = cekaniOf(a).since ?? '';
+        const sb = cekaniOf(b).since ?? '';
+        if (sa !== sb) return sa < sb ? -1 : 1;
+      }
       const oa = STATUS_ORDER[a.status] ?? 40;
       const ob = STATUS_ORDER[b.status] ?? 40;
       if (oa !== ob) return oa - ob;
@@ -667,7 +734,10 @@ export const mockApi: Api = {
     const limit = Math.max(f.limit ?? 200, 1);
     return {
       total: filtered.length,
-      rows: filtered.slice(offset, offset + limit).map((c) => ({ ...c })),
+      rows: filtered.slice(offset, offset + limit).map((c) => {
+        const cek = cekaniOf(c);
+        return { ...c, cekani_kind: cek.kind, cekani_since: cek.since, cekani_kos: kosOfMock(cek.since) };
+      }),
     };
   },
 

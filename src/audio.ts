@@ -14,9 +14,9 @@ import { useSyncExternalStore } from 'react';
  *   randomizací je to nejlevnější způsob, jak opakovaný zvuk působí "živě".
  * - Hudba: <audio> loop /audio/lofi.mp3, volume 0.22. Soubor zatím nemusí
  *   existovat — selhání načtení je jen console.info a přepínač dál funguje.
- * - TŘI nezávislé kanály (Albert 2026-09-03): UI zvuky, Procop a hudba.
+ * - TŘI nezávislé kanály (Albert 2026-09-03): UI zvuky, Prokchop a hudba.
  *   Každý má vlastní vypínač i vlastní hlasitost 0–100 %, všechno persistované
- *   v localStorage. Procopovy zvuky jdou přes `pigOn` / `pigVolume`, které si
+ *   v localStorage. Prokchopovy zvuky jdou přes `pigOn` / `pigVolume`, které si
  *   čte jeho runtime — díky tomu se dá ztlumit prase, aniž zmlknou tlačítka.
  */
 
@@ -106,7 +106,7 @@ class AudioManager {
     return this.musicEnabled;
   }
 
-  /** Procopovy zvuky (kviky, zbraně, fanfáry) — čte jeho runtime. */
+  /** Prokchopovy zvuky (kviky, zbraně, fanfáry) — čte jeho runtime. */
   get pigOn(): boolean {
     return this.pigEnabled;
   }

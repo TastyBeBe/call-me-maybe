@@ -117,7 +117,7 @@ export default function StatsPage() {
               <div className="stat-value">{shown.nedovolano}</div>
               <div className="stat-label">Nedovoláno</div>
             </div>
-            {/* kolik dní drží tenhle člověk korunu #1 prodejce (Procopovo počítadlo) */}
+            {/* kolik dní drží tenhle člověk korunu #1 prodejce (Prokchopovo počítadlo) */}
             <div className="card stat-card">
               <div className="stat-value">{topDays}</div>
               <div className="stat-label">{dayWord(topDays)} jako #1 prodejce</div>

@@ -1,5 +1,5 @@
 /**
- * Procop's PROGRESS model: the app's real counters -> dances, tool unlocks, PROKCHOP and the closet.
+ * Prokchop's PROGRESS model: the app's real counters -> dances, tool unlocks, PROKCHOP and the closet.
  *
  * COUNTER MAPPING (src/api/types.ts + db/schema.sql, my_stats / all_stats):
  *   calls    = MyStats.calls  — every call_log row this user wrote (any outcome)

@@ -12,7 +12,7 @@ import { audio, isSfxName } from './audio';
 import { OWNER_USER_ID, useAuth } from './auth';
 import { getConfig } from './config';
 
-/** Logo = Procopova pochroumaná hlava v party čepici (public/icons). */
+/** Logo = Prokchopova pochroumaná hlava v party čepici (public/icons). */
 const logoUrl = import.meta.env.BASE_URL + 'icons/procop_logo_256.png';
 import AdminPage from './pages/AdminPage';
 import AutomatizacePage from './pages/AutomatizacePage';
@@ -28,7 +28,7 @@ import ZpravyPage from './pages/ZpravyPage';
 import PigLayer from './pig/PigLayer';
 import SoundMenu from './SoundMenu';
 
-/** Procop je dekorace: když spadne, zaloguj to a vrstvu zahoď — appka jede dál. */
+/** Prokchop je dekorace: když spadne, zaloguj to a vrstvu zahoď — appka jede dál. */
 class PigBoundary extends Component<{ children: ReactNode }, { broken: boolean }> {
   state = { broken: false };
   static getDerivedStateFromError() { return { broken: true }; }

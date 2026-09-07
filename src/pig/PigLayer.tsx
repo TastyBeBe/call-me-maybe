@@ -112,7 +112,7 @@ export default function PigLayer() {
   // Albert má všechno odemčené; ostatní si to musí odemknout hovory a prodeji.
   // POZOR na pořadí: `unlocked` čte `counters`, takže musí být AŽ ZA ním —
   // jinak je to TDZ ("Cannot access 'counters' before initialization"), což
-  // tsc nechytí, PigBoundary to spolkne a Procop jen tiše zmizí.
+  // tsc nechytí, PigBoundary to spolkne a Prokchop jen tiše zmizí.
   const isOwner = uid === OWNER_USER_ID;
   const unlocked = useCallback((id: string) => isOwner || isUnlocked(id, counters), [isOwner, counters]);
   /** Albert má všechny čepice, ALE swagger brýle zůstávají odměnou za #1 prodejce —
@@ -379,7 +379,7 @@ export default function PigLayer() {
           type="button"
           className={`pig-power${pigOn ? ' on' : ''}`}
           data-sfx="none"
-          title={pigOn ? 'Vypnout Procopa' : 'Zapnout Procopa'}
+          title={pigOn ? 'Vypnout Prokchopa' : 'Zapnout Prokchopa'}
           aria-pressed={pigOn}
           onClick={() => { setProgress((p) => ({ ...p, pigOn: !p.pigOn })); rtRef.current?.play('plunger_stick', 0.6); }}
         >

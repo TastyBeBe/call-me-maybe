@@ -39,7 +39,19 @@ export type FlagKind =
   | 'chybi_email'
   | 'email_neoveren'
   | 'info_neoverene'
-  | 'jine';
+  | 'jine'
+  | 'neodpovida';
+
+/**
+ * Na koho se čeká (migrace 014). Počítá se z reálných dat z Gmailu, ne ze stavu —
+ * stav `ceka_na_klienta` obsahuje i klienty, kterým jsme nikdy nic neposlali.
+ *   ceka_prvni       poslali jsme návrh a klient se NIKDY neozval
+ *   ceka_po_odpovedi klient se ozval, my odpověděli, od té doby mlčí
+ */
+export type CekaniKind = 'ceka_prvni' | 'ceka_po_odpovedi';
+
+/** Koš podle stáří čekání — brání tomu, aby roční mlčenlivci zaplavili začátek seznamu. */
+export type CekaniKos = 'cerstve' | 'k_zavolani' | 'vlazne' | 'vychladle';
 
 export interface Kontakt {
   id: number;
@@ -63,6 +75,14 @@ export interface Kontakt {
   flag_note: string | null;
   flagged_at: string | null;
   flagged_by: string | null;
+  /* ---- čekání na odpověď (migrace 014), plní mail-sync.sh z Gmailu ---- */
+  first_proposal_at: string | null;
+  last_our_reply_at: string | null;
+  last_client_reply_at: string | null;
+  /** odvozeno v list_kontakty — na koho se čeká a od kdy */
+  cekani_kind?: CekaniKind | null;
+  cekani_since?: string | null;
+  cekani_kos?: CekaniKos | null;
   created_at: string;
   updated_at: string;
 }
@@ -157,6 +177,10 @@ export interface ListKontaktyFilters {
   caller?: string | null;
   rating?: string | null;
   search?: string | null;
+  /** filtr „na koho se čeká" (migrace 014) */
+  cekani?: CekaniKind | null;
+  /** koš podle stáří čekání */
+  kos?: CekaniKos | null;
   limit?: number;
   offset?: number;
 }

@@ -3,10 +3,10 @@ import { mockApi } from './mock';
 import { supabaseApi } from './supabase';
 import type { Api } from './types';
 
-/** Volání, která mění data, na kterých stojí Procopovy milníky. */
+/** Volání, která mění data, na kterých stojí Prokchopovy milníky. */
 const MUTATING = new Set<PropertyKey>(['resolveCall', 'updateKontakt', 'setFlag', 'clearFlag']);
 
-/** Po úspěšném měnícím volání pošli `cmm:data-changed` (vrstva s Procopem si načte my_stats). */
+/** Po úspěšném měnícím volání pošli `cmm:data-changed` (vrstva s Prokchopem si načte my_stats). */
 function withChangeEvents(api: Api): Api {
   return new Proxy(api, {
     get(target, prop, receiver) {

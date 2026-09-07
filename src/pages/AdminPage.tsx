@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
   getApi,
+  type CekaniKind,
+  type CekaniKos,
   type Kontakt,
   type UserStats,
 } from '../api';
@@ -9,13 +11,19 @@ import { audio } from '../audio';
 import { useSession } from '../auth';
 import KontaktDrawer from '../components/KontaktDrawer';
 import {
+  ALL_CEKANI,
+  ALL_KOSE,
   ALL_STATUSES,
+  CEKANI_HINTS,
+  CEKANI_LABELS,
   ErrorBox,
   FlagBadge,
+  KOS_LABELS,
   Spinner,
   STATUS_LABELS,
   StatusBadge,
   errMsg,
+  formatCekani,
   formatDateTime,
 } from '../ui';
 import {
@@ -33,6 +41,11 @@ export default function AdminPage() {
   const [status, setStatus] = useState('');
   const [caller, setCaller] = useState('');
   const [rating, setRating] = useState('');
+  // čekání na odpověď (migrace 014); při zapnutí se rovnou zapne koš „k zavolání",
+  // aby začátek seznamu nezaplavili klienti, kteří mlčí rok (Albert 2026-09-07)
+  const [cekani, setCekani] = useState<CekaniKind | ''>('');
+  const [kos, setKos] = useState<CekaniKos | ''>('');
+  const [kosCounts, setKosCounts] = useState<Record<string, number>>({});
   const [search, setSearch] = useState(searchParams.get('search') ?? '');
   const [debouncedSearch, setDebouncedSearch] = useState(search);
   const [page, setPage] = useState(0);
@@ -86,6 +99,33 @@ export default function AdminPage() {
     };
   }, [session.token, tick]);
 
+  // počty v koších (jen když je filtr čekání zapnutý) — ať je vidět, kolik jich
+  // je v tom studeném balíku, aniž by zaplavily začátek seznamu
+  useEffect(() => {
+    if (!cekani) {
+      setKosCounts({});
+      return;
+    }
+    let alive = true;
+    (async () => {
+      try {
+        const api = getApi();
+        const counts = await Promise.all(
+          ALL_KOSE.map(async (k) => {
+            const r = await api.listKontakty(session.token, { cekani, kos: k, limit: 1 });
+            return [k, r.total] as const;
+          })
+        );
+        if (alive) setKosCounts(Object.fromEntries(counts));
+      } catch {
+        // počty jsou kosmetika
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [session.token, cekani, tick]);
+
   const load = useCallback(async () => {
     setLoading(true);
     setError('');
@@ -95,6 +135,8 @@ export default function AdminPage() {
         caller: caller || null,
         rating: rating || null,
         search: debouncedSearch.trim() || null,
+        cekani: cekani || null,
+        kos: cekani ? kos || null : null,
         limit: PAGE_SIZE,
         offset: page * PAGE_SIZE,
       });
@@ -106,7 +148,7 @@ export default function AdminPage() {
     } finally {
       setLoading(false);
     }
-  }, [session.token, status, caller, rating, debouncedSearch, page]);
+  }, [session.token, status, caller, rating, debouncedSearch, cekani, kos, page]);
 
   useEffect(() => {
     void load();
@@ -180,6 +222,25 @@ export default function AdminPage() {
           <option value="B">B</option>
           <option value="C">C</option>
         </select>
+        <select
+          value={cekani}
+          onChange={(e) => {
+            const v = e.target.value as CekaniKind | '';
+            setCekani(v);
+            // zapnutí filtru = rovnou pracovní koš, vypnutí = zrušit koš
+            setKos(v ? 'k_zavolani' : '');
+            setPage(0);
+          }}
+          aria-label="Filtr čekání na odpověď"
+          title={cekani ? CEKANI_HINTS[cekani] : 'Klienti, kteří nám neodpověděli'}
+        >
+          <option value="">Čekání: vše</option>
+          {ALL_CEKANI.map((c) => (
+            <option key={c} value={c}>
+              {CEKANI_LABELS[c]}
+            </option>
+          ))}
+        </select>
         <div className="search-wrap">
           <input
             className="search-input"
@@ -189,6 +250,33 @@ export default function AdminPage() {
           />
         </div>
       </div>
+
+      {cekani && (
+        <div className="flag-filter-bar">
+          {ALL_KOSE.map((k) => (
+            <button
+              key={k}
+              className={`pill-btn sm${kos === k ? ' go' : ''}`}
+              onClick={() => {
+                setKos(kos === k ? '' : k);
+                setPage(0);
+              }}
+            >
+              {KOS_LABELS[k]}
+              {kosCounts[k] !== undefined ? ` (${kosCounts[k]})` : ''}
+            </button>
+          ))}
+          <button
+            className={`pill-btn sm${kos === '' ? ' go' : ''}`}
+            onClick={() => {
+              setKos('');
+              setPage(0);
+            }}
+          >
+            Vše
+          </button>
+        </div>
+      )}
 
       <ErrorBox>{error}</ErrorBox>
 
@@ -211,6 +299,7 @@ export default function AdminPage() {
                 <th>Známka</th>
                 <th>Volal/a</th>
                 <th>Web</th>
+                {cekani ? <th>Čeká</th> : null}
                 <th>Změněno</th>
               </tr>
             </thead>
@@ -244,6 +333,11 @@ export default function AdminPage() {
                       <span className="muted">nemá</span>
                     )}
                   </td>
+                  {cekani ? (
+                    <td style={{ whiteSpace: 'nowrap' }} className="ceka-cell">
+                      {formatCekani(r.cekani_since)}
+                    </td>
+                  ) : null}
                   <td style={{ whiteSpace: 'nowrap' }} className="muted">
                     {formatDateTime(r.updated_at)}
                   </td>

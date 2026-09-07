@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import type { FlagKind, Kontakt, KontaktStatus } from './api';
+import type { CekaniKind, CekaniKos, FlagKind, Kontakt, KontaktStatus } from './api';
 import { FlagIcon } from './icons';
 
 /** České popisky statusů kontaktu. */
@@ -60,6 +60,7 @@ export const FLAG_LABELS: Record<FlagKind, string> = {
   email_neoveren: 'Neověřený e-mail',
   info_neoverene: 'Údaje z internetu',
   jine: 'Něco není v pořádku',
+  neodpovida: 'Neodpovídá — zavolat',
 };
 
 /** Delší vysvětlení pro detail kontaktu. */
@@ -73,6 +74,8 @@ export const FLAG_HINTS: Record<FlagKind, string> = {
   info_neoverene:
     'Texty a fotky na webu pocházejí z internetu, klient je zatím nepotvrdil. Může v nich být nepřesnost.',
   jine: 'U tohoto klienta je něco nedořešeného — podrobnosti jsou v poznámce níže.',
+  neodpovida:
+    'Klient si web vyžádal, my mu odpověděli a od té doby mlčí. Zavolej mu prosím — příznak zmizí sám, jakmile se ozve nebo mu někdo zavolá.',
 };
 
 export const ALL_FLAGS = Object.keys(FLAG_LABELS) as FlagKind[];
@@ -83,6 +86,7 @@ export const FLAG_COLORS: Record<FlagKind, { bg: string; fg: string }> = {
   email_neoveren: { bg: '#e4926f', fg: '#221e33' },
   info_neoverene: { bg: '#e8b04b', fg: '#221e33' },
   jine: { bg: '#a2988a', fg: '#221e33' },
+  neodpovida: { bg: '#7a5cc4', fg: '#fdf6e9' },
 };
 
 /** Červený praporek v seznamech. Bez příznaku nevykreslí nic. */
@@ -200,4 +204,54 @@ export function formatDateTime(iso: string | null): string {
 export function errMsg(e: unknown): string {
   if (e instanceof Error) return e.message;
   return String(e);
+}
+
+/* ---------------------------------------------------------------------------
+   Čekání na odpověď (migrace 014). Popisky a délka čekání česky.
+   --------------------------------------------------------------------------- */
+
+export const CEKANI_LABELS: Record<CekaniKind, string> = {
+  ceka_prvni: 'Čeká na první odpověď',
+  ceka_po_odpovedi: 'Čeká po naší odpovědi',
+};
+
+export const CEKANI_HINTS: Record<CekaniKind, string> = {
+  ceka_prvni: 'Poslali jsme návrh webu a klient se zatím vůbec neozval.',
+  ceka_po_odpovedi: 'Klient si web vyžádal, my mu odpověděli a od té doby mlčí.',
+};
+
+export const ALL_CEKANI = Object.keys(CEKANI_LABELS) as CekaniKind[];
+
+/** Koše podle stáří — výchozí je `k_zavolani`, aby začátek seznamu nezaplavili roční mlčenlivci. */
+export const KOS_LABELS: Record<CekaniKos, string> = {
+  cerstve: 'Čerstvé (do 7 dní)',
+  k_zavolani: 'K zavolání (7–30 dní)',
+  vlazne: 'Vlažné (1–3 měsíce)',
+  vychladle: 'Vychladlé (3+ měsíce)',
+};
+
+export const ALL_KOSE = Object.keys(KOS_LABELS) as CekaniKos[];
+
+/** „3 dny", „14 dní", „2 měsíce" — jak dlouho už se čeká. */
+export function formatCekani(since: string | null | undefined): string {
+  if (!since) return '—';
+  const t = new Date(since).getTime();
+  if (Number.isNaN(t)) return '—';
+  const dny = Math.max(0, Math.floor((Date.now() - t) / 86_400_000));
+  if (dny === 0) return 'dnes';
+  if (dny < 60) return `${dny} ${dny === 1 ? 'den' : dny <= 4 ? 'dny' : 'dní'}`;
+  const m = Math.floor(dny / 30);
+  return `${m} ${m <= 4 ? 'měsíce' : 'měsíců'}`;
+}
+
+/** Do kterého koše čekání spadá — stejné hranice jako v SQL (kontakt_kos). */
+export function kosOf(since: string | null | undefined): CekaniKos | null {
+  if (!since) return null;
+  const t = new Date(since).getTime();
+  if (Number.isNaN(t)) return null;
+  const dny = (Date.now() - t) / 86_400_000;
+  if (dny < 7) return 'cerstve';
+  if (dny < 30) return 'k_zavolani';
+  if (dny < 90) return 'vlazne';
+  return 'vychladle';
 }

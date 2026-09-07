@@ -7,10 +7,10 @@ import { MusicIcon, MusicOffIcon, SpeakerIcon, SpeakerOffIcon } from './icons';
  *
  * Tři nezávislé kanály, každý s vlastním vypínačem A vlastním posuvníkem:
  *   • zvuky aplikace (klik, přechod, odeslání…)
- *   • Procop (kviky, zbraně, fanfáry)
+ *   • Prokchop (kviky, zbraně, fanfáry)
  *   • hudba
  *
- * Proč posuvníky a ne jen vypínače: Procop je hlasitý a hraje často, kdežto
+ * Proč posuvníky a ne jen vypínače: Prokchop je hlasitý a hraje často, kdežto
  * klikání tlačítek chce člověk slyšet pořád. Bez oddělené hlasitosti se dřív
  * musely vypnout obě věci najednou.
  *
@@ -27,7 +27,7 @@ function previewPig() {
   try {
     rt?.play?.('oink_happy', 0.7);
   } catch {
-    // Procop zrovna neběží (odhlášeno / vypnutý) — náhled prostě nebude
+    // Prokchop zrovna neběží (odhlášeno / vypnutý) — náhled prostě nebude
   }
 }
 
@@ -160,7 +160,7 @@ export default function SoundMenu() {
                 style={{ opacity: pigOn ? 1 : 0.35 }}
               />
             }
-            label="Procop"
+            label="Prokchop"
             on={pigOn}
             value={pigVolume}
             onToggle={() => {

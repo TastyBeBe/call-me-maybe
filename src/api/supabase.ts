@@ -102,6 +102,8 @@ export const supabaseApi: Api = {
       p_caller: f.caller ?? null,
       p_rating: f.rating ?? null,
       p_search: f.search ?? null,
+      p_cekani: f.cekani ?? null,
+      p_kos: f.kos ?? null,
       p_limit: f.limit ?? 200,
       p_offset: f.offset ?? 0,
     });

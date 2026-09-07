@@ -1522,8 +1522,8 @@ table.kontakty tr:last-child td {
 }
 
 /* ---------------------------------------------------------------------------
-   Zvukové menu (tři kanály: aplikace / Procop / hudba)
-   Albert 2026-09-03: Procop je hlasitý a hraje často, klikání tlačítek chce
+   Zvukové menu (tři kanály: aplikace / Prokchop / hudba)
+   Albert 2026-09-03: Prokchop je hlasitý a hraje často, klikání tlačítek chce
    člověk slyšet pořád — proto má každý kanál vlastní vypínač i posuvník.
 --------------------------------------------------------------------------- */
 .snd-wrap {
@@ -1935,3 +1935,7 @@ table.kontakty tr:last-child td {
   align-items: center;
   gap: 6px;
 }
+
+/* Sloupec „Čeká" v Kontaktech (migrace 014): jak dlouho klient neodpovídá.
+   Tučně a v barvě příznaku neodpovída, ať je na první pohled vidět, na koho se čeká. */
+.kontakty td.ceka-cell { font-weight: 800; color: #7a5cc4; }
