@@ -59,7 +59,16 @@ async function rpc<T>(fn: string, body: Record<string, unknown>): Promise<T> {
 
 export const supabaseApi: Api = {
   async login(username: string, password: string): Promise<Session> {
-    return rpc<Session>('login', { p_username: username, p_password: password });
+    // Od 2026-09-09 vrací server neúspěšné přihlášení jako { error: "..." } s HTTP 200,
+    // ne jako výjimku. Důvod: neúspěšný pokus se musí ZAPSAT (kvůli limitu pěti pokusů
+    // za hodinu), a výjimka v PostgREST vrátí celou transakci zpět i s tím zápisem.
+    // Starší server, který ještě vyhazuje výjimku, funguje beze změny — tu zachytí rpc().
+    const out = await rpc<Session & { error?: string }>('login', {
+      p_username: username,
+      p_password: password,
+    });
+    if (!out || out.error) throw new Error(out?.error || 'Přihlášení se nezdařilo.');
+    return out;
   },
 
   async logout(token: string): Promise<void> {
