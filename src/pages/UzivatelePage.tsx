@@ -1,12 +1,16 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { getApi, type Role, type UpdateUserArgs, type UserStats } from '../api';
 import { audio } from '../audio';
-import { useSession } from '../auth';
+import { OWNER_USER_ID, useSession } from '../auth';
 import { ErrorBox, Spinner, errMsg } from '../ui';
 import { CheckIcon, PencilIcon } from '../icons';
 
 export default function UzivatelePage() {
   const session = useSession();
+  // Super admin = ucet id 1 (Albert). Jen on meni role, zaklada adminy a smi
+  // do sveho uctu; DB to od migrace 015 vynucuje, tady se to jen nenabizi,
+  // aby ostatni admini neklikali na neco, co jim server stejne odmitne.
+  const isOwner = session.user_id === OWNER_USER_ID;
   const [users, setUsers] = useState<UserStats[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -134,14 +138,16 @@ export default function UzivatelePage() {
                     <span className="muted" style={{ fontSize: 13 }}>
                       {u.calls} hovorů · {u.zajem} zájmů
                     </span>
-                    <button
-                      type="button"
-                      className={`tb-btn${editId === u.user_id ? ' active' : ''}`}
-                      title="Upravit uživatele"
-                      onClick={() => (editId === u.user_id ? cancelEdit() : startEdit(u))}
-                    >
-                      <PencilIcon size={16} />
-                    </button>
+                    {(isOwner || u.user_id !== OWNER_USER_ID) && (
+                      <button
+                        type="button"
+                        className={`tb-btn${editId === u.user_id ? ' active' : ''}`}
+                        title="Upravit uživatele"
+                        onClick={() => (editId === u.user_id ? cancelEdit() : startEdit(u))}
+                      >
+                        <PencilIcon size={16} />
+                      </button>
+                    )}
                   </div>
 
                   {editId === u.user_id && (
@@ -171,14 +177,23 @@ export default function UzivatelePage() {
                       </div>
                       <div className="field">
                         <label htmlFor="ue-role">Role</label>
-                        <select
-                          id="ue-role"
-                          value={eRole}
-                          onChange={(e) => setERole(e.target.value as Role)}
-                        >
-                          <option value="caller">volající</option>
-                          <option value="admin">admin</option>
-                        </select>
+                        {isOwner ? (
+                          <select
+                            id="ue-role"
+                            value={eRole}
+                            onChange={(e) => setERole(e.target.value as Role)}
+                          >
+                            <option value="caller">volající</option>
+                            <option value="admin">admin</option>
+                          </select>
+                        ) : (
+                          <>
+                            <input id="ue-role" value={eRole === 'admin' ? 'admin' : 'volající'} readOnly />
+                            <p className="muted" style={{ fontSize: 13, margin: '2px 0 0' }}>
+                              Role mění jen Albert. Heslo a jméno změnit můžete.
+                            </p>
+                          </>
+                        )}
                       </div>
                       <label className="checkbox-row" style={{ marginBottom: 12 }}>
                         <input
@@ -249,10 +264,19 @@ export default function UzivatelePage() {
               </div>
               <div className="field">
                 <label htmlFor="nu-role">Role</label>
-                <select id="nu-role" value={role} onChange={(e) => setRole(e.target.value as Role)}>
-                  <option value="caller">volající</option>
-                  <option value="admin">admin</option>
-                </select>
+                {isOwner ? (
+                  <select id="nu-role" value={role} onChange={(e) => setRole(e.target.value as Role)}>
+                    <option value="caller">volající</option>
+                    <option value="admin">admin</option>
+                  </select>
+                ) : (
+                  <>
+                    <input id="nu-role" value="volající" readOnly />
+                    <p className="muted" style={{ fontSize: 13, margin: '2px 0 0' }}>
+                      Nového admina zakládá jen Albert.
+                    </p>
+                  </>
+                )}
               </div>
               <ErrorBox>{formError}</ErrorBox>
               {formOk && (
