@@ -624,6 +624,10 @@ export default function ZpravyPage() {
               <div className="info-box chat-bulk-resolve" key={key}>
                 <span>
                   <b>{n}</b> otevřených vláken o téže poruše (<code>{key}</code>).
+                  <br />
+                  <span className="muted" style={{ fontSize: 12 }}>
+                    Zavře jen systémová vlákna. Zpráv o konkrétních klientech se to netýká.
+                  </span>
                 </span>
                 <button
                   className="pill-btn sm"
