@@ -124,12 +124,18 @@ export type ChatSender = 'agent' | 'admin';
 export type ThreadStatus = 'open' | 'resolved';
 
 /** Vlákno tak, jak ho vrací get_thread (bez preview polí). */
+/** Čeho se vlákno týká: celé automatizace, nebo jednoho klienta (migrace 017). */
+export type ThreadScope = 'automatizace' | 'klient';
+
 export interface ChatThreadInfo {
   id: number;
   kontakt_id: number | null;
   kontakt_name: string | null;
   subject: string;
   status: ThreadStatus;
+  scope: ThreadScope;
+  /** Klíč poruchy — vlákna se stejným klíčem popisují tutéž věc. */
+  alert_key: string | null;
   created_by: string;
   last_message_at: string;
   created_at: string;
@@ -140,6 +146,8 @@ export interface ChatThread extends ChatThreadInfo {
   last_message_preview: string | null;
   last_sender_type: ChatSender | null;
   message_count: number;
+  /** Kolik DALŠÍCH otevřených vláken je o téže poruše (0, když alert_key chybí). */
+  same_alert_open: number;
 }
 
 export interface ChatMessage {
@@ -299,7 +307,16 @@ export interface Api {
     applyAlways: boolean
   ): Promise<AdminMessage>;
   /* ---- chat (migrace 002) ---- */
-  listThreads(token: string, status?: ThreadStatus | null): Promise<ChatThread[]>;
+  listThreads(
+    token: string,
+    status?: ThreadStatus | null,
+    scope?: ThreadScope | null
+  ): Promise<ChatThread[]>;
+  /** Vyřeší všechna otevřená vlákna o téže poruše najednou. */
+  resolveAlert(
+    token: string,
+    key: string
+  ): Promise<{ ok: boolean; resolved: number; key: string }>;
   getThread(token: string, threadId: number): Promise<ThreadDetail>;
   postThreadMessage(
     token: string,

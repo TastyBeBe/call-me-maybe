@@ -26,6 +26,7 @@ import type {
   Role,
   Session,
   ThreadDetail,
+  ThreadScope,
   ThreadStatus,
   UpdatedUser,
   UpdateUserArgs,
@@ -316,6 +317,9 @@ interface MockThread {
   kontakt_id: number | null;
   subject: string;
   status: ThreadStatus;
+  /** Nepovinné — když chybí, odvodí se z kontakt_id (jako DB trigger, migrace 017). */
+  scope?: ThreadScope;
+  alert_key?: string | null;
   created_by: string;
   last_message_at: string;
   created_at: string;
@@ -332,6 +336,11 @@ interface MockChatMessage {
 }
 
 const hoursAgo = (h: number) => new Date(Date.now() - h * 3600000).toISOString();
+
+/** Demo režim: scope se odvodí stejně jako v DB triggeru (migrace 017). */
+function mockScope(t: MockThread): ThreadScope {
+  return t.scope ?? (t.kontakt_id === null ? 'automatizace' : 'klient');
+}
 
 const chatThreads: MockThread[] = [
   {
@@ -933,16 +942,24 @@ export const mockApi: Api = {
 
   /* ---- chat (migrace 002) ---- */
 
-  async listThreads(token: string, status?: ThreadStatus | null): Promise<ChatThread[]> {
+  async listThreads(
+    token: string,
+    status?: ThreadStatus | null,
+    scope?: ThreadScope | null
+  ): Promise<ChatThread[]> {
     await delay();
     const user = auth(token);
     if (status && status !== 'open' && status !== 'resolved') {
       fail(`Neplatný status: ${status}. Povolené: open, resolved.`);
     }
+    if (scope && scope !== 'automatizace' && scope !== 'klient') {
+      fail(`Neplatný scope: ${scope}. Povolené: automatizace, klient.`);
+    }
     // admin vše; caller jen vlákna svých kontaktů (nikdy samostatná vlákna bez kontaktu)
     const ids = user.role === 'admin' ? null : myKontaktIds(user);
     return chatThreads
       .filter((t) => !status || t.status === status)
+      .filter((t) => !scope || mockScope(t) === scope)
       .filter((t) => ids === null || (t.kontakt_id !== null && ids.has(t.kontakt_id)))
       .slice()
       .sort(
@@ -963,12 +980,19 @@ export const mockApi: Api = {
           kontakt_name: kontakty.find((c) => c.id === t.kontakt_id)?.name ?? null,
           subject: t.subject,
           status: t.status,
+          scope: mockScope(t),
+          alert_key: t.alert_key ?? null,
           created_by: t.created_by,
           last_message_at: t.last_message_at,
           created_at: t.created_at,
           last_message_preview: last ? last.body.slice(0, 140) : null,
           last_sender_type: last ? last.sender_type : null,
           message_count: msgs.length,
+          same_alert_open: t.alert_key
+            ? chatThreads.filter(
+                (s) => s.alert_key === t.alert_key && s.status === 'open' && s.id !== t.id
+              ).length
+            : 0,
         };
       });
   },
@@ -989,6 +1013,8 @@ export const mockApi: Api = {
       kontakt_name: kontakty.find((c) => c.id === t.kontakt_id)?.name ?? null,
       subject: t.subject,
       status: t.status,
+      scope: mockScope(t),
+      alert_key: t.alert_key ?? null,
       created_by: t.created_by,
       last_message_at: t.last_message_at,
       created_at: t.created_at,
@@ -1070,6 +1096,19 @@ export const mockApi: Api = {
     if (!t) fail(`Vlákno id=${threadId} neexistuje.`);
     t.status = 'resolved';
     return { ok: true, thread_id: t.id, status: 'resolved' };
+  },
+
+  async resolveAlert(token: string, key: string) {
+    await delay();
+    authAdmin(token);
+    let n = 0;
+    for (const t of chatThreads) {
+      if (t.alert_key === key && t.status === 'open') {
+        t.status = 'resolved';
+        n += 1;
+      }
+    }
+    return { ok: true, resolved: n, key };
   },
 
   /* ---- přepínání účtů Claude (migrace 011) ---- */

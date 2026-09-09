@@ -4,6 +4,7 @@ import {
   type ChatThread,
   type Kontakt,
   type ThreadDetail,
+  type ThreadScope,
   type ThreadStatus,
 } from '../api';
 import { audio } from '../audio';
@@ -47,6 +48,23 @@ const FILTER_LABELS: Record<Filter, string> = {
 };
 
 function filterToStatus(f: Filter): ThreadStatus | null {
+  return f === 'all' ? null : f;
+}
+
+/**
+ * Druhý, NEZÁVISLÝ filtr (Albert 2026-09-09): čeho se vlákno týká.
+ * Kombinuje se se stavem — dá se tedy vybrat „otevřené + jen automatizace",
+ * což je přesně to, co Albert řeší; klienty řeší ostatní.
+ */
+type ScopeFilter = 'all' | 'automatizace' | 'klient';
+
+const SCOPE_LABELS: Record<ScopeFilter, string> = {
+  all: 'Vše',
+  automatizace: 'Automatizace',
+  klient: 'Klienti',
+};
+
+function filterToScope(f: ScopeFilter): ThreadScope | null {
   return f === 'all' ? null : f;
 }
 
@@ -236,8 +254,15 @@ function ThreadListItem({
         <span className={`badge ${open ? 'yellow' : 'neutral'}`}>
           {open ? 'otevřeno' : 'vyřešeno'}
         </span>
+        {/* Čeho se vlákno týká — hlavní rozlišení pro Alberta (migrace 017). */}
+        <span className={`badge ${t.scope === 'automatizace' ? 'rating' : 'chip-kontakt'}`}>
+          {t.scope === 'automatizace' ? 'automatizace' : 'klient'}
+        </span>
         {t.kontakt_id && (
           <span className="badge chip-kontakt">{t.kontakt_name || `#${t.kontakt_id}`}</span>
+        )}
+        {open && t.same_alert_open > 0 && (
+          <span className="badge neutral">+{t.same_alert_open} o téže poruše</span>
         )}
       </div>
     </button>
@@ -440,6 +465,8 @@ export default function ZpravyPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [filter, setFilter] = useState<Filter>('all');
+  const [scopeFilter, setScopeFilter] = useState<ScopeFilter>('all');
+  const [bulkBusy, setBulkBusy] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [detail, setDetail] = useState<ThreadDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
@@ -449,7 +476,11 @@ export default function ZpravyPage() {
     async (silent = false) => {
       if (!silent) setLoading(true);
       try {
-        const list = await getApi().listThreads(session.token, filterToStatus(filter));
+        const list = await getApi().listThreads(
+          session.token,
+          filterToStatus(filter),
+          filterToScope(scopeFilter)
+        );
         setThreads(list);
         setError('');
       } catch (e) {
@@ -461,7 +492,7 @@ export default function ZpravyPage() {
         if (!silent) setLoading(false);
       }
     },
-    [session.token, filter]
+    [session.token, filter, scopeFilter]
   );
 
   const loadDetail = useCallback(
@@ -508,6 +539,36 @@ export default function ZpravyPage() {
     void loadDetail(id);
   };
 
+  /** Jedna porucha = jedno kliknutí, i když o ní přišlo devět hlášení. */
+  const resolveWholeAlert = async (key: string) => {
+    setBulkBusy(key);
+    try {
+      const r = await getApi().resolveAlert(session.token, key);
+      audio.play('success');
+      setError('');
+      await loadThreads(true);
+      if (r?.resolved != null) {
+        setError('');
+      }
+    } catch (e) {
+      setError(errMsg(e));
+      audio.play('error');
+    } finally {
+      setBulkBusy(null);
+    }
+  };
+
+  // Poruchy, o kterých je otevřených víc vláken najednou — nabídneme je vyřešit hromadně.
+  const alertGroups = Array.from(
+    threads
+      .filter((t) => t.status === 'open' && t.alert_key)
+      .reduce((m, t) => {
+        const k = t.alert_key as string;
+        m.set(k, (m.get(k) ?? 0) + 1);
+        return m;
+      }, new Map<string, number>())
+  ).filter(([, n]) => n > 1);
+
   const openCount = threads.filter((t) => t.status === 'open').length;
 
   return (
@@ -543,6 +604,36 @@ export default function ZpravyPage() {
                 <PlusIcon size={15} /> Nový chat
               </button>
             </div>
+            <div className="chat-list-toolbar chat-scope-row">
+              <span className="muted" style={{ fontSize: 12 }}>Týká se:</span>
+              <div className="segmented chat-filter">
+                {(Object.keys(SCOPE_LABELS) as ScopeFilter[]).map((f) => (
+                  <button
+                    key={f}
+                    type="button"
+                    data-sfx="nav"
+                    className={scopeFilter === f ? 'active' : ''}
+                    onClick={() => setScopeFilter(f)}
+                  >
+                    {SCOPE_LABELS[f]}
+                  </button>
+                ))}
+              </div>
+            </div>
+            {alertGroups.map(([key, n]) => (
+              <div className="info-box chat-bulk-resolve" key={key}>
+                <span>
+                  <b>{n}</b> otevřených vláken o téže poruše (<code>{key}</code>).
+                </span>
+                <button
+                  className="pill-btn sm"
+                  disabled={bulkBusy === key}
+                  onClick={() => void resolveWholeAlert(key)}
+                >
+                  <CheckIcon size={14} /> {bulkBusy === key ? 'Řeším…' : `Vyřešit všech ${n}`}
+                </button>
+              </div>
+            ))}
           </div>
           <div className="chat-list-scroll">
             {loading && <Spinner label="Načítám vlákna…" />}

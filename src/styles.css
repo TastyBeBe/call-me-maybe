@@ -1939,3 +1939,28 @@ table.kontakty tr:last-child td {
 /* Sloupec „Čeká" v Kontaktech (migrace 014): jak dlouho klient neodpovídá.
    Tučně a v barvě příznaku neodpovída, ať je na první pohled vidět, na koho se čeká. */
 .kontakty td.ceka-cell { font-weight: 800; color: #7a5cc4; }
+
+/* --- Zprávy: druhý filtr (čeho se týká) + hromadné vyřešení poruchy --- */
+/* Přidáno 2026-09-09: Albert řeší hlavně systémové poruchy, klienty řeší ostatní,
+   a filtry musí jít kombinovat (stav × čeho se týká). */
+.chat-scope-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-top: 6px;
+}
+.chat-scope-row .segmented {
+  flex: 1;
+}
+.chat-bulk-resolve {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 8px 0 0;
+  font-size: 13px;
+}
+.chat-bulk-resolve code {
+  font-size: 12px;
+  opacity: 0.75;
+}

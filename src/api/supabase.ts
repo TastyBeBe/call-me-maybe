@@ -18,6 +18,7 @@ import type {
   Role,
   Session,
   ThreadDetail,
+  ThreadScope,
   ThreadStatus,
   UpdatedUser,
   UpdateUserArgs,
@@ -194,12 +195,25 @@ export const supabaseApi: Api = {
 
   /* ---- chat (migrace 002) ---- */
 
-  async listThreads(token: string, status?: ThreadStatus | null): Promise<ChatThread[]> {
+  async listThreads(
+    token: string,
+    status?: ThreadStatus | null,
+    scope?: ThreadScope | null
+  ): Promise<ChatThread[]> {
+    // Oba filtry se posílají zvlášť a server je kombinuje (migrace 017).
     const out = await rpc<{ threads: ChatThread[] }>('list_threads', {
       p_token: token,
       p_status: status ?? null,
+      p_scope: scope ?? null,
     });
     return out?.threads ?? [];
+  },
+
+  async resolveAlert(token: string, key: string) {
+    return rpc<{ ok: boolean; resolved: number; key: string }>('resolve_alert', {
+      p_token: token,
+      p_key: key,
+    });
   },
 
   async getThread(token: string, threadId: number): Promise<ThreadDetail> {
