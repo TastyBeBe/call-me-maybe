@@ -12,6 +12,11 @@ import { SearchIcon } from '../icons';
 export default function MojiPage() {
   const session = useSession();
   const [rows, setRows] = useState<Kontakt[]>([]);
+  // ⚠ Počet se bere z `total` od serveru, ne z `rows.length` (Albert 2026-09-12:
+  // „each of them are showing something different"). `myKontakty` vrací nejvýš
+  // 500 řádků, takže pill z rows.length by u někoho, kdo má klientů víc,
+  // ukazoval 500 místo pravdy.
+  const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [search, setSearch] = useState('');
@@ -23,6 +28,7 @@ export default function MojiPage() {
     try {
       const r = await getApi().myKontakty(session.token, 500, 0);
       setRows(r.rows);
+      setTotal(r.total ?? r.rows.length);
     } catch (e) {
       setError(errMsg(e));
       audio.play('error');
@@ -55,7 +61,7 @@ export default function MojiPage() {
       <p className="eyebrow">moji klienti</p>
       <h1 className="page-title">
         Moji klienti
-        {rows.length > 0 && <span className="count-pill">{rows.length}</span>}
+        {total > 0 && <span className="count-pill">{total}</span>}
       </h1>
 
       <div className="filter-bar">
