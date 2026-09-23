@@ -22,7 +22,7 @@ import {
   ThumbsDownIcon,
 } from '../icons';
 
-type Modal = null | 'odmitnout' | 'bez-poznamky';
+type Modal = null | 'odmitnout';
 
 export default function CallPage() {
   const session = useSession();
@@ -111,12 +111,11 @@ export default function CallPage() {
 
   const zajemValid = cenaWeb.trim() !== '' && cenaHosting.trim() !== '' && rating !== '';
 
+  // Poznámka je VOLITELNÁ (Albert 2026-09-23). Do té doby se při prázdné poznámce
+  // otevřelo potvrzovací okno „Opravdu bez poznámky?" — u klienta, který si jen řekl
+  // o náhled a nic dalšího nechtěl, to byl krok navíc a nic nepřidával.
   const submitZajem = () => {
     if (!zajemValid) return;
-    if (!note.trim()) {
-      setModal('bez-poznamky');
-      return;
-    }
     void resolve('zajem');
   };
 
@@ -296,11 +295,11 @@ export default function CallPage() {
               </span>
             </div>
             <div className="field">
-              <label>Poznámka</label>
+              <label>Poznámka (nepovinná)</label>
               <textarea
                 value={note}
                 onChange={(e) => setNote(e.target.value)}
-                placeholder="Co říkali? Na čem jste se domluvili?"
+                placeholder="Co říkali? Na čem jste se domluvili? Když nic navíc nechtěli, nech prázdné."
               />
             </div>
             <div className="outcome-row">
@@ -353,21 +352,6 @@ export default function CallPage() {
         </ConfirmModal>
       )}
 
-      {modal === 'bez-poznamky' && (
-        <ConfirmModal
-          title="Opravdu bez poznámky?"
-          confirmLabel="Uložit bez poznámky"
-          confirmClass="go"
-          busy={busy}
-          onCancel={() => setModal(null)}
-          onConfirm={() => {
-            setModal(null);
-            void resolve('zajem');
-          }}
-        >
-          Poznámka hodně pomůže tomu, kdo bude web vyrábět. Určitě nechceš nic připsat?
-        </ConfirmModal>
-      )}
     </div>
   );
 }

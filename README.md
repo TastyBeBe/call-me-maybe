@@ -65,7 +65,7 @@ Demo přihlášení:
 | ------------- | ------- | --------------------------------------------------------------- |
 | `#/login`     | všichni | přihlášení                                                       |
 | `#/`          | všichni | domů — velká tlačítka VOLAT a MOJE STATISTIKY (admin i další)    |
-| `#/call`      | všichni | fronta hovorů: karta kontaktu + výsledky (nedovoláno/odmítnuto/zájem) |
+| `#/call`      | všichni | fronta hovorů: karta kontaktu + výsledky (nedovoláno/odmítnuto/zájem). Poznámka k hovoru je **nepovinná** — zájem jde uložit i bez ní (Albert 2026-09-23; dřív se při prázdné poznámce otevíralo potvrzovací okno navíc) |
 | `#/stats`     | všichni | moje statistiky; admin vidí přes dropdown statistiky všech       |
 | `#/admin`     | admin   | tabulka kontaktů s filtry, fulltextem, detailem a úpravami       |
 | `#/zpravy`    | admin   | inbox dotazů od AI agentů + odpovědi (volitelně „zapsat do pravidel") |
