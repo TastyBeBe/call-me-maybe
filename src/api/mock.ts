@@ -21,6 +21,7 @@ import type {
   ListKontaktyResult,
   MeInfo,
   MyStats,
+  PravidloStav,
   Rating,
   ResolveCallArgs,
   Role,
@@ -172,9 +173,10 @@ const kontakty: Kontakt[] = [
     ma_web: 'ano',
     web: 'https://roubenka-u-lesa.example.cz',
     email: 'info@roubenka-u-lesa.cz',
-    note: '[2026-08-20 Petra] Nebrali telefon, zkusit odpoledne.',
+    note: '[2026-08-20 Petra] Nebrali telefon, zkusit odpoledne.\n[2026-08-29 Honza] Zase nebrali.',
     status: 'nedovolano',
-    last_caller: 'Petra',
+    // volali mu Petra i Honza (demo pro „Označit jako mého klienta", migrace 024)
+    last_caller: 'Honza',
   }),
   k({
     id: 3,
@@ -267,6 +269,7 @@ const callLog: CallLogRow[] = [
   { id: nextCallLogId++, kontakt_id: 3, user_id: 3, outcome: 'zajem', created_at: daysAgo(14) },
   { id: nextCallLogId++, kontakt_id: 5, user_id: 3, outcome: 'zajem', created_at: daysAgo(27) },
   { id: nextCallLogId++, kontakt_id: 8, user_id: 3, outcome: 'nedovolano', created_at: daysAgo(7) },
+  { id: nextCallLogId++, kontakt_id: 2, user_id: 3, outcome: 'nedovolano', created_at: daysAgo(3) },
 ];
 
 const messages: AdminMessage[] = [
@@ -338,6 +341,8 @@ interface MockChatMessage {
   sender_name: string;
   body: string;
   apply_always: boolean;
+  /** návrh pravidla (migrace 024): jeho stav ve frontě ke schválení */
+  pravidlo_stav?: PravidloStav | null;
   created_at: string;
 }
 
@@ -453,6 +458,7 @@ const chatMessages: MockChatMessage[] = [
     sender_name: 'Albert',
     body: 'Ano, subdoména je v pořádku. Vlastní doménu řešíme jen když ji klient výslovně chce.',
     apply_always: true,
+    pravidlo_stav: 'zapsano',
     created_at: daysAgo(8),
   },
   {
@@ -586,8 +592,24 @@ function maskedName(u: MockUser, name: string | null): string | null {
   return JINY;
 }
 
+/**
+ * app_smi_upravit (migrace 024): obsah kontaktu smí měnit admin jen u svých klientů,
+ * super admin u svých, svých lidí a klientů bez volajícího, Albert u všech, volající nikde.
+ */
+function canEdit(u: MockUser, kid: number): boolean {
+  if (u.role !== 'admin' && u.role !== 'super_admin') return false;
+  if (u.id === OWNER_ID) return true;
+  if (kontaktyOf(visibleIds(u)).has(kid)) return true;
+  return u.role === 'super_admin' && kontaktBezMajitele(kid);
+}
+
 function forViewer(u: MockUser, c: Kontakt): Kontakt {
-  return { ...c, last_caller: maskedName(u, c.last_caller), je_muj: myKontaktIds(u).has(c.id) };
+  return {
+    ...c,
+    last_caller: maskedName(u, c.last_caller),
+    je_muj: myKontaktIds(u).has(c.id),
+    smi_upravit: canEdit(u, c.id),
+  };
 }
 
 function mayPick(u: MockUser, target: number | null | undefined, what: string): void {
@@ -948,6 +970,12 @@ export const mockApi: Api = {
   async updateKontakt(token: string, id: number, patch: Record<string, unknown>): Promise<Kontakt> {
     await delay();
     const me = authAdmin(token);
+    if (!kontakty.some((c) => c.id === id)) fail(`Kontakt id=${id} neexistuje.`);
+    // obsah jen u vlastních klientů; příznak a zámek u každého kontaktu (migrace 024)
+    const vsude = ['clear_lock', 'flag_kind', 'flag_note'];
+    if (patch && Object.keys(patch).some((key) => !vsude.includes(key)) && !canEdit(me, id)) {
+      fail('Tohle není váš klient — upravit ho může ten, kdo mu volá, jeho super admin nebo Albert. Příznak a zámek u něj měnit smíte.');
+    }
     // komu kontakt patří (last_caller) mění jen super admin, a jen na své lidi (migrace 023)
     if (patch && 'last_caller' in patch) {
       if (me.role !== 'super_admin') fail('Přeřadit kontakt jinému volajícímu smí jen super admin.');
@@ -985,6 +1013,25 @@ export const mockApi: Api = {
     }
     kontakt.updated_at = now();
     return forViewer(me, kontakt);
+  },
+
+  async claimKontakt(token: string, id: number): Promise<Kontakt> {
+    await delay();
+    // oznacit_za_sveho (migrace 024): jen kdo volal, jen dokud je kontakt ve frontě volání
+    const user = auth(token);
+    const kontakt = kontakty.find((c) => c.id === id);
+    if (!kontakt) fail(`Kontakt id=${id} neexistuje.`);
+    if (!callLog.some((l) => l.kontakt_id === id && l.user_id === user.id)) {
+      fail('Za svého klienta si můžete označit jen kontakt, kterému jste sami volali.');
+    }
+    if (kontakt.status !== 'nekontaktovano' && kontakt.status !== 'nedovolano') {
+      fail(`Kontakt už není ve frontě volání (stav ${kontakt.status}) — za svého se dá označit jen kontakt, který ve frontě je.`);
+    }
+    if (kontakt.last_caller !== user.display_name) {
+      kontakt.last_caller = user.display_name; // stav, zámek ani fronta se nemění
+      kontakt.updated_at = now();
+    }
+    return forViewer(user, kontakt);
   },
 
   /* ---- příznaky (migrace 005) ---- */
@@ -1046,6 +1093,8 @@ export const mockApi: Api = {
   ) {
     await delay();
     const admin = authAdmin(token);
+    // lidi zakládá jen super admin (migrace 024)
+    if (admin.role !== 'super_admin') fail('Nové uživatele zakládá jen super admin. Požádejte svého super admina.');
     if (!username.trim()) fail('Uživatelské jméno nesmí být prázdné.');
     if (!password || password.length < 6) fail('Heslo musí mít alespoň 6 znaků.');
     if (role !== 'admin' && role !== 'caller' && role !== 'super_admin') {
@@ -1060,13 +1109,7 @@ export const mockApi: Api = {
     const name = displayName.trim() || username.trim();
     checkName(name, null);
     const manager =
-      role === 'super_admin'
-        ? null
-        : admin.id === OWNER_ID
-          ? managerId ?? OWNER_ID
-          : admin.role === 'super_admin'
-            ? admin.id
-            : admin.manager_id ?? OWNER_ID;
+      role === 'super_admin' ? null : admin.id === OWNER_ID ? managerId ?? OWNER_ID : admin.id;
     const user: MockUser = {
       id: nextUserId++,
       username: username.trim(),
@@ -1265,7 +1308,7 @@ export const mockApi: Api = {
       .sort(
         (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime() || a.id - b.id
       )
-      .map((m) => ({ ...m }));
+      .map((m) => ({ ...m, pravidlo_stav: m.pravidlo_stav ?? null }));
     return { thread, messages: messagesAsc };
   },
 
@@ -1286,6 +1329,8 @@ export const mockApi: Api = {
       sender_name: user.display_name,
       body: body.trim(),
       apply_always: applyAlways,
+      // „zapsat do pravidel" = návrh do fronty ke schválení Albertem (migrace 024)
+      pravidlo_stav: applyAlways ? 'ceka' : null,
       created_at: now(),
     };
     chatMessages.push(msg);
@@ -1299,13 +1344,16 @@ export const mockApi: Api = {
     const user = auth(token);
     if (!subject.trim()) fail('Předmět nesmí být prázdný.');
     if (!body.trim()) fail('Zpráva nesmí být prázdná.');
+    if (kontaktId != null && !kontakty.some((c) => c.id === kontaktId)) {
+      fail(`Kontakt id=${kontaktId} neexistuje.`);
+    }
     if (user.role !== 'admin' && user.role !== 'super_admin') {
       if (kontaktId == null || !myKontaktIds(user).has(kontaktId)) {
         fail('Jen ke svým klientům.');
       }
-    }
-    if (kontaktId != null && !kontakty.some((c) => c.id === kontaktId)) {
-      fail(`Kontakt id=${kontaktId} neexistuje.`);
+    } else if (kontaktId != null && !canEdit(user, kontaktId)) {
+      // vzkaz agentovi = pokyn workerovi, takže jen ke klientovi, kterého smí upravovat (migrace 025)
+      fail('Vzkaz agentovi k tomuhle klientovi může založit jen ten, kdo mu volá, jeho super admin nebo Albert.');
     }
     const t: MockThread = {
       id: nextThreadId++,

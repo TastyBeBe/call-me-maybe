@@ -11,7 +11,7 @@ import {
 import { audio, isSfxName } from './audio';
 import { OWNER_USER_ID, useAuth } from './auth';
 import { getConfig } from './config';
-import { isAdminRole } from './roles';
+import { isAdminRole, isSuperAdmin } from './roles';
 
 /** Logo = Prokchopova pochroumaná hlava v party čepici (public/icons). */
 const logoUrl = import.meta.env.BASE_URL + 'icons/procop_logo_256.png';
@@ -78,10 +78,13 @@ function AudioLayer() {
 function RequireAuth({
   children,
   admin = false,
+  superAdmin = false,
   owner = false,
 }: {
   children: ReactNode;
   admin?: boolean;
+  /** jen super admin (Uživatelé — lidi zakládá a spravuje jen super admin, migrace 024) */
+  superAdmin?: boolean;
   owner?: boolean;
 }) {
   const { session } = useAuth();
@@ -89,6 +92,7 @@ function RequireAuth({
   // admin = admin i super admin (migrace 023); server to hlídá sám, tady jen neukazujeme,
   // co by stejně odmítl.
   if (admin && !isAdminRole(session.role)) return <Navigate to="/" replace />;
+  if (superAdmin && !isSuperAdmin(session.role)) return <Navigate to="/" replace />;
   if (owner && session.user_id !== OWNER_USER_ID) return <Navigate to="/" replace />;
   return <>{children}</>;
 }
@@ -99,6 +103,7 @@ function TopBar() {
   const { demo } = getConfig();
   if (!session) return null;
   const isAdmin = isAdminRole(session.role);
+  const isSuper = isSuperAdmin(session.role);
   const isOwner = isAdmin && session.user_id === OWNER_USER_ID;
 
   const onLogout = async () => {
@@ -158,13 +163,16 @@ function TopBar() {
             >
               zprávy
             </NavLink>
-            <NavLink
-              to="/uzivatele"
-              data-sfx="none"
-              className={({ isActive }) => `nav-pill${isActive ? ' active' : ''}`}
-            >
-              uživatelé
-            </NavLink>
+            {/* lidi zakládá a spravuje jen super admin (Albert 2026-09-24, migrace 024) */}
+            {isSuper && (
+              <NavLink
+                to="/uzivatele"
+                data-sfx="none"
+                className={({ isActive }) => `nav-pill${isActive ? ' active' : ''}`}
+              >
+                uživatelé
+              </NavLink>
+            )}
             {isOwner && (
               <NavLink
                 to="/automatizace"
@@ -262,7 +270,7 @@ export default function App() {
         <Route
           path="/uzivatele"
           element={
-            <RequireAuth admin>
+            <RequireAuth superAdmin>
               <UzivatelePage />
             </RequireAuth>
           }

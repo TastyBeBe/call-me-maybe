@@ -1,5 +1,8 @@
 // Sdílený detail kontaktu (drawer) — používá AdminPage i stránka Moji klienti.
-// Admin: plná editace (update_kontakt, uvolnění zámku). Caller (readOnly): jen čtení.
+// Admin: editace (update_kontakt) — od migrace 024 jen u SVÝCH klientů (server posílá
+// smi_upravit); u cizího kontaktu jen příznak a uvolnění zámku. Caller (readOnly): jen čtení.
+// Všichni: „Označit jako mého klienta" (oznacit_za_sveho, migrace 024) u kontaktu, kterému
+// sami volali a který je pořád ve frontě volání.
 // Obě role: sekce "Vzkazy agentovi" — vlákna tohoto kontaktu + composer.
 
 import { useCallback, useEffect, useState } from 'react';
@@ -25,6 +28,7 @@ import {
   StatusBadge,
   errMsg,
   formatDateTime,
+  pravidloPopisek,
 } from '../ui';
 import {
   CheckIcon,
@@ -290,7 +294,7 @@ function KontaktThreads({ kontakt, canWrite }: { kontakt: Kontakt; canWrite: boo
                 <div className={`bubble ${m.sender_type}`}>
                   <div className="bubble-meta">
                     {m.sender_name} · {formatDateTime(m.created_at)}
-                    {m.apply_always ? ' · pravidlo' : ''}
+                    {pravidloPopisek(m)}
                   </div>
                   {m.body}
                 </div>
@@ -325,7 +329,7 @@ function KontaktThreads({ kontakt, canWrite }: { kontakt: Kontakt; canWrite: boo
         </div>
       ) : (
         <p className="muted" style={{ fontSize: 13.5, margin: 0 }}>
-          Vzkazy agentovi k tomuhle kontaktu píše ten, kdo mu volá.
+          Vzkazy agentovi k tomuhle kontaktu píše ten, kdo mu volá, jeho super admin nebo Albert.
         </p>
       )}
     </div>
@@ -355,6 +359,33 @@ export default function KontaktDrawer({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [savedFlash, setSavedFlash] = useState(false);
+
+  // Obsah kontaktu (stav, e-mail, ceny, poznámku) smí měnit jen ten, komu kontakt patří,
+  // jeho super admin a Albert — rozhoduje server (smi_upravit, migrace 024). Příznak
+  // a zámek smí admin u každého kontaktu, proto se `readOnly` pro ně nemění.
+  const cizi = !readOnly && kontakt.smi_upravit === false;
+  const obsahJenCteni = readOnly || cizi;
+  // „Označit jako mého klienta": volal mu (je_muj bez toho, aby byl last_caller) a kontakt
+  // je ve frontě volání. Stav ani fronta se tím nemění (server to hlídá sám).
+  const lzeOznacit =
+    kontakt.je_muj === true &&
+    kontakt.last_caller !== session.display_name &&
+    (kontakt.status === 'nekontaktovano' || kontakt.status === 'nedovolano');
+
+  const claim = async () => {
+    setBusy(true);
+    setError('');
+    try {
+      const updated = await getApi().claimKontakt(session.token, kontakt.id);
+      audio.play('success');
+      onSaved?.(updated);
+    } catch (e) {
+      setError(errMsg(e));
+      audio.play('error');
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const dirty =
     status !== kontakt.status ||
@@ -444,9 +475,26 @@ export default function KontaktDrawer({
           </div>
         )}
 
+        {lzeOznacit && (
+          <div className="info-box">
+            Tomuhle kontaktu jsi volal/a. Když se ti ozval zpátky, můžeš si ho označit jako svého
+            klienta — zůstane ve frontě volání, jen se u něj zapíše, že je tvůj.{' '}
+            <button className="pill-btn sm" onClick={() => void claim()} disabled={busy}>
+              Označit jako mého klienta
+            </button>
+          </div>
+        )}
+
         <FlagPanel kontakt={kontakt} readOnly={readOnly} onSaved={onSaved} />
 
-        {readOnly ? (
+        {cizi && (
+          <p className="muted" style={{ fontSize: 13.5, margin: '12px 0 0' }}>
+            Tohle není tvůj klient — stav, e-mail, ceny a poznámky mu upravuje ten, kdo mu volá,
+            jeho super admin nebo Albert. Příznak a zámek tu měnit můžeš.
+          </p>
+        )}
+
+        {obsahJenCteni ? (
           <>
             <p className="meta-line" style={{ marginTop: 14 }}>
               status: <StatusBadge status={kontakt.status} />
@@ -517,7 +565,7 @@ export default function KontaktDrawer({
           </div>
         )}
 
-        {!readOnly && (
+        {!obsahJenCteni && (
           <div style={{ display: 'flex', gap: 10 }}>
             <button className="pill-btn go" onClick={() => void save()} disabled={busy || !dirty}>
               {busy ? 'Ukládám…' : 'Uložit změny'}
@@ -528,9 +576,13 @@ export default function KontaktDrawer({
           </div>
         )}
 
-        {/* Volající smí psát agentovi jen o svém klientovi (server to hlídá, migrace 003/023);
-            admin a super admin kamkoli. je_muj posílá server od migrace 023. */}
-        <KontaktThreads kontakt={kontakt} canWrite={!readOnly || kontakt.je_muj !== false} />
+        {/* Vzkaz agentovi je pro workera závazný pokyn, takže ke klientovi píše jen ten, kdo ho
+            smí upravovat (migrace 025): volající svůj klient (je_muj), admin a super admin
+            podle smi_upravit (migrace 024). Server to hlídá sám. */}
+        <KontaktThreads
+          kontakt={kontakt}
+          canWrite={readOnly ? kontakt.je_muj !== false : kontakt.smi_upravit !== false}
+        />
       </div>
     </>
   );

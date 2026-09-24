@@ -60,8 +60,8 @@ Demo mock (`src/api/mock.ts`) má stejná pravidla viditelnosti jako server (mig
 - Vlastní auth v Postgresu (žádný Supabase Auth): funkce `login` vrací token,
   session platí 7 dní a klouzavě se prodlužuje.
 - Prvního admina je potřeba založit ručně v SQL (viz `../db/schema.sql`,
-  tabulka `users` + `crypt(heslo, gen_salt('bf'))`). Další uživatele už admin
-  zakládá v appce na `#/uzivatele`.
+  tabulka `users` + `crypt(heslo, gen_salt('bf'))`). Další uživatele zakládá v appce
+  na `#/uzivatele` super admin (od migrace 024 jen on).
 
 ## Role a kdo co vidí (migrace 023, Albert 2026-09-24)
 
@@ -71,6 +71,13 @@ admin (lidi pod sebou) a Albert (všechny). Kontakty (celou databázi) vidí vš
 kolegy u kontaktu ale jen jeho super admin („jiný volající"). Zprávy automatizace a stránku
 Automatizace vidí jen Albert. **Hlídá to server** (SQL funkce), appka jen neukazuje, co by
 server odmítl. Podrobně: `../docs/ROLE-A-VIDITELNOST.md`.
+
+Od migrace 024/025 (Albert 2026-09-24 večer): kontakt **upravuje** jen ten, komu patří,
+jeho super admin a Albert (server posílá u každého řádku `smi_upravit`; příznak a zámek
+smí každý admin), vzkaz agentovi ke klientovi taky; kdo kontaktu volal, si ho může
+**označit jako svého klienta** (stav i fronta volání zůstávají); **uživatele** zakládá
+jen super admin (stránka Uživatelé jen pro něj); „zapsat do pravidel" je jen **návrh**,
+který schvaluje Albert (u zprávy je vidět jeho stav).
 
 ## Stránky
 
@@ -84,7 +91,7 @@ server odmítl. Podrobně: `../docs/ROLE-A-VIDITELNOST.md`.
 | `#/admin`     | všichni | Kontakty: celá databáze s filtry a fulltextem; upravovat smí admin a super admin |
 | `#/oznacene`  | admin   | označení klienti — svoji; super admin svých lidí + klienti bez volajícího |
 | `#/zpravy`    | admin   | vlákna s AI agenty — svoje; super admin i svých lidí (výběr člověka); Albert i automatizaci |
-| `#/uzivatele` | admin   | super admin: seznam svých lidí + úpravy; Albert: role a nadřízení; admin: jen „nový volající" |
+| `#/uzivatele` | super admin | super admin: seznam svých lidí + úpravy + nový volající; Albert: role a nadřízení (⚠ od migrace 024 normální admin stránku nemá) |
 | `#/automatizace` | Albert | vypínač automatizace a přepínač účtu Claude                    |
 | `#/setup`     | všichni | nastavení Supabase URL + anon klíče                              |
 

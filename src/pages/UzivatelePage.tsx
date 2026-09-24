@@ -7,12 +7,13 @@ import { ErrorBox, Spinner, errMsg } from '../ui';
 import { CheckIcon, PencilIcon } from '../icons';
 
 /**
- * UŽIVATELÉ (migrace 023, Albert 2026-09-24). Server rozhoduje sám; tady se jen
+ * UŽIVATELÉ (migrace 023 + 024, Albert 2026-09-24). Server rozhoduje sám; tady se jen
  * nenabízí, co by odmítl:
  *   - Albert (id 1): všichni, role (volající / admin / super admin) i nadřízený.
  *   - super admin: sebe a lidi pod sebou; zakládá volající pod sebe.
- *   - admin: seznam uživatelů nevidí (oddělení dat); může založit volajícího, který
- *     spadne pod jeho super admina — dokud Albert nerozhodne jinak.
+ *   - admin a volající: stránku nemají (route i dlaždice jen pro super admina).
+ *     ⚠ NAHRAZUJE stav z migrace 023, kdy admin mohl zakládat volající —
+ *     od migrace 024 lidi zakládá jen super admin.
  */
 export default function UzivatelePage() {
   const session = useSession();
@@ -290,16 +291,16 @@ export default function UzivatelePage() {
           </div>
         ) : (
           <div className="card panel">
-            <p className="panel-title">seznam uživatelů</p>
+            <p className="panel-title">uživatelé</p>
             <div className="panel-body">
               <p className="muted" style={{ margin: 0 }}>
-                Seznam uživatelů a jejich výsledky vidí jen super admini. Každý vidí jen svoje
-                statistiky, klienty a zprávy.
+                Lidi zakládá a spravuje jen super admin. Požádej svého super admina.
               </p>
             </div>
           </div>
         )}
 
+        {isSuper && (
         <div className="card panel">
           <p className="panel-title">nový uživatel</p>
           <div className="panel-body">
@@ -349,10 +350,7 @@ export default function UzivatelePage() {
                   <>
                     <input id="nu-role" value="volající" readOnly />
                     <p className="muted" style={{ fontSize: 13, margin: '2px 0 0' }}>
-                      Nového admina zakládá jen Albert.{' '}
-                      {isSuper
-                        ? 'Nový volající bude pod tebou.'
-                        : 'Nový volající bude pod tvým super adminem.'}
+                      Nového admina zakládá jen Albert. Nový volající bude pod tebou.
                     </p>
                   </>
                 )}
@@ -394,6 +392,7 @@ export default function UzivatelePage() {
             </form>
           </div>
         </div>
+        )}
       </div>
     </div>
   );

@@ -86,6 +86,12 @@ export interface Kontakt {
   cekani_kos?: CekaniKos | null;
   /** migrace 023: kontakt patří přihlášenému (volal mu / je last_caller) */
   je_muj?: boolean;
+  /**
+   * migrace 024: smí přihlášený měnit obsah kontaktu (stav, e-mail, ceny, poznámku)?
+   * Admin jen u svých klientů, super admin u svých, svých lidí a klientů bez volajícího,
+   * Albert u všech, volající nikde. Příznak a zámek smí admin u každého kontaktu.
+   */
+  smi_upravit?: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -158,13 +164,19 @@ export interface ChatThread extends ChatThreadInfo {
   same_alert_open: number;
 }
 
+/** Stav návrhu pravidla (migrace 024): čeká na Albertovo schválení / zapsáno / zamítnuto. */
+export type PravidloStav = 'ceka' | 'zapsano' | 'zamitnuto';
+
 export interface ChatMessage {
   id: number;
   thread_id?: number;
   sender_type: ChatSender;
   sender_name: string;
   body: string;
+  /** „Navrhnout jako pravidlo" — od migrace 024 jen NÁVRH, do pravidel ho zapíše až Albertův souhlas. */
   apply_always: boolean;
+  /** stav toho návrhu (get_thread, migrace 024); null u zpráv, které návrh nejsou */
+  pravidlo_stav?: PravidloStav | null;
   created_at: string;
 }
 
@@ -303,7 +315,13 @@ export interface Api {
     offset?: number,
     userId?: number | null
   ): Promise<ListKontaktyResult>;
+  /** Úprava kontaktu (admin) — obsah jen u vlastních klientů, příznak a zámek u všech (migrace 024). */
   updateKontakt(token: string, id: number, patch: Record<string, unknown>): Promise<Kontakt>;
+  /**
+   * Označit kontakt za svého klienta (migrace 024): smí ten, kdo mu volal, a jen dokud je
+   * kontakt ve frontě volání. Mění jen „kdo volal" — stav, zámek ani fronta se nemění.
+   */
+  claimKontakt(token: string, id: number): Promise<Kontakt>;
   /* ---- příznaky (migrace 005) ---- */
   /** Nasadí červený příznak s poznámkou, co je u klienta špatně. */
   setFlag(token: string, id: number, kind: FlagKind, note: string): Promise<Kontakt>;

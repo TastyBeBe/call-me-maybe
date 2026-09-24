@@ -93,11 +93,14 @@ export default function HomePage() {
               <span className="tile-label">ZPRÁVY</span>
               <span className="tile-sub">chat s AI agenty</span>
             </Link>
-            <Link to="/uzivatele" className="big-tile">
-              <span className="tile-emoji"><UsersIcon size={42} /></span>
-              <span className="tile-label">UŽIVATELÉ</span>
-              <span className="tile-sub">{isSuper ? 'lidé pod tebou' : 'přidat volajícího'}</span>
-            </Link>
+            {/* lidi zakládá a spravuje jen super admin (migrace 024) */}
+            {isSuper && (
+              <Link to="/uzivatele" className="big-tile">
+                <span className="tile-emoji"><UsersIcon size={42} /></span>
+                <span className="tile-label">UŽIVATELÉ</span>
+                <span className="tile-sub">{isOwner ? 'všichni lidé a role' : 'lidé pod tebou'}</span>
+              </Link>
+            )}
             {isOwner && (
               <Link to="/automatizace" className="big-tile">
                 <span className="tile-emoji"><RocketIcon size={42} /></span>

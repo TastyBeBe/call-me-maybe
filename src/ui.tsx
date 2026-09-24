@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import type { CekaniKind, CekaniKos, FlagKind, Kontakt, KontaktStatus } from './api';
+import type { CekaniKind, CekaniKos, ChatMessage, FlagKind, Kontakt, KontaktStatus } from './api';
 import { FlagIcon } from './icons';
 
 /** České popisky statusů kontaktu. */
@@ -254,4 +254,21 @@ export function kosOf(since: string | null | undefined): CekaniKos | null {
   if (dny < 30) return 'k_zavolani';
   if (dny < 60) return 'vlazne';
   return 'vychladle';
+}
+
+/**
+ * Popisek u zprávy, která navrhuje pravidlo pro všechny agenty (migrace 024). Návrh se
+ * do pravidel dostane, až ho schválí Albert — do té doby se jím řídí jen tenhle případ.
+ */
+export function pravidloPopisek(m: Pick<ChatMessage, 'apply_always' | 'pravidlo_stav'>): string {
+  switch (m.pravidlo_stav) {
+    case 'ceka':
+      return ' · návrh pravidla — čeká na Albertovo schválení';
+    case 'zapsano':
+      return ' · pravidlo schválené a zapsané';
+    case 'zamitnuto':
+      return ' · návrh pravidla Albert nepřijal';
+    default:
+      return m.apply_always ? ' · návrh pravidla' : '';
+  }
 }

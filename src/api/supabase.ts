@@ -141,6 +141,10 @@ export const supabaseApi: Api = {
     return rpc<Kontakt>('update_kontakt', { p_token: token, p_id: id, p_patch: patch });
   },
 
+  async claimKontakt(token: string, id: number): Promise<Kontakt> {
+    return rpc<Kontakt>('oznacit_za_sveho', { p_token: token, p_kontakt_id: id });
+  },
+
   /* ---- příznaky (migrace 005) ---- */
 
   async setFlag(token: string, id: number, kind: FlagKind, note: string): Promise<Kontakt> {

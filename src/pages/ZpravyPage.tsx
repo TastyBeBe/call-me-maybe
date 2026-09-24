@@ -11,7 +11,7 @@ import { audio } from '../audio';
 import { OWNER_USER_ID, useSession } from '../auth';
 import PersonPicker, { usePeople } from '../components/PersonPicker';
 import { JINY_VOLAJICI } from '../roles';
-import { ErrorBox, Spinner, errMsg, formatDateTime } from '../ui';
+import { ErrorBox, Spinner, errMsg, formatDateTime, pravidloPopisek } from '../ui';
 import {
   ArrowLeftIcon,
   CheckIcon,
@@ -194,7 +194,14 @@ function ComposeModal({
               {searching && <div className="muted" style={{ fontSize: 13 }}>Hledám…</div>}
               {!searching && results.length > 0 && (
                 <div className="kontakt-results">
-                  {results.map((c) => (
+                  {/* ke klientovi píše jen ten, kdo ho smí upravovat (migrace 025) */}
+                  {results.filter((c) => c.smi_upravit !== false).length === 0 && (
+                    <div className="muted" style={{ fontSize: 13 }}>
+                      Tihle klienti nejsou tvoji — vzkaz k nim píše ten, kdo jim volá, jeho super
+                      admin nebo Albert.
+                    </div>
+                  )}
+                  {results.filter((c) => c.smi_upravit !== false).map((c) => (
                     <button
                       type="button"
                       key={c.id}
@@ -414,7 +421,7 @@ function ThreadView({
             <div className={`bubble ${m.sender_type}`}>
               <div className="bubble-meta">
                 {m.sender_name} · {formatDateTime(m.created_at)}
-                {m.apply_always ? ' · pravidlo' : ''}
+                {pravidloPopisek(m)}
               </div>
               {m.body}
             </div>
@@ -457,7 +464,7 @@ function ThreadView({
             checked={applyAlways}
             onChange={(e) => setApplyAlways(e.target.checked)}
           />
-          Takto řešit vždy (zapsat do pravidel)
+          Navrhnout jako pravidlo pro všechny agenty (platí, až ho schválí Albert)
         </label>
       </div>
     </div>
