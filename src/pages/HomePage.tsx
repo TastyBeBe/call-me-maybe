@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { getApi, type AutomationStatus } from '../api';
 import { OWNER_USER_ID, useSession } from '../auth';
 import { accountLabel, powerSummary } from '../automation';
+import { isAdminRole, isSuperAdmin } from '../roles';
 import { ChartIcon, FlagIcon, MessageIcon, PhoneIcon, RocketIcon, TableIcon, UsersIcon } from '../icons';
 import { formatDateTime } from '../ui';
 
@@ -27,7 +28,8 @@ function AutomationTileSub({ st }: { st: AutomationStatus | null }) {
 
 export default function HomePage() {
   const session = useSession();
-  const isAdmin = session.role === 'admin';
+  const isAdmin = isAdminRole(session.role);
+  const isSuper = isSuperAdmin(session.role);
   const isOwner = isAdmin && session.user_id === OWNER_USER_ID;
   const [auto, setAuto] = useState<AutomationStatus | null>(null);
 
@@ -68,19 +70,23 @@ export default function HomePage() {
         <Link to="/moji" className="big-tile">
           <span className="tile-emoji"><TableIcon size={42} /></span>
           <span className="tile-label">MOJI KLIENTI</span>
-          <span className="tile-sub">moje kontakty + vzkazy agentům</span>
+          <span className="tile-sub">
+            {isSuper ? 'moje kontakty + klienti mých lidí' : 'moje kontakty + vzkazy agentům'}
+          </span>
+        </Link>
+        <Link to="/admin" className="big-tile">
+          <span className="tile-emoji"><TableIcon size={42} /></span>
+          <span className="tile-label">KONTAKTY</span>
+          <span className="tile-sub">{isAdmin ? 'celá databáze + úpravy' : 'celá databáze kontaktů'}</span>
         </Link>
         {isAdmin && (
           <>
-            <Link to="/admin" className="big-tile">
-              <span className="tile-emoji"><TableIcon size={42} /></span>
-              <span className="tile-label">KONTAKTY</span>
-              <span className="tile-sub">celá databáze + úpravy</span>
-            </Link>
             <Link to="/oznacene" className="big-tile">
               <span className="tile-emoji"><FlagIcon size={42} /></span>
               <span className="tile-label">OZNAČENÉ</span>
-              <span className="tile-sub">klienti, co nejsou dořešení</span>
+              <span className="tile-sub">
+                {isSuper ? 'nedořešení klienti — moji a mých lidí' : 'moji klienti, co nejsou dořešení'}
+              </span>
             </Link>
             <Link to="/zpravy" className="big-tile">
               <span className="tile-emoji"><MessageIcon size={42} /></span>
@@ -90,7 +96,7 @@ export default function HomePage() {
             <Link to="/uzivatele" className="big-tile">
               <span className="tile-emoji"><UsersIcon size={42} /></span>
               <span className="tile-label">UŽIVATELÉ</span>
-              <span className="tile-sub">volající a admini</span>
+              <span className="tile-sub">{isSuper ? 'lidé pod tebou' : 'přidat volajícího'}</span>
             </Link>
             {isOwner && (
               <Link to="/automatizace" className="big-tile">

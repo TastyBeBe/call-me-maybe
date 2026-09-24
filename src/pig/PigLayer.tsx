@@ -282,13 +282,14 @@ export default function PigLayer() {
     let stop = false;
     const check = async () => {
       try {
-        const rows = await getApi().allStats(session.token); // admin only; a caller just skips
-        if (stop || !rows.length) return;
-        const best = rows.reduce((a, b) => (b.sold > a.sold ? b : a));
-        const mine = best.sold > 0 && best.user_id === session.user_id;
-        for (const r of rows) tickTopDays(r.user_id, best.sold > 0 && r.user_id === best.user_id);
-        awardTop(mine);
-      } catch { /* not allowed for this role */ }
+        // ⚠ ZMĚNĚNO 2026-09-24 (migrace 023): dřív all_stats — čísla VŠECH, jenže ty od teď
+        // vidí jen super admin. top_prodejce říká jen „jsi #1?" a funguje pro každou roli
+        // (dřív ho volající nedostali nikdy). Dny na #1 si prohlížeč počítá jen pro sebe.
+        const r = await getApi().topSeller(session.token);
+        if (stop || !r) return;
+        tickTopDays(session.user_id, r.je_prvni);
+        awardTop(r.je_prvni);
+      } catch { /* offline: zkusí se příště */ }
     };
     void check();
     const iv = window.setInterval(() => { void check(); }, 30000);

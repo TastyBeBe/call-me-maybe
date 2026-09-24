@@ -8,7 +8,9 @@ import {
   type ThreadStatus,
 } from '../api';
 import { audio } from '../audio';
-import { useSession } from '../auth';
+import { OWNER_USER_ID, useSession } from '../auth';
+import PersonPicker, { usePeople } from '../components/PersonPicker';
+import { JINY_VOLAJICI } from '../roles';
 import { ErrorBox, Spinner, errMsg, formatDateTime } from '../ui';
 import {
   ArrowLeftIcon,
@@ -246,7 +248,8 @@ function ThreadListItem({
       </div>
       {t.last_message_preview && (
         <div className="thread-preview">
-          <b>{t.last_sender_type === 'admin' ? 'Vy: ' : 'Agent: '}</b>
+          {/* „Vy" by u super admina lhalo — poslední slovo mohl mít kdokoli z jeho lidí */}
+          <b>{t.last_sender_type === 'admin' ? 'Člověk: ' : 'Agent: '}</b>
           {t.last_message_preview}
         </div>
       )}
@@ -260,6 +263,10 @@ function ThreadListItem({
         </span>
         {t.kontakt_id && (
           <span className="badge chip-kontakt">{t.kontakt_name || `#${t.kontakt_id}`}</span>
+        )}
+        {/* čí je to klient (migrace 023) — ať super admin hned vidí, koho se to týká */}
+        {t.majitel && t.majitel !== JINY_VOLAJICI && (
+          <span className="badge neutral">volá {t.majitel}</span>
         )}
         {open && t.same_alert_open > 0 && (
           <span className="badge neutral">+{t.same_alert_open} o téže poruše</span>
@@ -461,6 +468,10 @@ function ThreadView({
 
 export default function ZpravyPage() {
   const session = useSession();
+  const people = usePeople();
+  const isOwner = session.user_id === OWNER_USER_ID;
+  // Super admin si může vybrat jednoho ze svých lidí (migrace 023) — server hlídá, že je jeho.
+  const [userId, setUserId] = useState<number | null>(null);
   const [threads, setThreads] = useState<ChatThread[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -479,7 +490,8 @@ export default function ZpravyPage() {
         const list = await getApi().listThreads(
           session.token,
           filterToStatus(filter),
-          filterToScope(scopeFilter)
+          filterToScope(scopeFilter),
+          userId
         );
         setThreads(list);
         setError('');
@@ -492,7 +504,7 @@ export default function ZpravyPage() {
         if (!silent) setLoading(false);
       }
     },
-    [session.token, filter, scopeFilter]
+    [session.token, filter, scopeFilter, userId]
   );
 
   const loadDetail = useCallback(
@@ -559,7 +571,8 @@ export default function ZpravyPage() {
   };
 
   // Poruchy, o kterých je otevřených víc vláken najednou — nabídneme je vyřešit hromadně.
-  const alertGroups = Array.from(
+  // Systémová vlákna vidí od migrace 023 jen Albert, takže jen jemu.
+  const alertGroups = !isOwner ? [] : Array.from(
     threads
       .filter((t) => t.status === 'open' && t.alert_key)
       .reduce((m, t) => {
@@ -580,6 +593,25 @@ export default function ZpravyPage() {
           <span className="count-pill">{openCount} otevřených</span>
         )}
       </h1>
+      {!isOwner && (
+        <p className="muted" style={{ marginTop: -6 }}>
+          Vidíš zprávy o svých klientech a ty, které jsi založil nebo do kterých jsi psal
+          {people.length > 1 ? ', a totéž u lidí pod tebou' : ''}. Hlášení o chodu
+          automatizace chodí jen Albertovi.
+        </p>
+      )}
+
+      <PersonPicker
+        people={people}
+        value={userId}
+        onChange={(id) => {
+          setUserId(id);
+          setSelectedId(null);
+          setDetail(null);
+        }}
+        label="Čí zprávy zobrazit"
+        allOption={isOwner ? 'Všechny' : 'Všechny moje a mých lidí'}
+      />
 
       <ErrorBox>{error}</ErrorBox>
 

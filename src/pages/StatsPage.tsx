@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { getApi, type KontaktStatus, type MyStats, type UserStats } from '../api';
 import { useSession } from '../auth';
 import { dayWord, topDaysFor } from '../pig/progress';
+import { isAdminRole, isSuperAdmin, roleLabel } from '../roles';
 import { ALL_STATUSES, ErrorBox, Spinner, STATUS_LABELS, errMsg } from '../ui';
 
 function StatCards({ stats }: { stats: MyStats }) {
@@ -31,7 +32,9 @@ function StatCards({ stats }: { stats: MyStats }) {
 
 export default function StatsPage() {
   const session = useSession();
-  const isAdmin = session.role === 'admin';
+  const isAdmin = isAdminRole(session.role);
+  // Cizí statistiky vidí jen super admin — své lidi; Albert všechny (migrace 023).
+  const isSuper = isSuperAdmin(session.role);
   const [myStats, setMyStats] = useState<MyStats | null>(null);
   const [allStats, setAllStats] = useState<UserStats[] | null>(null);
   const [selectedUser, setSelectedUser] = useState<number | 'me'>('me');
@@ -48,7 +51,7 @@ export default function StatsPage() {
         const mine = await api.myStats(session.token);
         if (!alive) return;
         setMyStats(mine);
-        if (isAdmin) {
+        if (isSuper) {
           const all = await api.allStats(session.token);
           if (!alive) return;
           setAllStats(all);
@@ -62,7 +65,7 @@ export default function StatsPage() {
     return () => {
       alive = false;
     };
-  }, [session.token, isAdmin]);
+  }, [session.token, isSuper]);
 
   const shown: MyStats | null =
     selectedUser === 'me'
@@ -82,7 +85,7 @@ export default function StatsPage() {
       <p className="eyebrow">výsledky volání</p>
       <h1 className="page-title">Statistiky</h1>
 
-      {isAdmin && allStats && (
+      {isSuper && allStats && allStats.some((u) => u.user_id !== session.user_id) && (
         <div className="field" style={{ maxWidth: 320 }}>
           <label htmlFor="user-select">Čí statistiky zobrazit</label>
           <select
@@ -93,13 +96,14 @@ export default function StatsPage() {
             }
           >
             <option value="me">Moje ({session.display_name})</option>
-            {allStats.map((u) => (
-              <option key={u.user_id} value={u.user_id}>
-                {u.display_name} ({u.username}
-                {u.role === 'admin' ? ' · admin' : ''}
-                {u.active ? '' : ' · neaktivní'})
-              </option>
-            ))}
+            {allStats
+              .filter((u) => u.user_id !== session.user_id)
+              .map((u) => (
+                <option key={u.user_id} value={u.user_id}>
+                  {u.display_name} ({roleLabel(u.role)}
+                  {u.active ? '' : ' · neaktivní'})
+                </option>
+              ))}
           </select>
         </div>
       )}

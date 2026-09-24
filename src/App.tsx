@@ -11,6 +11,7 @@ import {
 import { audio, isSfxName } from './audio';
 import { OWNER_USER_ID, useAuth } from './auth';
 import { getConfig } from './config';
+import { isAdminRole } from './roles';
 
 /** Logo = Prokchopova pochroumaná hlava v party čepici (public/icons). */
 const logoUrl = import.meta.env.BASE_URL + 'icons/procop_logo_256.png';
@@ -85,7 +86,9 @@ function RequireAuth({
 }) {
   const { session } = useAuth();
   if (!session) return <Navigate to="/login" replace />;
-  if (admin && session.role !== 'admin') return <Navigate to="/" replace />;
+  // admin = admin i super admin (migrace 023); server to hlídá sám, tady jen neukazujeme,
+  // co by stejně odmítl.
+  if (admin && !isAdminRole(session.role)) return <Navigate to="/" replace />;
   if (owner && session.user_id !== OWNER_USER_ID) return <Navigate to="/" replace />;
   return <>{children}</>;
 }
@@ -95,7 +98,7 @@ function TopBar() {
   const navigate = useNavigate();
   const { demo } = getConfig();
   if (!session) return null;
-  const isAdmin = session.role === 'admin';
+  const isAdmin = isAdminRole(session.role);
   const isOwner = isAdmin && session.user_id === OWNER_USER_ID;
 
   const onLogout = async () => {
@@ -131,15 +134,16 @@ function TopBar() {
         >
           moji klienti
         </NavLink>
+        {/* Kontakty (celou databázi) vidí od migrace 023 všichni — Albert 2026-09-24. */}
+        <NavLink
+          to="/admin"
+          data-sfx="none"
+          className={({ isActive }) => `nav-pill${isActive ? ' active' : ''}`}
+        >
+          kontakty
+        </NavLink>
         {isAdmin && (
           <>
-            <NavLink
-              to="/admin"
-              data-sfx="none"
-              className={({ isActive }) => `nav-pill${isActive ? ' active' : ''}`}
-            >
-              kontakty
-            </NavLink>
             <NavLink
               to="/oznacene"
               data-sfx="none"
@@ -234,7 +238,7 @@ export default function App() {
         <Route
           path="/admin"
           element={
-            <RequireAuth admin>
+            <RequireAuth>
               <AdminPage />
             </RequireAuth>
           }

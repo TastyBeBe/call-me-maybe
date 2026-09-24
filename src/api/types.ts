@@ -1,4 +1,5 @@
-export type Role = 'admin' | 'caller';
+/** Role (migrace 023): volající, admin, super admin. Majitel účtu = users.id 1 (Albert). */
+export type Role = 'admin' | 'caller' | 'super_admin';
 
 export interface Session {
   token: string;
@@ -83,6 +84,8 @@ export interface Kontakt {
   cekani_kind?: CekaniKind | null;
   cekani_since?: string | null;
   cekani_kos?: CekaniKos | null;
+  /** migrace 023: kontakt patří přihlášenému (volal mu / je last_caller) */
+  je_muj?: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -103,6 +106,9 @@ export interface UserStats extends MyStats {
   display_name: string;
   role: Role;
   active: boolean;
+  /** super admin, pod kterého člověk patří (migrace 023); super admin ho nemá */
+  manager_id: number | null;
+  manager_name: string | null;
 }
 
 export interface AdminMessage {
@@ -139,6 +145,8 @@ export interface ChatThreadInfo {
   created_by: string;
   last_message_at: string;
   created_at: string;
+  /** čí je to klient (migrace 023): jméno jen svoje / svých lidí, jinak „jiný volající" */
+  majitel?: string | null;
 }
 
 /** Řádek seznamu vláken z list_threads (s preview poslední zprávy). */
@@ -199,6 +207,8 @@ export interface UpdateUserArgs {
   password?: string | null;
   role?: Role | null;
   active?: boolean | null;
+  /** nadřízený super admin (mění jen Albert, migrace 023) */
+  manager_id?: number | null;
 }
 
 /** Řádek uživatele, jak ho vrací update_user. */
@@ -208,6 +218,7 @@ export interface UpdatedUser {
   display_name: string;
   role: Role;
   active: boolean;
+  manager_id: number | null;
 }
 
 /* ---- přepínání účtů Claude (migrace 011) + vypínač automatizace (migrace 012) ---- */
@@ -265,6 +276,7 @@ export interface MeInfo {
   username: string;
   display_name: string;
   role: Role;
+  manager_id: number | null;
 }
 
 /** Jednotné API rozhraní — implementuje ho reálný Supabase klient i demo mock. */
@@ -278,24 +290,34 @@ export interface Api {
     args: ResolveCallArgs
   ): Promise<{ ok: boolean; kontakt_id: number; status: string }>;
   myStats(token: string): Promise<MyStats>;
+  /** Statistiky svoje a lidí pod sebou — jen super admin; Albert všech (migrace 023). */
   allStats(token: string): Promise<UserStats[]>;
+  /** Je přihlášený #1 prodejce? (Prokchop) — nevrací čísla ostatních (migrace 023). */
+  topSeller(token: string): Promise<{ je_prvni: boolean }>;
+  /** Celá databáze kontaktů — vidí všichni (migrace 023); jméno kolegy jen svoje/svých lidí. */
   listKontakty(token: string, filters: ListKontaktyFilters): Promise<ListKontaktyResult>;
-  /** Kontakty přihlášeného uživatele (obě role) — migrace 003. */
-  myKontakty(token: string, limit?: number, offset?: number): Promise<ListKontaktyResult>;
+  /** Kontakty přihlášeného — migrace 003; super admin může userId = někdo z jeho lidí (023). */
+  myKontakty(
+    token: string,
+    limit?: number,
+    offset?: number,
+    userId?: number | null
+  ): Promise<ListKontaktyResult>;
   updateKontakt(token: string, id: number, patch: Record<string, unknown>): Promise<Kontakt>;
   /* ---- příznaky (migrace 005) ---- */
   /** Nasadí červený příznak s poznámkou, co je u klienta špatně. */
   setFlag(token: string, id: number, kind: FlagKind, note: string): Promise<Kontakt>;
   /** Zruší příznak — klient je vyřešený. */
   clearFlag(token: string, id: number): Promise<Kontakt>;
-  /** Přehled všech označených klientů (nevyřešených). */
-  listFlagged(token: string, kind?: FlagKind | null): Promise<Kontakt[]>;
+  /** Označení klienti: admin svoji, super admin svých lidí (+ userId), Albert všichni (023). */
+  listFlagged(token: string, kind?: FlagKind | null, userId?: number | null): Promise<Kontakt[]>;
   createUser(
     token: string,
     username: string,
     password: string,
     displayName: string,
-    role: Role
+    role: Role,
+    managerId?: number | null
   ): Promise<{ ok: boolean; user_id: number }>;
   /** Úprava uživatele (admin) — migrace 004; aplikují se jen zadaná pole. */
   updateUser(token: string, userId: number, args: UpdateUserArgs): Promise<UpdatedUser>;
@@ -307,10 +329,12 @@ export interface Api {
     applyAlways: boolean
   ): Promise<AdminMessage>;
   /* ---- chat (migrace 002) ---- */
+  /** Vlákna, která přihlášený smí vidět; super admin může userId = jeden z jeho lidí (023). */
   listThreads(
     token: string,
     status?: ThreadStatus | null,
-    scope?: ThreadScope | null
+    scope?: ThreadScope | null,
+    userId?: number | null
   ): Promise<ChatThread[]>;
   /** Vyřeší všechna otevřená vlákna o téže poruše najednou. */
   resolveAlert(

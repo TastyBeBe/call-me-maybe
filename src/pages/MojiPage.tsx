@@ -1,4 +1,6 @@
-// Moji klienti — kontakty přihlášeného uživatele (RPC my_kontakty, obě role).
+// Moji klienti — kontakty přihlášeného uživatele (RPC my_kontakty, všechny role).
+// Super admin si může vybrat někoho ze svých lidí a vidí jeho klienty (migrace 023;
+// server to hlídá — cizí klienty jinak nevydá).
 // Fulltext filtr je čistě klientský; klik na řádek otevře sdílený detail kontaktu.
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
@@ -6,27 +8,40 @@ import { getApi, type Kontakt } from '../api';
 import { audio } from '../audio';
 import { useSession } from '../auth';
 import KontaktDrawer from '../components/KontaktDrawer';
+import PersonPicker, { usePeople } from '../components/PersonPicker';
+import { isAdminRole } from '../roles';
 import { ErrorBox, FlagBadge, Spinner, StatusBadge, errMsg, formatDateTime } from '../ui';
 import { SearchIcon } from '../icons';
 
+/**
+ * Kolik řádků se načte najednou. ⚠ ZVEDNUTO z 500 (Albert 2026-09-24): Mikuláš má
+ * 653 klientů a 153 nejstarších (odmítnutých) se na stránku vůbec nedostalo — a protože
+ * hledání je jen v načtených řádcích, nešly ani najít. Když by jich někdo měl víc,
+ * stránka to řekne (viz „zobrazeno X z Y") a zbytek najde v Kontaktech.
+ */
+const MOJI_LIMIT = 2000;
+
 export default function MojiPage() {
   const session = useSession();
+  const people = usePeople();
+  const [userId, setUserId] = useState<number | null>(session.user_id);
   const [rows, setRows] = useState<Kontakt[]>([]);
   // ⚠ Počet se bere z `total` od serveru, ne z `rows.length` (Albert 2026-09-12:
-  // „each of them are showing something different"). `myKontakty` vrací nejvýš
-  // 500 řádků, takže pill z rows.length by u někoho, kdo má klientů víc,
-  // ukazoval 500 místo pravdy.
+  // „each of them are showing something different").
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [search, setSearch] = useState('');
   const [selected, setSelected] = useState<Kontakt | null>(null);
 
+  const cizi = userId !== null && userId !== session.user_id;
+  const kohoJmeno = cizi ? people.find((p) => p.user_id === userId)?.display_name ?? '' : '';
+
   const load = useCallback(async () => {
     setLoading(true);
     setError('');
     try {
-      const r = await getApi().myKontakty(session.token, 500, 0);
+      const r = await getApi().myKontakty(session.token, MOJI_LIMIT, 0, cizi ? userId : null);
       setRows(r.rows);
       setTotal(r.total ?? r.rows.length);
     } catch (e) {
@@ -35,7 +50,7 @@ export default function MojiPage() {
     } finally {
       setLoading(false);
     }
-  }, [session.token]);
+  }, [session.token, userId, cizi]);
 
   useEffect(() => {
     void load();
@@ -58,11 +73,21 @@ export default function MojiPage() {
 
   return (
     <div>
-      <p className="eyebrow">moji klienti</p>
+      <p className="eyebrow">{cizi ? `klienti: ${kohoJmeno}` : 'moji klienti'}</p>
       <h1 className="page-title">
-        Moji klienti
+        {cizi ? `Klienti — ${kohoJmeno}` : 'Moji klienti'}
         {total > 0 && <span className="count-pill">{total}</span>}
       </h1>
+
+      <PersonPicker
+        people={people}
+        value={userId}
+        onChange={(id) => {
+          setUserId(id ?? session.user_id);
+          setSelected(null);
+        }}
+        label="Čí klienty zobrazit"
+      />
 
       <div className="filter-bar">
         <div className="search-wrap">
@@ -76,6 +101,12 @@ export default function MojiPage() {
       </div>
 
       <ErrorBox>{error}</ErrorBox>
+      {!loading && total > rows.length && (
+        <p className="muted" style={{ margin: '0 0 10px' }}>
+          Zobrazeno {rows.length} z {total} (nejdůležitější nahoře). Ostatní najdeš v Kontaktech
+          hledáním.
+        </p>
+      )}
 
       {loading ? (
         <Spinner label="Načítám klienty…" />
@@ -85,7 +116,9 @@ export default function MojiPage() {
           <h2>{rows.length === 0 ? 'Zatím žádní klienti' : 'Nic nenalezeno'}</h2>
           <p className="muted">
             {rows.length === 0
-              ? 'Jakmile někomu zavoláš, objeví se tady.'
+              ? cizi
+                ? 'Tenhle člověk zatím nikomu nevolal.'
+                : 'Jakmile někomu zavoláš, objeví se tady.'
               : 'Zkus změnit hledaný výraz.'}
           </p>
         </div>
@@ -129,7 +162,7 @@ export default function MojiPage() {
           kontakt={selected}
           onClose={() => setSelected(null)}
           onSaved={onSaved}
-          readOnly={session.role !== 'admin'}
+          readOnly={!isAdminRole(session.role)}
         />
       )}
     </div>

@@ -5,11 +5,12 @@ import {
   type CekaniKind,
   type CekaniKos,
   type Kontakt,
-  type UserStats,
 } from '../api';
 import { audio } from '../audio';
 import { useSession } from '../auth';
 import KontaktDrawer from '../components/KontaktDrawer';
+import { usePeople } from '../components/PersonPicker';
+import { isAdminRole, isSuperAdmin } from '../roles';
 import {
   ALL_CEKANI,
   ALL_KOSE,
@@ -34,8 +35,14 @@ import {
 
 const PAGE_SIZE = 50;
 
+// KONTAKTY — celou databázi vidí od migrace 023 všichni (Albert 2026-09-24).
+// Server u kontaktu ukazuje jméno volajícího jen tomu, komu patří (a jeho super
+// adminovi); ostatním „jiný volající". Filtr podle volajícího: super admin své lidi,
+// ostatní jen sebe. Upravovat kontakty smí admin a super admin, volající jen čte.
 export default function AdminPage() {
   const session = useSession();
+  const isAdmin = isAdminRole(session.role);
+  const isSuper = isSuperAdmin(session.role);
   const [searchParams] = useSearchParams();
 
   const [status, setStatus] = useState('');
@@ -55,7 +62,7 @@ export default function AdminPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [selected, setSelected] = useState<Kontakt | null>(null);
-  const [callers, setCallers] = useState<UserStats[]>([]);
+  const callers = usePeople();   // jen super admin; ostatní mají prázdný seznam
   const [statusCounts, setStatusCounts] = useState<Record<string, number>>({});
   const reloadTick = useRef(0);
   const [tick, setTick] = useState(0);
@@ -68,14 +75,6 @@ export default function AdminPage() {
     }, 300);
     return () => clearTimeout(t);
   }, [search]);
-
-  // seznam volajících (pro filtr) — z all_stats
-  useEffect(() => {
-    getApi()
-      .allStats(session.token)
-      .then(setCallers)
-      .catch(() => setCallers([]));
-  }, [session.token]);
 
   // počty pro status dropdown (1 dotaz s limit 1 na každý status)
   useEffect(() => {
@@ -169,7 +168,7 @@ export default function AdminPage() {
 
   return (
     <div>
-      <p className="eyebrow">admin</p>
+      <p className="eyebrow">databáze kontaktů</p>
       <h1 className="page-title">
         Kontakty
         {total > 0 && <span className="count-pill">{total}</span>}
@@ -203,11 +202,15 @@ export default function AdminPage() {
           aria-label="Filtr volajícího"
         >
           <option value="">Všichni volající</option>
-          {callers.map((c) => (
-            <option key={c.user_id} value={c.display_name}>
-              {c.display_name}
-            </option>
-          ))}
+          {isSuper ? (
+            callers.map((c) => (
+              <option key={c.user_id} value={c.display_name}>
+                {c.user_id === session.user_id ? `Já (${c.display_name})` : c.display_name}
+              </option>
+            ))
+          ) : (
+            <option value={session.display_name}>Naposledy volal/a já</option>
+          )}
         </select>
         <select
           value={rating}
@@ -375,6 +378,7 @@ export default function AdminPage() {
           kontakt={selected}
           onClose={() => setSelected(null)}
           onSaved={onSaved}
+          readOnly={!isAdmin}
         />
       )}
     </div>

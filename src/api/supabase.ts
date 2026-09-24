@@ -105,6 +105,10 @@ export const supabaseApi: Api = {
     return rpc<UserStats[]>('all_stats', { p_token: token });
   },
 
+  async topSeller(token: string): Promise<{ je_prvni: boolean }> {
+    return rpc<{ je_prvni: boolean }>('top_prodejce', { p_token: token });
+  },
+
   async listKontakty(token: string, f: ListKontaktyFilters): Promise<ListKontaktyResult> {
     return rpc<ListKontaktyResult>('list_kontakty', {
       p_token: token,
@@ -119,11 +123,17 @@ export const supabaseApi: Api = {
     });
   },
 
-  async myKontakty(token: string, limit = 200, offset = 0): Promise<ListKontaktyResult> {
+  async myKontakty(
+    token: string,
+    limit = 200,
+    offset = 0,
+    userId: number | null = null
+  ): Promise<ListKontaktyResult> {
     return rpc<ListKontaktyResult>('my_kontakty', {
       p_token: token,
       p_limit: limit,
       p_offset: offset,
+      p_user_id: userId,
     });
   },
 
@@ -146,8 +156,14 @@ export const supabaseApi: Api = {
     return rpc<Kontakt>('clear_flag', { p_token: token, p_id: id });
   },
 
-  async listFlagged(token: string, kind?: FlagKind | null): Promise<Kontakt[]> {
-    return (await rpc<Kontakt[]>('list_flagged', { p_token: token, p_kind: kind ?? null })) ?? [];
+  async listFlagged(token: string, kind?: FlagKind | null, userId?: number | null): Promise<Kontakt[]> {
+    return (
+      (await rpc<Kontakt[]>('list_flagged', {
+        p_token: token,
+        p_kind: kind ?? null,
+        p_user_id: userId ?? null,
+      })) ?? []
+    );
   },
 
   async createUser(
@@ -155,7 +171,8 @@ export const supabaseApi: Api = {
     username: string,
     password: string,
     displayName: string,
-    role: Role
+    role: Role,
+    managerId?: number | null
   ) {
     return rpc<{ ok: boolean; user_id: number }>('create_user', {
       p_token: token,
@@ -163,6 +180,7 @@ export const supabaseApi: Api = {
       p_password: password,
       p_display_name: displayName,
       p_role: role,
+      p_manager_id: managerId ?? null,
     });
   },
 
@@ -174,6 +192,7 @@ export const supabaseApi: Api = {
       p_password: args.password ?? null,
       p_role: args.role ?? null,
       p_active: args.active ?? null,
+      p_manager_id: args.manager_id ?? null,
     });
   },
 
@@ -198,13 +217,16 @@ export const supabaseApi: Api = {
   async listThreads(
     token: string,
     status?: ThreadStatus | null,
-    scope?: ThreadScope | null
+    scope?: ThreadScope | null,
+    userId?: number | null
   ): Promise<ChatThread[]> {
-    // Oba filtry se posílají zvlášť a server je kombinuje (migrace 017).
+    // Filtry se posílají zvlášť a server je kombinuje (migrace 017); userId = jen
+    // vlákna jednoho z lidí pod super adminem (migrace 023, server to hlídá).
     const out = await rpc<{ threads: ChatThread[] }>('list_threads', {
       p_token: token,
       p_status: status ?? null,
       p_scope: scope ?? null,
+      p_user_id: userId ?? null,
     });
     return out?.threads ?? [];
   },

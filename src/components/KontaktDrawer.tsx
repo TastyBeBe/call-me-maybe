@@ -194,7 +194,7 @@ function FlagPanel({
 
 /* ---------- Vzkazy agentovi (vlákna kontaktu + composer) ---------- */
 
-function KontaktThreads({ kontakt }: { kontakt: Kontakt }) {
+function KontaktThreads({ kontakt, canWrite }: { kontakt: Kontakt; canWrite: boolean }) {
   const session = useSession();
   const [details, setDetails] = useState<ThreadDetail[]>([]);
   const [loading, setLoading] = useState(true);
@@ -300,28 +300,34 @@ function KontaktThreads({ kontakt }: { kontakt: Kontakt }) {
         ))
       )}
       <ErrorBox>{error}</ErrorBox>
-      <div className="composer-row">
-        <textarea
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && !e.shiftKey) {
-              e.preventDefault();
-              void send();
-            }
-          }}
-          placeholder="Napiš vzkaz agentovi… (Enter odešle, Shift+Enter nový řádek)"
-        />
-        <button
-          className="pill-btn hot send-btn"
-          data-sfx="none"
-          onClick={() => void send()}
-          disabled={sending || !draft.trim()}
-          title="Odeslat"
-        >
-          <SendIcon size={18} />
-        </button>
-      </div>
+      {canWrite ? (
+        <div className="composer-row">
+          <textarea
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                void send();
+              }
+            }}
+            placeholder="Napiš vzkaz agentovi… (Enter odešle, Shift+Enter nový řádek)"
+          />
+          <button
+            className="pill-btn hot send-btn"
+            data-sfx="none"
+            onClick={() => void send()}
+            disabled={sending || !draft.trim()}
+            title="Odeslat"
+          >
+            <SendIcon size={18} />
+          </button>
+        </div>
+      ) : (
+        <p className="muted" style={{ fontSize: 13.5, margin: 0 }}>
+          Vzkazy agentovi k tomuhle kontaktu píše ten, kdo mu volá.
+        </p>
+      )}
     </div>
   );
 }
@@ -522,7 +528,9 @@ export default function KontaktDrawer({
           </div>
         )}
 
-        <KontaktThreads kontakt={kontakt} />
+        {/* Volající smí psát agentovi jen o svém klientovi (server to hlídá, migrace 003/023);
+            admin a super admin kamkoli. je_muj posílá server od migrace 023. */}
+        <KontaktThreads kontakt={kontakt} canWrite={!readOnly || kontakt.je_muj !== false} />
       </div>
     </>
   );

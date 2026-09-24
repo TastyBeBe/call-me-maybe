@@ -1,12 +1,16 @@
-// Označení klienti — přehled všech, kteří nejsou 100 % vyřešení (migrace 005).
+// Označení klienti — přehled těch, kteří nejsou 100 % vyřešení (migrace 005).
 // Červený praporek + poznámka, co přesně je špatně. Klik na řádek otevře detail,
 // kde jde příznak upravit nebo označit za vyřešený.
+// Od migrace 023: admin vidí svoje klienty, super admin svoje + svých lidí + klienty,
+// kterým nikdo nevolal (a může vybrat jednoho člověka), Albert všechny. Hlídá server.
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { getApi, type FlagKind, type Kontakt } from '../api';
 import { audio } from '../audio';
 import { useSession } from '../auth';
 import KontaktDrawer from '../components/KontaktDrawer';
+import PersonPicker, { usePeople } from '../components/PersonPicker';
+import { isSuperAdmin } from '../roles';
 import {
   ALL_FLAGS,
   ErrorBox,
@@ -22,6 +26,8 @@ import { CheckIcon, FlagIcon } from '../icons';
 
 export default function OznacenePage() {
   const session = useSession();
+  const people = usePeople();
+  const [userId, setUserId] = useState<number | null>(null);
   const [rows, setRows] = useState<Kontakt[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -32,14 +38,14 @@ export default function OznacenePage() {
     setLoading(true);
     setError('');
     try {
-      setRows(await getApi().listFlagged(session.token));
+      setRows(await getApi().listFlagged(session.token, null, userId));
     } catch (e) {
       setError(errMsg(e));
       audio.play('error');
     } finally {
       setLoading(false);
     }
-  }, [session.token]);
+  }, [session.token, userId]);
 
   useEffect(() => {
     void load();
@@ -75,9 +81,24 @@ export default function OznacenePage() {
         {rows.length > 0 && <span className="count-pill">{rows.length}</span>}
       </h1>
       <p className="muted" style={{ marginTop: -6 }}>
-        Klienti, u kterých něco nesedí — chybí e-mail, nevíme, o jaký objekt jde, nebo jsou
-        údaje na webu stažené z internetu a klient je ještě nepotvrdil.
+        {isSuperAdmin(session.role)
+          ? 'Tvoji klienti a klienti tvých lidí, u kterých něco nesedí, plus klienti, kterým zatím nikdo nevolal'
+          : 'Tvoji klienti, u kterých něco nesedí'}{' '}
+        — chybí e-mail, nevíme, o jaký objekt jde, nebo jsou údaje na webu stažené z internetu a
+        klient je ještě nepotvrdil.
       </p>
+
+      <PersonPicker
+        people={people}
+        value={userId}
+        onChange={(id) => {
+          setUserId(id);
+          setKind('');
+          setSelected(null);
+        }}
+        label="Čí klienty zobrazit"
+        allOption="Všechny (já, moji lidé a klienti bez volajícího)"
+      />
 
       {rows.length > 0 && (
         <div className="flag-filter-bar">

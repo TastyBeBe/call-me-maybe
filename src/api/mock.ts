@@ -40,6 +40,8 @@ interface MockUser {
   password: string;
   role: Role;
   active: boolean;
+  /** nadřízený super admin (migrace 023); super admin ho nemá */
+  manager_id: number | null;
 }
 
 interface CallLogRow {
@@ -54,13 +56,17 @@ const now = () => new Date().toISOString();
 const daysAgo = (d: number) => new Date(Date.now() - d * 86400000).toISOString();
 const delay = (ms = 180) => new Promise<void>((r) => setTimeout(r, ms));
 
+// Demo role (migrace 023): Albert = majitel + super admin; Mikuláš = super admin a pod
+// ním Honza; Petra a Eva (admin) pod Albertem. Hesla jsou jen pro DEMO (README).
 const users: MockUser[] = [
-  { id: 1, username: 'admin', display_name: 'Albert', password: 'admin', role: 'admin', active: true },
-  { id: 2, username: 'petra', display_name: 'Petra', password: 'volam', role: 'caller', active: true },
-  { id: 3, username: 'honza', display_name: 'Honza', password: 'volam', role: 'caller', active: true },
+  { id: 1, username: 'admin', display_name: 'Albert', password: 'admin', role: 'super_admin', active: true, manager_id: null },
+  { id: 2, username: 'petra', display_name: 'Petra', password: 'volam', role: 'caller', active: true, manager_id: 1 },
+  { id: 3, username: 'honza', display_name: 'Honza', password: 'volam', role: 'caller', active: true, manager_id: 4 },
+  { id: 4, username: 'mikulas', display_name: 'Mikuláš', password: 'mikulas', role: 'super_admin', active: true, manager_id: null },
+  { id: 5, username: 'eva', display_name: 'Eva', password: 'eva', role: 'admin', active: true, manager_id: 1 },
 ];
 
-let nextUserId = 4;
+let nextUserId = 6;
 let nextKontaktId = 100;
 let nextCallLogId = 1;
 
@@ -370,6 +376,28 @@ const chatThreads: MockThread[] = [
     last_message_at: daysAgo(8),
     created_at: daysAgo(9),
   },
+  // Systémové hlášení (admin_alert) — od migrace 023 ho vidí jen Albert.
+  {
+    id: 4,
+    kontakt_id: null,
+    subject: 'POZOR: Nefunguje odesílání e-mailů (Google)',
+    status: 'open',
+    scope: 'automatizace',
+    alert_key: 'gws-auth',
+    created_by: 'agent',
+    last_message_at: hoursAgo(2),
+    created_at: hoursAgo(2),
+  },
+  // Klient, kterému nikdo nevolal (Srub Beskydy) — vidí všichni super admini.
+  {
+    id: 5,
+    kontakt_id: 6,
+    subject: 'Srub Beskydy: potřebujeme e-mail na majitele',
+    status: 'open',
+    created_by: 'agent',
+    last_message_at: hoursAgo(6),
+    created_at: hoursAgo(6),
+  },
 ];
 
 const chatMessages: MockChatMessage[] = [
@@ -427,10 +455,28 @@ const chatMessages: MockChatMessage[] = [
     apply_always: true,
     created_at: daysAgo(8),
   },
+  {
+    id: 7,
+    thread_id: 4,
+    sender_type: 'agent',
+    sender_name: 'Automatizace',
+    body: 'Automatizace nemůže poslat klientům ani jeden e-mail a nečte příchozí poštu. Spraví to jen Albert.',
+    apply_always: false,
+    created_at: hoursAgo(2),
+  },
+  {
+    id: 8,
+    thread_id: 5,
+    sender_type: 'agent',
+    sender_name: 'Agent — Srub Beskydy',
+    body: 'Web je hotový, ale na majitele nemáme e-mail. Kdo mu bude volat, zeptejte se prosím na adresu.',
+    apply_always: false,
+    created_at: hoursAgo(6),
+  },
 ];
 
-let nextThreadId = 4;
-let nextChatMessageId = 7;
+let nextThreadId = 6;
+let nextChatMessageId = 9;
 
 const sessions = new Map<string, number>(); // token -> user_id
 
@@ -453,21 +499,114 @@ function auth(token: string): MockUser {
 
 function authAdmin(token: string): MockUser {
   const user = auth(token);
-  if (user.role !== 'admin') fail('Přístup zamítnut: vyžadována role admin.');
+  if (user.role !== 'admin' && user.role !== 'super_admin') fail('Přístup zamítnut: vyžadována role admin.');
   return user;
 }
 
-/** Množina kontaktů uživatele — zrcadlí app_my_kontakt_ids z migrace 003:
- *  last_caller = jeho display_name NEBO kontakt, kterému kdy volal (call_log). */
+/* ---- kdo co vidí — zrcadlí db/migration_023_role.sql (docs/ROLE-A-VIDITELNOST.md) ---- */
+
+const OWNER_ID = 1;
+const JINY = 'jiný volající';
+
+function authOwner(token: string): MockUser {
+  const user = auth(token);
+  if (user.id !== OWNER_ID) fail('Přístup zamítnut: tohle smí jen Albert.');
+  return user;
+}
+
+/** app_viditelni: Albert všechny, super admin sebe + své lidi, ostatní jen sebe. */
+function visibleIds(u: MockUser): number[] {
+  if (u.id === OWNER_ID) return users.map((x) => x.id);
+  if (u.role === 'super_admin') return [u.id, ...users.filter((x) => x.manager_id === u.id).map((x) => x.id)];
+  return [u.id];
+}
+
+function namesOf(ids: number[]): string[] {
+  return users.filter((x) => ids.includes(x.id)).map((x) => x.display_name);
+}
+
+/** app_kontakty_uzivatelu: last_caller = jejich jméno NEBO jim kdy volali (call_log). */
+function kontaktyOf(ids: number[]): Set<number> {
+  const names = namesOf(ids);
+  const out = new Set<number>();
+  for (const c of kontakty) if (c.last_caller !== null && names.includes(c.last_caller)) out.add(c.id);
+  for (const l of callLog) if (ids.includes(l.user_id)) out.add(l.kontakt_id);
+  return out;
+}
+
+/** Množina kontaktů jednoho uživatele — zrcadlí app_my_kontakt_ids (migrace 003). */
 function myKontaktIds(user: MockUser): Set<number> {
-  const ids = new Set<number>();
-  for (const c of kontakty) {
-    if (c.last_caller !== null && c.last_caller === user.display_name) ids.add(c.id);
+  return kontaktyOf([user.id]);
+}
+
+function kontaktBezMajitele(kid: number): boolean {
+  const c = kontakty.find((k) => k.id === kid);
+  const names = users.map((x) => x.display_name);
+  return !callLog.some((l) => l.kontakt_id === kid) && !(c?.last_caller && names.includes(c.last_caller));
+}
+
+/** app_vlakna_uzivatelu: o jejich klientovi, NEBO je založili (ne agent), NEBO do nich psali. */
+function threadsOf(ids: number[]): Set<number> {
+  const names = namesOf(ids);
+  const ks = kontaktyOf(ids);
+  const out = new Set<number>();
+  for (const t of chatThreads) {
+    if ((t.kontakt_id !== null && ks.has(t.kontakt_id)) || (t.created_by !== 'agent' && names.includes(t.created_by))) {
+      out.add(t.id);
+    }
   }
-  for (const l of callLog) {
-    if (l.user_id === user.id) ids.add(l.kontakt_id);
+  for (const m of chatMessages) if (m.sender_type === 'admin' && names.includes(m.sender_name)) out.add(m.thread_id);
+  return out;
+}
+
+function isSystemThread(t: MockThread): boolean {
+  return mockScope(t) === 'automatizace' && t.created_by === 'agent';
+}
+
+/** app_vlakna_viditelna: Albert vše; systémová nikdo jiný; super admin navíc klienty bez volajícího. */
+function visibleThreadIds(u: MockUser): Set<number> {
+  if (u.id === OWNER_ID) return new Set(chatThreads.map((t) => t.id));
+  const own = threadsOf(visibleIds(u));
+  const out = new Set<number>();
+  for (const t of chatThreads) {
+    if (isSystemThread(t)) continue;
+    if (own.has(t.id)) out.add(t.id);
+    else if (
+      u.role === 'super_admin' && t.created_by === 'agent' && t.kontakt_id !== null &&
+      mockScope(t) === 'klient' && kontaktBezMajitele(t.kontakt_id)
+    ) out.add(t.id);
   }
-  return ids;
+  return out;
+}
+
+/** app_kontakt_ven: jméno volajícího jen svoje / svých lidí (Albert vše), je_muj. */
+function maskedName(u: MockUser, name: string | null): string | null {
+  if (name === null) return null;
+  if (u.id === OWNER_ID || namesOf(visibleIds(u)).includes(name)) return name;
+  return JINY;
+}
+
+function forViewer(u: MockUser, c: Kontakt): Kontakt {
+  return { ...c, last_caller: maskedName(u, c.last_caller), je_muj: myKontaktIds(u).has(c.id) };
+}
+
+function mayPick(u: MockUser, target: number | null | undefined, what: string): void {
+  if (target == null || target === u.id) return;
+  if (!(u.role === 'super_admin' && visibleIds(u).includes(target))) {
+    fail(`${what} jiného člověka vidí jen jeho super admin.`);
+  }
+}
+
+const RESERVED = ['agent', 'automatizace', 'dispatcher', 'hlídka', 'hlidka', 'watchdog', 'live:session',
+  'admin', 'systém', 'system', 'jiný volající', 'jiny volajici'];
+
+function checkName(name: string, selfId: number | null): void {
+  const n = name.trim();
+  if (n.length < 2 || n.length > 60) fail('Zobrazované jméno musí mít 2–60 znaků.');
+  if (RESERVED.includes(n.toLowerCase()) || /^agent\b/i.test(n)) fail(`Jméno „${n}" je vyhrazené pro automatizaci. Zvolte jiné.`);
+  if (users.some((x) => x.id !== selfId && x.display_name.trim().toLowerCase() === n.toLowerCase())) {
+    fail(`Jméno „${n}" už má jiný uživatel. Zvolte jiné (klienti a zprávy se lidem přiřazují podle jména).`);
+  }
 }
 
 function statsFor(userId: number): MyStats {
@@ -477,11 +616,12 @@ function statsFor(userId: number): MyStats {
   const zajem = logs.filter((l) => l.outcome === 'zajem').length;
   const odmitnuto = logs.filter((l) => l.outcome === 'odmitnuto').length;
   const nedovolano = logs.filter((l) => l.outcome === 'nedovolano').length;
+  // prodáno = klient web schválil a dál (migrace 022 — shodně se serverem)
   const soldIds = new Set(
     kontakty
       .filter(
         (c) =>
-          ['zaplaceno', 'domena_pripojena', 'hotovo'].includes(c.status) &&
+          ['schvaleno', 'faktura_odeslana', 'zaplaceno', 'domena_pripojena', 'hotovo'].includes(c.status) &&
           callLog.some((l) => l.kontakt_id === c.id && l.user_id === userId && l.outcome === 'zajem')
       )
       .map((c) => c.id)
@@ -550,11 +690,8 @@ const mockDemoJobs = (): AutomationRunningJob[] => [
 ];
 
 function mockAuthAdmin(token: string): MockUser {
-  const uid = sessions.get(token);
-  const u = users.find((x) => x.id === uid && x.active);
-  if (!u) throw new Error('Neplatná nebo vypršelá relace. Přihlaste se znovu.');
-  if (u.role !== 'admin') throw new Error('Přístup zamítnut: vyžadována role admin.');
-  return u;
+  // stejná obnova demo relace jako auth() + admin i super admin (migrace 023)
+  return authAdmin(token);
 }
 
 /** Demo: během vyprazdňování „doběhne" jeden job každých 8 s; po posledním se přepne / vypne. */
@@ -603,7 +740,13 @@ export const mockApi: Api = {
   async me(token: string): Promise<MeInfo> {
     await delay(60);
     const u = auth(token);
-    return { user_id: u.id, username: u.username, display_name: u.display_name, role: u.role };
+    return {
+      user_id: u.id,
+      username: u.username,
+      display_name: u.display_name,
+      role: u.role,
+      manager_id: u.manager_id,
+    };
   },
 
   async nextContact(token: string): Promise<Kontakt | null> {
@@ -638,7 +781,7 @@ export const mockApi: Api = {
     next.lock_by = user.id;
     next.lock_at = now();
     next.updated_at = now();
-    return { ...next };
+    return forViewer(user, next);
   },
 
   async resolveCall(token: string, args: ResolveCallArgs) {
@@ -697,22 +840,40 @@ export const mockApi: Api = {
 
   async allStats(token: string): Promise<UserStats[]> {
     await delay();
-    authAdmin(token);
+    const me = auth(token);
+    if (me.role !== 'super_admin') fail('Statistiky ostatních vidí jen super admin.');
+    const ids = visibleIds(me);
     return users
+      .filter((u) => ids.includes(u.id))
       .map((u) => ({
         user_id: u.id,
         username: u.username,
         display_name: u.display_name,
         role: u.role,
         active: u.active,
+        manager_id: u.manager_id,
+        manager_name: users.find((m) => m.id === u.manager_id)?.display_name ?? null,
         ...statsFor(u.id),
       }))
       .sort((a, b) => b.calls - a.calls);
   },
 
+  async topSeller(token: string): Promise<{ je_prvni: boolean }> {
+    await delay(60);
+    const me = auth(token);
+    const best = users
+      .map((u) => ({ id: u.id, ...statsFor(u.id) }))
+      .sort((a, b) => b.sold - a.sold || b.calls - a.calls || a.id - b.id)[0];
+    return { je_prvni: !!best && best.sold > 0 && best.id === me.id };
+  },
+
   async listKontakty(token: string, f: ListKontaktyFilters): Promise<ListKontaktyResult> {
     await delay();
-    authAdmin(token);
+    // Kontakty vidí všichni (migrace 023); filtr podle volajícího jen sebe / své lidi.
+    const me = auth(token);
+    if (f.caller && me.id !== OWNER_ID && !namesOf(visibleIds(me)).includes(f.caller)) {
+      fail(`Podle volajícího můžete filtrovat jen sebe${me.role === 'super_admin' ? ' a své lidi' : ''}.`);
+    }
     const search = (f.search ?? '').trim().toLowerCase();
     const matches = (c: Kontakt) =>
       (!f.status || c.status === f.status) &&
@@ -745,15 +906,26 @@ export const mockApi: Api = {
       total: filtered.length,
       rows: filtered.slice(offset, offset + limit).map((c) => {
         const cek = cekaniOf(c);
-        return { ...c, cekani_kind: cek.kind, cekani_since: cek.since, cekani_kos: kosOfMock(cek.since) };
+        return {
+          ...forViewer(me, c),
+          cekani_kind: cek.kind,
+          cekani_since: cek.since,
+          cekani_kos: kosOfMock(cek.since),
+        };
       }),
     };
   },
 
-  async myKontakty(token: string, limit = 200, offset = 0): Promise<ListKontaktyResult> {
+  async myKontakty(
+    token: string,
+    limit = 200,
+    offset = 0,
+    userId: number | null = null
+  ): Promise<ListKontaktyResult> {
     await delay();
     const user = auth(token);
-    const ids = myKontaktIds(user);
+    mayPick(user, userId, 'Klienty');
+    const ids = kontaktyOf([userId ?? user.id]);
     const filtered = kontakty
       .filter((c) => ids.has(c.id))
       .sort((a, b) => {
@@ -769,13 +941,21 @@ export const mockApi: Api = {
     const lim = Math.max(limit, 1);
     return {
       total: filtered.length,
-      rows: filtered.slice(off, off + lim).map((c) => ({ ...c })),
+      rows: filtered.slice(off, off + lim).map((c) => forViewer(user, c)),
     };
   },
 
   async updateKontakt(token: string, id: number, patch: Record<string, unknown>): Promise<Kontakt> {
     await delay();
-    authAdmin(token);
+    const me = authAdmin(token);
+    // komu kontakt patří (last_caller) mění jen super admin, a jen na své lidi (migrace 023)
+    if (patch && 'last_caller' in patch) {
+      if (me.role !== 'super_admin') fail('Přeřadit kontakt jinému volajícímu smí jen super admin.');
+      const v = String(patch.last_caller ?? '').trim();
+      if (v && me.id !== OWNER_ID && !namesOf(visibleIds(me)).includes(v)) {
+        fail('Kontakt můžete přeřadit jen sobě nebo svým lidem.');
+      }
+    }
     const allowed = [
       'phone', 'name', 'ma_web', 'web', 'email', 'note', 'status', 'rating',
       'cena_web', 'cena_hosting', 'last_caller', 'obor',
@@ -804,7 +984,7 @@ export const mockApi: Api = {
       }
     }
     kontakt.updated_at = now();
-    return { ...kontakt };
+    return forViewer(me, kontakt);
   },
 
   /* ---- příznaky (migrace 005) ---- */
@@ -819,12 +999,12 @@ export const mockApi: Api = {
     kontakt.flagged_at = now();
     kontakt.flagged_by = user.display_name;
     kontakt.updated_at = now();
-    return { ...kontakt };
+    return forViewer(user, kontakt);
   },
 
   async clearFlag(token: string, id: number): Promise<Kontakt> {
     await delay();
-    authAdmin(token);
+    const user = authAdmin(token);
     const kontakt = kontakty.find((c) => c.id === id);
     if (!kontakt) fail(`Kontakt id=${id} neexistuje.`);
     kontakt.flag_kind = null;
@@ -832,37 +1012,69 @@ export const mockApi: Api = {
     kontakt.flagged_at = null;
     kontakt.flagged_by = null;
     kontakt.updated_at = now();
-    return { ...kontakt };
+    return forViewer(user, kontakt);
   },
 
-  async listFlagged(token: string, kind?: FlagKind | null): Promise<Kontakt[]> {
+  async listFlagged(token: string, kind?: FlagKind | null, userId?: number | null): Promise<Kontakt[]> {
     await delay();
-    authAdmin(token);
+    // admin svoji, super admin svých lidí + klienti bez volajícího, Albert všichni (migrace 023)
+    const user = authAdmin(token);
+    mayPick(user, userId, 'Označené klienty');
+    const scopeIds = userId != null ? kontaktyOf([userId]) : kontaktyOf(visibleIds(user));
     const order: Record<string, number> = {
       chybi_info: 0, chybi_email: 1, email_neoveren: 2, info_neoverene: 3, jine: 4,
     };
     return kontakty
       .filter((c) => c.flag_kind && (!kind || c.flag_kind === kind))
+      .filter(
+        (c) =>
+          (userId == null && user.id === OWNER_ID) ||
+          scopeIds.has(c.id) ||
+          (userId == null && user.role === 'super_admin' && kontaktBezMajitele(c.id))
+      )
       .sort((a, b) => (order[a.flag_kind!] ?? 9) - (order[b.flag_kind!] ?? 9) || a.id - b.id)
-      .map((c) => ({ ...c }));
+      .map((c) => forViewer(user, c));
   },
 
-  async createUser(token: string, username: string, password: string, displayName: string, role: Role) {
+  async createUser(
+    token: string,
+    username: string,
+    password: string,
+    displayName: string,
+    role: Role,
+    managerId?: number | null
+  ) {
     await delay();
-    authAdmin(token);
+    const admin = authAdmin(token);
     if (!username.trim()) fail('Uživatelské jméno nesmí být prázdné.');
     if (!password || password.length < 6) fail('Heslo musí mít alespoň 6 znaků.');
-    if (role !== 'admin' && role !== 'caller') fail(`Neplatná role: ${role}. Povolené: admin, caller.`);
+    if (role !== 'admin' && role !== 'caller' && role !== 'super_admin') {
+      fail(`Neplatná role: ${role}. Povolené: caller, admin, super_admin.`);
+    }
+    if (role !== 'caller' && admin.id !== OWNER_ID) {
+      fail('Nového admina nebo super admina může založit jen Albert. Vy můžete zakládat volající.');
+    }
     if (users.some((u) => u.username === username.trim())) {
       fail(`Uživatel "${username.trim()}" už existuje.`);
     }
+    const name = displayName.trim() || username.trim();
+    checkName(name, null);
+    const manager =
+      role === 'super_admin'
+        ? null
+        : admin.id === OWNER_ID
+          ? managerId ?? OWNER_ID
+          : admin.role === 'super_admin'
+            ? admin.id
+            : admin.manager_id ?? OWNER_ID;
     const user: MockUser = {
       id: nextUserId++,
       username: username.trim(),
-      display_name: displayName.trim() || username.trim(),
+      display_name: name,
       password,
       role,
       active: true,
+      manager_id: manager,
     };
     users.push(user);
     return { ok: true, user_id: user.id };
@@ -875,31 +1087,52 @@ export const mockApi: Api = {
     const pw = args.password ?? null;
     const role = args.role ?? null;
     const active = args.active ?? null;
+    const mgr = args.manager_id ?? null;
 
-    if (dn === null && pw === null && role === null && active === null) {
+    if (dn === null && pw === null && role === null && active === null && mgr === null) {
       fail('Není co měnit — zadejte alespoň jedno pole.');
     }
-    if (dn !== null && (dn.trim().length < 2 || dn.trim().length > 60)) {
-      fail('Zobrazované jméno musí mít 2–60 znaků.');
-    }
-    if (pw !== null && pw.length < 6) {
-      fail('Heslo musí mít alespoň 6 znaků.');
-    }
-    if (role !== null && role !== 'admin' && role !== 'caller') {
-      fail(`Neplatná role: ${role}. Povolené: admin, caller.`);
-    }
-    // pojistky proti sebedestrukci admina (zrcadlí migraci 004)
-    if (userId === admin.id) {
-      if (active === false) fail('Nemůžete deaktivovat sám sebe.');
-      if (role !== null && role !== 'admin') fail('Nemůžete si odebrat admin roli.');
-    }
-
     const user = users.find((u) => u.id === userId);
     if (!user) fail(`Uživatel id=${userId} neexistuje.`);
 
-    if (dn !== null) user.display_name = dn.trim();
+    // kdo smí upravit koho — zrcadlí migraci 023
+    if (userId === OWNER_ID && admin.id !== OWNER_ID) fail('Účet majitele může měnit jen on sám.');
+    if (admin.id !== OWNER_ID && userId !== admin.id) {
+      if (admin.role !== 'super_admin') fail('Upravit můžete jen svůj účet. Účty ostatních mění jejich super admin.');
+      if (user.manager_id !== admin.id) fail('Upravit můžete jen sebe a lidi, kteří jsou pod vámi.');
+    }
+    if (role !== null && role !== user.role) {
+      if (admin.id !== OWNER_ID) fail('Roli může měnit jen majitel účtu.');
+      if (userId === admin.id) fail('Vlastní roli změnit nejde.');
+    }
+    if (mgr !== null && mgr !== user.manager_id && admin.id !== OWNER_ID) fail('Nadřízeného může měnit jen Albert.');
+    if (active === false && active !== user.active) {
+      if (userId === admin.id) fail('Nemůžete deaktivovat sám sebe.');
+      if (user.role !== 'caller' && admin.id !== OWNER_ID) fail('Deaktivovat admina nebo super admina může jen Albert.');
+    }
+    if (pw !== null && pw.length < 6) fail('Heslo musí mít alespoň 6 znaků.');
+    if (dn !== null && dn.trim() !== user.display_name) checkName(dn, userId);
+    if (mgr !== null && users.find((u) => u.id === mgr)?.role !== 'super_admin') fail('Nadřízený musí být super admin.');
+
+    // přejmenování: přepsat jméno i u klientů a zpráv, ať staré jméno nejde „převzít"
+    if (dn !== null && dn.trim() !== user.display_name) {
+      const old = user.display_name;
+      const nove = dn.trim();
+      for (const c of kontakty) if (c.last_caller === old) c.last_caller = nove;
+      for (const t of chatThreads) if (t.created_by === old && t.created_by !== 'agent') t.created_by = nove;
+      for (const m of chatMessages) if (m.sender_type === 'admin' && m.sender_name === old) m.sender_name = nove;
+      user.display_name = nove;
+    }
     if (pw !== null) user.password = pw;
-    if (role !== null) user.role = role;
+    if (role !== null && role !== user.role) {
+      if (user.role === 'super_admin') {
+        for (const u of users) if (u.manager_id === user.id) u.manager_id = OWNER_ID;
+      }
+      user.role = role;
+      user.manager_id = role === 'super_admin' ? null : mgr ?? user.manager_id ?? OWNER_ID;
+    } else if (mgr !== null && user.role !== 'super_admin') {
+      user.manager_id = mgr;
+    }
     if (active !== null) user.active = active;
 
     return {
@@ -908,12 +1141,13 @@ export const mockApi: Api = {
       display_name: user.display_name,
       role: user.role,
       active: user.active,
+      manager_id: user.manager_id,
     };
   },
 
   async listAdminMessages(token: string, status?: 'open' | 'resolved' | null) {
     await delay();
-    authAdmin(token);
+    authOwner(token); // stará tabulka o všech klientech — jen Albert (migrace 023)
     if (status && status !== 'open' && status !== 'resolved') {
       fail(`Neplatný status: ${status}. Povolené: open, resolved.`);
     }
@@ -929,7 +1163,7 @@ export const mockApi: Api = {
 
   async replyAdminMessage(token: string, id: number, reply: string, applyAlways: boolean) {
     await delay();
-    authAdmin(token);
+    authOwner(token);
     if (!reply.trim()) fail('Odpověď nesmí být prázdná.');
     const msg = messages.find((m) => m.id === id);
     if (!msg) fail(`Zpráva id=${id} neexistuje.`);
@@ -940,12 +1174,13 @@ export const mockApi: Api = {
     return { ...msg };
   },
 
-  /* ---- chat (migrace 002) ---- */
+  /* ---- chat (migrace 002, viditelnost migrace 023) ---- */
 
   async listThreads(
     token: string,
     status?: ThreadStatus | null,
-    scope?: ThreadScope | null
+    scope?: ThreadScope | null,
+    userId?: number | null
   ): Promise<ChatThread[]> {
     await delay();
     const user = auth(token);
@@ -955,18 +1190,14 @@ export const mockApi: Api = {
     if (scope && scope !== 'automatizace' && scope !== 'klient') {
       fail(`Neplatný scope: ${scope}. Povolené: automatizace, klient.`);
     }
-    // admin vše; caller jen vlákna svých kontaktů (nikdy samostatná vlákna bez kontaktu)
-    const ids = user.role === 'admin' ? null : myKontaktIds(user);
-    return chatThreads
+    mayPick(user, userId, 'Zprávy');
+    const visible = visibleThreadIds(user);
+    const jeho = userId != null ? threadsOf([userId]) : null;
+    const rows = chatThreads
+      .filter((t) => visible.has(t.id))
+      .filter((t) => jeho === null || jeho.has(t.id))
       .filter((t) => !status || t.status === status)
       .filter((t) => !scope || mockScope(t) === scope)
-      .filter((t) => ids === null || (t.kontakt_id !== null && ids.has(t.kontakt_id)))
-      .slice()
-      .sort(
-        (a, b) =>
-          new Date(b.last_message_at).getTime() - new Date(a.last_message_at).getTime() ||
-          b.id - a.id
-      )
       .map((t) => {
         const msgs = chatMessages
           .filter((m) => m.thread_id === t.id)
@@ -974,10 +1205,11 @@ export const mockApi: Api = {
             (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime() || a.id - b.id
           );
         const last = msgs[msgs.length - 1] ?? null;
+        const k = kontakty.find((c) => c.id === t.kontakt_id);
         return {
           id: t.id,
           kontakt_id: t.kontakt_id,
-          kontakt_name: kontakty.find((c) => c.id === t.kontakt_id)?.name ?? null,
+          kontakt_name: k?.name ?? null,
           subject: t.subject,
           status: t.status,
           scope: mockScope(t),
@@ -985,16 +1217,27 @@ export const mockApi: Api = {
           created_by: t.created_by,
           last_message_at: t.last_message_at,
           created_at: t.created_at,
+          majitel: maskedName(user, k?.last_caller ?? null),
           last_message_preview: last ? last.body.slice(0, 140) : null,
           last_sender_type: last ? last.sender_type : null,
           message_count: msgs.length,
-          same_alert_open: t.alert_key
-            ? chatThreads.filter(
-                (s) => s.alert_key === t.alert_key && s.status === 'open' && s.id !== t.id
-              ).length
-            : 0,
+          same_alert_open:
+            user.id === OWNER_ID && t.alert_key && t.kontakt_id === null
+              ? chatThreads.filter(
+                  (s) => s.alert_key === t.alert_key && s.status === 'open' && s.id !== t.id && s.kontakt_id === null
+                ).length
+              : 0,
         };
       });
+    // řazení jako server: čeká na člověka, pak ostatní otevřená, pak vyřešená; od nejnovějšího
+    const rank = (t: ChatThread) =>
+      t.status !== 'open' ? 2 : t.last_sender_type === 'agent' ? 0 : 1;
+    return rows.sort(
+      (a, b) =>
+        rank(a) - rank(b) ||
+        new Date(b.last_message_at).getTime() - new Date(a.last_message_at).getTime() ||
+        b.id - a.id
+    );
   },
 
   async getThread(token: string, threadId: number): Promise<ThreadDetail> {
@@ -1002,15 +1245,12 @@ export const mockApi: Api = {
     const user = auth(token);
     const t = chatThreads.find((x) => x.id === threadId);
     if (!t) fail(`Vlákno id=${threadId} neexistuje.`);
-    if (user.role !== 'admin') {
-      if (t.kontakt_id === null || !myKontaktIds(user).has(t.kontakt_id)) {
-        fail('Jen ke svým klientům.');
-      }
-    }
+    if (!visibleThreadIds(user).has(t.id)) fail('Tohle vlákno patří někomu jinému.');
+    const k = kontakty.find((c) => c.id === t.kontakt_id);
     const thread: ChatThreadInfo = {
       id: t.id,
       kontakt_id: t.kontakt_id,
-      kontakt_name: kontakty.find((c) => c.id === t.kontakt_id)?.name ?? null,
+      kontakt_name: k?.name ?? null,
       subject: t.subject,
       status: t.status,
       scope: mockScope(t),
@@ -1018,6 +1258,7 @@ export const mockApi: Api = {
       created_by: t.created_by,
       last_message_at: t.last_message_at,
       created_at: t.created_at,
+      majitel: maskedName(user, k?.last_caller ?? null),
     };
     const messagesAsc: ChatMessage[] = chatMessages
       .filter((m) => m.thread_id === t.id)
@@ -1034,10 +1275,9 @@ export const mockApi: Api = {
     if (!body.trim()) fail('Zpráva nesmí být prázdná.');
     const t = chatThreads.find((x) => x.id === threadId);
     if (!t) fail(`Vlákno id=${threadId} neexistuje.`);
-    if (user.role !== 'admin') {
-      if (t.kontakt_id === null || !myKontaktIds(user).has(t.kontakt_id)) {
-        fail('Jen ke svým klientům.');
-      }
+    if (!visibleThreadIds(user).has(t.id)) fail('Tohle vlákno patří někomu jinému.');
+    if (applyAlways && user.role !== 'admin' && user.role !== 'super_admin') {
+      fail('Zapsat do pravidel smí jen admin.');
     }
     const msg: MockChatMessage = {
       id: nextChatMessageId++,
@@ -1059,9 +1299,9 @@ export const mockApi: Api = {
     const user = auth(token);
     if (!subject.trim()) fail('Předmět nesmí být prázdný.');
     if (!body.trim()) fail('Zpráva nesmí být prázdná.');
-    if (user.role !== 'admin') {
+    if (user.role !== 'admin' && user.role !== 'super_admin') {
       if (kontaktId == null || !myKontaktIds(user).has(kontaktId)) {
-        fail('Jen ke svým klientům');
+        fail('Jen ke svým klientům.');
       }
     }
     if (kontaktId != null && !kontakty.some((c) => c.id === kontaktId)) {
@@ -1091,19 +1331,20 @@ export const mockApi: Api = {
 
   async resolveThread(token: string, threadId: number) {
     await delay();
-    authAdmin(token);
+    const user = authAdmin(token);
     const t = chatThreads.find((x) => x.id === threadId);
     if (!t) fail(`Vlákno id=${threadId} neexistuje.`);
+    if (!visibleThreadIds(user).has(t.id)) fail('Tohle vlákno patří někomu jinému.');
     t.status = 'resolved';
     return { ok: true, thread_id: t.id, status: 'resolved' };
   },
 
   async resolveAlert(token: string, key: string) {
     await delay();
-    authAdmin(token);
+    authOwner(token); // systémová vlákna vidí jen Albert (migrace 023)
     let n = 0;
     for (const t of chatThreads) {
-      if (t.alert_key === key && t.status === 'open') {
+      if (t.alert_key === key && t.status === 'open' && t.kontakt_id === null && mockScope(t) === 'automatizace') {
         t.status = 'resolved';
         n += 1;
       }
@@ -1115,7 +1356,7 @@ export const mockApi: Api = {
 
   async getAutomationStatus(token: string): Promise<AutomationStatus> {
     await delay();
-    mockAuthAdmin(token);
+    authOwner(token); // stav automatizace jen Albert (migrace 023)
     return mockAutomationStatus();
   },
 
