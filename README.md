@@ -66,9 +66,11 @@ Demo mock (`src/api/mock.ts`) má stejná pravidla viditelnosti jako server (mig
 ## Role a kdo co vidí (migrace 023, Albert 2026-09-24)
 
 Tři role: **volající**, **admin**, **super admin**; majitel účtu je Albert (users.id 1).
-Každý vidí **jen svoje** (statistiky, klienty, zprávy, označené); cizí lidi vidí jen super
-admin (lidi pod sebou) a Albert (všechny). Kontakty (celou databázi) vidí všichni, jméno
-kolegy u kontaktu ale jen jeho super admin („jiný volající"). Zprávy automatizace a stránku
+Každý vidí **jen svoje** (statistiky, klienty, zprávy, označené); cizí lidi vidí super
+admin a Albert — od migrace 027 (Albert 2026-09-25) **každý super admin všechny**;
+upravovat a psát do vlákna ale dál jen u svých lidí (cizí vlákno je jen ke čtení, server
+posílá `smi_psat`). Kontakty (celou databázi) vidí všichni, jméno kolegy u kontaktu jen
+super admin a Albert („jiný volající"). Zprávy automatizace a stránku
 Automatizace vidí jen Albert. **Hlídá to server** (SQL funkce), appka jen neukazuje, co by
 server odmítl. Podrobně: `../docs/ROLE-A-VIDITELNOST.md`.
 
@@ -86,12 +88,12 @@ který schvaluje Albert (u zprávy je vidět jeho stav).
 | `#/login`     | všichni | přihlášení                                                       |
 | `#/`          | všichni | domů — dlaždice podle role                                       |
 | `#/call`      | všichni | fronta hovorů: karta kontaktu + výsledky (nedovoláno/odmítnuto/zájem). Poznámka k hovoru je **nepovinná** — zájem jde uložit i bez ní (Albert 2026-09-23; dřív se při prázdné poznámce otevíralo potvrzovací okno navíc) |
-| `#/stats`     | všichni | moje statistiky; super admin přes dropdown i svých lidí (Albert všech) |
-| `#/moji`      | všichni | moji klienti (+ historie poznámek v detailu); super admin může vybrat člověka ze svých lidí |
+| `#/stats`     | všichni | moje statistiky; super admin (i Albert) přes dropdown kohokoli (027) |
+| `#/moji`      | všichni | moji klienti (+ historie poznámek v detailu); super admin může vybrat kohokoli (027) |
 | `#/admin`     | všichni | Kontakty: celá databáze s filtry a fulltextem; upravovat smí admin a super admin |
-| `#/oznacene`  | admin   | označení klienti — svoji; super admin svých lidí + klienti bez volajícího |
-| `#/zpravy`    | admin   | vlákna s AI agenty — svoje; super admin i svých lidí (výběr člověka); Albert i automatizaci |
-| `#/uzivatele` | super admin | super admin: seznam svých lidí + úpravy + nový volající; Albert: role a nadřízení (⚠ od migrace 024 normální admin stránku nemá) |
+| `#/oznacene`  | admin   | označení klienti — admin svoji; super admin a Albert všichni (027) |
+| `#/zpravy`    | admin   | vlákna s AI agenty — admin svoje; super admin vlákna všech lidí (cizí jen ke čtení, 027); Albert i automatizaci |
+| `#/uzivatele` | super admin | super admin: všichni lidé, upravuje sebe a své lidi + nový volající (027); Albert: role a nadřízení (⚠ od migrace 024 normální admin stránku nemá) |
 | `#/automatizace` | Albert | vypínač automatizace a přepínač účtu Claude                    |
 | `#/setup`     | všichni | nastavení Supabase URL + anon klíče                              |
 
