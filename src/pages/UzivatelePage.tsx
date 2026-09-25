@@ -10,7 +10,7 @@ import { CheckIcon, PencilIcon } from '../icons';
  * UŽIVATELÉ (migrace 023 + 024, Albert 2026-09-24). Server rozhoduje sám; tady se jen
  * nenabízí, co by odmítl:
  *   - Albert (id 1): všichni, role (volající / admin / super admin) i nadřízený.
- *   - super admin: sebe a lidi pod sebou; zakládá volající pod sebe.
+ *   - super admin: VIDÍ všechny (migrace 027), upravuje sebe a lidi pod sebou; zakládá volající pod sebe.
  *   - admin a volající: stránku nemají (route i dlaždice jen pro super admina).
  *     ⚠ NAHRAZUJE stav z migrace 023, kdy admin mohl zakládat volající —
  *     od migrace 024 lidi zakládá jen super admin.
@@ -158,7 +158,7 @@ export default function UzivatelePage() {
       <div className="two-col">
         {isSuper ? (
           <div className="card panel">
-            <p className="panel-title">{isOwner ? 'všichni uživatelé' : 'ty a lidé pod tebou'}</p>
+            <p className="panel-title">{isOwner ? 'všichni uživatelé' : 'všichni uživatelé — upravit smíš sebe a lidi pod sebou'}</p>
             <div className="panel-body">
               <ErrorBox>{error}</ErrorBox>
               {loading ? (

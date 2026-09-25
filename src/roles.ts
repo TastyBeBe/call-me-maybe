@@ -11,7 +11,7 @@ export function isAdminRole(role: Role | string | null | undefined): boolean {
   return role === 'admin' || role === 'super_admin';
 }
 
-/** super admin = vidí sebe a lidi pod sebou (statistiky, Moji klienti, Označené, Zprávy). */
+/** super admin = VIDÍ všechny lidi (migrace 027); upravuje sebe a lidi pod sebou. */
 export function isSuperAdmin(role: Role | string | null | undefined): boolean {
   return role === 'super_admin';
 }

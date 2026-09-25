@@ -1,6 +1,6 @@
-// Výběr člověka pro super admina (migrace 023, Albert 2026-09-24): „já", nebo někdo
-// z lidí pod ním (Albert kdokoli). Seznam jde z all_stats, který server dává JEN super
-// adminovi a jen s jeho lidmi — ostatním se výběr vůbec neukáže.
+// Výběr člověka pro super admina (migrace 023, Albert 2026-09-24): „já", nebo kdokoli
+// další (od migrace 027 vidí super admin všechny, Albert 2026-09-25). Seznam jde z all_stats,
+// který server dává JEN super adminovi — ostatním se výběr vůbec neukáže.
 import { useEffect, useState } from 'react';
 import { getApi, type UserStats } from '../api';
 import { useSession } from '../auth';

@@ -1,6 +1,6 @@
 // Moji klienti — kontakty přihlášeného uživatele (RPC my_kontakty, všechny role).
-// Super admin si může vybrat někoho ze svých lidí a vidí jeho klienty (migrace 023;
-// server to hlídá — cizí klienty jinak nevydá).
+// Super admin si může vybrat kohokoli a vidí jeho klienty (migrace 023, od 027 kohokoli;
+// server to hlídá — ostatním cizí klienty nevydá).
 // Fulltext filtr je čistě klientský; klik na řádek otevře sdílený detail kontaktu.
 
 import { useCallback, useEffect, useMemo, useState } from 'react';

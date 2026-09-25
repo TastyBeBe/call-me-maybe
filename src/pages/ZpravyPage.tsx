@@ -378,6 +378,10 @@ function ThreadView({
     }
   };
 
+  // migrace 027: super admin vidí vlákna všech lidí, ale psát a vyřešit smí jen svoje
+  // (svých lidí, klientů bez volajícího). Starý server pole neposílá -> psát smí.
+  const smiPsat = thread.smi_psat !== false;
+
   return (
     <div className="card chat-thread-pane">
       <div className="chat-head">
@@ -398,7 +402,7 @@ function ThreadView({
           </div>
         </div>
         <span className="spacer" />
-        {open && (
+        {open && smiPsat && (
           <button
             className="pill-btn go sm"
             onClick={() => void resolve()}
@@ -429,6 +433,14 @@ function ThreadView({
         ))}
       </div>
 
+      {!smiPsat ? (
+        <div className="chat-composer">
+          <div className="muted" style={{ fontSize: 13 }}>
+            Jen ke čtení — vlákno patří lidem jiného super admina. Psát do něj může ten, komu
+            klient patří, jeho super admin nebo Albert.
+          </div>
+        </div>
+      ) : (
       <div className="chat-composer">
         <ErrorBox>{error}</ErrorBox>
         {!open && (
@@ -467,6 +479,7 @@ function ThreadView({
           Navrhnout jako pravidlo pro všechny agenty (platí, až ho schválí Albert)
         </label>
       </div>
+      )}
     </div>
   );
 }
@@ -477,7 +490,7 @@ export default function ZpravyPage() {
   const session = useSession();
   const people = usePeople();
   const isOwner = session.user_id === OWNER_USER_ID;
-  // Super admin si může vybrat jednoho ze svých lidí (migrace 023) — server hlídá, že je jeho.
+  // Super admin si může vybrat kohokoli (migrace 023, od 027 kohokoli) — server hlídá roli.
   const [userId, setUserId] = useState<number | null>(null);
   const [threads, setThreads] = useState<ChatThread[]>([]);
   const [loading, setLoading] = useState(true);
@@ -602,9 +615,10 @@ export default function ZpravyPage() {
       </h1>
       {!isOwner && (
         <p className="muted" style={{ marginTop: -6 }}>
-          Vidíš zprávy o svých klientech a ty, které jsi založil nebo do kterých jsi psal
-          {people.length > 1 ? ', a totéž u lidí pod tebou' : ''}. Hlášení o chodu
-          automatizace chodí jen Albertovi.
+          {people.length > 1
+            ? 'Vidíš zprávy všech lidí; psát můžeš do svých, svých lidí a ke klientům, které smíš upravit (ostatní jsou jen ke čtení)'
+            : 'Vidíš zprávy o svých klientech a ty, které jsi založil nebo do kterých jsi psal'}
+          . Hlášení o chodu automatizace chodí jen Albertovi.
         </p>
       )}
 
@@ -617,7 +631,7 @@ export default function ZpravyPage() {
           setDetail(null);
         }}
         label="Čí zprávy zobrazit"
-        allOption={isOwner ? 'Všechny' : 'Všechny moje a mých lidí'}
+        allOption="Všechny"
       />
 
       <ErrorBox>{error}</ErrorBox>

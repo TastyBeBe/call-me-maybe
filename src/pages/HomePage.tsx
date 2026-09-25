@@ -71,7 +71,7 @@ export default function HomePage() {
           <span className="tile-emoji"><TableIcon size={42} /></span>
           <span className="tile-label">MOJI KLIENTI</span>
           <span className="tile-sub">
-            {isSuper ? 'moje kontakty + klienti mých lidí' : 'moje kontakty + vzkazy agentům'}
+            {isSuper ? 'moje kontakty + klienti kohokoli' : 'moje kontakty + vzkazy agentům'}
           </span>
         </Link>
         <Link to="/admin" className="big-tile">
@@ -85,7 +85,7 @@ export default function HomePage() {
               <span className="tile-emoji"><FlagIcon size={42} /></span>
               <span className="tile-label">OZNAČENÉ</span>
               <span className="tile-sub">
-                {isSuper ? 'nedořešení klienti — moji a mých lidí' : 'moji klienti, co nejsou dořešení'}
+                {isSuper ? 'nedořešení klienti — všech lidí' : 'moji klienti, co nejsou dořešení'}
               </span>
             </Link>
             <Link to="/zpravy" className="big-tile">
@@ -98,7 +98,7 @@ export default function HomePage() {
               <Link to="/uzivatele" className="big-tile">
                 <span className="tile-emoji"><UsersIcon size={42} /></span>
                 <span className="tile-label">UŽIVATELÉ</span>
-                <span className="tile-sub">{isOwner ? 'všichni lidé a role' : 'lidé pod tebou'}</span>
+                <span className="tile-sub">{isOwner ? 'všichni lidé a role' : 'všichni lidé, upravuješ své'}</span>
               </Link>
             )}
             {isOwner && (

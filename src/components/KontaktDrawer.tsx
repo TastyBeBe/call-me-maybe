@@ -245,8 +245,9 @@ function KontaktThreads({ kontakt, canWrite }: { kontakt: Kontakt; canWrite: boo
     try {
       const api = getApi();
       // poslední otevřené vlákno tohoto kontaktu — jinak založit nové
+      // migrace 027: jen vlákno, do kterého smí psát (cizí je jen ke čtení)
       const open = details
-        .filter((d) => d.thread.status === 'open')
+        .filter((d) => d.thread.status === 'open' && d.thread.smi_psat !== false)
         .sort(
           (a, b) =>
             new Date(b.thread.last_message_at).getTime() -

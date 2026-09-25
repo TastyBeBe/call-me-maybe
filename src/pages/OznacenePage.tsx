@@ -1,8 +1,8 @@
 // Označení klienti — přehled těch, kteří nejsou 100 % vyřešení (migrace 005).
 // Červený praporek + poznámka, co přesně je špatně. Klik na řádek otevře detail,
 // kde jde příznak upravit nebo označit za vyřešený.
-// Od migrace 023: admin vidí svoje klienty, super admin svoje + svých lidí + klienty,
-// kterým nikdo nevolal (a může vybrat jednoho člověka), Albert všechny. Hlídá server.
+// Od migrace 023: admin vidí svoje klienty; super admin a Albert všechny (migrace 027 —
+// super admin může vybrat kohokoli; upravovat smí dál jen svoje). Hlídá server.
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { getApi, type FlagKind, type Kontakt } from '../api';
@@ -82,7 +82,7 @@ export default function OznacenePage() {
       </h1>
       <p className="muted" style={{ marginTop: -6 }}>
         {isSuperAdmin(session.role)
-          ? 'Tvoji klienti a klienti tvých lidí, u kterých něco nesedí, plus klienti, kterým zatím nikdo nevolal'
+          ? 'Všichni klienti, u kterých něco nesedí'
           : 'Tvoji klienti, u kterých něco nesedí'}{' '}
         — chybí e-mail, nevíme, o jaký objekt jde, nebo jsou údaje na webu stažené z internetu a
         klient je ještě nepotvrdil.
@@ -97,7 +97,7 @@ export default function OznacenePage() {
           setSelected(null);
         }}
         label="Čí klienty zobrazit"
-        allOption="Všechny (já, moji lidé a klienti bez volajícího)"
+        allOption="Všechny"
       />
 
       {rows.length > 0 && (

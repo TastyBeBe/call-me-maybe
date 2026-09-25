@@ -520,8 +520,14 @@ function authOwner(token: string): MockUser {
   return user;
 }
 
-/** app_viditelni: Albert všechny, super admin sebe + své lidi, ostatní jen sebe. */
+/** app_viditelni (migrace 027): Albert i každý super admin VIDÍ všechny, ostatní jen sebe. */
 function visibleIds(u: MockUser): number[] {
+  if (u.id === OWNER_ID || u.role === 'super_admin') return users.map((x) => x.id);
+  return [u.id];
+}
+
+/** app_lide_pod (migrace 027): za koho člověk odpovídá — rozsah ÚPRAV a PSANÍ (Albert všichni). */
+function ownPeopleIds(u: MockUser): number[] {
   if (u.id === OWNER_ID) return users.map((x) => x.id);
   if (u.role === 'super_admin') return [u.id, ...users.filter((x) => x.manager_id === u.id).map((x) => x.id)];
   return [u.id];
@@ -571,8 +577,22 @@ function isSystemThread(t: MockThread): boolean {
 
 /** app_vlakna_viditelna: Albert vše; systémová nikdo jiný; super admin navíc klienty bez volajícího. */
 function visibleThreadIds(u: MockUser): Set<number> {
+  return threadIdsFor(u, visibleIds(u));
+}
+
+/** app_vlakna_moje (migrace 027): vlákna, do kterých smí PSÁT a která smí VYŘEŠIT —
+ *  svých lidí + o klientovi, kterého smí upravit (systémová ne). */
+function writableThreadIds(u: MockUser): Set<number> {
+  const out = threadIdsFor(u, ownPeopleIds(u));
+  for (const t of chatThreads) {
+    if (t.kontakt_id !== null && !isSystemThread(t) && canEdit(u, t.kontakt_id)) out.add(t.id);
+  }
+  return out;
+}
+
+function threadIdsFor(u: MockUser, ids: number[]): Set<number> {
   if (u.id === OWNER_ID) return new Set(chatThreads.map((t) => t.id));
-  const own = threadsOf(visibleIds(u));
+  const own = threadsOf(ids);
   const out = new Set<number>();
   for (const t of chatThreads) {
     if (isSystemThread(t)) continue;
@@ -599,7 +619,7 @@ function maskedName(u: MockUser, name: string | null): string | null {
 function canEdit(u: MockUser, kid: number): boolean {
   if (u.role !== 'admin' && u.role !== 'super_admin') return false;
   if (u.id === OWNER_ID) return true;
-  if (kontaktyOf(visibleIds(u)).has(kid)) return true;
+  if (kontaktyOf(ownPeopleIds(u)).has(kid)) return true;   // migrace 027: úpravy dál jen svoje lidi
   return u.role === 'super_admin' && kontaktBezMajitele(kid);
 }
 
@@ -615,7 +635,7 @@ function forViewer(u: MockUser, c: Kontakt): Kontakt {
 function mayPick(u: MockUser, target: number | null | undefined, what: string): void {
   if (target == null || target === u.id) return;
   if (!(u.role === 'super_admin' && visibleIds(u).includes(target))) {
-    fail(`${what} jiného člověka vidí jen jeho super admin.`);
+    fail(`${what} jiného člověka vidí jen super admin.`);
   }
 }
 
@@ -980,7 +1000,7 @@ export const mockApi: Api = {
     if (patch && 'last_caller' in patch) {
       if (me.role !== 'super_admin') fail('Přeřadit kontakt jinému volajícímu smí jen super admin.');
       const v = String(patch.last_caller ?? '').trim();
-      if (v && me.id !== OWNER_ID && !namesOf(visibleIds(me)).includes(v)) {
+      if (v && me.id !== OWNER_ID && !namesOf(ownPeopleIds(me)).includes(v)) {   // migrace 027: jen na SVÉ lidi
         fail('Kontakt můžete přeřadit jen sobě nebo svým lidem.');
       }
     }
@@ -1302,6 +1322,7 @@ export const mockApi: Api = {
       last_message_at: t.last_message_at,
       created_at: t.created_at,
       majitel: maskedName(user, k?.last_caller ?? null),
+      smi_psat: writableThreadIds(user).has(t.id),   // migrace 027: cizí vlákno jen ke čtení
     };
     const messagesAsc: ChatMessage[] = chatMessages
       .filter((m) => m.thread_id === t.id)
@@ -1319,6 +1340,7 @@ export const mockApi: Api = {
     const t = chatThreads.find((x) => x.id === threadId);
     if (!t) fail(`Vlákno id=${threadId} neexistuje.`);
     if (!visibleThreadIds(user).has(t.id)) fail('Tohle vlákno patří někomu jinému.');
+    if (!writableThreadIds(user).has(t.id)) fail('Tohle vlákno můžete číst, ale psát do něj může jen ten, komu klient patří, jeho super admin nebo Albert.');
     if (applyAlways && user.role !== 'admin' && user.role !== 'super_admin') {
       fail('Zapsat do pravidel smí jen admin.');
     }
@@ -1383,6 +1405,7 @@ export const mockApi: Api = {
     const t = chatThreads.find((x) => x.id === threadId);
     if (!t) fail(`Vlákno id=${threadId} neexistuje.`);
     if (!visibleThreadIds(user).has(t.id)) fail('Tohle vlákno patří někomu jinému.');
+    if (!writableThreadIds(user).has(t.id)) fail('Tohle vlákno můžete číst, ale vyřešit ho může jen ten, komu klient patří, jeho super admin nebo Albert.');
     t.status = 'resolved';
     return { ok: true, thread_id: t.id, status: 'resolved' };
   },

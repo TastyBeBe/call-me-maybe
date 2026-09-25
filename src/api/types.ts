@@ -151,8 +151,10 @@ export interface ChatThreadInfo {
   created_by: string;
   last_message_at: string;
   created_at: string;
-  /** čí je to klient (migrace 023): jméno jen svoje / svých lidí, jinak „jiný volající" */
+  /** čí je to klient (migrace 023, 027): super admin a Albert vidí jméno vždy, ostatní jen svoje */
   majitel?: string | null;
+  /** migrace 027: smí přihlášený do vlákna psát / vyřešit ho? (jen get_thread; false = jen ke čtení) */
+  smi_psat?: boolean;
 }
 
 /** Řádek seznamu vláken z list_threads (s preview poslední zprávy). */
