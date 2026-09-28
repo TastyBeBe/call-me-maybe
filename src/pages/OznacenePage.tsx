@@ -3,24 +3,30 @@
 // kde jde příznak upravit nebo označit za vyřešený.
 // Od migrace 023: admin vidí svoje klienty; super admin a Albert všechny (migrace 027 —
 // super admin může vybrat kohokoli; upravovat smí dál jen svoje). Hlídá server.
+// Filtr „vše / chaty / architekti" (migrace 028) je klientský: list_flagged vrací všechny
+// řádky bez limitu, takže počty z vyfiltrovaných řádků jsou přesné (docs/ARCHITEKTI.md 9.6).
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { getApi, type FlagKind, type Kontakt } from '../api';
+import { getApi, type FlagKind, type Kontakt, type Segment } from '../api';
 import { audio } from '../audio';
 import { useSession } from '../auth';
 import KontaktDrawer from '../components/KontaktDrawer';
 import PersonPicker, { usePeople } from '../components/PersonPicker';
 import { isSuperAdmin } from '../roles';
+import { segmentOf } from '../segment';
 import {
   ALL_FLAGS,
   ErrorBox,
   FLAG_COLORS,
   FLAG_LABELS,
   FlagBadge,
+  SegmentBadge,
+  SegmentFilter,
   Spinner,
   StatusBadge,
   errMsg,
   formatDateTime,
+  kontaktJmeno,
 } from '../ui';
 import { CheckIcon, FlagIcon } from '../icons';
 
@@ -32,6 +38,7 @@ export default function OznacenePage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [kind, setKind] = useState<FlagKind | ''>('');
+  const [segment, setSegment] = useState<Segment | ''>('');
   const [selected, setSelected] = useState<Kontakt | null>(null);
 
   const load = useCallback(async () => {
@@ -51,15 +58,20 @@ export default function OznacenePage() {
     void load();
   }, [load]);
 
+  const vSegmentu = useMemo(
+    () => (segment ? rows.filter((r) => segmentOf(r) === segment) : rows),
+    [rows, segment]
+  );
+
   const counts = useMemo(() => {
     const c: Partial<Record<FlagKind, number>> = {};
-    for (const r of rows) if (r.flag_kind) c[r.flag_kind] = (c[r.flag_kind] ?? 0) + 1;
+    for (const r of vSegmentu) if (r.flag_kind) c[r.flag_kind] = (c[r.flag_kind] ?? 0) + 1;
     return c;
-  }, [rows]);
+  }, [vSegmentu]);
 
   const filtered = useMemo(
-    () => (kind ? rows.filter((r) => r.flag_kind === kind) : rows),
-    [rows, kind]
+    () => (kind ? vSegmentu.filter((r) => r.flag_kind === kind) : vSegmentu),
+    [vSegmentu, kind]
   );
 
   // Vyřešený klient ze seznamu rovnou zmizí.
@@ -78,7 +90,7 @@ export default function OznacenePage() {
       <p className="eyebrow">nevyřešené</p>
       <h1 className="page-title">
         Označení klienti
-        {rows.length > 0 && <span className="count-pill">{rows.length}</span>}
+        {vSegmentu.length > 0 && <span className="count-pill">{vSegmentu.length}</span>}
       </h1>
       <p className="muted" style={{ marginTop: -6 }}>
         {isSuperAdmin(session.role)
@@ -100,13 +112,22 @@ export default function OznacenePage() {
         allOption="Všechny"
       />
 
-      {rows.length > 0 && (
+      <SegmentFilter
+        value={segment}
+        onChange={(s) => {
+          setSegment(s);
+          setKind('');
+          setSelected(null);
+        }}
+      />
+
+      {vSegmentu.length > 0 && (
         <div className="flag-filter-bar">
           <button
             className={`pill-btn sm${kind === '' ? ' go' : ''}`}
             onClick={() => setKind('')}
           >
-            Vše ({rows.length})
+            Vše ({vSegmentu.length})
           </button>
           {ALL_FLAGS.filter((f) => counts[f]).map((f) => (
             <button
@@ -132,11 +153,11 @@ export default function OznacenePage() {
       ) : filtered.length === 0 ? (
         <div className="card empty-state">
           <div className="big-emoji">
-            {rows.length === 0 ? <CheckIcon size={56} /> : <FlagIcon size={56} />}
+            {vSegmentu.length === 0 ? <CheckIcon size={56} /> : <FlagIcon size={56} />}
           </div>
-          <h2>{rows.length === 0 ? 'Všechno je vyřešené' : 'V této skupině nic není'}</h2>
+          <h2>{vSegmentu.length === 0 ? 'Všechno je vyřešené' : 'V této skupině nic není'}</h2>
           <p className="muted">
-            {rows.length === 0
+            {vSegmentu.length === 0
               ? 'Žádný klient teď nemá červený příznak.'
               : 'Zkus jinou skupinu nebo zobraz vše.'}
           </p>
@@ -162,7 +183,9 @@ export default function OznacenePage() {
                   className={selected?.id === r.id ? 'selected' : ''}
                   onClick={() => setSelected(r)}
                 >
-                  <td className="row-name">{r.name || '(beze jména)'}</td>
+                  <td className="row-name">
+                    <SegmentBadge kontakt={r} compact /> {kontaktJmeno(r)}
+                  </td>
                   <td>
                     <FlagBadge kontakt={r} />
                   </td>

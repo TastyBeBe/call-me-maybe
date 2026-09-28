@@ -1,6 +1,17 @@
 import type { ReactNode } from 'react';
-import type { CekaniKind, CekaniKos, ChatMessage, FlagKind, Kontakt, KontaktStatus } from './api';
-import { FlagIcon } from './icons';
+import type {
+  CekaniKind,
+  CekaniKos,
+  ChatMessage,
+  DphStav,
+  FlagKind,
+  Kontakt,
+  KontaktStatus,
+  Segment,
+  ZdrojTelefonu,
+} from './api';
+import { CompassIcon, FlagIcon, HomeIcon } from './icons';
+import { SEGMENTY, segmentOf } from './segment';
 
 /** České popisky statusů kontaktu. */
 export const STATUS_LABELS: Record<KontaktStatus, string> = {
@@ -163,11 +174,14 @@ export function ConfirmModal({
   );
 }
 
-/** Telefonní čísla oddělená čárkami vykreslí jako klikatelné tel: odkazy. */
+/**
+ * Telefonní čísla oddělená čárkou nebo středníkem vykreslí jako klikatelné tel: odkazy.
+ * Středník mají v tabulce architekti (migrace 028); chatám se nic nemění.
+ */
 export function PhoneLinks({ phone }: { phone: string | null }) {
   if (!phone || !phone.trim()) return <span className="muted">bez telefonu</span>;
   const parts = phone
-    .split(',')
+    .split(/[,;]/)
     .map((p) => p.trim())
     .filter(Boolean);
   return (
@@ -271,4 +285,131 @@ export function pravidloPopisek(m: Pick<ChatMessage, 'apply_always' | 'pravidlo_
     default:
       return m.apply_always ? ' · návrh pravidla' : '';
   }
+}
+
+/* ---------------------------------------------------------------------------
+   Segment: chaty a architekti (migrace 028, docs/ARCHITEKTI.md oddíl 9).
+   Odkud se segment bere, ví jen src/segment.ts (segmentOf).
+   --------------------------------------------------------------------------- */
+
+/** Tlačítka přepínače ve volání. */
+export const SEGMENT_NAZEV: Record<Segment, string> = { chata: 'Chaty', architekt: 'Architekti' };
+/** Eyebrow a filtry („volání · architekti"). */
+export const SEGMENT_MNOZNE: Record<Segment, string> = { chata: 'chaty', architekt: 'architekti' };
+/** „Po tomhle hovoru dostaneš architekta." */
+export const SEGMENT_AKUZATIV: Record<Segment, string> = { chata: 'chatu', architekt: 'architekta' };
+/** Odznak u jednoho kontaktu. */
+export const SEGMENT_JEDNOTNE: Record<Segment, string> = { chata: 'chata', architekt: 'architekt' };
+
+/** Jméno kontaktu do seznamů a nadpisů: u architekta bez jména je to jeho studio. */
+export function kontaktJmeno(k: Pick<Kontakt, 'name' | 'firma'>): string {
+  return k.name || k.firma || '(beze jména)';
+}
+
+function SegmentIkona({ segment, size }: { segment: Segment; size: number }) {
+  return segment === 'architekt' ? <CompassIcon size={size} /> : <HomeIcon size={size} />;
+}
+
+/** Přepínač „Koho voláš" ve volání. Volba se pamatuje na zařízení (src/segment.ts). */
+export function SegmentSwitch({
+  value,
+  onChange,
+  disabled = false,
+}: {
+  value: Segment;
+  onChange: (s: Segment) => void;
+  disabled?: boolean;
+}) {
+  return (
+    <div className="segmented segment-switch" role="group" aria-label="Koho voláš">
+      {SEGMENTY.map((s) => (
+        <button
+          key={s}
+          type="button"
+          className={`${s}${value === s ? ' active' : ''}`}
+          aria-pressed={value === s}
+          disabled={disabled}
+          onClick={() => onChange(s)}
+        >
+          <SegmentIkona segment={s} size={18} /> {SEGMENT_NAZEV[s]}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/** Filtr seznamů „vše / chaty / architekti". Výchozí vše, nepamatuje se (9.6). */
+export function SegmentFilter({
+  value,
+  onChange,
+}: {
+  value: Segment | '';
+  onChange: (s: Segment | '') => void;
+}) {
+  const volby: { v: Segment | ''; label: string }[] = [
+    { v: '', label: 'vše' },
+    ...SEGMENTY.map((s) => ({ v: s, label: SEGMENT_MNOZNE[s] })),
+  ];
+  return (
+    <div className="segmented segment-filter" role="group" aria-label="Chaty, nebo architekti">
+      {volby.map((o) => (
+        <button
+          key={o.v || 'vse'}
+          type="button"
+          className={value === o.v ? 'active' : ''}
+          aria-pressed={value === o.v}
+          onClick={() => onChange(o.v)}
+        >
+          {o.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * Odznak segmentu. `compact` (seznamy) = jen u architekta, ať se seznamy chat vizuálně
+ * nemění; plný (detail kontaktu) u obou.
+ */
+export function SegmentBadge({
+  kontakt,
+  compact = false,
+}: {
+  kontakt: Pick<Kontakt, 'segment'>;
+  compact?: boolean;
+}) {
+  const s = segmentOf(kontakt);
+  if (compact && s === 'chata') return null;
+  return (
+    <span className={`badge seg-${s}`} title={s === 'architekt' ? 'Architekt' : 'Chata'}>
+      <SegmentIkona segment={s} size={12} /> {SEGMENT_JEDNOTNE[s]}
+    </span>
+  );
+}
+
+/** DPH architekta a studia (9.3). */
+export const DPH_LABELS: Record<DphStav, string> = {
+  platce: 'plátce DPH',
+  neplatce: 'neplátce DPH',
+  identifikovana_osoba: 'identifikovaná osoba, ne plný plátce',
+  neovereno: 'DPH neověřeno',
+};
+
+/** „12345678 · neplátce DPH"; bez IČO null (volající pak vidí „nezjištěno"). */
+export function icoDph(ico: string | null | undefined, dph: DphStav | null | undefined): string | null {
+  if (!ico) return null;
+  return dph && DPH_LABELS[dph] ? `${ico} · ${DPH_LABELS[dph]}` : ico;
+}
+
+/** Odkud máme číslo (9.3, [ALBERT 10]). Volající to říká na „odkud máte moje číslo". */
+export const ZDROJ_TELEFONU_LABELS: Record<ZdrojTelefonu, string> = {
+  cka_registr: 'registru České komory architektů',
+  web_vlastni: 'jeho webu',
+  firmy_cz: 'firmy.cz',
+  jiny: 'jiného veřejného zdroje',
+  neznamy: 'neznámo, řekni: z veřejného seznamu architektů',
+};
+
+export function zdrojTelefonu(z: ZdrojTelefonu | null | undefined): string {
+  return (z && ZDROJ_TELEFONU_LABELS[z]) || ZDROJ_TELEFONU_LABELS.neznamy;
 }

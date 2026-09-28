@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
-import { getApi, type KontaktStatus, type MyStats, type UserStats } from '../api';
+import { getApi, type KontaktStatus, type MyStats, type Segment, type UserStats } from '../api';
 import { useSession } from '../auth';
 import { dayWord, topDaysFor } from '../pig/progress';
 import { isAdminRole, isSuperAdmin, roleLabel } from '../roles';
-import { ALL_STATUSES, ErrorBox, Spinner, STATUS_LABELS, errMsg } from '../ui';
+import { ALL_STATUSES, ErrorBox, SegmentFilter, Spinner, STATUS_LABELS, errMsg } from '../ui';
 
 function StatCards({ stats }: { stats: MyStats }) {
   // ⚠ POPISKY MUSÍ ŘÍKAT, CO TO JE (Albert 2026-09-12). Dřív tu stálo prosté
@@ -151,9 +151,18 @@ export default function StatsPage() {
  * rozbitě: „Zájem 69" na jedné stránce proti „Mají zájem 0" na druhé. Čísla si
  * neodporují, jen měří jinou věc — a od teď jsou vidět vedle sebe.
  * Počty jdou ze serveru (`list_kontakty` vrací `total`), ne z načtených řádků.
+ * Filtr „vše / chaty / architekti" (migrace 028) jde do všech 15 dotazů; karty hovorů
+ * výš zůstávají společné (hovor je hovor, docs/ARCHITEKTI.md 9.6).
  */
+const SOUCET_NA: Record<Segment | '', string> = {
+  '': 'celou databázi',
+  chata: 'všechny chaty',
+  architekt: 'všechny architekty',
+};
+
 function KlientiFunnel({ token }: { token: string }) {
   const [counts, setCounts] = useState<Partial<Record<KontaktStatus, number>> | null>(null);
+  const [segment, setSegment] = useState<Segment | ''>('');
 
   useEffect(() => {
     let alive = true;
@@ -162,7 +171,7 @@ function KlientiFunnel({ token }: { token: string }) {
         const api = getApi();
         const pairs = await Promise.all(
           ALL_STATUSES.map(async (s) => {
-            const r = await api.listKontakty(token, { status: s, limit: 1 });
+            const r = await api.listKontakty(token, { status: s, segment: segment || null, limit: 1 });
             return [s, r.total] as const;
           })
         );
@@ -174,7 +183,7 @@ function KlientiFunnel({ token }: { token: string }) {
     return () => {
       alive = false;
     };
-  }, [token]);
+  }, [token, segment]);
 
   if (!counts) return null;
   const celkem = Object.values(counts).reduce((a, b) => a + (b ?? 0), 0);
@@ -186,9 +195,10 @@ function KlientiFunnel({ token }: { token: string }) {
         Klienti podle stavu
         {celkem > 0 && <span className="count-pill">{celkem}</span>}
       </h2>
+      <SegmentFilter value={segment} onChange={setSegment} />
       <p className="muted" style={{ margin: '0 0 10px' }}>
-        Tohle jsou <strong>kontakty</strong> v databázi, ne hovory. Součet sedí na celou
-        databázi.
+        Tohle jsou <strong>kontakty</strong> v databázi, ne hovory. Součet sedí na{' '}
+        {SOUCET_NA[segment]}.
       </p>
       <div className="stat-grid">
         {videt.map((s) => (

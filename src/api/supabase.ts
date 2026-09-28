@@ -1,4 +1,5 @@
-// Reálný klient: volá Supabase PostgREST RPC funkce definované v db/schema.sql.
+// Reálný klient: volá Supabase PostgREST RPC funkce z migrací v db/ (db/schema.sql je
+// zastaralý, živý kontrakt je v migration_0NN_*.sql).
 // POST {url}/rest/v1/rpc/{fn} s hlavičkami apikey + Authorization: Bearer {anon key}.
 
 import { getConfig } from '../config';
@@ -16,6 +17,7 @@ import type {
   MyStats,
   ResolveCallArgs,
   Role,
+  Segment,
   Session,
   ThreadDetail,
   ThreadScope,
@@ -80,8 +82,18 @@ export const supabaseApi: Api = {
     return rpc<MeInfo>('me', { p_token: token });
   },
 
-  async nextContact(token: string): Promise<Kontakt | null> {
-    return rpc<Kontakt | null>('next_contact', { p_token: token });
+  async nextContact(token: string, segment: Segment): Promise<Kontakt | null> {
+    // Segment se posílá VŽDY (migrace 028). Server bez něj vrací chaty, takže přepínač
+    // „Architekti" by jinak tiše volal chaty (kontrola 75).
+    return rpc<Kontakt | null>('next_contact', { p_token: token, p_segment: segment });
+  },
+
+  async returnContact(token: string, id: number): Promise<{ ok: boolean; kontakt_id: number }> {
+    // vratit_do_fronty (migrace 028): vlastní čistá karta zpět do fronty při přepnutí segmentu.
+    return rpc<{ ok: boolean; kontakt_id: number }>('vratit_do_fronty', {
+      p_token: token,
+      p_kontakt_id: id,
+    });
   },
 
   async resolveCall(token: string, args: ResolveCallArgs) {
@@ -120,6 +132,8 @@ export const supabaseApi: Api = {
       p_kos: f.kos ?? null,
       p_limit: f.limit ?? 200,
       p_offset: f.offset ?? 0,
+      // „vše" klíč vynechá (výchozí null na serveru)
+      ...(f.segment ? { p_segment: f.segment } : {}),
     });
   },
 
@@ -127,13 +141,15 @@ export const supabaseApi: Api = {
     token: string,
     limit = 200,
     offset = 0,
-    userId: number | null = null
+    userId: number | null = null,
+    segment: Segment | null = null
   ): Promise<ListKontaktyResult> {
     return rpc<ListKontaktyResult>('my_kontakty', {
       p_token: token,
       p_limit: limit,
       p_offset: offset,
       p_user_id: userId,
+      ...(segment ? { p_segment: segment } : {}),
     });
   },
 

@@ -1,20 +1,27 @@
-import { useCallback, useEffect, useState } from 'react';
-import { getApi, type Kontakt, type Rating } from '../api';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { getApi, type Kontakt, type Rating, type Segment } from '../api';
 import { audio } from '../audio';
 import { useSession } from '../auth';
+import { loadCallSegment, saveCallSegment, segmentOf } from '../segment';
 import {
   ConfirmModal,
   ErrorBox,
   FLAG_HINTS,
   FLAG_LABELS,
   PhoneLinks,
+  SEGMENT_AKUZATIV,
+  SEGMENT_MNOZNE,
+  SegmentSwitch,
   Spinner,
   StatusBadge,
   errMsg,
+  icoDph,
+  zdrojTelefonu,
 } from '../ui';
 import {
   ArrowDownIcon,
   CheckIcon,
+  CompassIcon,
   FlagIcon,
   PartyIcon,
   PhoneOffIcon,
@@ -22,10 +29,63 @@ import {
   ThumbsDownIcon,
 } from '../icons';
 
-type Modal = null | 'odmitnout';
+type Modal = null | 'odmitnout' | 'prepnout';
+
+/** Hláška, když se čistou kartu nepodaří vrátit do fronty (docs/ARCHITEKTI.md 9.2). */
+const NEVRACENO = 'Kontakt se nepodařilo vrátit do fronty. Zámek sám vyprší do 2 hodin.';
+
+/**
+ * Scénář pro volajícího u architekta (docs/ARCHITEKTI.md 9.4). Statický text, stejný pro
+ * všechny; <číslo máme z> je řádek „číslo máme z" na kartě. Okna volání jsou jen rada,
+ * appka volání v jiný čas neomezuje ([ALBERT 25]).
+ */
+const TIP_ARCHITEKT: { nadpis?: string; text: string }[] = [
+  {
+    nadpis: 'Úvod',
+    text: '„Dobrý den, tady <tvoje jméno> z WEBDOMOV. Volám, protože z vašich zveřejněných realizací umím sestavit náhled webu a poslat vám ho e-mailem. Vaše číslo mám z <číslo máme z>. Když o to nestojíte, řekněte a už se neozvu." Nikdy se neptej „neruším?". Důvod hovoru patří do první věty.',
+  },
+  {
+    nadpis: 'Kontrolní otázka',
+    text: '„Děláte vlastní zakázky pro klienty, nebo hlavně pro jiný ateliér?" Hlavně pro jiný ateliér: poděkuj, Nemají zájem, do poznámky „pracuje pro jiný ateliér".',
+  },
+  {
+    nadpis: 'Když chce',
+    text: '„Na jaký e-mail vám náhled pošlu?", „Můžu se vám k němu jednou ozvat?", „Kdo fotil vaše stavby a smím fotky do ukázky použít s uvedením autora?" Odpovědi do poznámky.',
+  },
+  {
+    nadpis: 'Cena na dotaz',
+    text: '6 000 až 7 000 Kč jednorázově, hosting 1 000 Kč ročně, platí se až po jeho písemném ano.',
+  },
+  {
+    nadpis: 'Slova',
+    text: 'Říkej: ateliér, realizace, studie, klient. Neříkej: projektant, designér, firma, levný, akce, na míru, moderní.',
+  },
+  {
+    nadpis: 'Hlasová schránka',
+    text: 'Nic nenechávej. „Nevolejte" = Nemají zájem a do poznámky NEVOLAT. Nevhodná chvíle: zeptej se, kdy zavolat, a zapiš to.',
+  },
+  {
+    nadpis: 'Kdy volat',
+    text: 'Nejlépe úterý až čtvrtek 10:00 až 11:45 a 13:30 až 16:00. Je to jen rada, volat můžeš kdykoli.',
+  },
+  {
+    nadpis: 'Když namítne',
+    text: 'Doporučení: „Web je pro ty, kterým vás někdo doporučil a chtějí vidět vaše stavby." Instagram nebo ČKA: „Registr potvrzuje autorizaci, vaši práci ale neukazuje." Šablona: „Je to střídmý rám, nosné jsou vaše stavby a texty." Čas: „Náhled je hotový z toho, co už jste zveřejnili. Stačí se podívat." Podvod: „Nic nefakturujeme, dokud nám sám písemně nenapíšete, že web chcete."',
+  },
+];
 
 export default function CallPage() {
   const session = useSession();
+  // Koho voláš (migrace 028): ve stavu kvůli vykreslení, v refu kvůli loadNext. Segment
+  // NESMÍ do závislostí loadNext: efekt níž by pak při každém kliku na přepínač vzal
+  // novou kartu a starou nechal zamčenou 2 h (kontrola 75).
+  const [segment, setSegment] = useState<Segment>(loadCallSegment);
+  const segmentRef = useRef<Segment>(segment);
+  // Počítadlo požadavků: odpověď, která dorazí po přepnutí, se zahodí a její zámek vrátí.
+  const reqId = useRef(0);
+  const doneId = useRef(0);
+  const shownId = useRef<number | null>(null);
+  const staleIds = useRef<number[]>([]);
   const [kontakt, setKontakt] = useState<Kontakt | null>(null);
   const [loading, setLoading] = useState(true);
   const [empty, setEmpty] = useState(false);
@@ -42,7 +102,20 @@ export default function CallPage() {
   const [rating, setRating] = useState<Rating | ''>('');
   const [note, setNote] = useState('');
 
-  const loadNext = useCallback(async () => {
+  const loadNext = useCallback(async (hlaska = '') => {
+    const my = ++reqId.current;
+    const seg = segmentRef.current;
+    /** Vrátí do fronty karty, které přišly pozdě (po přepnutí). Tu zobrazenou nikdy. */
+    const vratitZahozene = (ids: number[]) => {
+      for (const id of ids) {
+        if (id === shownId.current) continue;
+        void getApi()
+          .returnContact(session.token, id)
+          .catch(() => {
+            // zámek sám vyprší do 2 hodin
+          });
+      }
+    };
     setLoading(true);
     setError('');
     setWarning('');
@@ -53,32 +126,93 @@ export default function CallPage() {
     setCenaHosting('');
     setRating('');
     setNote('');
+    let next: Kontakt | null = null;
     try {
-      const next = await getApi().nextContact(session.token);
+      next = await getApi().nextContact(session.token, seg);
+      if (my !== reqId.current) {
+        // Mezitím se přepnulo (nebo načetlo znovu): odpověď zahodit a zámek vrátit. Když
+        // novější požadavek ještě běží, počká se na něj: ve stejném segmentu by mohl dostat
+        // TENTÝŽ kontakt a vrácení by mu ho odemklo pod rukama.
+        if (next) {
+          if (doneId.current === reqId.current) vratitZahozene([next.id]);
+          else staleIds.current.push(next.id);
+        }
+        return;
+      }
+      shownId.current = next ? next.id : null;
       if (!next) {
         setKontakt(null);
         setEmpty(true);
+        if (hlaska) setWarning(hlaska);
       } else {
         setKontakt(next);
         setEmail(next.email ?? '');
-        if (next.lock_by !== null && next.lock_by !== session.user_id) {
-          setWarning(
-            'Pozor: kontakt měl zámek od jiného volajícího (starší než 2 h) — teď je zamčený pro tebe.'
-          );
-        }
+        const cizi =
+          next.lock_by !== null && next.lock_by !== session.user_id
+            ? 'Pozor: kontakt měl zámek od jiného volajícího (starší než 2 h) — teď je zamčený pro tebe.'
+            : '';
+        setWarning([hlaska, cizi].filter(Boolean).join(' '));
       }
     } catch (e) {
+      if (my !== reqId.current) return;
+      shownId.current = null;
       setKontakt(null);
       setError(errMsg(e));
+      if (hlaska) setWarning(hlaska);
       audio.play('error');
     } finally {
-      setLoading(false);
+      if (my === reqId.current) {
+        doneId.current = my;
+        setLoading(false);
+        const zahozene = staleIds.current;
+        staleIds.current = [];
+        vratitZahozene(zahozene);
+      }
     }
   }, [session.token, session.user_id]);
 
   useEffect(() => {
     void loadNext();
   }, [loadNext]);
+
+  // Karta je rozdělaná, když je otevřený formulář zájmu nebo je napsaná poznámka (9.2).
+  const rozdelano = showZajem || note.trim() !== '';
+
+  /** Vrátit tuhle kartu do fronty a vzít další z aktuálního segmentu. */
+  const prepnoutHned = async () => {
+    const id = kontakt?.id;
+    setBusy(true);
+    let hlaska = '';
+    try {
+      if (id !== undefined) {
+        try {
+          await getApi().returnContact(session.token, id);
+        } catch {
+          hlaska = NEVRACENO;
+        }
+      }
+    } finally {
+      setBusy(false);
+    }
+    await loadNext(hlaska);
+  };
+
+  const zvolitSegment = (s: Segment) => {
+    if (busy || s === segmentRef.current) return;
+    segmentRef.current = s;
+    setSegment(s);
+    saveCallSegment(s);
+    if (!kontakt || loading) {
+      // bez karty (načítání, prázdná fronta, chyba): hned další v novém segmentu
+      void loadNext();
+      return;
+    }
+    if (segmentOf(kontakt) === s) return; // zpátky na segment karty: nic se neděje
+    if (!rozdelano) void prepnoutHned(); // čistá karta: vrátit a vzít další
+    // rozdělaná karta: platí od dalšího kontaktu (žlutá cedulka s „Přepnout hned")
+  };
+
+  const hlavicka = <SegmentSwitch value={segment} onChange={zvolitSegment} disabled={busy} />;
 
   const resolve = async (outcome: 'nedovolano' | 'odmitnuto' | 'zajem') => {
     if (!kontakt) return;
@@ -119,28 +253,54 @@ export default function CallPage() {
     void resolve('zajem');
   };
 
+  const eyebrow = `volání · ${SEGMENT_MNOZNE[segment]}`;
+
   if (loading) {
     return (
       <div>
+        <p className="eyebrow">{eyebrow}</p>
         <h1 className="page-title">Volání</h1>
+        {hlavicka}
+        {warning && <div className="info-box">{warning}</div>}
         <Spinner label="Hledám další kontakt…" />
       </div>
     );
   }
 
   if (empty) {
+    const arch = segment === 'architekt';
     return (
       <div>
+        <p className="eyebrow">{eyebrow}</p>
         <h1 className="page-title">Volání</h1>
+        {hlavicka}
+        {warning && <div className="info-box">{warning}</div>}
         <div className="card empty-state">
-          <div className="big-emoji"><PartyIcon size={56} /></div>
-          <h2>Fronta je prázdná!</h2>
-          <p className="muted">
-            Žádný kontakt k obvolání. Dej si kafe, nebo mrkni na svoje statistiky.
-          </p>
-          <button className="pill-btn hot" onClick={() => void loadNext()}>
-            Zkusit znovu
-          </button>
+          <div className="big-emoji">{arch ? <CompassIcon size={56} /> : <PartyIcon size={56} />}</div>
+          {arch ? (
+            <>
+              <h2>Architekti jsou obvolaní.</h2>
+              <p className="muted">
+                Teď není žádný architekt k obvolání. Buď jsou všichni obvolaní, nebo je má kolega
+                rozdělané (zámek platí 2 hodiny).
+              </p>
+            </>
+          ) : (
+            <>
+              <h2>Fronta je prázdná!</h2>
+              <p className="muted">
+                Žádný kontakt k obvolání. Dej si kafe, nebo mrkni na svoje statistiky.
+              </p>
+            </>
+          )}
+          <div style={{ display: 'flex', gap: 10, justifyContent: 'center', flexWrap: 'wrap' }}>
+            <button className="pill-btn hot" onClick={() => void loadNext()}>
+              Zkusit znovu
+            </button>
+            <button className="pill-btn" onClick={() => zvolitSegment(arch ? 'chata' : 'architekt')}>
+              {arch ? 'Volat chaty' : 'Volat architekty'}
+            </button>
+          </div>
         </div>
       </div>
     );
@@ -149,7 +309,10 @@ export default function CallPage() {
   if (!kontakt) {
     return (
       <div>
+        <p className="eyebrow">{eyebrow}</p>
         <h1 className="page-title">Volání</h1>
+        {hlavicka}
+        {warning && <div className="info-box">{warning}</div>}
         <ErrorBox>{error || 'Něco se pokazilo.'}</ErrorBox>
         <button className="pill-btn hot" onClick={() => void loadNext()}>
           Zkusit znovu
@@ -159,19 +322,35 @@ export default function CallPage() {
   }
 
   const hasWeb = !!(kontakt.web && kontakt.web.trim());
+  const architekt = segmentOf(kontakt) === 'architekt';
+  const cekaPrepnuti = segmentOf(kontakt) !== segment;
 
   return (
     <div style={{ maxWidth: 720, margin: '0 auto' }}>
-      <p className="eyebrow">volání · kontakt #{kontakt.id}</p>
+      <p className="eyebrow">
+        {eyebrow} · kontakt #{kontakt.id}
+      </p>
       <h1 className="page-title">
         Zavolej jim <ArrowDownIcon size={26} />
       </h1>
+      {hlavicka}
 
+      {cekaPrepnuti && (
+        <div className="info-box">
+          Po tomhle hovoru dostaneš {SEGMENT_AKUZATIV[segment]}.{' '}
+          <button className="pill-btn sm" disabled={busy} onClick={() => setModal('prepnout')}>
+            Přepnout hned
+          </button>
+        </div>
+      )}
       {warning && <div className="info-box">{warning}</div>}
       <ErrorBox>{error}</ErrorBox>
 
-      <div className="card call-card">
-        <h2 className="call-name">{kontakt.name || '(beze jména)'}</h2>
+      <div className={`card call-card${architekt ? ' seg-architekt' : ''}`}>
+        <h2 className="call-name">
+          {architekt ? kontakt.name || kontakt.firma || '(beze jména)' : kontakt.name || '(beze jména)'}
+        </h2>
+        {architekt && kontakt.name && kontakt.firma && <p className="call-sub">{kontakt.firma}</p>}
 
         {kontakt.flag_kind && (
           <div className="call-flag">
@@ -188,22 +367,81 @@ export default function CallPage() {
           <PhoneLinks phone={kontakt.phone} />
         </div>
 
-        <div className="call-row">
-          <span className="k">web</span>
-          {hasWeb ? (
-            <a href={kontakt.web!} target="_blank" rel="noreferrer">
-              {kontakt.web}
-            </a>
-          ) : (
-            <span className="badge yellow">nemá web</span>
-          )}
-        </div>
+        {architekt ? (
+          <>
+            <div className="call-row">
+              <span className="k">e-mail</span>
+              {kontakt.email ? (
+                <a href={`mailto:${kontakt.email}`}>{kontakt.email}</a>
+              ) : (
+                <span className="badge yellow">nemáme, zjisti</span>
+              )}
+            </div>
+            <div className="call-row">
+              <span className="k">město</span>
+              {kontakt.mesto ? <span>{kontakt.mesto}</span> : <span className="muted">nezjištěno</span>}
+            </div>
+            <div className="call-row">
+              <span className="k">web</span>
+              {hasWeb ? (
+                <a href={kontakt.web!} target="_blank" rel="noreferrer">
+                  {kontakt.web}
+                </a>
+              ) : (
+                <span className="badge yellow">web nenalezen v registru</span>
+              )}
+            </div>
+            <div className="call-row">
+              <span className="k">IČO osobně</span>
+              {icoDph(kontakt.ico_osobni, kontakt.dph_osobni) ?? <span className="muted">nezjištěno</span>}
+            </div>
+            <div className="call-row">
+              <span className="k">IČO studia</span>
+              {icoDph(kontakt.ico_firma, kontakt.dph_firma) ?? <span className="muted">nezjištěno</span>}
+            </div>
+            {kontakt.ico_firma && (
+              <p className="muted" style={{ fontSize: 13, margin: '-2px 0 6px' }}>
+                DPH studia neříká nic o DPH architekta.
+              </p>
+            )}
+            <div className="call-row">
+              <span className="k">číslo máme z</span>
+              <span>{zdrojTelefonu(kontakt.zdroj_telefonu)}</span>
+            </div>
 
-        {kontakt.email && (
-          <div className="call-row">
-            <span className="k">e-mail</span>
-            <a href={`mailto:${kontakt.email}`}>{kontakt.email}</a>
-          </div>
+            {/* scénář až pod údaji: telefon musí být vidět bez posouvání (i na mobilu) */}
+            <div className="call-hint">
+              <div className="call-hint-head">
+                <CompassIcon size={16} /> Tip pro hovor
+              </div>
+              {TIP_ARCHITEKT.map((b) => (
+                <p key={b.nadpis}>
+                  {b.nadpis && <strong>{b.nadpis}: </strong>}
+                  {b.text}
+                </p>
+              ))}
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="call-row">
+              <span className="k">web</span>
+              {hasWeb ? (
+                <a href={kontakt.web!} target="_blank" rel="noreferrer">
+                  {kontakt.web}
+                </a>
+              ) : (
+                <span className="badge yellow">nemá web</span>
+              )}
+            </div>
+
+            {kontakt.email && (
+              <div className="call-row">
+                <span className="k">e-mail</span>
+                <a href={`mailto:${kontakt.email}`}>{kontakt.email}</a>
+              </div>
+            )}
+          </>
         )}
 
         <div className="call-row">
@@ -250,7 +488,7 @@ export default function CallPage() {
                 <input
                   value={cenaWeb}
                   onChange={(e) => setCenaWeb(e.target.value)}
-                  placeholder="např. 4900"
+                  placeholder={architekt ? 'např. 6500' : 'např. 4900'}
                   autoFocus
                 />
               </div>
@@ -261,7 +499,7 @@ export default function CallPage() {
                 <input
                   value={cenaHosting}
                   onChange={(e) => setCenaHosting(e.target.value)}
-                  placeholder="např. 190/měs"
+                  placeholder={architekt ? 'např. 1000/rok' : 'např. 190/měs'}
                 />
               </div>
             </div>
@@ -349,6 +587,23 @@ export default function CallPage() {
           }}
         >
           Kontakt se označí jako <b>odmítnuto</b> a už mu nikdy nebudeme volat.
+        </ConfirmModal>
+      )}
+
+      {modal === 'prepnout' && (
+        <ConfirmModal
+          title="Přepnout hned?"
+          confirmLabel="Ano, přepnout"
+          cancelLabel="Dokončím hovor"
+          confirmClass="hot"
+          busy={busy}
+          onCancel={() => setModal(null)}
+          onConfirm={() => {
+            setModal(null);
+            void prepnoutHned();
+          }}
+        >
+          Poznámka se neuloží a tenhle kontakt se vrátí do fronty pro ostatní.
         </ConfirmModal>
       )}
 

@@ -4,6 +4,7 @@
 // Všichni: „Označit jako mého klienta" (oznacit_za_sveho, migrace 024) u kontaktu, kterému
 // sami volali a který je pořád ve frontě volání.
 // Obě role: sekce "Vzkazy agentovi" — vlákna tohoto kontaktu + composer.
+// Migrace 028: odznak segmentu vedle oboru a pod metadaty údaje architekta jen ke čtení.
 
 import { useCallback, useEffect, useState } from 'react';
 import {
@@ -16,6 +17,7 @@ import {
 } from '../api';
 import { audio } from '../audio';
 import { useSession } from '../auth';
+import { segmentOf } from '../segment';
 import {
   ALL_FLAGS,
   ALL_STATUSES,
@@ -24,11 +26,15 @@ import {
   FLAG_HINTS,
   FLAG_LABELS,
   STATUS_LABELS,
+  SegmentBadge,
   Spinner,
   StatusBadge,
   errMsg,
   formatDateTime,
+  icoDph,
+  kontaktJmeno,
   pravidloPopisek,
+  zdrojTelefonu,
 } from '../ui';
 import {
   CheckIcon,
@@ -337,6 +343,39 @@ function KontaktThreads({ kontakt, canWrite }: { kontakt: Kontakt; canWrite: boo
   );
 }
 
+/* ---------- údaje architekta (migrace 028), jen ke čtení ---------- */
+
+/**
+ * Studio, město, IČO a DPH osobně i studia zvlášť, odkud máme číslo (docs/ARCHITEKTI.md
+ * 9.6). Osobní IČO, které server v seznamu neposlal (klíč chybí, [ALBERT 28]), je
+ * „skryto", ne „nezjištěno".
+ */
+function ArchitektUdaje({ kontakt }: { kontakt: Kontakt }) {
+  const skryto = !Object.prototype.hasOwnProperty.call(kontakt, 'ico_osobni');
+  const nezjisteno = <span className="muted">nezjištěno</span>;
+  return (
+    <div className="arch-udaje">
+      <p className="meta-line">studio: {kontakt.firma || nezjisteno}</p>
+      <p className="meta-line">město: {kontakt.mesto || nezjisteno}</p>
+      <p className="meta-line">
+        IČO osobně:{' '}
+        {skryto ? (
+          <span className="muted" title="Osobní IČO vidí v seznamech jen ten, kdo kontakt smí upravit.">
+            skryto
+          </span>
+        ) : (
+          icoDph(kontakt.ico_osobni, kontakt.dph_osobni) ?? nezjisteno
+        )}
+      </p>
+      <p className="meta-line">
+        IČO studia: {icoDph(kontakt.ico_firma, kontakt.dph_firma) ?? nezjisteno}
+        {kontakt.ico_firma && <> (DPH studia neříká nic o DPH architekta)</>}
+      </p>
+      <p className="meta-line">číslo máme z: {zdrojTelefonu(kontakt.zdroj_telefonu)}</p>
+    </div>
+  );
+}
+
 /* ---------- drawer ---------- */
 
 export default function KontaktDrawer({
@@ -444,9 +483,10 @@ export default function KontaktDrawer({
           <XIcon size={20} />
         </button>
         <p className="eyebrow">kontakt #{kontakt.id}</p>
-        <h2>{kontakt.name || '(beze jména)'}</h2>
+        <h2>{kontaktJmeno(kontakt)}</h2>
         <p className="meta-line">
-          <PhoneIcon size={15} /> {kontakt.phone || '—'} · obor: {kontakt.obor}
+          <PhoneIcon size={15} /> {kontakt.phone || '—'} · obor: {kontakt.obor}{' '}
+          <SegmentBadge kontakt={kontakt} />
         </p>
         <p className="meta-line">
           naposledy volal/a: {kontakt.last_caller || '—'} · změněno {formatDateTime(kontakt.updated_at)}
@@ -467,6 +507,7 @@ export default function KontaktDrawer({
             </a>
           </p>
         )}
+        {segmentOf(kontakt) === 'architekt' && <ArchitektUdaje kontakt={kontakt} />}
         {!readOnly && kontakt.lock_by !== null && (
           <div className="info-box">
             Kontakt je zamčený (volající id {kontakt.lock_by}).{' '}

@@ -2,15 +2,27 @@
 // Super admin si může vybrat kohokoli a vidí jeho klienty (migrace 023, od 027 kohokoli;
 // server to hlídá — ostatním cizí klienty nevydá).
 // Fulltext filtr je čistě klientský; klik na řádek otevře sdílený detail kontaktu.
+// Filtr „vše / chaty / architekti" (migrace 028) jde na server (my_kontakty p_segment),
+// aby počet v pilulce zůstal ze serveru (docs/ARCHITEKTI.md 9.6).
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { getApi, type Kontakt } from '../api';
+import { getApi, type Kontakt, type Segment } from '../api';
 import { audio } from '../audio';
 import { useSession } from '../auth';
 import KontaktDrawer from '../components/KontaktDrawer';
 import PersonPicker, { usePeople } from '../components/PersonPicker';
 import { isAdminRole } from '../roles';
-import { ErrorBox, FlagBadge, Spinner, StatusBadge, errMsg, formatDateTime } from '../ui';
+import {
+  ErrorBox,
+  FlagBadge,
+  SegmentBadge,
+  SegmentFilter,
+  Spinner,
+  StatusBadge,
+  errMsg,
+  formatDateTime,
+  kontaktJmeno,
+} from '../ui';
 import { SearchIcon } from '../icons';
 
 /**
@@ -32,6 +44,7 @@ export default function MojiPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [search, setSearch] = useState('');
+  const [segment, setSegment] = useState<Segment | ''>('');
   const [selected, setSelected] = useState<Kontakt | null>(null);
 
   const cizi = userId !== null && userId !== session.user_id;
@@ -41,7 +54,13 @@ export default function MojiPage() {
     setLoading(true);
     setError('');
     try {
-      const r = await getApi().myKontakty(session.token, MOJI_LIMIT, 0, cizi ? userId : null);
+      const r = await getApi().myKontakty(
+        session.token,
+        MOJI_LIMIT,
+        0,
+        cizi ? userId : null,
+        segment || null
+      );
       setRows(r.rows);
       setTotal(r.total ?? r.rows.length);
     } catch (e) {
@@ -50,7 +69,7 @@ export default function MojiPage() {
     } finally {
       setLoading(false);
     }
-  }, [session.token, userId, cizi]);
+  }, [session.token, userId, cizi, segment]);
 
   useEffect(() => {
     void load();
@@ -60,7 +79,7 @@ export default function MojiPage() {
     const q = search.trim().toLowerCase();
     if (!q) return rows;
     return rows.filter((c) =>
-      [c.name, c.phone, c.web, c.email, c.note].some(
+      [c.name, c.firma, c.mesto, c.phone, c.web, c.email, c.note].some(
         (v) => v && v.toLowerCase().includes(q)
       )
     );
@@ -89,11 +108,19 @@ export default function MojiPage() {
         label="Čí klienty zobrazit"
       />
 
+      <SegmentFilter
+        value={segment}
+        onChange={(s) => {
+          setSegment(s);
+          setSelected(null);
+        }}
+      />
+
       <div className="filter-bar">
         <div className="search-wrap">
           <input
             className="search-input"
-            placeholder="Hledat jméno, telefon, web, e-mail, poznámku…"
+            placeholder="Hledat jméno, studio, město, telefon, web, e-mail, poznámku…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
@@ -141,7 +168,8 @@ export default function MojiPage() {
                   onClick={() => setSelected(r)}
                 >
                   <td className="row-name">
-                    <FlagBadge kontakt={r} compact /> {r.name || '(beze jména)'}
+                    <FlagBadge kontakt={r} compact /> <SegmentBadge kontakt={r} compact />{' '}
+                    {kontaktJmeno(r)}
                   </td>
                   <td style={{ whiteSpace: 'nowrap' }}>{r.phone || '—'}</td>
                   <td>

@@ -1,6 +1,7 @@
 // DEMO režim: in-memory mock implementující stejné rozhraní jako Supabase RPC.
 // Umožňuje plně proklikat UI bez backendu. Data žijí jen v paměti (reload = reset).
 
+import { segmentOf } from '../segment';
 import type {
   CekaniKind,
   CekaniKos,
@@ -25,6 +26,7 @@ import type {
   Rating,
   ResolveCallArgs,
   Role,
+  Segment,
   Session,
   ThreadDetail,
   ThreadScope,
@@ -96,6 +98,15 @@ function k(partial: Partial<Kontakt> & { id: number }): Kontakt {
     first_proposal_at: null,
     last_our_reply_at: null,
     last_client_reply_at: null,
+    // migrace 028: segment + pole architekta (u chat prázdná, CHECK kontakty_architekt_pole_check)
+    segment: 'chata',
+    firma: null,
+    mesto: null,
+    ico_osobni: null,
+    ico_firma: null,
+    dph_osobni: null,
+    dph_firma: null,
+    zdroj_telefonu: null,
     created_at: daysAgo(30),
     updated_at: daysAgo(5),
     ...partial,
@@ -260,6 +271,87 @@ const kontakty: Kontakt[] = [
     cena_hosting: '190/měs',
     last_caller: 'Petra',
   }),
+
+  // --- architekti (migrace 028, docs/ARCHITEKTI.md 9.7) ---
+  // Jen vymyšlená data: jména „Ukázka / Vzor / Příklad", adresy example.cz, telefony
+  // s předvolbou 999 (v ČR neexistuje) a IČO s NEPLATNÝM kontrolním součtem
+  // (11111111, 22222222), takže nepatří žádnému skutečnému subjektu.
+  k({
+    // volatelný, jméno i studio, obě IČO, dvě čísla oddělená středníkem
+    id: 300,
+    segment: 'architekt',
+    obor: 'architekt',
+    name: 'Ing. arch. Tomáš Ukázka',
+    firma: 'Ukázkový ateliér s.r.o.',
+    mesto: 'Brno',
+    phone: '+420 999 000 300; +420 999 000 310',
+    email: 'ukazka@example.cz',
+    web: 'https://ukazka.example.cz',
+    ma_web: 'má web',
+    ico_osobni: '11111111',
+    dph_osobni: 'neplatce',
+    ico_firma: '22222222',
+    dph_firma: 'platce',
+    zdroj_telefonu: 'cka_registr',
+    note: 'Město: Brno, Žabovřesky',
+  }),
+  k({
+    // volatelný, jen studio (bez jména), bez e-mailu, bez webu, bez města, zdroj neznámý
+    id: 301,
+    segment: 'architekt',
+    obor: 'architekt',
+    name: null,
+    firma: 'Studio Příklad',
+    phone: '+420 999 000 301',
+    ma_web: 'nemá web',
+    ico_firma: '22222222',
+    dph_firma: 'neovereno',
+  }),
+  k({
+    // nedovoláno, s příznakem, bez e-mailu, web jen profil; volala Petra
+    id: 302,
+    segment: 'architekt',
+    obor: 'architekt',
+    name: 'Ing. arch. Jana Vzorová',
+    mesto: 'Praha 6',
+    phone: '+420 999 000 302',
+    web: 'https://profil.example.cz/jana-vzorova',
+    ma_web: 'má web',
+    ico_osobni: '11111111',
+    dph_osobni: 'identifikovana_osoba',
+    zdroj_telefonu: 'firmy_cz',
+    status: 'nedovolano',
+    last_caller: 'Petra',
+    note: '[2026-09-26 Petra] Nebrala, zkusit v úterý dopoledne.',
+    flag_kind: 'chybi_email',
+    flag_note: 'Na architekta nemáme e-mail. Zjistit při hovoru.',
+    flagged_at: daysAgo(2),
+    flagged_by: 'Petra',
+  }),
+  k({
+    // návrh odeslán, čeká na první odpověď; volal Honza
+    id: 303,
+    segment: 'architekt',
+    obor: 'architekt',
+    name: 'Ing. arch. Petr Příkladný',
+    firma: 'Příkladný ateliér',
+    mesto: 'Tábor',
+    phone: '+420 999 000 303',
+    email: 'priklad@example.cz',
+    web: 'https://priklad.example.cz',
+    ma_web: 'má web',
+    ico_firma: '22222222',
+    dph_firma: 'neplatce',
+    zdroj_telefonu: 'jiny',
+    status: 'navrh_odeslan',
+    rating: 'B',
+    cena_web: '6500',
+    cena_hosting: '1000/rok',
+    last_caller: 'Honza',
+    live_url: 'https://arch-prikladny-tabor.example.cz',
+    first_proposal_at: daysAgo(10),
+    last_our_reply_at: daysAgo(10),
+  }),
 ];
 
 const callLog: CallLogRow[] = [
@@ -270,6 +362,9 @@ const callLog: CallLogRow[] = [
   { id: nextCallLogId++, kontakt_id: 5, user_id: 3, outcome: 'zajem', created_at: daysAgo(27) },
   { id: nextCallLogId++, kontakt_id: 8, user_id: 3, outcome: 'nedovolano', created_at: daysAgo(7) },
   { id: nextCallLogId++, kontakt_id: 2, user_id: 3, outcome: 'nedovolano', created_at: daysAgo(3) },
+  // architekti (migrace 028): 302 volala Petra, 303 Honza
+  { id: nextCallLogId++, kontakt_id: 302, user_id: 2, outcome: 'nedovolano', created_at: daysAgo(2) },
+  { id: nextCallLogId++, kontakt_id: 303, user_id: 3, outcome: 'zajem', created_at: daysAgo(14) },
 ];
 
 const messages: AdminMessage[] = [
@@ -632,6 +727,25 @@ function forViewer(u: MockUser, c: Kontakt): Kontakt {
   };
 }
 
+/**
+ * Řádek SEZNAMU (list_kontakty, my_kontakty, list_flagged; migrace 028, [ALBERT 28]):
+ * osobní IČO jen tomu, kdo kontakt smí upravit. Server klíč odebírá
+ * (`to_jsonb(t) - 'ico_osobni'`), takže tu taky CHYBÍ, ne je null. Karta ve volání
+ * a úpravy vracejí řádek celý (forViewer).
+ */
+function forList(u: MockUser, c: Kontakt): Kontakt {
+  const r = forViewer(u, c);
+  if (!r.smi_upravit) delete r.ico_osobni;
+  return r;
+}
+
+/** Stejná kontrola jako v SQL funkcích migrace 028 (null = vše jen v seznamech). */
+function checkSegment(s: unknown, nullOk: boolean): void {
+  if (s === 'chata' || s === 'architekt') return;
+  if (nullOk && (s === null || s === undefined)) return;
+  fail(`Neplatný segment: ${s === null || s === undefined || s === '' ? '(nic)' : String(s)}. Povolené: chata, architekt.`);
+}
+
 function mayPick(u: MockUser, target: number | null | undefined, what: string): void {
   if (target == null || target === u.id) return;
   if (!(u.role === 'super_admin' && visibleIds(u).includes(target))) {
@@ -791,18 +905,23 @@ export const mockApi: Api = {
     };
   },
 
-  async nextContact(token: string): Promise<Kontakt | null> {
+  async nextContact(token: string, segment: Segment = 'chata'): Promise<Kontakt | null> {
     await delay();
     const user = auth(token);
+    // Výchozí 'chata' jako server: starý bundle volá bez segmentu a nesmí dostat architekta.
+    // Výslovné null nebo smetí = chyba (migrace 028).
+    checkSegment(segment, false);
     const cutoff = Date.now() - 2 * 3600 * 1000;
-    // Musí zůstat shodné s db/migration_007_next_contact_random.sql:
-    // jen nekontaktovano + nedovolano, koho jsme dnes už volali se dnes
-    // znovu nenabídne, a výběr je NÁHODNÝ (ne podle id).
+    // Musí zůstat shodné s db/migration_028_segment_architekti.sql (tělo z 023):
+    // jen nekontaktovano + nedovolano, jen zvolený segment, koho jsme dnes už volali
+    // se dnes znovu nenabídne, a výběr je NÁHODNÝ (ne podle id).
     const callable = kontakty.filter(
       (c) =>
+        segmentOf(c) === segment &&
         (c.status === 'nekontaktovano' || c.status === 'nedovolano') &&
         (c.lock_by === null ||
-          (c.lock_at !== null && new Date(c.lock_at).getTime() < cutoff) ||
+          c.lock_at === null ||
+          new Date(c.lock_at).getTime() < cutoff ||
           c.lock_by === user.id)
     );
     const lastCall = (c: Kontakt) =>
@@ -826,6 +945,26 @@ export const mockApi: Api = {
     return forViewer(user, next);
   },
 
+  async returnContact(token: string, id: number): Promise<{ ok: boolean; kontakt_id: number }> {
+    await delay(60);
+    // vratit_do_fronty (migrace 028, DB-7): jen vlastní zámek, jen volatelný stav, jen do
+    // 30 minut od vzetí karty. Nepíše call_log, nemění stav ani poznámku.
+    const user = auth(token);
+    const kontakt = kontakty.find((c) => c.id === id);
+    if (!kontakt) fail(`Kontakt ${id} neexistuje.`);
+    if (kontakt.lock_by !== user.id) fail(`Kontakt ${id} nemáte zamčený. Nic se nevrátilo.`);
+    if (kontakt.status !== 'nekontaktovano' && kontakt.status !== 'nedovolano') {
+      fail(`Kontakt ${id} už není ve frontě volání (stav ${kontakt.status}). Nic se nevrátilo.`);
+    }
+    if (kontakt.lock_at !== null && new Date(kontakt.lock_at).getTime() < Date.now() - 30 * 60 * 1000) {
+      fail('Kartu máte déle než 30 minut. Zapište výsledek hovoru, zámek sám vyprší do 2 hodin.');
+    }
+    kontakt.lock_by = null;
+    kontakt.lock_at = null;
+    kontakt.updated_at = now();
+    return { ok: true, kontakt_id: id };
+  },
+
   async resolveCall(token: string, args: ResolveCallArgs) {
     await delay();
     const user = auth(token);
@@ -845,6 +984,14 @@ export const mockApi: Api = {
     }
     const kontakt = kontakty.find((c) => c.id === args.kontakt_id);
     if (!kontakt) fail(`Kontakt id=${args.kontakt_id} neexistuje.`);
+    // KONTROLA VLASTNICTVÍ (migrace 015): v mocku dřív chyběla, takže demo nikdy neukázalo,
+    // co se stane s kartou po vrácení do fronty nebo po přepnutí segmentu.
+    if (kontakt.lock_by !== user.id) {
+      fail('Tenhle kontakt teď nemáte přidělený (zámek patří někomu jinému). Načtěte si dalšího.');
+    }
+    if (kontakt.status !== 'nekontaktovano' && kontakt.status !== 'nedovolano') {
+      fail(`Kontakt už není ve stavu, který se uzavírá hovorem (${kontakt.status}). Váš zámek na něj tedy neplatí — načtěte si dalšího.`);
+    }
 
     callLog.push({
       id: nextCallLogId++,
@@ -913,18 +1060,22 @@ export const mockApi: Api = {
     await delay();
     // Kontakty vidí všichni (migrace 023); filtr podle volajícího jen sebe / své lidi.
     const me = auth(token);
+    checkSegment(f.segment, true);
     if (f.caller && me.id !== OWNER_ID && !namesOf(visibleIds(me)).includes(f.caller)) {
       fail(`Podle volajícího můžete filtrovat jen sebe${me.role === 'super_admin' ? ' a své lidi' : ''}.`);
     }
     const search = (f.search ?? '').trim().toLowerCase();
     const matches = (c: Kontakt) =>
+      (!f.segment || segmentOf(c) === f.segment) &&
       (!f.status || c.status === f.status) &&
       (!f.caller || c.last_caller === f.caller) &&
       (!f.rating || c.rating === f.rating) &&
       (!f.cekani || cekaniOf(c).kind === f.cekani) &&
       (!f.kos || kosOfMock(cekaniOf(c).since) === f.kos) &&
+      // hledání i ve studiu, městě a IČO (migrace 028); osobní IČO hledá server i tam,
+      // kde ho v řádku nepošle; kdo ho zadal, ho už zná
       (!search ||
-        [c.name, c.phone, c.web, c.email, c.note].some(
+        [c.name, c.phone, c.web, c.email, c.note, c.firma, c.mesto, c.ico_osobni, c.ico_firma].some(
           (v) => v && v.toLowerCase().includes(search)
         ));
     const filtered = kontakty.filter(matches).sort((a, b) => {
@@ -949,7 +1100,7 @@ export const mockApi: Api = {
       rows: filtered.slice(offset, offset + limit).map((c) => {
         const cek = cekaniOf(c);
         return {
-          ...forViewer(me, c),
+          ...forList(me, c),
           cekani_kind: cek.kind,
           cekani_since: cek.since,
           cekani_kos: kosOfMock(cek.since),
@@ -962,14 +1113,16 @@ export const mockApi: Api = {
     token: string,
     limit = 200,
     offset = 0,
-    userId: number | null = null
+    userId: number | null = null,
+    segment: Segment | null = null
   ): Promise<ListKontaktyResult> {
     await delay();
     const user = auth(token);
+    checkSegment(segment, true);
     mayPick(user, userId, 'Klienty');
     const ids = kontaktyOf([userId ?? user.id]);
     const filtered = kontakty
-      .filter((c) => ids.has(c.id))
+      .filter((c) => ids.has(c.id) && (!segment || segmentOf(c) === segment))
       .sort((a, b) => {
         const oa = STATUS_ORDER[a.status] ?? 40;
         const ob = STATUS_ORDER[b.status] ?? 40;
@@ -983,7 +1136,7 @@ export const mockApi: Api = {
     const lim = Math.max(limit, 1);
     return {
       total: filtered.length,
-      rows: filtered.slice(off, off + lim).map((c) => forViewer(user, c)),
+      rows: filtered.slice(off, off + lim).map((c) => forList(user, c)),
     };
   },
 
@@ -1004,11 +1157,13 @@ export const mockApi: Api = {
         fail('Kontakt můžete přeřadit jen sobě nebo svým lidem.');
       }
     }
+    // migrace 028 přidává pole architekta; segment ani zdroj telefonu appka nemění (import)
     const allowed = [
       'phone', 'name', 'ma_web', 'web', 'email', 'note', 'status', 'rating',
       'cena_web', 'cena_hosting', 'last_caller', 'obor',
       'lovable_project_id', 'live_url', 'clear_lock',
       'flag_kind', 'flag_note',
+      'firma', 'mesto', 'ico_osobni', 'ico_firma', 'dph_osobni', 'dph_firma',
     ];
     if (!patch || Object.keys(patch).length === 0) fail('Prázdný patch — není co měnit.');
     for (const key of Object.keys(patch)) {
@@ -1018,9 +1173,38 @@ export const mockApi: Api = {
     }
     const kontakt = kontakty.find((c) => c.id === id);
     if (!kontakt) fail(`Kontakt id=${id} neexistuje.`);
+    // Pole architekta: stejné úpravy a CHECKy jako server (migrace 028, 2.2 b a g), a než
+    // se cokoli zapíše (v SQL by porušený CHECK vrátil celý update).
+    const ARCH_POLE = ['firma', 'mesto', 'ico_osobni', 'ico_firma', 'dph_osobni', 'dph_firma'] as const;
+    const DPH = ['platce', 'neplatce', 'identifikovana_osoba', 'neovereno'];
+    const archNove: Record<string, string | null> = {};
+    for (const key of ARCH_POLE) {
+      if (!(key in patch)) continue;
+      const raw = patch[key];
+      const s = raw === null || raw === undefined ? null : String(raw);
+      const v = s === null ? null : key.startsWith('ico_') ? s.replace(/\s/g, '') : s.trim();
+      archNove[key] = v === '' ? null : v;
+    }
+    const porusuje = (c: string) => fail(`new row for relation "kontakty" violates check constraint "${c}"`);
+    for (const key of ['ico_osobni', 'ico_firma'] as const) {
+      const v = archNove[key];
+      if (v !== undefined && v !== null && !/^[0-9]{8}$/.test(v)) porusuje(`kontakty_${key}_check`);
+    }
+    for (const key of ['dph_osobni', 'dph_firma'] as const) {
+      const v = archNove[key];
+      if (v !== undefined && v !== null && !DPH.includes(v)) porusuje(`kontakty_${key}_check`);
+    }
+    if (segmentOf(kontakt) !== 'architekt') {
+      const vysledek = ARCH_POLE.map((key) => (key in archNove ? archNove[key] : kontakt[key] ?? null));
+      if (vysledek.some((v) => v !== null) || (kontakt.zdroj_telefonu ?? null) !== null) {
+        porusuje('kontakty_architekt_pole_check');
+      }
+    }
     const target = kontakt as unknown as Record<string, unknown>;
     for (const [key, value] of Object.entries(patch)) {
-      if (key === 'clear_lock') {
+      if (key in archNove) {
+        target[key] = archNove[key];
+      } else if (key === 'clear_lock') {
         if (value) {
           kontakt.lock_by = null;
           kontakt.lock_at = null;
@@ -1100,7 +1284,7 @@ export const mockApi: Api = {
           (userId == null && user.role === 'super_admin' && kontaktBezMajitele(c.id))
       )
       .sort((a, b) => (order[a.flag_kind!] ?? 9) - (order[b.flag_kind!] ?? 9) || a.id - b.id)
-      .map((c) => forViewer(user, c));
+      .map((c) => forList(user, c));
   },
 
   async createUser(

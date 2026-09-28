@@ -5,6 +5,7 @@ import {
   type CekaniKind,
   type CekaniKos,
   type Kontakt,
+  type Segment,
 } from '../api';
 import { audio } from '../audio';
 import { useSession } from '../auth';
@@ -20,12 +21,15 @@ import {
   ErrorBox,
   FlagBadge,
   KOS_LABELS,
+  SegmentBadge,
+  SegmentFilter,
   Spinner,
   STATUS_LABELS,
   StatusBadge,
   errMsg,
   formatCekani,
   formatDateTime,
+  kontaktJmeno,
 } from '../ui';
 import {
   ArrowLeftIcon,
@@ -37,14 +41,18 @@ const PAGE_SIZE = 50;
 
 // KONTAKTY — celou databázi vidí od migrace 023 všichni (Albert 2026-09-24).
 // Server u kontaktu ukazuje jméno volajícího jen tomu, komu patří (a jeho super
-// adminovi); ostatním „jiný volající". Filtr podle volajícího: super admin své lidi,
-// ostatní jen sebe. Upravovat kontakty smí admin a super admin, volající jen čte.
+// adminovi); ostatním „jiný volající". Filtr podle volajícího: super admin kohokoli
+// (migrace 027, seznam lidí posílá server), ostatní jen sebe. Upravovat kontakty smí
+// admin a super admin, volající jen čte.
+// Filtr „vše / chaty / architekti" (migrace 028) jde na server do seznamu i do všech
+// počtů; výchozí je vše a nepamatuje se (docs/ARCHITEKTI.md 9.6).
 export default function AdminPage() {
   const session = useSession();
   const isAdmin = isAdminRole(session.role);
   const isSuper = isSuperAdmin(session.role);
   const [searchParams] = useSearchParams();
 
+  const [segment, setSegment] = useState<Segment | ''>('');
   const [status, setStatus] = useState('');
   const [caller, setCaller] = useState('');
   const [rating, setRating] = useState('');
@@ -84,7 +92,11 @@ export default function AdminPage() {
         const api = getApi();
         const counts = await Promise.all(
           ALL_STATUSES.map(async (s) => {
-            const r = await api.listKontakty(session.token, { status: s, limit: 1 });
+            const r = await api.listKontakty(session.token, {
+              status: s,
+              segment: segment || null,
+              limit: 1,
+            });
             return [s, r.total] as const;
           })
         );
@@ -96,7 +108,7 @@ export default function AdminPage() {
     return () => {
       alive = false;
     };
-  }, [session.token, tick]);
+  }, [session.token, segment, tick]);
 
   // počty v koších (jen když je filtr čekání zapnutý) — ať je vidět, kolik jich
   // je v tom studeném balíku, aniž by zaplavily začátek seznamu
@@ -111,7 +123,12 @@ export default function AdminPage() {
         const api = getApi();
         const counts = await Promise.all(
           ALL_KOSE.map(async (k) => {
-            const r = await api.listKontakty(session.token, { cekani, kos: k, limit: 1 });
+            const r = await api.listKontakty(session.token, {
+              cekani,
+              kos: k,
+              segment: segment || null,
+              limit: 1,
+            });
             return [k, r.total] as const;
           })
         );
@@ -123,7 +140,7 @@ export default function AdminPage() {
     return () => {
       alive = false;
     };
-  }, [session.token, cekani, tick]);
+  }, [session.token, cekani, segment, tick]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -136,6 +153,7 @@ export default function AdminPage() {
         search: debouncedSearch.trim() || null,
         cekani: cekani || null,
         kos: cekani ? kos || null : null,
+        segment: segment || null,
         limit: PAGE_SIZE,
         offset: page * PAGE_SIZE,
       });
@@ -147,7 +165,7 @@ export default function AdminPage() {
     } finally {
       setLoading(false);
     }
-  }, [session.token, status, caller, rating, debouncedSearch, cekani, kos, page]);
+  }, [session.token, segment, status, caller, rating, debouncedSearch, cekani, kos, page]);
 
   useEffect(() => {
     void load();
@@ -173,6 +191,14 @@ export default function AdminPage() {
         Kontakty
         {total > 0 && <span className="count-pill">{total}</span>}
       </h1>
+
+      <SegmentFilter
+        value={segment}
+        onChange={(s) => {
+          setSegment(s);
+          setPage(0);
+        }}
+      />
 
       <div className="filter-bar">
         <select
@@ -247,7 +273,7 @@ export default function AdminPage() {
         <div className="search-wrap">
           <input
             className="search-input"
-            placeholder="Hledat jméno, telefon, web, e-mail, poznámku…"
+            placeholder="Hledat jméno, studio, telefon, web, e-mail, město, IČO, poznámku…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
@@ -314,7 +340,8 @@ export default function AdminPage() {
                   onClick={() => setSelected(r)}
                 >
                   <td className="row-name">
-                    <FlagBadge kontakt={r} compact /> {r.name || '(beze jména)'}
+                    <FlagBadge kontakt={r} compact /> <SegmentBadge kontakt={r} compact />{' '}
+                    {kontaktJmeno(r)}
                   </td>
                   <td style={{ whiteSpace: 'nowrap' }}>{r.phone || '—'}</td>
                   <td>

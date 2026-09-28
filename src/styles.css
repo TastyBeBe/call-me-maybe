@@ -1522,6 +1522,93 @@ table.kontakty tr:last-child td {
 }
 
 /* ---------------------------------------------------------------------------
+   Segment: chaty a architekti (migrace 028, docs/ARCHITEKTI.md 9.1). Jen tokeny palety.
+   Přepínač ve volání je větší, filtr v seznamech malý (jako chat-filter).
+   --------------------------------------------------------------------------- */
+
+.segment-switch,
+.segment-filter {
+  margin: 0 0 14px;
+}
+
+.segmented.segment-switch button {
+  font-size: 17px;
+  padding: 8px 20px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* architekti mají inkoustovou barvu, ať je rozdíl proti chatám vidět na první pohled */
+.segmented.segment-switch button.active.architekt {
+  background: var(--ink);
+  color: var(--paper-on-dark);
+}
+
+.segmented.segment-switch button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.segmented.segment-filter button {
+  font-size: 13px;
+  padding: 5px 12px;
+}
+
+.badge.seg-chata {
+  background: var(--yellow);
+  color: var(--ink);
+}
+
+.badge.seg-architekt {
+  background: var(--ink);
+  color: var(--paper-on-dark);
+}
+
+/* nadpis karty architekta: studio pod jménem */
+.call-sub {
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--ink-soft);
+  margin: -6px 0 10px;
+}
+
+/* karta architekta má delší popisky („IČO osobně", „číslo máme z"), hodnoty pod sebou */
+.call-card.seg-architekt .call-row .k {
+  min-width: 124px;
+}
+
+/* TIP PRO HOVOR: stejný tvar jako cedulka příznaku, ale inkoustový (růžová = problém) */
+.call-hint {
+  border: var(--border-w) solid var(--ink);
+  border-radius: var(--r-ctl);
+  background: var(--cream-deep);
+  padding: 10px 12px;
+  margin: 12px 0 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.call-hint-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--ink-soft);
+}
+
+.call-hint p {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+/* ---------------------------------------------------------------------------
    Zvukové menu (tři kanály: aplikace / Prokchop / hudba)
    Albert 2026-09-03: Prokchop je hlasitý a hraje často, klikání tlačítek chce
    člověk slyšet pořád — proto má každý kanál vlastní vypínač i posuvník.

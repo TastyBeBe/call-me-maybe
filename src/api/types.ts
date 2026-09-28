@@ -28,6 +28,18 @@ export type KontaktStatus =
 export type Rating = 'A' | 'B' | 'C';
 
 /**
+ * Segment klienta (migrace 028, docs/ARCHITEKTI.md 1.1): chaty a architekti se nikdy nesmí
+ * smíchat. Nastavuje ho jen import nebo vědomý zásah v SQL, appka ho nemění.
+ */
+export type Segment = 'chata' | 'architekt';
+
+/** DPH architekta a jeho studia zvlášť (migrace 028, CHECK na čtyři hodnoty). */
+export type DphStav = 'platce' | 'neplatce' | 'identifikovana_osoba' | 'neovereno';
+
+/** Odkud máme telefon architekta (migrace 028). Volající to říká na „odkud máte moje číslo". */
+export type ZdrojTelefonu = 'cka_registr' | 'web_vlastni' | 'firmy_cz' | 'jiny' | 'neznamy';
+
+/**
  * Červený příznak (migrace 005) — klient, který není 100 % vyřešený.
  * chybi_info     = nevíme vůbec, o jaký objekt jde
  * chybi_email    = nemáme e-mail, není kam poslat návrh
@@ -92,6 +104,23 @@ export interface Kontakt {
    * Albert u všech, volající nikde. Příznak a zámek smí admin u každého kontaktu.
    */
   smi_upravit?: boolean;
+  /* ---- segment a pole architekta (migrace 028); u chat prázdná, starý server je neposílá ---- */
+  /** chata | architekt; chybí jen u serveru bez migrace 028 (pak je to chata, viz segmentOf) */
+  segment?: Segment;
+  /** studio (ateliér) architekta */
+  firma?: string | null;
+  /** město k zobrazení („Praha 6", „Brno") */
+  mesto?: string | null;
+  /**
+   * Osobní IČO. V seznamech (list_kontakty, my_kontakty, list_flagged) ho server pošle jen
+   * tomu, kdo kontakt smí upravit; jinak klíč CHYBÍ (undefined = „skryto", null = „nezjištěno").
+   * Karta ve volání a úpravy vracejí řádek celý ([ALBERT 28], 2.2 l).
+   */
+  ico_osobni?: string | null;
+  ico_firma?: string | null;
+  dph_osobni?: DphStav | null;
+  dph_firma?: DphStav | null;
+  zdroj_telefonu?: ZdrojTelefonu | null;
   created_at: string;
   updated_at: string;
 }
@@ -211,6 +240,8 @@ export interface ListKontaktyFilters {
   cekani?: CekaniKind | null;
   /** koš podle stáří čekání */
   kos?: CekaniKos | null;
+  /** segment (migrace 028); null / chybí = vše */
+  segment?: Segment | null;
   limit?: number;
   offset?: number;
 }
@@ -298,7 +329,16 @@ export interface Api {
   login(username: string, password: string): Promise<Session>;
   logout(token: string): Promise<void>;
   me(token: string): Promise<MeInfo>;
-  nextContact(token: string): Promise<Kontakt | null>;
+  /**
+   * Další kontakt z fronty volání v daném segmentu (migrace 028). Server bez segmentu vrací
+   * chaty (výchozí 'chata'), na neznámou hodnotu hází chybu.
+   */
+  nextContact(token: string, segment: Segment): Promise<Kontakt | null>;
+  /**
+   * Vrátit svůj zamčený kontakt do fronty bez výsledku hovoru (přepnutí segmentu, migrace 028).
+   * Jen vlastní zámek, jen volatelný stav a jen do 30 minut od vzetí karty; nepíše call_log.
+   */
+  returnContact(token: string, id: number): Promise<{ ok: boolean; kontakt_id: number }>;
   resolveCall(
     token: string,
     args: ResolveCallArgs
@@ -315,7 +355,9 @@ export interface Api {
     token: string,
     limit?: number,
     offset?: number,
-    userId?: number | null
+    userId?: number | null,
+    /** segment (migrace 028); null / chybí = vše */
+    segment?: Segment | null
   ): Promise<ListKontaktyResult>;
   /** Úprava kontaktu (admin) — obsah jen u vlastních klientů, příznak a zámek u všech (migrace 024). */
   updateKontakt(token: string, id: number, patch: Record<string, unknown>): Promise<Kontakt>;

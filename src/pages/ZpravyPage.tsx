@@ -11,7 +11,14 @@ import { audio } from '../audio';
 import { OWNER_USER_ID, useSession } from '../auth';
 import PersonPicker, { usePeople } from '../components/PersonPicker';
 import { JINY_VOLAJICI } from '../roles';
-import { ErrorBox, Spinner, errMsg, formatDateTime, pravidloPopisek } from '../ui';
+import {
+  ErrorBox,
+  SegmentBadge,
+  Spinner,
+  errMsg,
+  formatDateTime,
+  pravidloPopisek,
+} from '../ui';
 import {
   ArrowLeftIcon,
   CheckIcon,
@@ -174,7 +181,11 @@ function ComposeModal({
           <label>Kontakt (nepovinné)</label>
           {kontakt ? (
             <div className="picked-kontakt">
-              <span className="badge yellow">{kontakt.name || `#${kontakt.id}`}</span>
+              {/* odznak architekta: stejný telefon může mít chata i architekt (migrace 028) */}
+              <SegmentBadge kontakt={kontakt} compact />
+              <span className="badge yellow">
+                {kontakt.name || kontakt.firma || `#${kontakt.id}`}
+              </span>
               <button
                 type="button"
                 className="tb-btn"
@@ -212,7 +223,7 @@ function ComposeModal({
                         setResults([]);
                       }}
                     >
-                      <b>{c.name || `#${c.id}`}</b>
+                      <SegmentBadge kontakt={c} compact /> <b>{c.name || c.firma || `#${c.id}`}</b>
                       {c.phone && <span className="muted"> · {c.phone}</span>}
                     </button>
                   ))}
