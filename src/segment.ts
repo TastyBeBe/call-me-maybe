@@ -38,3 +38,19 @@ export function saveCallSegment(s: Segment): void {
 export function segmentOf(k: Pick<Kontakt, 'segment'> | null | undefined): Segment {
   return k?.segment === 'architekt' ? 'architekt' : 'chata';
 }
+
+/**
+ * Řádek z úpravy bez osobního IČO, když kontakt uživatel nesmí upravit (klíč chybí jako
+ * v seznamu). Osobní IČO architekta vidí jen ten, kdo kontakt smí upravit ([ALBERT 28],
+ * docs/ARCHITEKTI.md 2.2 l): seznamy (list_kontakty, my_kontakty, list_flagged) klíč
+ * `ico_osobni` ostatním nepošlou, detail pak ukáže „skryto". Úpravy (set_flag, clear_flag,
+ * update_kontakt, oznacit_za_sveho) ale vracejí řádek celý i se `smi_upravit`, a příznak
+ * a zámek smí měnit každý admin. Bez tohohle by se „skryto" po uložení příznaku přepnulo
+ * na číslo (revize 28. 9.).
+ */
+export function bezCizihoIco(k: Kontakt): Kontakt {
+  if (k.smi_upravit === true || !Object.prototype.hasOwnProperty.call(k, 'ico_osobni')) return k;
+  const kopie = { ...k };
+  delete kopie.ico_osobni;
+  return kopie;
+}

@@ -876,7 +876,7 @@ function mockAutomationStatus(): AutomationStatus {
   };
 }
 
-export const mockApi: Api = {
+const mockApiZaklad: Api = {
   async login(username: string, password: string): Promise<Session> {
     await delay();
     const user = users.find((u) => u.username === username.trim() && u.active);
@@ -1698,6 +1698,64 @@ export const mockApi: Api = {
     return mockAutomationStatus();
   },
 };
+
+/**
+ * Háček pro zkoušku v DEMO (tests/demo-e2e.mjs). Zapne se jen tehdy, když stránka ještě
+ * PŘED načtením appky nastaví `globalThis.__volackaDemoTest` (Playwright `addInitScript`).
+ * Mock běží jen v DEMO nad falešnými daty v paměti, takže háček nikdy nesáhne na živou DB.
+ * - `zpozdeni(fn, args)` vrátí extra čekání v ms pro jedno volání (args bez tokenu); tak test
+ *   pustí odpovědi mimo pořadí (odpověď po přepnutí segmentu nebo filtru).
+ * - `volani` dostává záznam každého volání: jméno, argumenty bez tokenu, výsledek.
+ * - `stav()` vrátí snímek zámků, stavů, poznámek, call_log a předmětů vláken.
+ */
+interface DemoTestHacek {
+  zpozdeni?: (fn: string, args: unknown[]) => number;
+  volani?: { fn: string; args: unknown[]; ok?: boolean; id?: number | null; chyba?: string }[];
+  stav?: () => unknown;
+}
+
+function sDemoTestem(api: Api): Api {
+  const hacek = (globalThis as { __volackaDemoTest?: DemoTestHacek }).__volackaDemoTest;
+  if (!hacek || typeof hacek !== 'object') return api;
+  hacek.volani = hacek.volani ?? [];
+  hacek.stav = () => ({
+    kontakty: kontakty.map((c) => ({
+      id: c.id,
+      segment: segmentOf(c),
+      status: c.status,
+      lock_by: c.lock_by,
+      note: c.note,
+      flag_kind: c.flag_kind,
+    })),
+    callLog: callLog.map((l) => ({ kontakt_id: l.kontakt_id, user_id: l.user_id, outcome: l.outcome })),
+    vlakna: chatThreads.map((t) => ({ id: t.id, kontakt_id: t.kontakt_id, subject: t.subject })),
+  });
+  return new Proxy(api, {
+    get(target, prop, receiver) {
+      const v = Reflect.get(target, prop, receiver) as unknown;
+      if (typeof v !== 'function') return v;
+      const fn = v as (...a: unknown[]) => Promise<unknown>;
+      return async (...args: unknown[]) => {
+        const zaznam: NonNullable<DemoTestHacek['volani']>[number] = { fn: String(prop), args: args.slice(1) };
+        hacek.volani!.push(zaznam);
+        const ms = Number(hacek.zpozdeni?.(String(prop), args.slice(1)) ?? 0);
+        if (ms > 0) await new Promise<void>((r) => setTimeout(r, ms));
+        try {
+          const out = (await fn.apply(target, args)) as { id?: number; kontakt_id?: number } | null;
+          zaznam.ok = true;
+          zaznam.id = out === null ? null : out?.id ?? out?.kontakt_id;
+          return out;
+        } catch (e) {
+          zaznam.ok = false;
+          zaznam.chyba = String(e instanceof Error ? e.message : e);
+          throw e;
+        }
+      };
+    },
+  });
+}
+
+export const mockApi: Api = sDemoTestem(mockApiZaklad);
 
 // interní čítač, ať TypeScript nehlásí nepoužitou proměnnou při budoucích úpravách
 void nextKontaktId;

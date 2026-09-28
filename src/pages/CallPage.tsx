@@ -37,7 +37,8 @@ const NEVRACENO = 'Kontakt se nepodařilo vrátit do fronty. Zámek sám vyprš�
 /**
  * Scénář pro volajícího u architekta (docs/ARCHITEKTI.md 9.4). Statický text, stejný pro
  * všechny; <číslo máme z> je řádek „číslo máme z" na kartě. Okna volání jsou jen rada,
- * appka volání v jiný čas neomezuje ([ALBERT 25]).
+ * appka volání v jiný čas neomezuje ([ALBERT 25]). Tlačítko jmenuje přesně tak, jak je na
+ * kartě: „Odmítnuto" (9.4 psal „Nemají zájem", takové tlačítko není; revize 28. 9.).
  */
 const TIP_ARCHITEKT: { nadpis?: string; text: string }[] = [
   {
@@ -46,7 +47,7 @@ const TIP_ARCHITEKT: { nadpis?: string; text: string }[] = [
   },
   {
     nadpis: 'Kontrolní otázka',
-    text: '„Děláte vlastní zakázky pro klienty, nebo hlavně pro jiný ateliér?" Hlavně pro jiný ateliér: poděkuj, Nemají zájem, do poznámky „pracuje pro jiný ateliér".',
+    text: '„Děláte vlastní zakázky pro klienty, nebo hlavně pro jiný ateliér?" Hlavně pro jiný ateliér: poděkuj, Odmítnuto, do poznámky „pracuje pro jiný ateliér".',
   },
   {
     nadpis: 'Když chce',
@@ -62,7 +63,7 @@ const TIP_ARCHITEKT: { nadpis?: string; text: string }[] = [
   },
   {
     nadpis: 'Hlasová schránka',
-    text: 'Nic nenechávej. „Nevolejte" = Nemají zájem a do poznámky NEVOLAT. Nevhodná chvíle: zeptej se, kdy zavolat, a zapiš to.',
+    text: 'Nic nenechávej. „Nevolejte" = Odmítnuto a do poznámky NEVOLAT. Nevhodná chvíle: zeptej se, kdy zavolat, a zapiš to.',
   },
   {
     nadpis: 'Kdy volat',
@@ -253,7 +254,9 @@ export default function CallPage() {
     void resolve('zajem');
   };
 
-  const eyebrow = `volání · ${SEGMENT_MNOZNE[segment]}`;
+  // Bez karty eyebrow říká zvolený segment; s kartou segment KARTY (rozdělaná chata po
+  // přepnutí na architekty je pořád chata, revize 28. 9.).
+  const eyebrow = `volání · ${SEGMENT_MNOZNE[kontakt && !loading ? segmentOf(kontakt) : segment]}`;
 
   if (loading) {
     return (
@@ -408,19 +411,6 @@ export default function CallPage() {
               <span className="k">číslo máme z</span>
               <span>{zdrojTelefonu(kontakt.zdroj_telefonu)}</span>
             </div>
-
-            {/* scénář až pod údaji: telefon musí být vidět bez posouvání (i na mobilu) */}
-            <div className="call-hint">
-              <div className="call-hint-head">
-                <CompassIcon size={16} /> Tip pro hovor
-              </div>
-              {TIP_ARCHITEKT.map((b) => (
-                <p key={b.nadpis}>
-                  {b.nadpis && <strong>{b.nadpis}: </strong>}
-                  {b.text}
-                </p>
-              ))}
-            </div>
           </>
         ) : (
           <>
@@ -571,6 +561,23 @@ export default function CallPage() {
               placeholder="volitelné…"
             />
           </div>
+        )}
+
+        {/* Scénář až pod tlačítky výsledku a poznámkou: nad nimi odsouval tlačítka pod okraj
+            obrazovky (na 1280×900 na 1 230 px, na mobilu skoro 1 900 px; revize 28. 9.).
+            Rozbalený, dá se sbalit. */}
+        {architekt && (
+          <details className="call-hint" open>
+            <summary className="call-hint-head">
+              <CompassIcon size={16} /> Tip pro hovor
+            </summary>
+            {TIP_ARCHITEKT.map((b) => (
+              <p key={b.nadpis}>
+                {b.nadpis && <strong>{b.nadpis}: </strong>}
+                {b.text}
+              </p>
+            ))}
+          </details>
         )}
       </div>
 

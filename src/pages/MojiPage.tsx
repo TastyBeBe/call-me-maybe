@@ -5,7 +5,7 @@
 // Filtr „vše / chaty / architekti" (migrace 028) jde na server (my_kontakty p_segment),
 // aby počet v pilulce zůstal ze serveru (docs/ARCHITEKTI.md 9.6).
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getApi, type Kontakt, type Segment } from '../api';
 import { audio } from '../audio';
 import { useSession } from '../auth';
@@ -46,11 +46,15 @@ export default function MojiPage() {
   const [search, setSearch] = useState('');
   const [segment, setSegment] = useState<Segment | ''>('');
   const [selected, setSelected] = useState<Kontakt | null>(null);
+  // Číslo posledního požadavku: odpověď staršího (pomalého) požadavku se zahodí, jinak by po
+  // rychlém přepnutí filtru nebo člověka zůstaly v seznamu cizí řádky (revize 28. 9.).
+  const posledni = useRef(0);
 
   const cizi = userId !== null && userId !== session.user_id;
   const kohoJmeno = cizi ? people.find((p) => p.user_id === userId)?.display_name ?? '' : '';
 
   const load = useCallback(async () => {
+    const muj = ++posledni.current;
     setLoading(true);
     setError('');
     try {
@@ -61,13 +65,15 @@ export default function MojiPage() {
         cizi ? userId : null,
         segment || null
       );
+      if (muj !== posledni.current) return; // mezitím se změnil filtr nebo člověk
       setRows(r.rows);
       setTotal(r.total ?? r.rows.length);
     } catch (e) {
+      if (muj !== posledni.current) return;
       setError(errMsg(e));
       audio.play('error');
     } finally {
-      setLoading(false);
+      if (muj === posledni.current) setLoading(false);
     }
   }, [session.token, userId, cizi, segment]);
 

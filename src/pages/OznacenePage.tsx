@@ -6,7 +6,7 @@
 // Filtr „vše / chaty / architekti" (migrace 028) je klientský: list_flagged vrací všechny
 // řádky bez limitu, takže počty z vyfiltrovaných řádků jsou přesné (docs/ARCHITEKTI.md 9.6).
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getApi, type FlagKind, type Kontakt, type Segment } from '../api';
 import { audio } from '../audio';
 import { useSession } from '../auth';
@@ -40,17 +40,23 @@ export default function OznacenePage() {
   const [kind, setKind] = useState<FlagKind | ''>('');
   const [segment, setSegment] = useState<Segment | ''>('');
   const [selected, setSelected] = useState<Kontakt | null>(null);
+  // odpověď staršího požadavku (jiný člověk ve výběru) se zahodí, jako v Kontaktech
+  const posledni = useRef(0);
 
   const load = useCallback(async () => {
+    const muj = ++posledni.current;
     setLoading(true);
     setError('');
     try {
-      setRows(await getApi().listFlagged(session.token, null, userId));
+      const r = await getApi().listFlagged(session.token, null, userId);
+      if (muj !== posledni.current) return;
+      setRows(r);
     } catch (e) {
+      if (muj !== posledni.current) return;
       setError(errMsg(e));
       audio.play('error');
     } finally {
-      setLoading(false);
+      if (muj === posledni.current) setLoading(false);
     }
   }, [session.token, userId]);
 
@@ -153,14 +159,29 @@ export default function OznacenePage() {
       ) : filtered.length === 0 ? (
         <div className="card empty-state">
           <div className="big-emoji">
-            {vSegmentu.length === 0 ? <CheckIcon size={56} /> : <FlagIcon size={56} />}
+            {rows.length === 0 ? <CheckIcon size={56} /> : <FlagIcon size={56} />}
           </div>
-          <h2>{vSegmentu.length === 0 ? 'Všechno je vyřešené' : 'V této skupině nic není'}</h2>
-          <p className="muted">
-            {vSegmentu.length === 0
-              ? 'Žádný klient teď nemá červený příznak.'
-              : 'Zkus jinou skupinu nebo zobraz vše.'}
-          </p>
+          {rows.length === 0 ? (
+            <>
+              <h2>Všechno je vyřešené</h2>
+              <p className="muted">Žádný klient teď nemá červený příznak.</p>
+            </>
+          ) : vSegmentu.length === 0 && segment ? (
+            // Filtr segmentu schoval všechny označené: „všechno je vyřešené" by lhalo (revize 28. 9.).
+            <>
+              <h2>{segment === 'architekt' ? 'Žádný označený architekt' : 'Žádná označená chata'}</h2>
+              <p className="muted">
+                {segment === 'architekt'
+                  ? 'Červený příznak teď mají jen chaty. Uvidíš je pod „vše" nebo „chaty".'
+                  : 'Červený příznak teď mají jen architekti. Uvidíš je pod „vše" nebo „architekti".'}
+              </p>
+            </>
+          ) : (
+            <>
+              <h2>V této skupině nic není</h2>
+              <p className="muted">Zkus jinou skupinu nebo zobraz vše.</p>
+            </>
+          )}
         </div>
       ) : (
         <div className="table-wrap">

@@ -1,13 +1,15 @@
 // Test chování: segment chaty / architekti v appce (docs/ARCHITEKTI.md, oddíl 9, migrace 028).
 //
-// Měří DEMO mock (src/api/mock.ts), který musí zrcadlit server, a src/segment.ts. Nikdy nesahá
-// na živou DB: bere jen soubory v src/, žádný fetch. Spuštění:
+// Měří DEMO mock (src/api/mock.ts), který musí zrcadlit server, src/segment.ts, záložní cestu
+// next_contact v src/api/supabase.ts (fetch je podstrčený, nic nejde po síti) a závislosti
+// loadNext v CallPage.tsx. Nikdy nesahá na živou DB. Chování stránek (přepínač ve volání,
+// filtry seznamů, detail) měří tests/demo-e2e.mjs v prohlížeči. Spuštění:
 //   node tests/segment.test.mjs            (kořen appky = složka nad tests/)
 //   APP_ROOT=/cesta/ke/kopii node tests/segment.test.mjs   (mutace v kopii)
 // Výsledek: řádek „ALL OK (N kontrol)", jinak řádky „FAIL <id>: <česky> (…)" a kód 1.
 
 import { build } from 'esbuild';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -33,7 +35,9 @@ let bundle;
     stdin: {
       contents: [
         "export { mockApi } from './src/api/mock.ts';",
+        "export { supabaseApi } from './src/api/supabase.ts';",
         "export { loadCallSegment, saveCallSegment, segmentOf } from './src/segment.ts';",
+        "export * as segmentModul from './src/segment.ts';",
         "export { PhoneLinks } from './src/ui.tsx';",
       ].join('\n'),
       resolveDir: ROOT,
@@ -55,7 +59,7 @@ let bundle;
   bundle = createRequire(import.meta.url)(f);
   rmSync(dir, { recursive: true, force: true });
 }
-const { mockApi: api, loadCallSegment, saveCallSegment, segmentOf, PhoneLinks } = bundle;
+const { mockApi: api, supabaseApi, loadCallSegment, saveCallSegment, segmentOf, segmentModul, PhoneLinks } = bundle;
 
 let pocet = 0;
 let chyby = 0;
@@ -268,6 +272,144 @@ await blok('G', async () => {
   over('G2', odkazy.every((d) => !/[;,\s]/.test(d.props.href)), 'tel: odkaz nemá mezery ani oddělovač', odkazy.map((d) => d.props.href).join('|'));
   const jedno = PhoneLinks({ phone: '+420 606 100 100' });
   over('G3', [].concat(jedno?.props?.children ?? []).length === 1, 'jedno číslo = jeden odkaz');
+});
+
+/* ---------------- I) next_contact na serveru bez migrace 028 (supabase.ts) ---------------- */
+// Podstrčený fetch: žádné volání neodejde po síti; adresa v localStorage není živá.
+await blok('I', async () => {
+  uloziste.set('volacka_supabase_url', 'http://127.0.0.1:9');
+  uloziste.set('volacka_anon_key', 'test-klic');
+  const puvodniFetch = globalThis.fetch;
+  const odeslano = [];
+  let odpovedi = [];
+  globalThis.fetch = async (url, init) => {
+    const body = JSON.parse(init.body);
+    odeslano.push({ url: String(url), body });
+    const f = odpovedi.shift();
+    if (!f) throw new Error(`test: nečekané volání ${url}`);
+    const { status, telo } = f(body);
+    return new Response(typeof telo === 'string' ? telo : JSON.stringify(telo), { status });
+  };
+  // skutečný tvar odpovědi PostgREST, když funkce s těmi parametry neexistuje (HTTP 404)
+  const chybiFunkce = () => ({
+    status: 404,
+    telo: {
+      code: 'PGRST202',
+      details: 'Searched for the function public.next_contact with parameters p_segment, p_token or with a single unnamed json/jsonb parameter, but no matches were found in the schema cache.',
+      hint: 'Perhaps you meant to call the function public.next_contact(p_token)',
+      message: 'Could not find the function public.next_contact(p_segment, p_token) in the schema cache',
+    },
+  });
+  const karta = { id: 7, name: 'Chata U Testu', segment: 'chata' };
+  const znovu = async (fn) => {
+    try {
+      return { v: await fn() };
+    } catch (e) {
+      return { e: String(e && e.message) };
+    }
+  };
+  try {
+    odpovedi = [() => ({ status: 200, telo: { id: 300, segment: 'architekt' } })];
+    const a = await znovu(() => supabaseApi.nextContact('tok', 'architekt'));
+    over('I1', a.v?.id === 300 && odeslano.length === 1 && odeslano[0].body.p_segment === 'architekt' && /\/rpc\/next_contact$/.test(odeslano[0].url),
+      'next_contact posílá p_segment', JSON.stringify(odeslano));
+    over('I1b', !odeslano[0].url.includes('supabase.co'), 'test nevolá živou adresu', odeslano[0].url);
+
+    odeslano.length = 0;
+    odpovedi = [chybiFunkce, (body) => ({ status: 200, telo: Object.keys(body).join() === 'p_token' ? karta : null })];
+    const c = await znovu(() => supabaseApi.nextContact('tok', 'chata'));
+    over('I2', c.v?.id === 7, 'chaty na serveru bez 028: druhý pokus jen s p_token vrátí kartu (volání chat nestojí)', JSON.stringify(c));
+    over('I2b', odeslano.length === 2 && JSON.stringify(odeslano[1].body) === JSON.stringify({ p_token: 'tok' }), 'druhý pokus posílá jen p_token',
+      JSON.stringify(odeslano.map((o) => o.body)));
+
+    odeslano.length = 0;
+    odpovedi = [chybiFunkce, () => ({ status: 200, telo: karta })];
+    const ar = await znovu(() => supabaseApi.nextContact('tok', 'architekt'));
+    over('I3', ar.e !== undefined && odeslano.length === 1, 'architekti na serveru bez 028: žádný druhý pokus (dostali by chatu)', JSON.stringify({ ar, n: odeslano.length }));
+    over('I3b', /architekt/i.test(ar.e ?? '') && /028/.test(ar.e ?? ''), 'architekti na serveru bez 028: česká hláška, že server architekty ještě neumí', ar.e);
+
+    odeslano.length = 0;
+    odpovedi = [() => ({ status: 400, telo: { code: 'P0001', message: 'Neplatná relace. Přihlaste se znovu.' } }), () => ({ status: 200, telo: karta })];
+    const r = await znovu(() => supabaseApi.nextContact('tok', 'chata'));
+    over('I4', r.e === 'Neplatná relace. Přihlaste se znovu.' && odeslano.length === 1, 'jiná chyba serveru se neopakuje a projde beze změny', JSON.stringify({ r, n: odeslano.length }));
+
+    odeslano.length = 0;
+    odpovedi = [() => ({ status: 404, telo: 'not found' }), () => ({ status: 200, telo: karta })];
+    const n = await znovu(() => supabaseApi.nextContact('tok', 'chata'));
+    over('I5', n.e !== undefined && odeslano.length === 1, '404 bez kódu PGRST202 se neopakuje', JSON.stringify({ n, pocet: odeslano.length }));
+  } finally {
+    globalThis.fetch = puvodniFetch;
+    uloziste.delete('volacka_supabase_url');
+    uloziste.delete('volacka_anon_key');
+  }
+});
+
+/* ---------------- J) osobní IČO cizího kontaktu v detailu ([ALBERT 28], 2.2 l) ---------------- */
+// set_flag, clear_flag, update_kontakt a oznacit_za_sveho vracejí řádek celý i se smi_upravit.
+await blok('J', async () => {
+  const { bezCizihoIco } = segmentModul;
+  const bezKlice = (r) => !Object.prototype.hasOwnProperty.call(r, 'ico_osobni');
+  over('J0', typeof bezCizihoIco === 'function', 'segment.ts má bezCizihoIco');
+  if (typeof bezCizihoIco !== 'function') return;
+  const cizi = { id: 302, segment: 'architekt', ico_osobni: '11111111', dph_osobni: 'neplatce', smi_upravit: false };
+  const b = bezCizihoIco(cizi);
+  over('J1', bezKlice(b), 'řádek, který uživatel nesmí upravit, ztratí osobní IČO (klíč chybí jako v seznamu)');
+  over('J1b', b.dph_osobni === 'neplatce' && b.id === 302 && cizi.ico_osobni === '11111111', 'ostatní pole zůstanou a vstup se nezmění');
+  const svuj = { id: 300, ico_osobni: '11111111', smi_upravit: true };
+  over('J2', bezCizihoIco(svuj).ico_osobni === '11111111', 'kdo smí upravit, osobní IČO dostane');
+  over('J3', bezKlice(bezCizihoIco({ id: 1, ico_osobni: null })), 'bez smi_upravit se IČO taky schová');
+  const seznam = { id: 301, smi_upravit: false };
+  over('J4', bezCizihoIco(seznam) === seznam, 'řádek bez klíče (ze seznamu) projde beze změny');
+  // přes mock: Mikuláš (super admin) nesmí upravit Petřina architekta 302, příznak ano
+  const po = await api.setFlag(mikulas, 302, 'chybi_email', 'test J');
+  over('J5', po.smi_upravit === false && po.ico_osobni === '11111111', 'mock vrací ze set_flag řádek celý jako server (jinak J6 nic neměří)');
+  over('J6', bezKlice(bezCizihoIco(po)), 'po uložení příznaku zůstane osobní IČO cizího architekta skryté');
+});
+
+/* ---------------- K) loadNext v CallPage: závislosti bez segmentu (9.1, kontrola 75) ---------------- */
+// Segment v závislostech loadNext by při každém kliku na přepínač vzal novou kartu a starou
+// nechal zamčenou 2 h. Měří se zdroják; chování měří tests/demo-e2e.mjs (V4).
+function zavislostiNextContact(zdroj) {
+  const konec = (s, i) => {
+    let h = 0;
+    for (; i < s.length; i++) {
+      if (s.startsWith('//', i)) { i = s.indexOf('\n', i); if (i < 0) return -1; continue; }
+      if (s.startsWith('/*', i)) { i = s.indexOf('*/', i + 2); if (i < 0) return -1; i += 1; continue; }
+      const c = s[i];
+      if (c === "'" || c === '"' || c === '`') {
+        let j = i + 1;
+        while (j < s.length && s[j] !== c) j += s[j] === '\\' ? 2 : 1;
+        i = j;
+        continue;
+      }
+      if ('([{'.includes(c)) h += 1;
+      else if (')]}'.includes(c) && --h === 0) return i;
+    }
+    return -1;
+  };
+  const vysledky = [];
+  for (const m of zdroj.matchAll(/useCallback\s*\(/g)) {
+    const zac = m.index + m[0].length - 1;
+    const kon = konec(zdroj, zac);
+    if (kon < 0) continue;
+    const telo = zdroj.slice(zac + 1, kon);
+    if (!telo.includes('nextContact(')) continue;
+    const d = /,\s*\[([^[\]]*)\]\s*,?\s*$/.exec(telo);
+    vysledky.push(d ? d[1].split(',').map((x) => x.trim()).filter(Boolean) : null);
+  }
+  return vysledky;
+}
+await blok('K', async () => {
+  const spravne = (v) => v.length > 0 && v.every((d) => JSON.stringify(d) === JSON.stringify(['session.token', 'session.user_id']));
+  const z = zavislostiNextContact(readFileSync(join(ROOT, 'src/pages/CallPage.tsx'), 'utf8'));
+  over('K1', spravne(z), 'loadNext (useCallback s nextContact) má závislosti přesně [session.token, session.user_id]', JSON.stringify(z));
+  // negativní testy jiným tvarem, než jak přemýšlí detektor
+  const vadny = `const nacti = useCallback(\n  async () => {\n    await getApi().nextContact(session.token, vybrany); // ", [x]"\n  },\n  [\n    session.token,\n    vybrany,\n    session.user_id,\n  ]\n);`;
+  over('K2', !spravne(zavislostiNextContact(vadny)), 'detektor chytí segment v závislostech zapsaných na víc řádků');
+  const bez = `const nacti = useCallback(async () => { await getApi().nextContact(session.token, s); });`;
+  over('K3', !spravne(zavislostiNextContact(bez)), 'detektor chytí useCallback bez závislostí');
+  const dobry = `const loadNext = useCallback(async () => {\n  const x = '[a, b]'; await getApi().nextContact(session.token, segmentRef.current);\n}, [session.token, session.user_id]);`;
+  over('K4', spravne(zavislostiNextContact(dobry)), 'detektor nechá správné závislosti (i s hranatými závorkami v řetězci)');
 });
 
 if (chyby === 0) {

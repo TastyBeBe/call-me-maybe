@@ -691,6 +691,12 @@ input[type='range'] {
   min-width: 220px;
 }
 
+/* Kontakty: dlouhá nápověda hledání (docs/ARCHITEKTI.md 9.6) se má vejít celá. Když vedle
+   výběrů není místo, spadne pole na vlastní řádek přes celou šířku (revize 28. 9.). */
+.filter-bar .search-wrap.search-wide {
+  min-width: min(600px, 100%);
+}
+
 .table-wrap {
   overflow-x: auto;
   border: var(--border);
@@ -1578,16 +1584,14 @@ table.kontakty tr:last-child td {
   min-width: 124px;
 }
 
-/* TIP PRO HOVOR: stejný tvar jako cedulka příznaku, ale inkoustový (růžová = problém) */
+/* TIP PRO HOVOR: stejný tvar jako cedulka příznaku, ale inkoustový (růžová = problém).
+   Stojí pod tlačítky výsledku a poznámkou (<details>, rozbalený, dá se sbalit). */
 .call-hint {
   border: var(--border-w) solid var(--ink);
   border-radius: var(--r-ctl);
   background: var(--cream-deep);
   padding: 10px 12px;
-  margin: 12px 0 14px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
+  margin: 16px 0 0;
 }
 
 .call-hint-head {
@@ -1599,10 +1603,32 @@ table.kontakty tr:last-child td {
   text-transform: uppercase;
   letter-spacing: 1px;
   color: var(--ink-soft);
+  cursor: pointer;
+  list-style: none;
+}
+
+.call-hint-head::-webkit-details-marker {
+  display: none;
+}
+
+/* šipka říká, že se tip dá sbalit a rozbalit */
+.call-hint-head::after {
+  content: '';
+  width: 7px;
+  height: 7px;
+  margin-left: auto;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: rotate(-45deg);
+  transition: transform 0.15s ease;
+}
+
+.call-hint[open] > .call-hint-head::after {
+  transform: rotate(45deg);
 }
 
 .call-hint p {
-  margin: 0;
+  margin: 6px 0 0;
   font-size: 14px;
   font-weight: 600;
   line-height: 1.35;

@@ -74,6 +74,9 @@ export default function AdminPage() {
   const [statusCounts, setStatusCounts] = useState<Record<string, number>>({});
   const reloadTick = useRef(0);
   const [tick, setTick] = useState(0);
+  // Číslo posledního požadavku na seznam: odpověď staršího (pomalého) požadavku se zahodí,
+  // jinak by po rychlém přepnutí filtru pod „chaty" zůstali architekti (revize 28. 9.).
+  const posledniSeznam = useRef(0);
 
   // debounce fulltextu
   useEffect(() => {
@@ -143,6 +146,7 @@ export default function AdminPage() {
   }, [session.token, cekani, segment, tick]);
 
   const load = useCallback(async () => {
+    const muj = ++posledniSeznam.current;
     setLoading(true);
     setError('');
     try {
@@ -157,13 +161,15 @@ export default function AdminPage() {
         limit: PAGE_SIZE,
         offset: page * PAGE_SIZE,
       });
+      if (muj !== posledniSeznam.current) return; // mezitím se změnil filtr
       setRows(r.rows);
       setTotal(r.total);
     } catch (e) {
+      if (muj !== posledniSeznam.current) return;
       setError(errMsg(e));
       audio.play('error');
     } finally {
-      setLoading(false);
+      if (muj === posledniSeznam.current) setLoading(false);
     }
   }, [session.token, segment, status, caller, rating, debouncedSearch, cekani, kos, page]);
 
@@ -270,9 +276,10 @@ export default function AdminPage() {
             </option>
           ))}
         </select>
-        <div className="search-wrap">
+        <div className="search-wrap search-wide">
           <input
             className="search-input"
+            aria-label="Hledat v kontaktech"
             placeholder="Hledat jméno, studio, telefon, web, e-mail, město, IČO, poznámku…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}

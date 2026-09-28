@@ -27,6 +27,16 @@ import type {
   UserStats,
 } from './types';
 
+/** Chyba z PostgREST i s kódem (`PGRST202` = funkce s těmi parametry na serveru není). */
+class RpcChyba extends Error {
+  constructor(
+    message: string,
+    readonly kod: string | null
+  ) {
+    super(message);
+  }
+}
+
 async function rpc<T>(fn: string, body: Record<string, unknown>): Promise<T> {
   const { supabaseUrl, anonKey } = getConfig();
   let res: Response;
@@ -46,13 +56,15 @@ async function rpc<T>(fn: string, body: Record<string, unknown>): Promise<T> {
 
   if (!res.ok) {
     let message = `Chyba serveru (${res.status}).`;
+    let kod: string | null = null;
     try {
-      const err = (await res.json()) as { message?: string; hint?: string };
+      const err = (await res.json()) as { message?: string; hint?: string; code?: string };
       if (err && typeof err.message === 'string' && err.message) message = err.message;
+      if (err && typeof err.code === 'string') kod = err.code;
     } catch {
       // tělo nebylo JSON — necháme obecnou hlášku
     }
-    throw new Error(message);
+    throw new RpcChyba(message, kod);
   }
 
   const text = await res.text();
@@ -85,7 +97,19 @@ export const supabaseApi: Api = {
   async nextContact(token: string, segment: Segment): Promise<Kontakt | null> {
     // Segment se posílá VŽDY (migrace 028). Server bez něj vrací chaty, takže přepínač
     // „Architekti" by jinak tiše volal chaty (kontrola 75).
-    return rpc<Kontakt | null>('next_contact', { p_token: token, p_segment: segment });
+    try {
+      return await rpc<Kontakt | null>('next_contact', { p_token: token, p_segment: segment });
+    } catch (e) {
+      // Server bez migrace 028 (appka pushnutá dřív, nebo 028 vrácená dřív než appka) zná jen
+      // next_contact(p_token) a na p_segment odpoví PGRST202. Ten starý server má jen chaty,
+      // takže chaty se zkusí znovu bez segmentu a volání nestojí. Architekty NIKDY: dostali by
+      // chatu pod přepínačem „Architekti" (revize 28. 9.).
+      if (!(e instanceof RpcChyba) || e.kod !== 'PGRST202') throw e;
+      if (segment !== 'chata') {
+        throw new Error('Server ještě neumí volat architekty (chybí na něm migrace 028). Chaty volat jde.');
+      }
+      return rpc<Kontakt | null>('next_contact', { p_token: token });
+    }
   },
 
   async returnContact(token: string, id: number): Promise<{ ok: boolean; kontakt_id: number }> {

@@ -5,6 +5,8 @@
 // sami volali a který je pořád ve frontě volání.
 // Obě role: sekce "Vzkazy agentovi" — vlákna tohoto kontaktu + composer.
 // Migrace 028: odznak segmentu vedle oboru a pod metadaty údaje architekta jen ke čtení.
+// Každý řádek, který vrátí úprava, jde ven přes bezCizihoIco: osobní IČO cizího architekta
+// zůstane skryté i po uložení příznaku ([ALBERT 28]).
 
 import { useCallback, useEffect, useState } from 'react';
 import {
@@ -17,7 +19,7 @@ import {
 } from '../api';
 import { audio } from '../audio';
 import { useSession } from '../auth';
-import { segmentOf } from '../segment';
+import { bezCizihoIco, segmentOf } from '../segment';
 import {
   ALL_FLAGS,
   ALL_STATUSES,
@@ -262,7 +264,9 @@ function KontaktThreads({ kontakt, canWrite }: { kontakt: Kontakt; canWrite: boo
       if (open) {
         await api.postThreadMessage(session.token, open.thread.id, body, false);
       } else {
-        const subject = `Vzkaz od ${session.display_name}: ${kontakt.name || `#${kontakt.id}`}`;
+        // u architekta bez jména nese předmět studio (kontaktJmeno); #id jen, když není nic
+        const komu = kontakt.name || kontakt.firma ? kontaktJmeno(kontakt) : `#${kontakt.id}`;
+        const subject = `Vzkaz od ${session.display_name}: ${komu}`;
         await api.createThread(session.token, subject, body, kontakt.id);
       }
       audio.play('send');
@@ -381,7 +385,7 @@ function ArchitektUdaje({ kontakt }: { kontakt: Kontakt }) {
 export default function KontaktDrawer({
   kontakt,
   onClose,
-  onSaved,
+  onSaved: predatStrance,
   readOnly = false,
 }: {
   kontakt: Kontakt;
@@ -390,6 +394,9 @@ export default function KontaktDrawer({
   readOnly?: boolean;
 }) {
   const session = useSession();
+  // set_flag, clear_flag, update_kontakt i oznacit_za_sveho vracejí řádek celý; stránka
+  // (a seznam, do kterého ho vloží) dostane osobní IČO jen, když kontakt smí upravit.
+  const onSaved = (updated: Kontakt) => predatStrance?.(bezCizihoIco(updated));
   const [status, setStatus] = useState<KontaktStatus>(kontakt.status);
   const [email, setEmail] = useState(kontakt.email ?? '');
   const [note, setNote] = useState(kontakt.note ?? '');

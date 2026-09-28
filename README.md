@@ -27,6 +27,7 @@ npm run dev      # dev server ⚠ bez DEMO jede proti ŽIVÉ DB, viz níž
 npm run build    # produkční build do dist/ (tsc -b, zapnuté noUnusedLocals, pak vite build)
 npm run preview  # náhled produkčního buildu
 npm test         # test chování segmentu nad demo mockem (bez sítě, bez živé DB)
+npm run test:e2e # zkouška stránek v DEMO v headless prohlížeči (viz níž)
 ```
 
 ## Nastavení Supabase (URL + anon klíč)
@@ -44,12 +45,26 @@ prázdná: `localStorage.setItem('volacka_supabase_url', ' ')` (jedna mezera) **
 načtením appky. Pak appka jede nad in-memory mockem (`src/api/mock.ts`) se stejným RPC
 rozhraním a falešnými kontakty (data žijí jen do reloadu stránky).
 
-**Zkoušet jen v DEMO.** `npm run dev` bez DEMO sahá na živá data a React StrictMode
-v dev režimu volá efekt dvakrát, takže dvě `next_contact` zamknou dva živé kontakty.
-Postup: `npm run build`, `npx vite preview --port 5178` (port z `.claude/launch.json`),
-v prohlížeči nebo v headless Playwrightu nejdřív (například `page.addInitScript`)
-`volacka_supabase_url = ' '` a vypnutý zvuk (`volacka_sfx_enabled`,
-`volacka_music_enabled`, `volacka_pig_enabled` = `'0'`), pak přihlášení demo účtem.
+**Zkoušet jen v DEMO.** Bez DEMO sahá appka na živá data. ⚠ OPRAVENO 2026-09-28: dřív
+tu stálo `npx vite preview --port 5178 (port z .claude/launch.json)`, ale náhled
+`call-me-maybe` v `.claude/launch.json` spouští `npm run dev -- --port 5178`, tedy **dev
+server** s React StrictMode, který volá efekt dvakrát (dvě `next_contact` = dva zámky).
+Obě cesty jedou proti živé DB, dokud DEMO není nastavené:
+
+- **Automaticky:** `npm run test:e2e` (`tests/demo-e2e.mjs`) sestaví appku do dočasné
+  složky, servíruje ji jen na 127.0.0.1, nastaví DEMO a vypnutý zvuk před načtením appky,
+  každý požadavek mimo 127.0.0.1 zahodí (požadavek na Supabase = FAIL) a pouští přepínač
+  ve volání, filtry seznamů a detail kontaktu i s odpověďmi mimo pořadí (zpoždění přes
+  háček `__volackaDemoTest` v `src/api/mock.ts`, jen DEMO). Potřebuje Playwright
+  (`PLAYWRIGHT_MODULE` nebo `~/webdomov/architect-templates/node_modules`) a prohlížeč
+  (`PLAYWRIGHT_BROWSERS_PATH` nebo `~/webdomov-nastroje/pw`); bez nich skončí
+  „NEJDE ZMĚŘIT" s kódem 2.
+- **Ručně:** produkční build `npm run build` a `npx vite preview --port 5178 --strictPort`
+  (bez StrictMode), nebo náhled `call-me-maybe` z `.claude/launch.json` (dev server).
+  V obou případech nejdřív, **před prvním přihlášením**, `volacka_supabase_url = ' '`
+  (v Playwrightu `page.addInitScript`, v panelu náhledu v konzoli a znovu načíst)
+  a vypnutý zvuk (`volacka_sfx_enabled`, `volacka_music_enabled`,
+  `volacka_pig_enabled` = `'0'`), pak přihlášení demo účtem.
 
 Demo přihlášení (jen DEMO, falešná data v paměti):
 
@@ -107,14 +122,23 @@ který schvaluje Albert (u zprávy je vidět jeho stav).
   cedulka řekne, koho dostaneš po tomhle hovoru; „Přepnout hned" se ptá, protože poznámka
   se neuloží. Odpověď, která dorazí až po přepnutí, se zahodí a její zámek se vrátí.
 - Karta architekta: jméno (jinak studio), studio, telefon, e-mail, město, web, IČO
-  a DPH osobně a studia zvlášť, odkud máme číslo, a pod tím tip pro hovor (statický
-  scénář z oddílu 9.4 a okna volání jako rada).
+  a DPH osobně a studia zvlášť, odkud máme číslo. Tip pro hovor (statický scénář
+  z oddílu 9.4 a okna volání jako rada) stojí až pod tlačítky výsledku a poznámkou, aby
+  tlačítka zůstala na počítači vidět bez posouvání, a dá se sbalit. Eyebrow nad kartou
+  říká segment karty, bez karty zvolený segment.
 - **Seznamy** (Kontakty, Moji klienti, Označené, trychtýř ve Statistikách) mají filtr
   „vše / chaty / architekti", výchozí vše, nepamatuje se. Kontakty a Moji klienti filtrují
   na serveru (`p_segment` jen když není vše, i v počtech stavů a košů), Označené v appce.
   Zprávy filtr nemají, jen odznak architekta u hledaného kontaktu.
 - Osobní IČO posílá server v seznamech jen tomu, kdo kontakt smí upravit; detail pak
-  ukáže „skryto" ([ALBERT 28]). Karta ve volání má řádek celý.
+  ukáže „skryto" ([ALBERT 28]). Karta ve volání má řádek celý. Úpravy (příznak, zámek,
+  „Označit jako mého klienta", uložení) vracejí řádek celý i se `smi_upravit`, detail proto
+  každý takový řádek pošle dál přes `bezCizihoIco` (`src/segment.ts`) a „skryto" zůstane.
+- Seznamy (Kontakty, Moji klienti, Označené) zahodí odpověď staršího požadavku: po
+  rychlém přepnutí filtru nezůstanou pod „chaty" architekti z pozdní odpovědi.
+- Server bez migrace 028 odpoví na `next_contact` s `p_segment` chybou `PGRST202`. Appka
+  pak chaty zkusí znovu jen s `p_token` (starý server má jen chaty, volání nestojí);
+  architekty nikdy, volající dostane hlášku, že server architekty ještě neumí.
 - ⚠ Push appky na `main` až po živé a otestované migraci 028: nová appka volá
   `next_contact(p_token, p_segment)` a `vratit_do_fronty`, které starý server nemá.
 
