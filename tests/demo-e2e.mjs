@@ -416,6 +416,10 @@ const nazvyVolani = (vs) => vs.map((v) => v.fn);
   const detail = page.locator('.drawer');
   const ico = () => detail.locator('.arch-udaje').innerText();
   over('D1a', /IČO osobně:\s*skryto/.test(await ico()), 'cizí architekt: osobní IČO je v detailu skryté', (await ico()).replace(/\s+/g, ' '));
+  // e-mailový příznak v detailu: e-mail zapsaný tady ho sám neruší (update_kontakt), takže
+  // nápověda nesmí slibovat „zmizí sám" a posílá na Vyřešeno (revize migrace 029, kontakt 978)
+  const napoveda = (await detail.locator('.flag-hint').innerText()).replace(/\s+/g, ' ');
+  over('D1e', /Vyřešeno/.test(napoveda) && !/zmizí sám/.test(napoveda), 'detail (admin): nápověda k chybějícímu e-mailu posílá na Vyřešeno a neslibuje zmizení', napoveda);
   await detail.getByRole('button', { name: 'Upravit' }).click();
   await detail.getByRole('button', { name: 'Uložit příznak' }).click();
   await klid(page, 300);
@@ -445,6 +449,22 @@ const nazvyVolani = (vs) => vs.map((v) => v.fn);
   await page.locator('.drawer').getByRole('button', { name: 'Uložit příznak' }).click();
   await klid(page, 300);
   over('D2b', (await ico()).includes('11111111'), 'Albertovi osobní IČO po uložení příznaku nezmizí');
+  await ctx.close();
+}
+
+/* ============ D4) detail jen ke čtení (volající): nápověda bez slibu a bez tlačítka, které nemá ============ */
+{
+  const { ctx, page } = await novaStranka('petra');
+  await jdi(page, '#/admin', 600);
+  await filtr(page, 'architekti').click();
+  await klid(page, 400);
+  await page.locator('table.kontakty tbody tr', { hasText: 'Jana Vzorová' }).click();
+  const detail = page.locator('.drawer');
+  const napoveda = (await detail.locator('.flag-hint').innerText()).replace(/\s+/g, ' ');
+  over('D4a', /Chybí e-mail/.test(await detail.locator('.flag-panel-head').innerText()), 'volající vidí v detailu příznak Chybí e-mail (jinak scénář nic neměří)');
+  over('D4b', !/zmizí sám/.test(napoveda) && !/Vyřešeno/.test(napoveda) && /adminovi/.test(napoveda),
+    'detail jen ke čtení: nápověda neslibuje zmizení ani tlačítko Vyřešeno, posílá za adminem', napoveda);
+  over('D4c', (await detail.getByRole('button', { name: 'Vyřešeno' }).count()) === 0, 'volající v detailu tlačítko Vyřešeno nemá');
   await ctx.close();
 }
 

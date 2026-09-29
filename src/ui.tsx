@@ -74,12 +74,15 @@ export const FLAG_LABELS: Record<FlagKind, string> = {
   neodpovida: 'Neodpovídá — zavolat',
 };
 
-/** Delší vysvětlení pro detail kontaktu. */
+/** Delší vysvětlení příznaku. Takhle ho ukazuje KARTA HOVORU; detail kontaktu bere
+ *  flagHintDetail (níž), protože e-mail zapsaný v detailu příznak sám neruší. */
 export const FLAG_HINTS: Record<FlagKind, string> = {
   chybi_info:
     'Nedokázali jsme dohledat, o jaký objekt jde — chybí lokalita i inzerát. Web nejde postavit naslepo.',
+  // Samo zmizí jen při hovoru: resolve_call ruší chybi_email, když je e-mail vyplněný u zájmu
+  // (pravidlo z migrace 005, vrácené migrací 029; appka posílá e-mail jen u zájmu).
   chybi_email:
-    'Na tohoto klienta nemáme e-mail, takže mu nejde poslat návrh. Až ho zjistíš při hovoru, zapiš ho — příznak pak zmizí sám.',
+    'Na tohoto klienta nemáme funkční e-mail, takže mu nejde poslat návrh. Až ho zjistíš při hovoru, zapiš ho do pole E-mail a ulož zájem — příznak pak zmizí sám.',
   email_neoveren:
     'E-mail jsme dohledali na internetu, ale klient ho nepotvrdil. Při hovoru ho prosím ověř.',
   info_neoverene:
@@ -88,6 +91,19 @@ export const FLAG_HINTS: Record<FlagKind, string> = {
   neodpovida:
     'Klient si web vyžádal, my mu odpověděli a od té doby mlčí. Zavolej mu prosím — příznak zmizí sám, jakmile se ozve nebo mu někdo zavolá.',
 };
+
+/** Vysvětlení příznaku v DETAILU kontaktu. E-mail zapsaný v detailu ukládá update_kontakt,
+ *  a ten příznak neruší (samo zmizí jen při hovoru, resolve_call). Nápověda proto tady
+ *  nesmí slibovat, že příznak zmizí sám (kontakt 978, 18. 9.: e-mail zapsaný, příznak zůstal).
+ *  Volající (readOnly) nemá tlačítko Vyřešeno ani pole e-mailu. */
+export function flagHintDetail(kind: FlagKind, readOnly: boolean): string {
+  if (kind === 'chybi_email') {
+    return readOnly
+      ? 'Na tohoto klienta nemáme funkční e-mail, takže mu nejde poslat návrh. Když ho zjistíš, dej ho vědět adminovi — příznak pak zruší on nebo ona.'
+      : 'Na tohoto klienta nemáme funkční e-mail, takže mu nejde poslat návrh. E-mail zapsaný tady v detailu příznak sám nezruší — až je věc vyřešená, klikni na Vyřešeno.';
+  }
+  return FLAG_HINTS[kind];
+}
 
 export const ALL_FLAGS = Object.keys(FLAG_LABELS) as FlagKind[];
 

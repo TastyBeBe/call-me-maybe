@@ -1013,6 +1013,14 @@ const mockApiZaklad: Api = {
     }
     const email = (args.email ?? '').trim();
     if (email) kontakt.email = email;
+    // Pravidlo z migrace 005 (vrácené migrací 029): e-mail zapsaný při hovoru ruší e-mailový
+    // příznak. Ostatní příznaky zůstávají, prázdné pole nic neruší.
+    if (email && (kontakt.flag_kind === 'chybi_email' || kontakt.flag_kind === 'email_neoveren')) {
+      kontakt.flag_kind = null;
+      kontakt.flag_note = null;
+      kontakt.flagged_at = null;
+      kontakt.flagged_by = null;
+    }
     if (note) {
       const stamp = `[${new Date().toISOString().slice(0, 10)} ${user.display_name}] ${note}`;
       kontakt.note = kontakt.note ? `${kontakt.note}\n${stamp}` : stamp;
