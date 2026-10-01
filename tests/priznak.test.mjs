@@ -36,7 +36,7 @@ let bundle;
     stdin: {
       contents: [
         "export { mockApi } from './src/api/mock.ts';",
-        "export { FLAG_HINTS, flagHintDetail, ALL_FLAGS } from './src/ui.tsx';",
+        "export { FLAG_HINTS, flagHint, flagHintDetail, ALL_FLAGS } from './src/ui.tsx';",
       ].join('\n'),
       resolveDir: ROOT,
       loader: 'ts',
@@ -57,7 +57,7 @@ let bundle;
   bundle = createRequire(import.meta.url)(f);
   rmSync(dir, { recursive: true, force: true });
 }
-const { mockApi: api, FLAG_HINTS, flagHintDetail, ALL_FLAGS } = bundle;
+const { mockApi: api, FLAG_HINTS, flagHint, flagHintDetail, ALL_FLAGS } = bundle;
 
 let pocet = 0;
 let chyby = 0;
@@ -97,7 +97,7 @@ await blok('H', async () => {
   }
   // detail kontaktu musí brát nápovědu z flagHintDetail, ne z FLAG_HINTS (tam je slib karty)
   const drawer = readFileSync(join(ROOT, 'src/components/KontaktDrawer.tsx'), 'utf8');
-  over('H6', /flagHintDetail\(\s*kontakt\.flag_kind[^)]*,\s*readOnly\s*\)/.test(drawer) && !/FLAG_HINTS\s*\[/.test(drawer),
+  over('H6', /flagHintDetail\(\s*kontakt\.flag_kind[^)]*,\s*readOnly\s*(,[^)]*)?\)/.test(drawer) && !/FLAG_HINTS\s*\[/.test(drawer),
     'detail kontaktu ukazuje flagHintDetail(…, readOnly), ne FLAG_HINTS[…] ze karty hovoru');
   // negativní test detektoru jinými slovy
   over('H5', slibuje('Až ho zapíšeš, příznak zmizí sám.') && slibuje('Příznak se pak zruší sám.') && !slibuje('Příznak sám nezruší.'),
@@ -117,6 +117,16 @@ async function kontaktSPriznakem(kind) {
   return c.id;
 }
 const ZAJEM = { outcome: 'zajem', cena_web: '7000', cena_hosting: '190/měs', rating: 'A' };
+
+// A) architekt nečte o objektu a inzerátu (audit 1. 10., APP-2)
+await blok('A', async () => {
+  const ch = flagHint('chybi_info', 'chata'), ar = flagHint('chybi_info', 'architekt');
+  over('A1', /inzer|objekt/i.test(ch), 'chata: chybi_info mluví o objektu a inzerátu', ch);
+  over('A2', !/inzer|objekt|ubytov|chat/i.test(ar) && /architekt/i.test(ar), 'architekt: chybi_info mluví o architektovi, ne o objektu ani inzerátu', ar);
+  over('A3', !/inzer|objekt/i.test(flagHintDetail('chybi_info', true, 'architekt')), 'detail architekta: totéž', flagHintDetail('chybi_info', true, 'architekt'));
+  const karta = readFileSync(join(ROOT, 'src/pages/CallPage.tsx'), 'utf8');
+  over('A4', /flagHint\(\s*kontakt\.flag_kind\s*,/.test(karta) && !/FLAG_HINTS\s*\[/.test(karta), 'karta hovoru bere nápovědu podle segmentu (flagHint), ne FLAG_HINTS[…]');
+});
 
 await blok('M', async () => {
   const k1 = await kontaktSPriznakem('chybi_email');

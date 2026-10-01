@@ -139,7 +139,7 @@ function FlagPanel({
 
       {flagged && !editing && (
         <div className="flag-panel-body">
-          <p className="flag-hint">{flagHintDetail(kontakt.flag_kind as FlagKind, readOnly)}</p>
+          <p className="flag-hint">{flagHintDetail(kontakt.flag_kind as FlagKind, readOnly, segmentOf(kontakt))}</p>
           {kontakt.flag_note && <p className="flag-note">{kontakt.flag_note}</p>}
           <p className="muted flag-meta">
             označil/a {kontakt.flagged_by || '—'}

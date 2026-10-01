@@ -6,7 +6,7 @@ import { loadCallSegment, saveCallSegment, segmentOf } from '../segment';
 import {
   ConfirmModal,
   ErrorBox,
-  FLAG_HINTS,
+  flagHint,
   FLAG_LABELS,
   PhoneLinks,
   SEGMENT_AKUZATIV,
@@ -360,7 +360,7 @@ export default function CallPage() {
             <div className="call-flag-head">
               <FlagIcon size={16} /> <strong>{FLAG_LABELS[kontakt.flag_kind]}</strong>
             </div>
-            <p>{FLAG_HINTS[kontakt.flag_kind]}</p>
+            <p>{flagHint(kontakt.flag_kind, architekt ? 'architekt' : 'chata')}</p>
             {kontakt.flag_note && <p className="flag-note">{kontakt.flag_note}</p>}
           </div>
         )}
