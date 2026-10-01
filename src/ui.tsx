@@ -96,13 +96,25 @@ export const FLAG_HINTS: Record<FlagKind, string> = {
  *  a ten příznak neruší (samo zmizí jen při hovoru, resolve_call). Nápověda proto tady
  *  nesmí slibovat, že příznak zmizí sám (kontakt 978, 18. 9.: e-mail zapsaný, příznak zůstal).
  *  Volající (readOnly) nemá tlačítko Vyřešeno ani pole e-mailu. */
-export function flagHintDetail(kind: FlagKind, readOnly: boolean): string {
+/** U architekta (migrace 028) nejde u chybi_info o objekt a inzerát, ale o to, kdo je architekt
+ *  (audit celé automatizace 1. 10. 2026, APP-2). Ostatní příznaky mají text společný. */
+const FLAG_HINTS_ARCHITEKT: Partial<Record<FlagKind, string>> = {
+  chybi_info:
+    'Nedokázali jsme ověřit, o kterého architekta nebo ateliér jde (registr ČKA, ARES, web). Web nejde postavit naslepo.',
+};
+
+/** Nápověda příznaku podle segmentu kontaktu (karta hovoru). */
+export function flagHint(kind: FlagKind, segment?: string): string {
+  return (segment === 'architekt' && FLAG_HINTS_ARCHITEKT[kind]) || FLAG_HINTS[kind];
+}
+
+export function flagHintDetail(kind: FlagKind, readOnly: boolean, segment?: string): string {
   if (kind === 'chybi_email') {
     return readOnly
       ? 'Na tohoto klienta nemáme funkční e-mail, takže mu nejde poslat návrh. Když ho zjistíš, dej ho vědět adminovi — příznak pak zruší on nebo ona.'
       : 'Na tohoto klienta nemáme funkční e-mail, takže mu nejde poslat návrh. E-mail zapsaný tady v detailu příznak sám nezruší — až je věc vyřešená, klikni na Vyřešeno.';
   }
-  return FLAG_HINTS[kind];
+  return flagHint(kind, segment);
 }
 
 export const ALL_FLAGS = Object.keys(FLAG_LABELS) as FlagKind[];
