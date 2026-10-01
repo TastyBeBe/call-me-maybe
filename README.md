@@ -26,7 +26,7 @@ npm install
 npm run dev      # dev server ⚠ bez DEMO jede proti ŽIVÉ DB, viz níž
 npm run build    # produkční build do dist/ (tsc -b, zapnuté noUnusedLocals, pak vite build)
 npm run preview  # náhled produkčního buildu
-npm test         # test chování segmentu nad demo mockem (bez sítě, bez živé DB)
+npm test         # test chování segmentu a e-mailového příznaku nad demo mockem (bez sítě, bez živé DB)
 npm run test:e2e # zkouška stránek v DEMO v headless prohlížeči (viz níž)
 ```
 
