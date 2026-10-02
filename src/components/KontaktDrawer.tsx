@@ -6,7 +6,7 @@
 // Obě role: sekce "Vzkazy agentovi" — vlákna tohoto kontaktu + composer.
 // Migrace 028: odznak segmentu vedle oboru a pod metadaty údaje architekta jen ke čtení.
 // Každý řádek, který vrátí úprava, jde ven přes bezCizihoIco: osobní IČO cizího architekta
-// zůstane skryté i po uložení příznaku ([ALBERT 28]).
+// (a IČO ateliéru, které se mu rovná) zůstane skryté i po označení klienta ([ALBERT 28], 032).
 
 import { useCallback, useEffect, useState } from 'react';
 import {
@@ -394,8 +394,10 @@ export default function KontaktDrawer({
   readOnly?: boolean;
 }) {
   const session = useSession();
-  // set_flag, clear_flag, update_kontakt i oznacit_za_sveho vracejí řádek celý; stránka
-  // (a seznam, do kterého ho vloží) dostane osobní IČO jen, když kontakt smí upravit.
+  // Řádek celý vrací jen oznacit_za_sveho; set_flag, clear_flag a update_kontakt osobní IČO
+  // tomu, kdo kontakt nesmí upravit, neposílají (028, IČO ateliéru od 036). bezCizihoIco je
+  // pojistka pro oznacit_za_sveho a pro server před migrací 036: stránka (a seznam, do kterého
+  // řádek vloží) dostane osobní IČO jen, když kontakt smí upravit (audit APP-5).
   const onSaved = (updated: Kontakt) => predatStrance?.(bezCizihoIco(updated));
   const [status, setStatus] = useState<KontaktStatus>(kontakt.status);
   const [email, setEmail] = useState(kontakt.email ?? '');
