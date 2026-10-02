@@ -205,8 +205,10 @@ export function ConfirmModal({
 /**
  * Telefonní čísla oddělená čárkou nebo středníkem vykreslí jako klikatelné tel: odkazy.
  * Středník mají v tabulce architekti (migrace 028); chatám se nic nemění.
+ * `onDial` (karta ve volání) se zavolá při kliknutí na číslo: vytočená karta je rozdělaná
+ * a přepnutí segmentu ji tiše nevrátí do fronty (audit APP-3).
  */
-export function PhoneLinks({ phone }: { phone: string | null }) {
+export function PhoneLinks({ phone, onDial }: { phone: string | null; onDial?: () => void }) {
   if (!phone || !phone.trim()) return <span className="muted">bez telefonu</span>;
   const parts = phone
     .split(/[,;]/)
@@ -215,7 +217,7 @@ export function PhoneLinks({ phone }: { phone: string | null }) {
   return (
     <span className="phone-links">
       {parts.map((p, i) => (
-        <a key={i} className="phone-link" href={`tel:${p.replace(/\s+/g, '')}`}>
+        <a key={i} className="phone-link" href={`tel:${p.replace(/\s+/g, '')}`} onClick={onDial}>
           {p}
         </a>
       ))}
@@ -440,4 +442,21 @@ export const ZDROJ_TELEFONU_LABELS: Record<ZdrojTelefonu, string> = {
 
 export function zdrojTelefonu(z: ZdrojTelefonu | null | undefined): string {
   return (z && ZDROJ_TELEFONU_LABELS[z]) || ZDROJ_TELEFONU_LABELS.neznamy;
+}
+
+/**
+ * Totéž, jak to volající ŘEKNE architektovi: „Vaše číslo mám z …“ (scénář 9.4, audit APP-7).
+ * Popisky výš jsou pro řádek karty a mluví o architektovi ve 3. osobě („jeho webu“); věta
+ * v hovoru ho oslovuje. Neznámý zdroj = to, co popisek radí říct.
+ */
+export const ZDROJ_TELEFONU_VETA: Record<ZdrojTelefonu, string> = {
+  cka_registr: 'registru České komory architektů',
+  web_vlastni: 'vašeho webu',
+  firmy_cz: 'firmy.cz',
+  jiny: 'veřejně dostupného zdroje',
+  neznamy: 'veřejného seznamu architektů',
+};
+
+export function zdrojTelefonuVeta(z: ZdrojTelefonu | null | undefined): string {
+  return (z && ZDROJ_TELEFONU_VETA[z]) || ZDROJ_TELEFONU_VETA.neznamy;
 }

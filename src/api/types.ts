@@ -112,11 +112,13 @@ export interface Kontakt {
   /** město k zobrazení („Praha 6", „Brno") */
   mesto?: string | null;
   /**
-   * Osobní IČO. V seznamech (list_kontakty, my_kontakty, list_flagged) ho server pošle jen
-   * tomu, kdo kontakt smí upravit; jinak klíč CHYBÍ (undefined = „skryto", null = „nezjištěno").
-   * Karta ve volání a úpravy vracejí řádek celý ([ALBERT 28], 2.2 l).
+   * Osobní IČO. V seznamech (list_kontakty, my_kontakty, list_flagged) a v úpravách
+   * (update_kontakt, set_flag, clear_flag) ho server pošle jen tomu, kdo kontakt smí upravit;
+   * jinak klíč CHYBÍ (undefined = „skryto“, null = „nezjištěno“). Řádek celý vracejí jen karta
+   * ve volání a oznacit_za_sveho ([ALBERT 28], 2.2 l).
    */
   ico_osobni?: string | null;
+  /** IČO ateliéru; když se rovná osobnímu, chybí spolu s ním i s dph_firma (migrace 032, 036). */
   ico_firma?: string | null;
   dph_osobni?: DphStav | null;
   dph_firma?: DphStav | null;

@@ -301,6 +301,104 @@ const nazvyVolani = (vs) => vs.map((v) => v.fn);
   await ctx.close();
 }
 
+/** tel: odkaz v headless prohlížeči nikam nevede: navigaci zastaví posluchač, klik Reactu projde. */
+const bezVytaceni = (page) =>
+  page.evaluate(() =>
+    document.addEventListener('click', (e) => {
+      if (e.target instanceof Element && e.target.closest('a[href^="tel:"]')) e.preventDefault();
+    }, true));
+
+/* ============ V6) vytočená karta: přepnutí ji tiše nevrátí, nabídne Nedovoláno (audit APP-3) ============ */
+{
+  const { ctx, page } = await novaStranka('petra');
+  await jdi(page, '#/call');
+  await bezVytaceni(page);
+  const x = await kartaId(page);
+  await page.locator('.call-card a.phone-link').first().click();
+  const pred = (await volani(page)).length;
+  const stavPred = await stav(page);
+  await prepinac(page, 'architekt').click();
+  await klid(page, 400);
+  const po = (await volani(page)).slice(pred);
+  over('V6a', po.length === 0 && (await kartaId(page)) === x, 'po kliknutí na číslo přepnutí kartu tiše nevrátí (zůstává, server se nevolá)', JSON.stringify(nazvyVolani(po)));
+  over('V6b', /Po tomhle hovoru dostaneš architekta\./.test(await page.locator('.info-box').first().innerText({ timeout: 2000 }).catch(() => '')), 'žlutá cedulka jako u rozdělané karty');
+  const hned = page.getByRole('button', { name: 'Přepnout hned' });
+  if (await hned.count()) await hned.click();
+  const modal = (await page.locator('.modal').innerText().catch(() => '')).replace(/\s+/g, ' ');
+  over('V6c', /vytočil/.test(modal) && /Zapiš Nedovoláno/.test(modal), 'potvrzení u vytočené karty radí zapsat Nedovoláno', modal.slice(0, 200));
+  const zapsat = page.getByRole('button', { name: 'Zapsat Nedovoláno' });
+  if (await zapsat.count()) {
+    await zapsat.click();
+    await klid(page, 400);
+  }
+  const vs = (await volani(page)).slice(pred);
+  const stavPo = await stav(page);
+  const y = await kartaId(page);
+  over('V6d', vs.some((v) => v.fn === 'resolveCall' && v.args[0]?.kontakt_id === x && v.args[0]?.outcome === 'nedovolano' && v.ok) && !vs.some((v) => v.fn === 'returnContact'),
+    '„Zapsat Nedovoláno“ zapíše hovor a kartu bez zápisu nevrací', JSON.stringify(nazvyVolani(vs)));
+  over('V6e', stavPo.callLog.length === stavPred.callLog.length + 1, 'hovor je v call_log');
+  over('V6f', y !== null && y !== x && (await segmentKontaktu(page, y)) === 'architekt', 'další kontakt je z nového segmentu', `karta ${y}`);
+  // druhá cesta: vědomé „Přepnout bez zápisu“
+  if (y !== null && y !== x) {
+    await page.locator('.call-card a.phone-link').first().click();
+    await prepinac(page, 'chata').click();
+    await klid(page, 300);
+    if (await hned.count()) await hned.click();
+    const pred2 = (await volani(page)).length;
+    const bez = page.getByRole('button', { name: 'Přepnout bez zápisu' });
+    if (await bez.count()) await bez.click();
+    await klid(page, 400);
+    const vs2 = (await volani(page)).slice(pred2);
+    const z = await kartaId(page);
+    over('V6g', vs2.some((v) => v.fn === 'returnContact' && v.args[0] === y && v.ok) && (await segmentKontaktu(page, z)) === 'chata',
+      '„Přepnout bez zápisu“ kartu vrátí a vezme chatu', JSON.stringify(nazvyVolani(vs2)));
+  }
+  await ctx.close();
+}
+
+/* ============ V7) návrat na stránku Volání dá tutéž kartu, nezamkne další (audit APP-4, migrace 036) ============ */
+{
+  const { ctx, page } = await novaStranka('petra');
+  await jdi(page, '#/call');
+  const x = await kartaId(page);
+  await jdi(page, '#/stats');
+  await jdi(page, '#/call');
+  const y = await kartaId(page);
+  over('V7a', x !== null && y === x, 'po odchodu a návratu je na obrazovce stejná karta', `${x} → ${y}`);
+  over('V7b', JSON.stringify(await zamkyUzivatele(page, UID.petra)) === JSON.stringify([x]), 'zamčená zůstala jen ta jedna karta',
+    JSON.stringify(await zamkyUzivatele(page, UID.petra)));
+  await ctx.close();
+}
+
+/* ============ V8) scénář architekta: „Vaše číslo mám z …“ ve 2. osobě podle karty (audit APP-7) ============ */
+{
+  const VETA = {
+    'registru České komory architektů': 'registru České komory architektů',
+    'jeho webu': 'vašeho webu',
+    'firmy.cz': 'firmy.cz',
+    'jiného veřejného zdroje': 'veřejně dostupného zdroje',
+    'neznámo, řekni: z veřejného seznamu architektů': 'veřejného seznamu architektů',
+  };
+  const { ctx, page } = await novaStranka('petra');
+  await page.evaluate(() => localStorage.setItem('volacka_segment', 'architekt'));
+  await jdi(page, '#/call');
+  let videno = 0;
+  for (let i = 0; i < 3; i++) {
+    if ((await kartaId(page)) === null) break;
+    // hodnota řádku (popisek .k je přes CSS velkými písmeny)
+    const radek = (await page.locator('.call-row', { hasText: /číslo máme z/i }).locator('span:not(.k)').first().innerText()).trim();
+    const tip = await page.locator('.call-hint').innerText();
+    const veta = /Vaše číslo mám z ([^.]+(?:\.cz)?)\./.exec(tip)?.[1] ?? '';
+    over('V8a', !!VETA[radek] && veta === VETA[radek], 'úvod scénáře říká zdroj z karty oslovením (2. osoba)', `karta „${radek}“, scénář „${veta}“`);
+    over('V8b', !/jeho webu|neznámo|<číslo máme z>/.test(tip), 'scénář nemluví o architektovi ve 3. osobě ani nenechá zástupný text');
+    videno += 1;
+    await page.getByRole('button', { name: 'Nedovoláno' }).click();
+    await klid(page, 300);
+  }
+  over('V8c', videno >= 2, 'scénář změřen aspoň u dvou architektů', `${videno}`);
+  await ctx.close();
+}
+
 /* ============ L1) Kontakty: pozdní odpověď filtru nesmí přepsat zvolený segment ============ */
 {
   const { ctx, page } = await novaStranka('admin');

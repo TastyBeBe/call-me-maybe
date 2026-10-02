@@ -43,14 +43,21 @@ export function segmentOf(k: Pick<Kontakt, 'segment'> | null | undefined): Segme
  * Řádek z úpravy bez osobního IČO, když kontakt uživatel nesmí upravit (klíč chybí jako
  * v seznamu). Osobní IČO architekta vidí jen ten, kdo kontakt smí upravit ([ALBERT 28],
  * docs/ARCHITEKTI.md 2.2 l): seznamy (list_kontakty, my_kontakty, list_flagged) klíč
- * `ico_osobni` ostatním nepošlou, detail pak ukáže „skryto". Úpravy (set_flag, clear_flag,
- * update_kontakt, oznacit_za_sveho) ale vracejí řádek celý i se `smi_upravit`, a příznak
- * a zámek smí měnit každý admin. Bez tohohle by se „skryto" po uložení příznaku přepnulo
- * na číslo (revize 28. 9.).
+ * `ico_osobni` ostatním nepošlou, detail pak ukáže „skryto“. IČO ateliéru, které se rovná
+ * osobnímu (živnostník), odpadne s ním i s DPH ateliéru (migrace 032).
+ * Úpravy set_flag, clear_flag a update_kontakt osobní IČO takovému uživateli neposílají
+ * (migrace 028, IČO ateliéru od 036); řádek celý i se `smi_upravit` vrací jen
+ * oznacit_za_sveho, a příznak a zámek smí měnit každý admin. Bez tohohle by se „skryto“
+ * po označení klienta (nebo na serveru před migrací 036 po uložení příznaku) přepnulo na
+ * číslo (revize 28. 9., audit APP-5).
  */
 export function bezCizihoIco(k: Kontakt): Kontakt {
   if (k.smi_upravit === true || !Object.prototype.hasOwnProperty.call(k, 'ico_osobni')) return k;
   const kopie = { ...k };
+  if (kopie.ico_firma != null && kopie.ico_firma === kopie.ico_osobni) {
+    delete kopie.ico_firma;
+    delete kopie.dph_firma;
+  }
   delete kopie.ico_osobni;
   return kopie;
 }

@@ -39,6 +39,7 @@ let bundle;
         "export { loadCallSegment, saveCallSegment, segmentOf } from './src/segment.ts';",
         "export * as segmentModul from './src/segment.ts';",
         "export { PhoneLinks } from './src/ui.tsx';",
+        "export * as uiModul from './src/ui.tsx';",
       ].join('\n'),
       resolveDir: ROOT,
       loader: 'ts',
@@ -59,7 +60,30 @@ let bundle;
   bundle = createRequire(import.meta.url)(f);
   rmSync(dir, { recursive: true, force: true });
 }
-const { mockApi: api, supabaseApi, loadCallSegment, saveCallSegment, segmentOf, segmentModul, PhoneLinks } = bundle;
+// Scénář architekta (src/tipArchitekt.ts, audit APP-7) se sestavuje zvlášť: když chybí,
+// skončí to FAIL M0, ne pádem celého testu.
+let tipModul = null;
+{
+  const out = await build({
+    entryPoints: [join(ROOT, 'src/tipArchitekt.ts')],
+    bundle: true,
+    format: 'cjs',
+    platform: 'node',
+    jsx: 'automatic',
+    write: false,
+    logLevel: 'silent',
+  }).catch(() => null);
+  if (out) {
+    const dir = mkdtempSync(join(tmpdir(), 'segment-test-'));
+    const f = join(dir, 't.cjs');
+    writeFileSync(f, out.outputFiles[0].text);
+    tipModul = createRequire(import.meta.url)(f);
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+const { mockApi: api, supabaseApi, loadCallSegment, saveCallSegment, segmentOf, segmentModul, PhoneLinks, uiModul } = bundle;
+const zdrojTelefonuVeta = uiModul.zdrojTelefonuVeta;
+const tipArchitekt = tipModul?.tipArchitekt;
 
 let pocet = 0;
 let chyby = 0;
@@ -186,6 +210,90 @@ await blok('E', async () => {
     'Označené: cizí klient super admina bez osobního IČO');
   const oznA = await api.listFlagged(albert, null, null);
   over('E8b', oznA.find((r) => r.id === 302)?.ico_osobni === '11111111', 'Označené: Albert osobní IČO vidí');
+});
+
+/* ---------------- L) mock = server: IČO, vlastní karta napřed, strop vrácení (audit APP-4, APP-5) ---------------- */
+// Server: list_kontakty hledá osobní IČO jen CELÝM číslem (mezery se ignorují) a jen u řádků,
+// které přihlášený smí upravit (migrace 028); IČO ateliéru rovné osobnímu se v seznamech
+// skrývá s ním (032) a v úpravách taky (036); next_contact vrátí nejdřív vlastní platnou kartu
+// (036); vratit_do_fronty nejvýš 10 karet za hodinu na člověka (028). Běží PŘED blokem BCD,
+// který obě fronty vyčerpá. Strop zkouší Eva (v BCD nic nevrací).
+await blok('L', async () => {
+  const najdi = async (tok, q) => (await api.listKontakty(tok, { search: q, segment: 'architekt', limit: 50 })).rows.map((r) => r.id);
+  const maKlic = (r, k) => Object.prototype.hasOwnProperty.call(r ?? {}, k);
+  const castecne = await najdi(albert, '1111111');
+  over('L1', !castecne.includes(302) && !castecne.includes(300), 'osobní IČO se hledá jen celým číslem, ne kouskem (028)', castecne.join());
+  const petraIco = await najdi(petra, '11111111');
+  over('L2', !petraIco.includes(302) && !petraIco.includes(300), 'volající osobní IČO nevyhledá (nesmí kontakt upravit)', petraIco.join());
+  const sMezerou = await najdi(albert, '1111 1111');
+  over('L2b', sMezerou.includes(300) && sMezerou.includes(302), 'mezery v hledaném osobním IČO se ignorují jako na serveru', sMezerou.join());
+  const evaIco = await najdi(eva, '11111111');
+  over('L3', !evaIco.includes(300) && !evaIco.includes(302), 'admin osobní IČO vyhledá jen u kontaktů, které smí upravit', evaIco.join());
+  over('L4', (await najdi(petra, '22222222')).includes(300), 'IČO ateliéru (jiné než osobní) hledá každý');
+
+  // živnostník: IČO ateliéru = osobní IČO (032)
+  await api.updateKontakt(albert, 302, { ico_firma: '11111111', dph_firma: 'neplatce' });
+  try {
+    const r = (await api.listKontakty(petra, { segment: 'architekt', limit: 50 })).rows.find((x) => x.id === 302);
+    over('L5', !!r && !maKlic(r, 'ico_osobni') && !maKlic(r, 'ico_firma') && !maKlic(r, 'dph_firma'),
+      'seznam skryje i IČO ateliéru rovné osobnímu a DPH ateliéru (032)', r && Object.keys(r).filter((k) => k.startsWith('ico') || k.startsWith('dph')).join());
+    over('L5b', !(await najdi(petra, '11111111')).includes(302), 'IČO ateliéru rovné osobnímu se nevyhledá přes ico_firma (032)');
+    const ra = (await api.listKontakty(albert, { segment: 'architekt', limit: 50 })).rows.find((x) => x.id === 302);
+    over('L5c', ra?.ico_firma === '11111111' && ra?.ico_osobni === '11111111', 'kdo smí upravit, vidí obě IČO');
+    // úpravy: Eva (admin) smí příznak a zámek, upravit 302 nesmí
+    const f = await api.setFlag(eva, 302, 'jine', 'test L');
+    over('L6', f.smi_upravit === false && !maKlic(f, 'ico_osobni') && !maKlic(f, 'ico_firma') && !maKlic(f, 'dph_firma'),
+      'set_flag nepošle osobní IČO ani IČO ateliéru rovné osobnímu tomu, kdo nesmí upravit (028, 036)', Object.keys(f).filter((k) => k.startsWith('ico')).join());
+    const c = await api.clearFlag(eva, 302);
+    over('L6b', !maKlic(c, 'ico_osobni') && !maKlic(c, 'ico_firma'), 'clear_flag taky ne');
+    const u = await api.updateKontakt(eva, 302, { clear_lock: true });
+    over('L6c', !maKlic(u, 'ico_osobni') && !maKlic(u, 'ico_firma'), 'update_kontakt (zámek) taky ne');
+    const fa = await api.setFlag(albert, 302, 'jine', 'test L');
+    over('L6d', fa.ico_osobni === '11111111' && fa.ico_firma === '11111111' && fa.dph_firma === 'neplatce', 'Albert (smí upravit) dostane z úprav všechno');
+    await api.clearFlag(albert, 302);
+  } finally {
+    await api.updateKontakt(albert, 302, { ico_firma: null, dph_firma: null });
+  }
+  const f300 = await api.setFlag(eva, 300, 'jine', 'test L');
+  over('L6e', !maKlic(f300, 'ico_osobni') && f300.ico_firma === '22222222' && f300.dph_firma === 'platce', 'jiné IČO ateliéru zůstává, schová se jen osobní');
+  await api.clearFlag(albert, 300);
+  // oznacit_za_sveho vrací řádek celý (Petra 302 volala); detail ho pošle přes bezCizihoIco
+  const claim = await api.claimKontakt(petra, 302);
+  over('L7', claim.smi_upravit === false && claim.ico_osobni === '11111111', 'oznacit_za_sveho vrací řádek celý jako server (jediná úprava, která to dělá)');
+
+  // vlastní karta napřed (036): reload nebo další volání dá tutéž kartu, nezamkne další
+  const k1 = await api.nextContact(eva, 'chata');
+  const zamky = () => api.listKontakty(albert, { segment: 'chata', limit: 1000 }).then((x) => x.rows.filter((r) => r.lock_by === 5));
+  const pred = (await zamky()).find((r) => r.id === k1.id)?.lock_at;
+  const dalsi = [];
+  for (let i = 0; i < 4; i++) dalsi.push((await api.nextContact(eva, 'chata'))?.id);
+  over('L8', dalsi.every((id) => id === k1.id), 'opakovaný next_contact vrací tutéž vlastní kartu (036)', `${k1.id}: ${dalsi.join()}`);
+  const po = await zamky();
+  over('L8b', po.length === 1 && po[0].id === k1.id, 'reload nezamyká další karty', po.map((r) => r.id).join());
+  over('L8c', po[0]?.lock_at === pred, 'zámek se reloadem neposouvá (30 minut a 2 h běží od vzetí)', `${pred} → ${po[0]?.lock_at}`);
+  const a = await api.nextContact(eva, 'architekt');
+  over('L8d', !!a && a.segment === 'architekt', 'vlastní chata se v segmentu architekt nevrátí', a && `${a.id} ${a.segment}`);
+  await api.returnContact(eva, a.id);
+
+  // strop 10 vrácení za hodinu (vratit_do_fronty, 028): Eva už vrátila 1 (architekta)
+  let karta = k1;
+  let vraceno = 1;
+  let strop = '';
+  for (let i = 0; i < 12 && karta; i++) {
+    try {
+      await api.returnContact(eva, karta.id);
+      vraceno += 1;
+      karta = await api.nextContact(eva, 'chata');
+    } catch (e) {
+      strop = e.message;
+      break;
+    }
+  }
+  over('L9', vraceno === 10 && /Za poslední hodinu jste bez výsledku hovoru vrátili do fronty už 10 karet \(strop 10 za hodinu\)\. Zapište výsledek hovoru\./.test(strop),
+    'jedenácté vrácení za hodinu skončí hláškou serveru o stropu', `vráceno ${vraceno}, hláška: ${strop}`);
+  const drzi = karta && (await zamky()).some((r) => r.id === karta.id);
+  over('L9b', !!drzi, 'karta po stropu zůstane zamčená (nic se nevrátilo)');
+  if (karta) await api.updateKontakt(albert, karta.id, { clear_lock: true });
 });
 
 /* ---------------- B, C, D) fronta volání ---------------- */
@@ -345,7 +453,9 @@ await blok('I', async () => {
 });
 
 /* ---------------- J) osobní IČO cizího kontaktu v detailu ([ALBERT 28], 2.2 l) ---------------- */
-// set_flag, clear_flag, update_kontakt a oznacit_za_sveho vracejí řádek celý i se smi_upravit.
+// Řádek celý i se smi_upravit vrací jen oznacit_za_sveho (a karta ve volání). set_flag,
+// clear_flag a update_kontakt osobní IČO tomu, kdo nesmí upravit, neposílají (028, 036);
+// bezCizihoIco je pojistka pro oznacit_za_sveho a pro server před migrací 036.
 await blok('J', async () => {
   const { bezCizihoIco } = segmentModul;
   const bezKlice = (r) => !Object.prototype.hasOwnProperty.call(r, 'ico_osobni');
@@ -362,8 +472,47 @@ await blok('J', async () => {
   over('J4', bezCizihoIco(seznam) === seznam, 'řádek bez klíče (ze seznamu) projde beze změny');
   // přes mock: Mikuláš (super admin) nesmí upravit Petřina architekta 302, příznak ano
   const po = await api.setFlag(mikulas, 302, 'chybi_email', 'test J');
-  over('J5', po.smi_upravit === false && po.ico_osobni === '11111111', 'mock vrací ze set_flag řádek celý jako server (jinak J6 nic neměří)');
+  over('J5', po.smi_upravit === false && bezKlice(po), 'set_flag osobní IČO tomu, kdo nesmí upravit, nepošle (jako server)');
   over('J6', bezKlice(bezCizihoIco(po)), 'po uložení příznaku zůstane osobní IČO cizího architekta skryté');
+  // IČO ateliéru rovné osobnímu (032) bezCizihoIco schová taky, i s DPH ateliéru
+  const zivn = { id: 302, ico_osobni: '11111111', ico_firma: '11111111', dph_firma: 'neplatce', firma: 'X', smi_upravit: false };
+  const z = bezCizihoIco(zivn);
+  over('J7', bezKlice(z) && !('ico_firma' in z) && !('dph_firma' in z) && z.firma === 'X', 'IČO ateliéru rovné osobnímu se v detailu schová s ním (032)');
+  const jine = bezCizihoIco({ id: 300, ico_osobni: '11111111', ico_firma: '22222222', dph_firma: 'platce', smi_upravit: false });
+  over('J7b', bezKlice(jine) && jine.ico_firma === '22222222' && jine.dph_firma === 'platce', 'jiné IČO ateliéru v detailu zůstává');
+});
+
+/* ---------------- M) odkud máme číslo: věta pro hovor ve 2. osobě (audit APP-7) ---------------- */
+await blok('M', async () => {
+  over('M0', typeof zdrojTelefonuVeta === 'function' && typeof tipArchitekt === 'function', 'ui.tsx má zdrojTelefonuVeta a tipArchitekt.ts tipArchitekt');
+  if (typeof zdrojTelefonuVeta !== 'function' || typeof tipArchitekt !== 'function') return;
+  const zdroje = ['cka_registr', 'web_vlastni', 'firmy_cz', 'jiny', 'neznamy', null, 'smeti'];
+  for (const z of zdroje) {
+    const veta = zdrojTelefonuVeta(z);
+    over('M1', typeof veta === 'string' && veta.length > 0 && !/\bjeho\b|\bjejí\b|neznámo|řekni|</i.test(veta),
+      'mluvená věta o zdroji čísla je oslovení ve 2. osobě, bez poznámky pro volajícího', `${z}: ${veta}`);
+    const uvod = tipArchitekt(z).find((b) => b.nadpis === 'Úvod')?.text ?? '';
+    over('M2', uvod.includes(`Vaše číslo mám z ${veta}.`) && !uvod.includes('<číslo máme z>'),
+      'úvod scénáře obsahuje skutečný zdroj čísla, ne zástupný text', `${z}: ${uvod.slice(0, 160)}`);
+  }
+  over('M3', zdrojTelefonuVeta('web_vlastni') === 'vašeho webu', 'web architekta: „Vaše číslo mám z vašeho webu.“', zdrojTelefonuVeta('web_vlastni'));
+  over('M4', /^registru České komory architektů$/.test(zdrojTelefonuVeta('cka_registr')), 'registr ČKA zůstává');
+  over('M5', zdrojTelefonuVeta('neznamy') === zdrojTelefonuVeta(null), 'neznámý zdroj a chybějící zdroj zní stejně');
+  over('M6', tipArchitekt('web_vlastni').length === 8, 'scénář má dál osm bloků (9.4)');
+});
+
+/* ---------------- N) vytočené číslo dělá kartu rozdělanou (audit APP-3) ---------------- */
+await blok('N', async () => {
+  const klik = () => {};
+  const el = PhoneLinks({ phone: '+420 999 000 300; +420 999 000 310', onDial: klik });
+  const odkazy = [].concat(el?.props?.children ?? []).filter((d) => d && d.props && String(d.props.href).startsWith('tel:'));
+  over('N1', odkazy.length === 2 && odkazy.every((d) => d.props.onClick === klik), 'každý tel: odkaz zavolá onDial', odkazy.map((d) => typeof d.props.onClick).join());
+  const bez = PhoneLinks({ phone: '+420 606 100 100' });
+  over('N2', [].concat(bez?.props?.children ?? []).every((d) => d.props.onClick === undefined), 'bez onDial odkaz nic navíc nedělá (detail kontaktu)');
+  const zdroj = readFileSync(join(ROOT, 'src/pages/CallPage.tsx'), 'utf8');
+  const rozdelano = /const rozdelano\s*=\s*([^;]+);/.exec(zdroj);
+  over('N3', !!rozdelano && /\bvytoceno\b/.test(rozdelano[1]), 'karta je rozdělaná i po kliknutí na číslo (vytoceno)', rozdelano && rozdelano[1]);
+  over('N4', /<PhoneLinks[^>]*onDial=/.test(zdroj), 'karta ve volání předává PhoneLinks onDial');
 });
 
 /* ---------------- K) loadNext v CallPage: závislosti bez segmentu (9.1, kontrola 75) ---------------- */

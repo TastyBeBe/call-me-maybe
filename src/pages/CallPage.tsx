@@ -3,6 +3,7 @@ import { getApi, type Kontakt, type Rating, type Segment } from '../api';
 import { audio } from '../audio';
 import { useSession } from '../auth';
 import { loadCallSegment, saveCallSegment, segmentOf } from '../segment';
+import { tipArchitekt } from '../tipArchitekt';
 import {
   ConfirmModal,
   ErrorBox,
@@ -34,47 +35,6 @@ type Modal = null | 'odmitnout' | 'prepnout';
 /** Hláška, když se čistou kartu nepodaří vrátit do fronty (docs/ARCHITEKTI.md 9.2). */
 const NEVRACENO = 'Kontakt se nepodařilo vrátit do fronty. Zámek sám vyprší do 2 hodin.';
 
-/**
- * Scénář pro volajícího u architekta (docs/ARCHITEKTI.md 9.4). Statický text, stejný pro
- * všechny; <číslo máme z> je řádek „číslo máme z" na kartě. Okna volání jsou jen rada,
- * appka volání v jiný čas neomezuje ([ALBERT 25]). Tlačítko jmenuje přesně tak, jak je na
- * kartě: „Odmítnuto" (9.4 psal „Nemají zájem", takové tlačítko není; revize 28. 9.).
- */
-const TIP_ARCHITEKT: { nadpis?: string; text: string }[] = [
-  {
-    nadpis: 'Úvod',
-    text: '„Dobrý den, tady <tvoje jméno> z WEBDOMOV. Volám, protože z vašich zveřejněných realizací umím sestavit náhled webu a poslat vám ho e-mailem. Vaše číslo mám z <číslo máme z>. Když o to nestojíte, řekněte a už se neozvu." Nikdy se neptej „neruším?". Důvod hovoru patří do první věty.',
-  },
-  {
-    nadpis: 'Kontrolní otázka',
-    text: '„Děláte vlastní zakázky pro klienty, nebo hlavně pro jiný ateliér?" Hlavně pro jiný ateliér: poděkuj, Odmítnuto, do poznámky „pracuje pro jiný ateliér".',
-  },
-  {
-    nadpis: 'Když chce',
-    text: '„Na jaký e-mail vám náhled pošlu?", „Můžu se vám k němu jednou ozvat?", „Kdo fotil vaše stavby a smím fotky do ukázky použít s uvedením autora?" Odpovědi do poznámky.',
-  },
-  {
-    nadpis: 'Cena na dotaz',
-    text: '6 000 až 7 000 Kč jednorázově, hosting 1 000 Kč ročně, platí se až po jeho písemném ano.',
-  },
-  {
-    nadpis: 'Slova',
-    text: 'Říkej: ateliér, realizace, studie, klient. Neříkej: projektant, designér, firma, levný, akce, na míru, moderní.',
-  },
-  {
-    nadpis: 'Hlasová schránka',
-    text: 'Nic nenechávej. „Nevolejte" = Odmítnuto a do poznámky NEVOLAT. Nevhodná chvíle: zeptej se, kdy zavolat, a zapiš to.',
-  },
-  {
-    nadpis: 'Kdy volat',
-    text: 'Nejlépe úterý až čtvrtek 10:00 až 11:45 a 13:30 až 16:00. Je to jen rada, volat můžeš kdykoli.',
-  },
-  {
-    nadpis: 'Když namítne',
-    text: 'Doporučení: „Web je pro ty, kterým vás někdo doporučil a chtějí vidět vaše stavby." Instagram nebo ČKA: „Registr potvrzuje autorizaci, vaši práci ale neukazuje." Šablona: „Je to střídmý rám, nosné jsou vaše stavby a texty." Čas: „Náhled je hotový z toho, co už jste zveřejnili. Stačí se podívat." Podvod: „Nic nefakturujeme, dokud nám sám písemně nenapíšete, že web chcete."',
-  },
-];
-
 export default function CallPage() {
   const session = useSession();
   // Koho voláš (migrace 028): ve stavu kvůli vykreslení, v refu kvůli loadNext. Segment
@@ -102,6 +62,9 @@ export default function CallPage() {
   const [email, setEmail] = useState('');
   const [rating, setRating] = useState<Rating | ''>('');
   const [note, setNote] = useState('');
+  // Kliknul na číslo (tel:). Karta je pak rozdělaná: přepnutí segmentu ji tiše nevrátí
+  // a „Přepnout hned“ nabídne zapsat Nedovoláno (audit APP-3).
+  const [vytoceno, setVytoceno] = useState(false);
 
   const loadNext = useCallback(async (hlaska = '') => {
     const my = ++reqId.current;
@@ -127,6 +90,7 @@ export default function CallPage() {
     setCenaHosting('');
     setRating('');
     setNote('');
+    setVytoceno(false);
     let next: Kontakt | null = null;
     try {
       next = await getApi().nextContact(session.token, seg);
@@ -176,8 +140,10 @@ export default function CallPage() {
     void loadNext();
   }, [loadNext]);
 
-  // Karta je rozdělaná, když je otevřený formulář zájmu nebo je napsaná poznámka (9.2).
-  const rozdelano = showZajem || note.trim() !== '';
+  // Karta je rozdělaná, když je otevřený formulář zájmu, je napsaná poznámka nebo volající
+  // klikl na číslo (9.2, audit APP-3). Vytočenou kartu server do 30 minut vrátit pustí,
+  // takže tichému vrácení (a kolegovi, který by tomu člověku hned volal znovu) brání appka.
+  const rozdelano = showZajem || note.trim() !== '' || vytoceno;
 
   /** Vrátit tuhle kartu do fronty a vzít další z aktuálního segmentu. */
   const prepnoutHned = async () => {
@@ -367,7 +333,7 @@ export default function CallPage() {
 
         <div className="call-row">
           <span className="k">telefon</span>
-          <PhoneLinks phone={kontakt.phone} />
+          <PhoneLinks phone={kontakt.phone} onDial={() => setVytoceno(true)} />
         </div>
 
         {architekt ? (
@@ -571,7 +537,7 @@ export default function CallPage() {
             <summary className="call-hint-head">
               <CompassIcon size={16} /> Tip pro hovor
             </summary>
-            {TIP_ARCHITEKT.map((b) => (
+            {tipArchitekt(kontakt.zdroj_telefonu).map((b) => (
               <p key={b.nadpis}>
                 {b.nadpis && <strong>{b.nadpis}: </strong>}
                 {b.text}
@@ -597,7 +563,7 @@ export default function CallPage() {
         </ConfirmModal>
       )}
 
-      {modal === 'prepnout' && (
+      {modal === 'prepnout' && !vytoceno && (
         <ConfirmModal
           title="Přepnout hned?"
           confirmLabel="Ano, přepnout"
@@ -611,6 +577,42 @@ export default function CallPage() {
           }}
         >
           Poznámka se neuloží a tenhle kontakt se vrátí do fronty pro ostatní.
+        </ConfirmModal>
+      )}
+
+      {/* Vytočená karta (audit APP-3): doporučená cesta je zapsat Nedovoláno. Hovor se uloží
+          i s poznámkou, kolega tomu člověku hned znovu nezavolá a další kontakt už přijde
+          z nového segmentu. Vrácení bez zápisu zůstává jako vědomá volba. */}
+      {modal === 'prepnout' && vytoceno && (
+        <ConfirmModal
+          title="Přepnout hned?"
+          confirmLabel="Zapsat Nedovoláno"
+          cancelLabel="Dokončím hovor"
+          confirmClass="hot"
+          busy={busy}
+          onCancel={() => setModal(null)}
+          onConfirm={() => {
+            setModal(null);
+            void resolve('nedovolano');
+          }}
+        >
+          <p style={{ marginTop: 0 }}>
+            Číslo už jsi vytočil/a. Nikdo to nevzal? Zapiš <b>Nedovoláno</b>: hovor se uloží i s poznámkou,
+            kolega tomu člověku hned znovu nezavolá a další kontakt dostaneš z nového segmentu.
+          </p>
+          <button
+            className="pill-btn sm"
+            disabled={busy}
+            onClick={() => {
+              setModal(null);
+              void prepnoutHned();
+            }}
+          >
+            Přepnout bez zápisu
+          </button>
+          <p className="muted" style={{ fontSize: 13, marginBottom: 0 }}>
+            Bez zápisu se poznámka neuloží a kontakt se vrátí do fronty pro ostatní.
+          </p>
         </ConfirmModal>
       )}
 

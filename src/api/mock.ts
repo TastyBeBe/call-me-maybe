@@ -367,6 +367,9 @@ const callLog: CallLogRow[] = [
   { id: nextCallLogId++, kontakt_id: 303, user_id: 3, outcome: 'zajem', created_at: daysAgo(14) },
 ];
 
+/** Události vraceno_do_fronty (kdo a kdy, Date.now()): strop 10 za hodinu ve returnContact. */
+const vraceniDoFronty: { user_id: number; at: number }[] = [];
+
 const messages: AdminMessage[] = [
   {
     id: 1,
@@ -728,15 +731,29 @@ function forViewer(u: MockUser, c: Kontakt): Kontakt {
 }
 
 /**
- * Řádek SEZNAMU (list_kontakty, my_kontakty, list_flagged; migrace 028, [ALBERT 28]):
- * osobní IČO jen tomu, kdo kontakt smí upravit. Server klíč odebírá
- * (`to_jsonb(t) - 'ico_osobni'`), takže tu taky CHYBÍ, ne je null. Karta ve volání
- * a úpravy vracejí řádek celý (forViewer).
+ * Osobní IČO pryč pro toho, kdo kontakt nesmí upravit ([ALBERT 28], migrace 028). Server
+ * klíč odebírá (`- 'ico_osobni'`), takže tu taky CHYBÍ, ne je null. IČO ateliéru, které se
+ * rovná osobnímu (živnostník), odpadne s ním i s DPH ateliéru (migrace 032 v seznamech,
+ * 036 v úpravách); jiné IČO ateliéru zůstává.
+ */
+function bezOsobnihoIco(r: Kontakt): Kontakt {
+  if (r.smi_upravit) return r;
+  if (r.ico_firma != null && r.ico_firma === r.ico_osobni) {
+    delete r.ico_firma;
+    delete r.dph_firma;
+  }
+  delete r.ico_osobni;
+  return r;
+}
+
+/**
+ * Řádek SEZNAMU (list_kontakty, my_kontakty, list_flagged; migrace 028 a 032) a ÚPRAVY
+ * (update_kontakt, set_flag, clear_flag; migrace 028 a 036): bez osobního IČO pro toho,
+ * kdo nesmí upravit. Řádek celý vrací jen karta ve volání (next_contact)
+ * a oznacit_za_sveho (forViewer).
  */
 function forList(u: MockUser, c: Kontakt): Kontakt {
-  const r = forViewer(u, c);
-  if (!r.smi_upravit) delete r.ico_osobni;
-  return r;
+  return bezOsobnihoIco(forViewer(u, c));
 }
 
 /** Stejná kontrola jako v SQL funkcích migrace 028 (null = vše jen v seznamech). */
@@ -912,7 +929,20 @@ const mockApiZaklad: Api = {
     // Výslovné null nebo smetí = chyba (migrace 028).
     checkSegment(segment, false);
     const cutoff = Date.now() - 2 * 3600 * 1000;
-    // Musí zůstat shodné s db/migration_028_segment_architekti.sql (tělo z 023):
+    // 0. průchod (db/migration_036_vlastni_karta.sql, audit APP-4): vlastní platná karta
+    // v tomhle segmentu napřed, nejnovější; zámek se neposouvá. Reload tak ukáže tutéž kartu.
+    const vlastni = kontakty
+      .filter(
+        (c) =>
+          c.lock_by === user.id &&
+          c.lock_at !== null &&
+          new Date(c.lock_at).getTime() > cutoff &&
+          (c.status === 'nekontaktovano' || c.status === 'nedovolano') &&
+          segmentOf(c) === segment
+      )
+      .sort((a, b) => b.lock_at!.localeCompare(a.lock_at!) || b.id - a.id)[0];
+    if (vlastni) return forViewer(user, vlastni);
+    // Musí zůstat shodné s db/migration_036_vlastni_karta.sql (tělo z 023 a 028):
     // jen nekontaktovano + nedovolano, jen zvolený segment, koho jsme dnes už volali
     // se dnes znovu nenabídne, a výběr je NÁHODNÝ (ne podle id).
     const callable = kontakty.filter(
@@ -948,7 +978,8 @@ const mockApiZaklad: Api = {
   async returnContact(token: string, id: number): Promise<{ ok: boolean; kontakt_id: number }> {
     await delay(60);
     // vratit_do_fronty (migrace 028, DB-7): jen vlastní zámek, jen volatelný stav, jen do
-    // 30 minut od vzetí karty. Nepíše call_log, nemění stav ani poznámku.
+    // 30 minut od vzetí karty, nejvýš 10 karet za hodinu na člověka. Nepíše call_log, nemění
+    // stav ani poznámku (server píše jen událost vraceno_do_fronty).
     const user = auth(token);
     const kontakt = kontakty.find((c) => c.id === id);
     if (!kontakt) fail(`Kontakt ${id} neexistuje.`);
@@ -959,6 +990,13 @@ const mockApiZaklad: Api = {
     if (kontakt.lock_at !== null && new Date(kontakt.lock_at).getTime() < Date.now() - 30 * 60 * 1000) {
       fail('Kartu máte déle než 30 minut. Zapište výsledek hovoru, zámek sám vyprší do 2 hodin.');
     }
+    // strop 10 vrácení za hodinu na člověka (revize 28. 9., sonda P3; audit APP-5): bez něj
+    // by se přepínáním dalo listovat celými kartami bez jediného záznamu hovoru
+    const zaHodinu = vraceniDoFronty.filter((v) => v.user_id === user.id && v.at > Date.now() - 3600 * 1000).length;
+    if (zaHodinu >= 10) {
+      fail(`Za poslední hodinu jste bez výsledku hovoru vrátili do fronty už ${zaHodinu} karet (strop 10 za hodinu). Zapište výsledek hovoru.`);
+    }
+    vraceniDoFronty.push({ user_id: user.id, at: Date.now() });
     kontakt.lock_by = null;
     kontakt.lock_at = null;
     kontakt.updated_at = now();
@@ -1073,6 +1111,12 @@ const mockApiZaklad: Api = {
       fail(`Podle volajícího můžete filtrovat jen sebe${me.role === 'super_admin' ? ' a své lidi' : ''}.`);
     }
     const search = (f.search ?? '').trim().toLowerCase();
+    // osobní IČO jen CELÝM číslem (mezery se ignorují) a jen u řádků, které smí upravit;
+    // IČO ateliéru kouskem, ale ne když se rovná osobnímu (migrace 028 a 032, audit APP-5)
+    const icoHledane = (f.search ?? '').replace(/\s/g, '');
+    const icoShoda = (c: Kontakt) =>
+      (!!c.ico_osobni && c.ico_osobni === icoHledane && canEdit(me, c.id)) ||
+      (!!c.ico_firma && c.ico_firma !== c.ico_osobni && c.ico_firma.toLowerCase().includes(search));
     const matches = (c: Kontakt) =>
       (!f.segment || segmentOf(c) === f.segment) &&
       (!f.status || c.status === f.status) &&
@@ -1080,10 +1124,10 @@ const mockApiZaklad: Api = {
       (!f.rating || c.rating === f.rating) &&
       (!f.cekani || cekaniOf(c).kind === f.cekani) &&
       (!f.kos || kosOfMock(cekaniOf(c).since) === f.kos) &&
-      // hledání i ve studiu, městě a IČO (migrace 028); osobní IČO hledá server i tam,
-      // kde ho v řádku nepošle; kdo ho zadal, ho už zná
+      // hledání i ve studiu, městě a IČO (migrace 028), IČO podle icoShoda výš
       (!search ||
-        [c.name, c.phone, c.web, c.email, c.note, c.firma, c.mesto, c.ico_osobni, c.ico_firma].some(
+        icoShoda(c) ||
+        [c.name, c.phone, c.web, c.email, c.note, c.firma, c.mesto].some(
           (v) => v && v.toLowerCase().includes(search)
         ));
     const filtered = kontakty.filter(matches).sort((a, b) => {
@@ -1224,7 +1268,7 @@ const mockApiZaklad: Api = {
       }
     }
     kontakt.updated_at = now();
-    return forViewer(me, kontakt);
+    return forList(me, kontakt); // bez osobního IČO, když nesmí upravit (028, 036)
   },
 
   async claimKontakt(token: string, id: number): Promise<Kontakt> {
@@ -1243,6 +1287,7 @@ const mockApiZaklad: Api = {
       kontakt.last_caller = user.display_name; // stav, zámek ani fronta se nemění
       kontakt.updated_at = now();
     }
+    // řádek celý jako server (app_kontakt_pro); detail ho pošle dál přes bezCizihoIco
     return forViewer(user, kontakt);
   },
 
@@ -1258,7 +1303,7 @@ const mockApiZaklad: Api = {
     kontakt.flagged_at = now();
     kontakt.flagged_by = user.display_name;
     kontakt.updated_at = now();
-    return forViewer(user, kontakt);
+    return forList(user, kontakt); // bez osobního IČO, když nesmí upravit (028, 036)
   },
 
   async clearFlag(token: string, id: number): Promise<Kontakt> {
@@ -1271,7 +1316,7 @@ const mockApiZaklad: Api = {
     kontakt.flagged_at = null;
     kontakt.flagged_by = null;
     kontakt.updated_at = now();
-    return forViewer(user, kontakt);
+    return forList(user, kontakt); // bez osobního IČO, když nesmí upravit (028, 036)
   },
 
   async listFlagged(token: string, kind?: FlagKind | null, userId?: number | null): Promise<Kontakt[]> {

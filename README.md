@@ -77,8 +77,10 @@ Demo přihlášení (jen DEMO, falešná data v paměti):
 | volající (Honza, pod Mikulášem) | `honza`   | `volam`   |
 
 Demo mock (`src/api/mock.ts`) má stejná pravidla viditelnosti jako server (migrace 023
-až 028). Chaty mají id 1 až 9 a 90 až 92, falešní architekti id 300 až 303 (jen adresy
-`example.cz`, telefony s předvolbou 999, IČO `11111111` a `22222222` s neplatným
+až 036): i hledání osobního IČO jen celým číslem a jen u kontaktů, které smí upravit, IČO
+ateliéru rovné osobnímu skryté s ním, vlastní karta ve volání napřed a strop 10 vrácení do
+fronty za hodinu (audit 1. 10., APP-4 a APP-5; `npm test` blok L). Chaty mají id 1 až 9
+a 90 až 92, falešní architekti id 300 až 303 (jen adresy `example.cz`, telefony s předvolbou 999, IČO `11111111` a `22222222` s neplatným
 kontrolním součtem): 300 a 301 jsou ve frontě, 302 je nedovolaný s příznakem a bez
 e-mailu (volala Petra), 303 má odeslaný návrh a čeká na odpověď (volal Honza).
 
@@ -117,23 +119,30 @@ který schvaluje Albert (u zprávy je vidět jeho stav).
   zařízení (`localStorage.volacka_segment`); cokoli jiného než `chata` nebo `architekt`
   = chaty. `next_contact` dostává segment vždy (`p_segment`).
 - Přepnutí bez karty vezme hned kontakt z nového segmentu. Čistou kartu (formulář zájmu
-  zavřený, poznámka prázdná) vrátí do fronty (`vratit_do_fronty`: jen vlastní zámek,
-  jen volatelný stav, jen do 30 minut) a vezme další. Rozdělaná karta zůstane a žlutá
-  cedulka řekne, koho dostaneš po tomhle hovoru; „Přepnout hned" se ptá, protože poznámka
-  se neuloží. Odpověď, která dorazí až po přepnutí, se zahodí a její zámek se vrátí.
+  zavřený, poznámka prázdná, na číslo se neklikalo) vrátí do fronty (`vratit_do_fronty`:
+  jen vlastní zámek, jen volatelný stav, jen do 30 minut, nejvýš 10 karet za hodinu) a vezme
+  další. Rozdělaná karta zůstane a žlutá cedulka řekne, koho dostaneš po tomhle hovoru;
+  „Přepnout hned“ se ptá, protože poznámka se neuloží. Po kliknutí na číslo (audit APP-3)
+  nabídne rovnou „Zapsat Nedovoláno“ (hovor se uloží, kolega tomu člověku hned znovu
+  nezavolá) a vrácení bez zápisu je jen vědomá volba „Přepnout bez zápisu“. Odpověď, která
+  dorazí až po přepnutí, se zahodí a její zámek se vrátí.
+- `next_contact` od migrace 036 vrací nejdřív vlastní platnou kartu v segmentu (zámek mladší
+  2 h, zámek se neposouvá): reload nebo návrat na Volání ukáže tutéž kartu a nezamkne další.
 - Karta architekta: jméno (jinak studio), studio, telefon, e-mail, město, web, IČO
-  a DPH osobně a studia zvlášť, odkud máme číslo. Tip pro hovor (statický scénář
-  z oddílu 9.4 a okna volání jako rada) stojí až pod tlačítky výsledku a poznámkou, aby
-  tlačítka zůstala na počítači vidět bez posouvání, a dá se sbalit. Eyebrow nad kartou
+  a DPH osobně a studia zvlášť, odkud máme číslo. Tip pro hovor (scénář z oddílu 9.4
+  v `src/tipArchitekt.ts`: věta „Vaše číslo mám z …“ říká, odkud číslo máme, oslovením
+  ve 2. osobě, `zdrojTelefonuVeta` v `src/ui.tsx`, audit APP-7; okna volání jako rada)
+  stojí až pod tlačítky výsledku a poznámkou, aby tlačítka zůstala na počítači vidět bez posouvání, a dá se sbalit. Eyebrow nad kartou
   říká segment karty, bez karty zvolený segment.
 - **Seznamy** (Kontakty, Moji klienti, Označené, trychtýř ve Statistikách) mají filtr
   „vše / chaty / architekti", výchozí vše, nepamatuje se. Kontakty a Moji klienti filtrují
   na serveru (`p_segment` jen když není vše, i v počtech stavů a košů), Označené v appce.
   Zprávy filtr nemají, jen odznak architekta u hledaného kontaktu.
-- Osobní IČO posílá server v seznamech jen tomu, kdo kontakt smí upravit; detail pak
-  ukáže „skryto" ([ALBERT 28]). Karta ve volání má řádek celý. Úpravy (příznak, zámek,
-  „Označit jako mého klienta", uložení) vracejí řádek celý i se `smi_upravit`, detail proto
-  každý takový řádek pošle dál přes `bezCizihoIco` (`src/segment.ts`) a „skryto" zůstane.
+- Osobní IČO posílá server v seznamech a v úpravách (příznak, zámek, uložení) jen tomu, kdo
+  kontakt smí upravit; IČO ateliéru, které se mu rovná, i s DPH ateliéru taky (migrace 032
+  a 036). Detail pak ukáže „skryto“ ([ALBERT 28]). Řádek celý mají jen karta ve volání
+  a „Označit jako mého klienta“ (`oznacit_za_sveho`); detail proto každý řádek z úpravy pošle
+  dál přes `bezCizihoIco` (`src/segment.ts`) a „skryto“ zůstane.
 - Seznamy (Kontakty, Moji klienti, Označené) zahodí odpověď staršího požadavku: po
   rychlém přepnutí filtru nezůstanou pod „chaty" architekti z pozdní odpovědi.
 - Server bez migrace 028 odpoví na `next_contact` s `p_segment` chybou `PGRST202`. Appka
