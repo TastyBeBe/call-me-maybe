@@ -128,8 +128,14 @@ který schvaluje Albert (u zprávy je vidět jeho stav).
   dorazí až po přepnutí, se zahodí a její zámek se vrátí.
 - `next_contact` od migrace 036 vrací nejdřív vlastní platnou kartu v segmentu (zámek mladší
   2 h, zámek se neposouvá): reload nebo návrat na Volání ukáže tutéž kartu a nezamkne další.
-- Karta architekta: jméno (jinak studio), studio, telefon, e-mail, město, web, IČO
-  a DPH osobně a studia zvlášť, odkud máme číslo. Tip pro hovor (scénář z oddílu 9.4
+- Karta architekta: jméno (jinak studio), studio, telefon, e-mail, město, web, „obrat“
+  a odkud máme číslo. IČO architekta volající nevidí (Albert 3. 10. 2026, migrace 037):
+  server mu ho v kartě ani v „Označit jako mého klienta“ nepošle a řádek „obrat“ říká
+  z veřejné registrace k DPH (povinná nad 2 mil. Kč obratu za rok) jen „nad 2 mil. Kč ročně
+  (plátce DPH)“, když je plátce on nebo ateliér, „do 2 mil. Kč ročně (neplátce DPH)“, když je
+  známý neplátce nebo identifikovaná osoba, jinak „nezjištěno“ (`obratArchitekta`
+  v `src/ui.tsx`). ⚠ NAHRAZUJE řádky „IČO osobně“, „IČO studia“ a poznámku o DPH studia.
+  Tip pro hovor (scénář z oddílu 9.4
   v `src/tipArchitekt.ts`: věta „Vaše číslo mám z …“ říká, odkud číslo máme, oslovením
   ve 2. osobě, `zdrojTelefonuVeta` v `src/ui.tsx`, audit APP-7; okna volání jako rada)
   stojí až pod tlačítky výsledku a poznámkou, aby tlačítka zůstala na počítači vidět bez posouvání, a dá se sbalit. Eyebrow nad kartou
@@ -140,9 +146,10 @@ který schvaluje Albert (u zprávy je vidět jeho stav).
   Zprávy filtr nemají, jen odznak architekta u hledaného kontaktu.
 - Osobní IČO posílá server v seznamech a v úpravách (příznak, zámek, uložení) jen tomu, kdo
   kontakt smí upravit; IČO ateliéru, které se mu rovná, i s DPH ateliéru taky (migrace 032
-  a 036). Detail pak ukáže „skryto“ ([ALBERT 28]). Řádek celý mají jen karta ve volání
-  a „Označit jako mého klienta“ (`oznacit_za_sveho`); detail proto každý řádek z úpravy pošle
-  dál přes `bezCizihoIco` (`src/segment.ts`) a „skryto“ zůstane.
+  a 036). Detail pak ukáže „skryto“ ([ALBERT 28]). Bez masky seznamu posílají řádek jen karta
+  ve volání a „Označit jako mého klienta“ (`oznacit_za_sveho`), adminům i s IČO, volajícím od
+  migrace 037 bez IČO architekta; detail proto každý řádek z úpravy pošle dál přes
+  `bezCizihoIco` (`src/segment.ts`) a „skryto“ zůstane.
 - Seznamy (Kontakty, Moji klienti, Označené) zahodí odpověď staršího požadavku: po
   rychlém přepnutí filtru nezůstanou pod „chaty" architekti z pozdní odpovědi.
 - Server bez migrace 028 odpoví na `next_contact` s `p_segment` chybou `PGRST202`. Appka

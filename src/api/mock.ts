@@ -749,11 +749,24 @@ function bezOsobnihoIco(r: Kontakt): Kontakt {
 /**
  * Řádek SEZNAMU (list_kontakty, my_kontakty, list_flagged; migrace 028 a 032) a ÚPRAVY
  * (update_kontakt, set_flag, clear_flag; migrace 028 a 036): bez osobního IČO pro toho,
- * kdo nesmí upravit. Řádek celý vrací jen karta ve volání (next_contact)
- * a oznacit_za_sveho (forViewer).
+ * kdo nesmí upravit. Karta ve volání (next_contact) a oznacit_za_sveho jdou přes kartaPro.
  */
 function forList(u: MockUser, c: Kontakt): Kontakt {
   return bezOsobnihoIco(forViewer(u, c));
+}
+
+/**
+ * Karta ve volání (next_contact) a označení klienta (oznacit_za_sveho): admin a super admin
+ * dostanou řádek bez masky seznamu (forViewer), volající bez IČO architekta, osobního
+ * i ateliéru (Albert 3. 10. 2026, audit APP-8, migrace 037). Server klíče odebírá, takže tu
+ * taky CHYBÍ. DPH zůstává, karta z něj ukazuje řádek „obrat“ (obratArchitekta v ui.tsx).
+ */
+function kartaPro(u: MockUser, c: Kontakt): Kontakt {
+  const r = forViewer(u, c);
+  if (u.role === 'admin' || u.role === 'super_admin') return r;
+  delete r.ico_osobni;
+  delete r.ico_firma;
+  return r;
 }
 
 /** Stejná kontrola jako v SQL funkcích migrace 028 (null = vše jen v seznamech). */
@@ -941,7 +954,7 @@ const mockApiZaklad: Api = {
           segmentOf(c) === segment
       )
       .sort((a, b) => b.lock_at!.localeCompare(a.lock_at!) || b.id - a.id)[0];
-    if (vlastni) return forViewer(user, vlastni);
+    if (vlastni) return kartaPro(user, vlastni);
     // Musí zůstat shodné s db/migration_036_vlastni_karta.sql (tělo z 023 a 028):
     // jen nekontaktovano + nedovolano, jen zvolený segment, koho jsme dnes už volali
     // se dnes znovu nenabídne, a výběr je NÁHODNÝ (ne podle id).
@@ -972,7 +985,7 @@ const mockApiZaklad: Api = {
     next.lock_by = user.id;
     next.lock_at = now();
     next.updated_at = now();
-    return forViewer(user, next);
+    return kartaPro(user, next); // volajícímu bez IČO architekta (037)
   },
 
   async returnContact(token: string, id: number): Promise<{ ok: boolean; kontakt_id: number }> {
@@ -1287,8 +1300,9 @@ const mockApiZaklad: Api = {
       kontakt.last_caller = user.display_name; // stav, zámek ani fronta se nemění
       kontakt.updated_at = now();
     }
-    // řádek celý jako server (app_kontakt_pro); detail ho pošle dál přes bezCizihoIco
-    return forViewer(user, kontakt);
+    // jako server (app_kontakt_pro, 037): volajícímu bez IČO architekta; detail řádek pošle
+    // dál přes bezCizihoIco
+    return kartaPro(user, kontakt);
   },
 
   /* ---- příznaky (migrace 005) ---- */
@@ -1759,7 +1773,7 @@ const mockApiZaklad: Api = {
  * - `zpozdeni(fn, args)` vrátí extra čekání v ms pro jedno volání (args bez tokenu); tak test
  *   pustí odpovědi mimo pořadí (odpověď po přepnutí segmentu nebo filtru).
  * - `volani` dostává záznam každého volání: jméno, argumenty bez tokenu, výsledek.
- * - `stav()` vrátí snímek zámků, stavů, poznámek, call_log a předmětů vláken.
+ * - `stav()` vrátí snímek zámků, stavů, poznámek, DPH architektů, call_log a předmětů vláken.
  */
 interface DemoTestHacek {
   zpozdeni?: (fn: string, args: unknown[]) => number;
@@ -1779,6 +1793,8 @@ function sDemoTestem(api: Api): Api {
       lock_by: c.lock_by,
       note: c.note,
       flag_kind: c.flag_kind,
+      dph_osobni: c.dph_osobni ?? null,
+      dph_firma: c.dph_firma ?? null,
     })),
     callLog: callLog.map((l) => ({ kontakt_id: l.kontakt_id, user_id: l.user_id, outcome: l.outcome })),
     vlakna: chatThreads.map((t) => ({ id: t.id, kontakt_id: t.kontakt_id, subject: t.subject })),

@@ -46,8 +46,9 @@ export function segmentOf(k: Pick<Kontakt, 'segment'> | null | undefined): Segme
  * `ico_osobni` ostatním nepošlou, detail pak ukáže „skryto“. IČO ateliéru, které se rovná
  * osobnímu (živnostník), odpadne s ním i s DPH ateliéru (migrace 032).
  * Úpravy set_flag, clear_flag a update_kontakt osobní IČO takovému uživateli neposílají
- * (migrace 028, IČO ateliéru od 036); řádek celý i se `smi_upravit` vrací jen
- * oznacit_za_sveho, a příznak a zámek smí měnit každý admin. Bez tohohle by se „skryto“
+ * (migrace 028, IČO ateliéru od 036); bez masky seznamu i se `smi_upravit` vrací řádek jen
+ * oznacit_za_sveho (adminovi s IČO, volajícímu od migrace 037 bez IČO architekta), a příznak
+ * a zámek smí měnit každý admin. Bez tohohle by se „skryto“
  * po označení klienta (nebo na serveru před migrací 036 po uložení příznaku) přepnulo na
  * číslo (revize 28. 9., audit APP-5).
  */
