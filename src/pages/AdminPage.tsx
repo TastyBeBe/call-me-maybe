@@ -12,6 +12,7 @@ import { useSession } from '../auth';
 import KontaktDrawer from '../components/KontaktDrawer';
 import { usePeople } from '../components/PersonPicker';
 import { isAdminRole, isSuperAdmin } from '../roles';
+import { icoVidi } from '../segment';
 import {
   ALL_CEKANI,
   ALL_KOSE,
@@ -280,7 +281,11 @@ export default function AdminPage() {
           <input
             className="search-input"
             aria-label="Hledat v kontaktech"
-            placeholder="Hledat jméno, studio, telefon, web, e-mail, město, IČO, poznámku…"
+            placeholder={
+              icoVidi(session.role)
+                ? 'Hledat jméno, studio, telefon, web, e-mail, město, IČO, poznámku…'
+                : 'Hledat jméno, studio, telefon, web, e-mail, město, poznámku…'
+            }
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />

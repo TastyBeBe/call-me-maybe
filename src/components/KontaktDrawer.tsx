@@ -19,7 +19,7 @@ import {
 } from '../api';
 import { audio } from '../audio';
 import { useSession } from '../auth';
-import { bezCizihoIco, segmentOf } from '../segment';
+import { bezCizihoIco, icoVidi, segmentOf } from '../segment';
 import {
   ALL_FLAGS,
   ALL_STATUSES,
@@ -35,6 +35,7 @@ import {
   formatDateTime,
   icoDph,
   kontaktJmeno,
+  obratArchitekta,
   pravidloPopisek,
   zdrojTelefonu,
 } from '../ui';
@@ -352,11 +353,23 @@ function KontaktThreads({ kontakt, canWrite }: { kontakt: Kontakt; canWrite: boo
 /**
  * Studio, město, IČO a DPH osobně i studia zvlášť, odkud máme číslo (docs/ARCHITEKTI.md
  * 9.6). Osobní IČO, které server v seznamu neposlal (klíč chybí, [ALBERT 28]), je
- * „skryto", ne „nezjištěno".
+ * „skryto", ne „nezjištěno". Volajícímu (icoVidi false) žádné IČO ani poznámku o DPH studia,
+ * jen řádek „obrat“ podle DPH jako na kartě ve volání (Albert 3. 10. 2026, migrace 038;
+ * ⚠ NAHRAZUJE „IČO osobně: skryto“ a „IČO studia“ pro volající).
  */
-function ArchitektUdaje({ kontakt }: { kontakt: Kontakt }) {
+function ArchitektUdaje({ kontakt, icoVidi: vidi }: { kontakt: Kontakt; icoVidi: boolean }) {
   const skryto = !Object.prototype.hasOwnProperty.call(kontakt, 'ico_osobni');
   const nezjisteno = <span className="muted">nezjištěno</span>;
+  if (!vidi) {
+    return (
+      <div className="arch-udaje">
+        <p className="meta-line">studio: {kontakt.firma || nezjisteno}</p>
+        <p className="meta-line">město: {kontakt.mesto || nezjisteno}</p>
+        <p className="meta-line">obrat: {obratArchitekta(kontakt.dph_osobni, kontakt.dph_firma) ?? nezjisteno}</p>
+        <p className="meta-line">číslo máme z: {zdrojTelefonu(kontakt.zdroj_telefonu)}</p>
+      </div>
+    );
+  }
   return (
     <div className="arch-udaje">
       <p className="meta-line">studio: {kontakt.firma || nezjisteno}</p>
@@ -517,7 +530,7 @@ export default function KontaktDrawer({
             </a>
           </p>
         )}
-        {segmentOf(kontakt) === 'architekt' && <ArchitektUdaje kontakt={kontakt} />}
+        {segmentOf(kontakt) === 'architekt' && <ArchitektUdaje kontakt={kontakt} icoVidi={icoVidi(session.role)} />}
         {!readOnly && kontakt.lock_by !== null && (
           <div className="info-box">
             Kontakt je zamčený (volající id {kontakt.lock_by}).{' '}

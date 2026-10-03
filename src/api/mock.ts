@@ -1,7 +1,7 @@
 // DEMO režim: in-memory mock implementující stejné rozhraní jako Supabase RPC.
 // Umožňuje plně proklikat UI bez backendu. Data žijí jen v paměti (reload = reset).
 
-import { segmentOf } from '../segment';
+import { icoVidi, segmentOf } from '../segment';
 import type {
   CekaniKind,
   CekaniKos,
@@ -752,7 +752,14 @@ function bezOsobnihoIco(r: Kontakt): Kontakt {
  * kdo nesmí upravit. Karta ve volání (next_contact) a oznacit_za_sveho jdou přes kartaPro.
  */
 function forList(u: MockUser, c: Kontakt): Kontakt {
-  return bezOsobnihoIco(forViewer(u, c));
+  const r = bezOsobnihoIco(forViewer(u, c));
+  // Migrace 038 (Albert 3. 10. 2026): volající IČO architekta nevidí ani v seznamech, ani IČO
+  // ateliéru jiné než osobní (dřív zůstávalo). Úpravy jsou jen pro adminy, tady se nic nemění.
+  if (!icoVidi(u.role)) {
+    delete r.ico_osobni;
+    delete r.ico_firma;
+  }
+  return r;
 }
 
 /**
@@ -1125,11 +1132,13 @@ const mockApiZaklad: Api = {
     }
     const search = (f.search ?? '').trim().toLowerCase();
     // osobní IČO jen CELÝM číslem (mezery se ignorují) a jen u řádků, které smí upravit;
-    // IČO ateliéru kouskem, ale ne když se rovná osobnímu (migrace 028 a 032, audit APP-5)
+    // IČO ateliéru kouskem, ale ne když se rovná osobnímu (migrace 028 a 032, audit APP-5);
+    // volající podle IČO nehledá vůbec (migrace 038, Albert 3. 10. 2026)
     const icoHledane = (f.search ?? '').replace(/\s/g, '');
     const icoShoda = (c: Kontakt) =>
-      (!!c.ico_osobni && c.ico_osobni === icoHledane && canEdit(me, c.id)) ||
-      (!!c.ico_firma && c.ico_firma !== c.ico_osobni && c.ico_firma.toLowerCase().includes(search));
+      icoVidi(me.role) &&
+      ((!!c.ico_osobni && c.ico_osobni === icoHledane && canEdit(me, c.id)) ||
+        (!!c.ico_firma && c.ico_firma !== c.ico_osobni && c.ico_firma.toLowerCase().includes(search)));
     const matches = (c: Kontakt) =>
       (!f.segment || segmentOf(c) === f.segment) &&
       (!f.status || c.status === f.status) &&

@@ -120,7 +120,8 @@ export interface Kontakt {
    */
   ico_osobni?: string | null;
   /** IČO ateliéru; když se rovná osobnímu, chybí spolu s ním i s dph_firma (migrace 032, 036);
-   *  volajícímu ho karta ve volání a oznacit_za_sveho neposílají vůbec (037). */
+   *  volajícímu ho server neposílá vůbec: karta ve volání a oznacit_za_sveho od 037, seznamy
+   *  (Kontakty, Moji klienti) od 038, a podle IČO volající nic nenajde (icoVidi v segment.ts). */
   ico_firma?: string | null;
   dph_osobni?: DphStav | null;
   dph_firma?: DphStav | null;
