@@ -394,8 +394,9 @@ export default function KontaktDrawer({
   readOnly?: boolean;
 }) {
   const session = useSession();
-  // Řádek celý vrací jen oznacit_za_sveho; set_flag, clear_flag a update_kontakt osobní IČO
-  // tomu, kdo kontakt nesmí upravit, neposílají (028, IČO ateliéru od 036). bezCizihoIco je
+  // Bez masky seznamu vrací řádek jen oznacit_za_sveho (volajícímu od 037 bez IČO architekta);
+  // set_flag, clear_flag a update_kontakt osobní IČO tomu, kdo kontakt nesmí upravit, neposílají
+  // (028, IČO ateliéru od 036). bezCizihoIco je
   // pojistka pro oznacit_za_sveho a pro server před migrací 036: stránka (a seznam, do kterého
   // řádek vloží) dostane osobní IČO jen, když kontakt smí upravit (audit APP-5).
   const onSaved = (updated: Kontakt) => predatStrance?.(bezCizihoIco(updated));

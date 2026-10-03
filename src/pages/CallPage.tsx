@@ -16,7 +16,7 @@ import {
   Spinner,
   StatusBadge,
   errMsg,
-  icoDph,
+  obratArchitekta,
   zdrojTelefonu,
 } from '../ui';
 import {
@@ -292,6 +292,7 @@ export default function CallPage() {
 
   const hasWeb = !!(kontakt.web && kontakt.web.trim());
   const architekt = segmentOf(kontakt) === 'architekt';
+  const obrat = obratArchitekta(kontakt.dph_osobni, kontakt.dph_firma);
   const cekaPrepnuti = segmentOf(kontakt) !== segment;
 
   return (
@@ -360,19 +361,13 @@ export default function CallPage() {
                 <span className="badge yellow">web nenalezen v registru</span>
               )}
             </div>
+            {/* Albert 3. 10. 2026 (APP-8, migrace 037): volající IČO architekta nevidí, jen jestli
+                vydělává víc, podle veřejné registrace k DPH. ⚠ NAHRAZUJE dva řádky s IČO
+                (osobní a ateliéru) a šedou poznámku o DPH ateliéru. */}
             <div className="call-row">
-              <span className="k">IČO osobně</span>
-              {icoDph(kontakt.ico_osobni, kontakt.dph_osobni) ?? <span className="muted">nezjištěno</span>}
+              <span className="k">obrat</span>
+              {obrat ? <span>{obrat}</span> : <span className="muted">nezjištěno</span>}
             </div>
-            <div className="call-row">
-              <span className="k">IČO studia</span>
-              {icoDph(kontakt.ico_firma, kontakt.dph_firma) ?? <span className="muted">nezjištěno</span>}
-            </div>
-            {kontakt.ico_firma && (
-              <p className="muted" style={{ fontSize: 13, margin: '-2px 0 6px' }}>
-                DPH studia neříká nic o DPH architekta.
-              </p>
-            )}
             <div className="call-row">
               <span className="k">číslo máme z</span>
               <span>{zdrojTelefonu(kontakt.zdroj_telefonu)}</span>

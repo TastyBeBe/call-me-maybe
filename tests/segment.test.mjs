@@ -146,6 +146,40 @@ async function blok(id, fn) {
   }
 }
 
+/* ---------------- O) karta architekta: obrat místo IČO (Albert 3. 10. 2026, APP-8, migrace 037) ---------------- */
+// Volající nevidí IČO architekta. Karta ukáže jeden řádek „obrat“ podle veřejné registrace k DPH
+// (povinná nad 2 000 000 Kč obratu za rok): plátce osobně NEBO ateliér = nad 2 mil., známý neplátce
+// nebo identifikovaná osoba a nikdo plátce = do 2 mil., jinak nezjištěno (null). Běží před bloky,
+// které frontu architektů provolají (dnes volaný kontakt next_contact 4 h nenabídne).
+await blok('O', async () => {
+  const obrat = uiModul.obratArchitekta;
+  over('O0', typeof obrat === 'function', 'ui.tsx má obratArchitekta(dph_osobni, dph_firma)');
+  if (typeof obrat === 'function') {
+    const NAD = 'nad 2 mil. Kč ročně (plátce DPH)';
+    const DO = 'do 2 mil. Kč ročně (neplátce DPH)';
+    const PRIPADY = [
+      ['platce', null, NAD], [null, 'platce', NAD], ['neplatce', 'platce', NAD], ['platce', 'identifikovana_osoba', NAD],
+      ['neplatce', null, DO], [null, 'identifikovana_osoba', DO], ['identifikovana_osoba', 'neovereno', DO], ['neplatce', 'neplatce', DO],
+      [null, null, null], ['neovereno', 'neovereno', null], [undefined, undefined, null], ['neovereno', null, null],
+    ];
+    PRIPADY.forEach(([o, f, cil], i) => {
+      over(`O1.${i}`, obrat(o, f) === cil, `obrat při DPH osobně ${o} a ateliéru ${f} je ${cil ?? 'nezjištěno (null)'}`, String(obrat(o, f)));
+    });
+  }
+  const ma = (r, k) => !!r && Object.prototype.hasOwnProperty.call(r, k);
+  // mock = server (037): volající dostane kartu bez IČO, s DPH; admin a super admin jako dřív
+  for (const [kdo, tok, ico] of [['Petra (volající)', petra, false], ['Honza (volající)', honza, false], ['Eva (admin)', eva, true], ['Albert', albert, true]]) {
+    const k = await api.nextContact(tok, 'architekt');
+    if (!k) { over('O2', false, `${kdo}: fronta architektů je prázdná, nejde změřit`); continue; }
+    await api.updateKontakt(albert, k.id, { clear_lock: true }); // další uživatel dostane volnou kartu
+    over('O2', ma(k, 'ico_osobni') === ico && ma(k, 'ico_firma') === ico, `${kdo}: karta ve volání ${ico ? 'nese' : 'nenese'} IČO architekta`, `karta ${k.id}`);
+    over('O3', ma(k, 'dph_osobni') && ma(k, 'dph_firma') && ma(k, 'firma'), `${kdo}: karta nese DPH osobně, DPH ateliéru a firmu (obrat se z nich počítá)`, `karta ${k.id}`);
+  }
+  // oznacit_za_sveho: volajícímu taky bez IČO (Petra volala 302, ten je nedovolano)
+  const oz = await api.claimKontakt(petra, 302);
+  over('O4', !ma(oz, 'ico_osobni') && !ma(oz, 'ico_firma') && ma(oz, 'dph_osobni'), 'označení klienta volajícímu IČO nepošle, DPH ano (037)');
+});
+
 /* ---------------- E) seznamy ---------------- */
 await blok('E', async () => {
   const vse = await api.listKontakty(albert, { limit: 1000 });
@@ -257,9 +291,11 @@ await blok('L', async () => {
   const f300 = await api.setFlag(eva, 300, 'jine', 'test L');
   over('L6e', !maKlic(f300, 'ico_osobni') && f300.ico_firma === '22222222' && f300.dph_firma === 'platce', 'jiné IČO ateliéru zůstává, schová se jen osobní');
   await api.clearFlag(albert, 300);
-  // oznacit_za_sveho vrací řádek celý (Petra 302 volala); detail ho pošle přes bezCizihoIco
+  // oznacit_za_sveho (Petra 302 volala): ⚠ NAHRAZENO 3. 10. 2026 (Albert, migrace 037), dřív
+  // „vrací řádek celý jako server“; volajícímu teď bez IČO architekta, detail řádek pošle přes bezCizihoIco
   const claim = await api.claimKontakt(petra, 302);
-  over('L7', claim.smi_upravit === false && claim.ico_osobni === '11111111', 'oznacit_za_sveho vrací řádek celý jako server (jediná úprava, která to dělá)');
+  over('L7', claim.smi_upravit === false && !maKlic(claim, 'ico_osobni') && !maKlic(claim, 'ico_firma') && claim.dph_osobni === 'identifikovana_osoba',
+    'oznacit_za_sveho volajícímu IČO architekta nepošle, DPH ano (jako server od 037)');
 
   // vlastní karta napřed (036): reload nebo další volání dá tutéž kartu, nezamkne další
   const k1 = await api.nextContact(eva, 'chata');
@@ -307,7 +343,11 @@ await blok('BCD', async () => {
 
   const a1 = await api.nextContact(petra, 'architekt');
   over('B2', !!a1 && a1.segment === 'architekt' && [300, 301, 302].includes(a1.id), 'nextContact s architekt dá volatelného architekta', a1 && `${a1.id}`);
-  over('H1', a1 && Object.prototype.hasOwnProperty.call(a1, 'ico_osobni'), 'karta ve volání nese řádek celý včetně osobního IČO');
+  // ⚠ NAHRAZENO 3. 10. 2026 (Albert, APP-8, migrace 037): dřív „karta ve volání nese řádek celý
+  // včetně osobního IČO“. Volající IČO architekta nevidí, karta z DPH ukáže jen řádek obrat.
+  over('H1', a1 && !Object.prototype.hasOwnProperty.call(a1, 'ico_osobni') && !Object.prototype.hasOwnProperty.call(a1, 'ico_firma')
+    && Object.prototype.hasOwnProperty.call(a1, 'dph_osobni') && Object.prototype.hasOwnProperty.call(a1, 'dph_firma'),
+    'karta ve volání volajícímu nenese IČO architekta (osobní ani ateliéru), DPH ano (037)');
   await chyba('C2', () => api.returnContact(honza, a1.id), new RegExp(`Kontakt ${a1.id} nemáte zamčený\\. Nic se nevrátilo\\.`), 'cizí zámek se nevrací');
   const skutecne = Date.now;
   Date.now = () => skutecne() + 31 * 60 * 1000;

@@ -399,6 +399,41 @@ const bezVytaceni = (page) =>
   await ctx.close();
 }
 
+/* ============ V9) karta architekta: obrat místo IČO (Albert 3. 10. 2026, APP-8, migrace 037) ============ */
+// Volající nevidí IČO architekta (osobní ani ateliéru) ani poznámku o DPH studia; karta ukáže řádek
+// „obrat“ podle DPH (plátce osobně nebo ateliér = nad 2 mil., známý neplátce = do 2 mil., jinak
+// nezjištěno). Karta je stejná pro každého, kdo volá (i Albert), IČO admini vidí v detailu kontaktu.
+{
+  const NAD = 'nad 2 mil. Kč ročně (plátce DPH)';
+  const DO = 'do 2 mil. Kč ročně (neplátce DPH)';
+  const ocekavany = (k) =>
+    k.dph_osobni === 'platce' || k.dph_firma === 'platce' ? NAD
+      : ['neplatce', 'identifikovana_osoba'].includes(k.dph_osobni) || ['neplatce', 'identifikovana_osoba'].includes(k.dph_firma) ? DO
+        : 'nezjištěno';
+  for (const kdo of ['petra', 'admin']) {
+    const { ctx, page } = await novaStranka(kdo);
+    await page.evaluate(() => localStorage.setItem('volacka_segment', 'architekt'));
+    await jdi(page, '#/call');
+    const vysledky = new Set();
+    for (let i = 0; i < 3; i++) {
+      const id = await kartaId(page);
+      if (id === null) break;
+      const karta = await page.locator('.call-card').innerText();
+      const k = (await stav(page)).kontakty.find((x) => x.id === id);
+      over('V9a', !/IČO/i.test(karta) && !/\b\d{8}\b/.test(karta) && !/DPH studia/i.test(karta),
+        `${kdo}: karta architekta neukazuje IČO ani poznámku o DPH studia`, karta.replace(/\s+/g, ' ').slice(0, 200));
+      const radky = page.locator('.call-row', { hasText: /^\s*obrat/i });
+      const hodnota = (await radky.count()) === 1 ? (await radky.first().locator('span:not(.k)').first().innerText()).trim() : '(řádek obrat chybí)';
+      over('V9b', !!k && hodnota === ocekavany(k), `${kdo}: řádek obrat odpovídá DPH osobně a ateliéru`, `karta ${id}: „${hodnota}“, čekám „${k && ocekavany(k)}“`);
+      vysledky.add(hodnota);
+      await page.getByRole('button', { name: 'Nedovoláno' }).click();
+      await klid(page, 300);
+    }
+    if (kdo === 'petra') over('V9c', vysledky.size >= 3, 'změřeny všechny tři podoby řádku (nad, do, nezjištěno)', [...vysledky].join(' | '));
+    await ctx.close();
+  }
+}
+
 /* ============ L1) Kontakty: pozdní odpověď filtru nesmí přepsat zvolený segment ============ */
 {
   const { ctx, page } = await novaStranka('admin');

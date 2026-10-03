@@ -1579,7 +1579,7 @@ table.kontakty tr:last-child td {
   margin: -6px 0 10px;
 }
 
-/* karta architekta má delší popisky („IČO osobně", „číslo máme z"), hodnoty pod sebou */
+/* karta architekta má delší popisky („číslo máme z"), hodnoty pod sebou */
 .call-card.seg-architekt .call-row .k {
   min-width: 124px;
 }

@@ -425,7 +425,26 @@ export const DPH_LABELS: Record<DphStav, string> = {
   neovereno: 'DPH neověřeno',
 };
 
-/** „12345678 · neplátce DPH"; bez IČO null (volající pak vidí „nezjištěno"). */
+/**
+ * Řádek „obrat“ na kartě architekta ve volání (Albert 3. 10. 2026, audit APP-8, migrace 037).
+ * Volající IČO architekta nevidí. Registrace k DPH je veřejná a povinná nad 2 000 000 Kč obratu
+ * za rok (paušální daň veřejná není), takže DPH je jediný veřejný signál, jestli vydělává víc:
+ * plátce osobně NEBO ateliér = nad 2 mil.; známý neplátce nebo identifikovaná osoba a nikdo
+ * plátce = do 2 mil.; jinak null (karta ukáže „nezjištěno“). Cenu z toho appka nenavrhuje.
+ */
+export const OBRAT_NAD = 'nad 2 mil. Kč ročně (plátce DPH)';
+export const OBRAT_DO = 'do 2 mil. Kč ročně (neplátce DPH)';
+export function obratArchitekta(
+  dphOsobni: DphStav | null | undefined,
+  dphFirma: DphStav | null | undefined
+): string | null {
+  if (dphOsobni === 'platce' || dphFirma === 'platce') return OBRAT_NAD;
+  const neplatce = (d: DphStav | null | undefined) => d === 'neplatce' || d === 'identifikovana_osoba';
+  if (neplatce(dphOsobni) || neplatce(dphFirma)) return OBRAT_DO;
+  return null;
+}
+
+/** „12345678 · neplátce DPH"; bez IČO null (detail pak ukáže „nezjištěno"). */
 export function icoDph(ico: string | null | undefined, dph: DphStav | null | undefined): string | null {
   if (!ico) return null;
   return dph && DPH_LABELS[dph] ? `${ico} · ${DPH_LABELS[dph]}` : ico;

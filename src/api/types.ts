@@ -114,11 +114,13 @@ export interface Kontakt {
   /**
    * Osobní IČO. V seznamech (list_kontakty, my_kontakty, list_flagged) a v úpravách
    * (update_kontakt, set_flag, clear_flag) ho server pošle jen tomu, kdo kontakt smí upravit;
-   * jinak klíč CHYBÍ (undefined = „skryto“, null = „nezjištěno“). Řádek celý vracejí jen karta
-   * ve volání a oznacit_za_sveho ([ALBERT 28], 2.2 l).
+   * jinak klíč CHYBÍ (undefined = „skryto“, null = „nezjištěno“) ([ALBERT 28], 2.2 l). Karta ve
+   * volání a oznacit_za_sveho ho posílají jen adminům; volajícímu IČO chybí úplně, osobní
+   * i ateliéru, karta mu ukáže jen řádek „obrat“ z DPH (Albert 3. 10. 2026, migrace 037).
    */
   ico_osobni?: string | null;
-  /** IČO ateliéru; když se rovná osobnímu, chybí spolu s ním i s dph_firma (migrace 032, 036). */
+  /** IČO ateliéru; když se rovná osobnímu, chybí spolu s ním i s dph_firma (migrace 032, 036);
+   *  volajícímu ho karta ve volání a oznacit_za_sveho neposílají vůbec (037). */
   ico_firma?: string | null;
   dph_osobni?: DphStav | null;
   dph_firma?: DphStav | null;
