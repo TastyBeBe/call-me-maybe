@@ -6,6 +6,7 @@
 // segment NIKDY neurčuje.
 
 import type { Kontakt, Segment } from './api/types';
+import { isAdminRole } from './roles';
 
 /** Volba ve volání, per zařízení (jako ostatní klíče `volacka_*`). */
 export const LS_SEGMENT = 'volacka_segment';
@@ -37,6 +38,16 @@ export function saveCallSegment(s: Segment): void {
 /** Segment kontaktu. Bez sloupce `segment` (server bez migrace 028) je to chata. */
 export function segmentOf(k: Pick<Kontakt, 'segment'> | null | undefined): Segment {
   return k?.segment === 'architekt' ? 'architekt' : 'chata';
+}
+
+/**
+ * Smí uživatel s touhle rolí vidět a hledat IČO architekta (osobní i ateliéru)? Jen admin a super
+ * admin (Albert 3. 10. 2026, APP-8, migrace 037 a 038). Volající IČO nevidí nikde: karta ve volání,
+ * Kontakty, Moji klienti ani detail kontaktu; detail mu místo IČO ukáže řádek „obrat“ podle DPH.
+ * Neznámá role = ne. Server klíče volajícímu neposílá; tohle drží appku, i kdyby je poslal starý server.
+ */
+export function icoVidi(role: string | null | undefined): boolean {
+  return isAdminRole(role);
 }
 
 /**

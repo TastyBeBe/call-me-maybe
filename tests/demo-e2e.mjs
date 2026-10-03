@@ -539,6 +539,39 @@ const bezVytaceni = (page) =>
   await ctx.close();
 }
 
+/* ============ D2) Kontakty a detail: volající IČO nevidí ani nehledá (Albert 3. 10. 2026, migrace 038) ============ */
+// Volající (Petra) v Kontaktech: hledání neslibuje IČO, hledání čísla IČO nic nenajde, detail architekta
+// neukazuje žádné IČO ani poznámku o DPH studia, místo nich řádek „obrat“ podle DPH. Albert beze změny.
+{
+  const { ctx, page } = await novaStranka('petra');
+  await jdi(page, '#/admin', 600);
+  const hledani = page.locator('input.search-input');
+  over('D2a', !/IČO/.test((await hledani.getAttribute('placeholder')) ?? ''), 'volající: pole hledání neslibuje hledání podle IČO', await hledani.getAttribute('placeholder'));
+  await hledani.fill('22222222');
+  await klid(page, 700);
+  over('D2b', (await page.locator('table.kontakty tbody tr', { hasText: /Ukázka|Příklad/ }).count()) === 0, 'volající: hledání IČO studia architekta nenajde');
+  await hledani.fill('');
+  await klid(page, 700);
+  await filtr(page, 'architekti').click();
+  await klid(page, 400);
+  await page.locator('table.kontakty tbody tr', { hasText: 'Tomáš Ukázka' }).click();
+  const udaje = (await page.locator('.drawer .arch-udaje').innerText()).replace(/\s+/g, ' ');
+  over('D2c', !/IČO/i.test(udaje) && !/\b\d{8}\b/.test(udaje) && !/DPH studia/i.test(udaje), 'volající: detail architekta bez IČO a bez poznámky o DPH studia', udaje);
+  over('D2d', /obrat:\s*nad 2 mil\. Kč ročně \(plátce DPH\)/.test(udaje), 'volající: detail ukazuje obrat podle DPH (300: ateliér plátce)', udaje);
+  await ctx.close();
+}
+{
+  const { ctx, page } = await novaStranka('admin');
+  await jdi(page, '#/admin', 600);
+  over('D2e', /IČO/.test((await page.locator('input.search-input').getAttribute('placeholder')) ?? ''), 'Albert: hledání podle IČO zůstává');
+  await filtr(page, 'architekti').click();
+  await klid(page, 400);
+  await page.locator('table.kontakty tbody tr', { hasText: 'Tomáš Ukázka' }).click();
+  const udaje = (await page.locator('.drawer .arch-udaje').innerText()).replace(/\s+/g, ' ');
+  over('D2f', /IČO osobně:\s*11111111/.test(udaje) && /IČO studia:\s*22222222/.test(udaje), 'Albert: detail architekta ukazuje obě IČO jako dřív', udaje);
+  await ctx.close();
+}
+
 /* ============ D1) detail: osobní IČO cizího architekta zůstane skryté i po uložení příznaku ============ */
 {
   const { ctx, page } = await novaStranka('mikulas');

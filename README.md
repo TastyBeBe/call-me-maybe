@@ -150,6 +150,12 @@ který schvaluje Albert (u zprávy je vidět jeho stav).
   ve volání a „Označit jako mého klienta“ (`oznacit_za_sveho`), adminům i s IČO, volajícím od
   migrace 037 bez IČO architekta; detail proto každý řádek z úpravy pošle dál přes
   `bezCizihoIco` (`src/segment.ts`) a „skryto“ zůstane.
+- Volající IČO architekta nevidí ani nehledá nikde (Albert 3. 10. 2026, migrace 037 a 038):
+  server mu v Kontaktech ani v Mých klientech nepošle osobní IČO ani IČO ateliéru a hledání
+  podle IČO mu nic nenajde, ani v počtu. Appka mu v detailu kontaktu místo řádků s IČO ukáže
+  „obrat“ podle DPH jako na kartě a pole hledání IČO nenabízí (`icoVidi` v `src/segment.ts`).
+  Admin a super admin beze změny. ⚠ NAHRAZUJE „IČO ateliéru v seznamu zůstává a hledá ho
+  každý“ pro volající.
 - Seznamy (Kontakty, Moji klienti, Označené) zahodí odpověď staršího požadavku: po
   rychlém přepnutí filtru nezůstanou pod „chaty" architekti z pozdní odpovědi.
 - Server bez migrace 028 odpoví na `next_contact` s `p_segment` chybou `PGRST202`. Appka
@@ -167,7 +173,7 @@ který schvaluje Albert (u zprávy je vidět jeho stav).
 | `#/call`      | všichni | fronta hovorů: přepínač chaty / architekti (028), karta kontaktu + výsledky (nedovoláno/odmítnuto/zájem). Poznámka k hovoru je **nepovinná** — zájem jde uložit i bez ní (Albert 2026-09-23; dřív se při prázdné poznámce otevíralo potvrzovací okno navíc) |
 | `#/stats`     | všichni | moje statistiky; super admin (i Albert) přes dropdown kohokoli (027); trychtýř „Klienti podle stavu" (admin) s filtrem segmentu (028) |
 | `#/moji`      | všichni | moji klienti (+ historie poznámek v detailu); super admin může vybrat kohokoli (027); filtr segmentu (028) |
-| `#/admin`     | všichni | Kontakty: celá databáze s filtry (i segment, 028) a fulltextem (i studio, město, IČO); upravovat smí admin a super admin |
+| `#/admin`     | všichni | Kontakty: celá databáze s filtry (i segment, 028) a fulltextem (i studio, město, IČO; IČO jen admin a super admin, 038); upravovat smí admin a super admin |
 | `#/oznacene`  | admin   | označení klienti — admin svoji; super admin a Albert všichni (027); filtr segmentu (028) |
 | `#/zpravy`    | admin   | vlákna s AI agenty — admin svoje; super admin vlákna všech lidí (cizí jen ke čtení, 027); Albert i automatizaci; odznak architekta u hledaného kontaktu (028) |
 | `#/uzivatele` | super admin | super admin: všichni lidé, upravuje sebe a své lidi + nový volající (027); Albert: role a nadřízení (⚠ od migrace 024 normální admin stránku nemá) |
