@@ -1,4 +1,9 @@
-/** Role (migrace 023): volající, admin, super admin. Majitel účtu = users.id 1 (Albert). */
+/**
+ * Role (migrace 042, Albert 18. 10. 2026): jen dvě, `admin` = v appce „Volající“ a `super_admin`.
+ * ⚠ NAHRAZUJE tři role z migrace 023 (volající / admin / super admin). `caller` server od 042 neukládá;
+ * v typu zůstává jen kvůli serveru před migrací 042 (appka ho popíše taky jako Volajícího).
+ * Majitel účtu = users.id 1 (Albert).
+ */
 export type Role = 'admin' | 'caller' | 'super_admin';
 
 export interface Session {
@@ -329,6 +334,86 @@ export interface MeInfo {
   manager_id: number | null;
 }
 
+/* ---- rozvrh volání (migrace 042, Albert 18. 10. 2026) ---- */
+
+/** Plnění týdne: pozadu (méně hovorů než cíl dnů do včerejška), v plánu, napřed, bez rozvrhu. */
+export type RozvrhStav = 'pozadu' | 'v_planu' | 'napred' | 'bez_rozvrhu';
+
+/** Jeden den aktuálního týdne: šablona (hodiny, od), cíl, hovory z call_log a poznámka. */
+export interface RozvrhDen {
+  /** 1 = pondělí … 7 = neděle */
+  den: number;
+  /** YYYY-MM-DD (den v Praze) */
+  datum: string;
+  hodiny: number;
+  /** HH:MM, kdy začít volat; null = nezadáno */
+  od: string | null;
+  /** hodiny × hovoru_za_hodinu */
+  cil: number;
+  hovory: number;
+  minuly: boolean;
+  dnes: boolean;
+  /** den před tím, než byl rozvrh poprvé nastavený: bez cíle a jeho hovory se do týdne nepočítají */
+  pred_rozvrhem: boolean;
+  poznamka: string | null;
+  poznamka_at: string | null;
+}
+
+export interface RozvrhSouhrn {
+  stav: RozvrhStav;
+  /** o kolik hovorů pozadu nebo napřed (v plánu 0) */
+  rozdil: number;
+  rozdil_hodiny: number;
+  cil_do_vcera: number;
+  cil_do_dnes: number;
+  cil_tyden: number;
+  hovory_tyden: number;
+  dnes_hodiny: number;
+  dnes_od: string | null;
+  dnes_cil: number;
+  dnes_hovory: number;
+  /** kolik hovorů dnes ještě do splnění plánu (i s dluhem z dřívějších dnů) */
+  dnes_zbyva: number;
+  dnes_zbyva_hodiny: number;
+}
+
+/** rozvrh_get: rozvrh člověka v aktuálním týdnu a co s ním smí přihlášený dělat (server rozhoduje). */
+export interface Rozvrh {
+  user_id: number;
+  display_name: string;
+  role: Role;
+  nastaveny: boolean;
+  zamceno: boolean;
+  nastavil: string | null;
+  nastaveno_at: string | null;
+  zmenil: string | null;
+  zmeneno_at: string | null;
+  /** cíl hovorů za hodinu volání (jediné číslo je na serveru) */
+  hovoru_za_hodinu: number;
+  tyden_od: string;
+  tyden_do: string;
+  dnes: string;
+  dny: RozvrhDen[];
+  souhrn: RozvrhSouhrn;
+  smi_upravit: boolean;
+  smi_odemknout: boolean;
+  smi_psat_poznamky: boolean;
+}
+
+/** Řádek rozvrh_prehled (jen super admin): bez dnů, s nadřízeným a počtem poznámek. */
+export interface RozvrhPrehledRadek extends Omit<Rozvrh, 'dny' | 'smi_upravit' | 'smi_odemknout' | 'smi_psat_poznamky'> {
+  manager_id: number | null;
+  manager_name: string | null;
+  poznamek: number;
+}
+
+/** Den, jak ho posílá appka do rozvrh_ulozit. */
+export interface RozvrhDenVstup {
+  den: number;
+  hodiny: number;
+  od: string | null;
+}
+
 /** Jednotné API rozhraní — implementuje ho reálný Supabase klient i demo mock. */
 export interface Api {
   login(username: string, password: string): Promise<Session>;
@@ -437,4 +522,14 @@ export interface Api {
   cancelAutomationStop(token: string): Promise<AutomationStatus>;
   /** Zapnout (stopped ⇒ running); orchestrátor pokračuje dalším tikem (do 15 min). */
   requestAutomationStart(token: string): Promise<AutomationStatus>;
+  /** Rozvrh aktuálního týdne (migrace 042): svůj každý, cizí jen super admin. */
+  rozvrh(token: string, userId?: number | null): Promise<Rozvrh>;
+  /** Uloží týdenní rozvrh (7 dní) a zamkne ho; volající svůj jen jednou, super admin kdykoli. */
+  ulozitRozvrh(token: string, userId: number, dny: RozvrhDenVstup[]): Promise<Rozvrh>;
+  /** Jen super admin: volající si rozvrh smí nastavit ještě jednou. */
+  odemknoutRozvrh(token: string, userId: number): Promise<Rozvrh>;
+  /** Vlastní poznámka ke dni tohoto týdne (YYYY-MM-DD); prázdný text ji smaže. */
+  poznamkaRozvrhu(token: string, den: string, text: string): Promise<Rozvrh>;
+  /** Jen super admin: plnění rozvrhu všech Volajících, kdo je pozadu, je první. */
+  prehledRozvrhu(token: string): Promise<RozvrhPrehledRadek[]>;
 }

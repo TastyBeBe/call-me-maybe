@@ -2,16 +2,17 @@ import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { getApi, type Role, type UpdateUserArgs, type UserStats } from '../api';
 import { audio } from '../audio';
 import { OWNER_USER_ID, useSession } from '../auth';
-import { isSuperAdmin, roleLabel } from '../roles';
+import { ROLE_VOLBY, isSuperAdmin, roleLabel } from '../roles';
 import { ErrorBox, Spinner, errMsg } from '../ui';
 import { CheckIcon, PencilIcon } from '../icons';
 
 /**
  * UŽIVATELÉ (migrace 023 + 024, Albert 2026-09-24). Server rozhoduje sám; tady se jen
  * nenabízí, co by odmítl:
- *   - Albert (id 1): všichni, role (volající / admin / super admin) i nadřízený.
- *   - super admin: VIDÍ všechny (migrace 027), upravuje sebe a lidi pod sebou; zakládá volající pod sebe.
- *   - admin a volající: stránku nemají (route i dlaždice jen pro super admina).
+ *   - Albert (id 1): všichni, role (Volající / Super admin) i nadřízený.
+ *     ⚠ NAHRAZUJE tři role volající / admin / super admin (migrace 042, Albert 18. 10. 2026).
+ *   - super admin: VIDÍ všechny (migrace 027), upravuje sebe a lidi pod sebou; zakládá Volající pod sebe.
+ *   - Volající: stránku nemá (route i dlaždice jen pro super admina).
  *     ⚠ NAHRAZUJE stav z migrace 023, kdy admin mohl zakládat volající —
  *     od migrace 024 lidi zakládá jen super admin.
  */
@@ -27,7 +28,7 @@ export default function UzivatelePage() {
   const [username, setUsername] = useState('');
   const [displayName, setDisplayName] = useState('');
   const [password, setPassword] = useState('');
-  const [role, setRole] = useState<Role>('caller');
+  const [role, setRole] = useState<Role>('admin');
   const [managerId, setManagerId] = useState<number>(OWNER_USER_ID);
   const [formError, setFormError] = useState('');
   const [formOk, setFormOk] = useState('');
@@ -37,7 +38,7 @@ export default function UzivatelePage() {
   const [editId, setEditId] = useState<number | null>(null);
   const [eDisplayName, setEDisplayName] = useState('');
   const [ePassword, setEPassword] = useState('');
-  const [eRole, setERole] = useState<Role>('caller');
+  const [eRole, setERole] = useState<Role>('admin');
   const [eActive, setEActive] = useState(true);
   const [eManagerId, setEManagerId] = useState<number | null>(null);
   const [editError, setEditError] = useState('');
@@ -74,7 +75,7 @@ export default function UzivatelePage() {
     setFormOk('');
     setBusy(true);
     try {
-      const r: Role = isOwner ? role : 'caller';
+      const r: Role = isOwner ? role : 'admin'; // super admin zakládá Volající pod sebe (migrace 042)
       await getApi().createUser(
         session.token,
         username,
@@ -88,7 +89,7 @@ export default function UzivatelePage() {
       setUsername('');
       setDisplayName('');
       setPassword('');
-      setRole('caller');
+      setRole('admin');
       setManagerId(OWNER_USER_ID);
       await load();
     } catch (err) {
@@ -103,7 +104,7 @@ export default function UzivatelePage() {
     setEditId(u.user_id);
     setEDisplayName(u.display_name);
     setEPassword('');
-    setERole(u.role);
+    setERole(u.role === 'caller' ? 'admin' : u.role);
     setEActive(u.active);
     setEManagerId(u.manager_id);
     setEditError('');
@@ -148,11 +149,11 @@ export default function UzivatelePage() {
     }
   };
 
-  const roleBadgeClass = (r: Role) => (r === 'caller' ? 'yellow' : 'rating');
+  const roleBadgeClass = (r: Role) => (r === 'super_admin' ? 'rating' : 'yellow');
 
   return (
     <div>
-      <p className="eyebrow">{isSuper ? 'lidé' : 'admin'}</p>
+      <p className="eyebrow">lidé</p>
       <h1 className="page-title">Uživatelé</h1>
 
       <div className="two-col">
@@ -226,9 +227,11 @@ export default function UzivatelePage() {
                               value={eRole}
                               onChange={(e) => setERole(e.target.value as Role)}
                             >
-                              <option value="caller">volající</option>
-                              <option value="admin">admin</option>
-                              <option value="super_admin">super admin</option>
+                              {ROLE_VOLBY.map((o) => (
+                                <option key={o.value} value={o.value}>
+                                  {o.label}
+                                </option>
+                              ))}
                             </select>
                           ) : (
                             <>
@@ -342,15 +345,17 @@ export default function UzivatelePage() {
                 <label htmlFor="nu-role">Role</label>
                 {isOwner ? (
                   <select id="nu-role" value={role} onChange={(e) => setRole(e.target.value as Role)}>
-                    <option value="caller">volající</option>
-                    <option value="admin">admin</option>
-                    <option value="super_admin">super admin</option>
+                    {ROLE_VOLBY.map((o) => (
+                      <option key={o.value} value={o.value}>
+                        {o.label}
+                      </option>
+                    ))}
                   </select>
                 ) : (
                   <>
-                    <input id="nu-role" value="volající" readOnly />
+                    <input id="nu-role" value={roleLabel('admin')} readOnly />
                     <p className="muted" style={{ fontSize: 13, margin: '2px 0 0' }}>
-                      Nového admina zakládá jen Albert. Nový volající bude pod tebou.
+                      Nového super admina zakládá jen Albert. Nový volající bude pod tebou.
                     </p>
                   </>
                 )}

@@ -617,7 +617,7 @@ export default function ZpravyPage() {
 
   return (
     <div>
-      <p className="eyebrow">admin · chat s AI agenty</p>
+      <p className="eyebrow">chat s AI agenty</p>
       <h1 className="page-title">
         Zprávy
         {filter !== 'resolved' && openCount > 0 && (

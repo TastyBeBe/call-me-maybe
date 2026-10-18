@@ -22,6 +22,7 @@ import HomePage from './pages/HomePage';
 import LoginPage from './pages/LoginPage';
 import MojiPage from './pages/MojiPage';
 import OznacenePage from './pages/OznacenePage';
+import RozvrhPage from './pages/RozvrhPage';
 import SetupPage from './pages/SetupPage';
 import StatsPage from './pages/StatsPage';
 import UzivatelePage from './pages/UzivatelePage';
@@ -139,6 +140,14 @@ function TopBar() {
         >
           moji klienti
         </NavLink>
+        {/* Rozvrh volání vidí každý svůj, super admin kohokoli (migrace 042, Albert 18. 10. 2026). */}
+        <NavLink
+          to="/rozvrh"
+          data-sfx="none"
+          className={({ isActive }) => `nav-pill${isActive ? ' active' : ''}`}
+        >
+          rozvrh
+        </NavLink>
         {/* Kontakty (celou databázi) vidí od migrace 023 všichni — Albert 2026-09-24. */}
         <NavLink
           to="/admin"
@@ -240,6 +249,14 @@ export default function App() {
           element={
             <RequireAuth>
               <MojiPage />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/rozvrh"
+          element={
+            <RequireAuth>
+              <RozvrhPage />
             </RequireAuth>
           }
         />

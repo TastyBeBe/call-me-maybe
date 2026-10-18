@@ -2077,3 +2077,100 @@ table.kontakty tr:last-child td {
   font-size: 12px;
   opacity: 0.75;
 }
+
+/* ---------- Rozvrh (migrace 042, Albert 18. 10. 2026) ----------
+   Hláška nahoře: pozadu (růžová), v plánu nebo napřed (zelená), bez rozvrhu (žlutá).
+   Dny jsou karty, které se na telefonu zalomí pod sebe. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+.rozvrh-alert {
+  padding: 16px 20px;
+  margin: 0 0 16px;
+  border-radius: var(--r-tile);
+}
+.rozvrh-alert.zle { background: var(--pink); color: var(--paper-on-dark); }
+.rozvrh-alert.dobre { background: var(--green); color: var(--paper-on-dark); }
+.rozvrh-alert.info { background: var(--yellow); }
+.rozvrh-alert p { margin: 0; }
+.rozvrh-alert-titulek { font-size: 22px; font-weight: 800; line-height: 1.15; }
+.rozvrh-alert-text { font-weight: 700; margin-top: 4px !important; }
+.rozvrh-alert-dnes {
+  font-weight: 800;
+  margin-top: 10px !important;
+  padding-top: 10px;
+  border-top: 2px solid currentColor;
+}
+.rozvrh-kdo { font-size: 22px; font-weight: 800; margin: 4px 0 10px; }
+.rozvrh-akce { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 0 0 16px; }
+.rozvrh-kdo-nastavil { margin: 0; font-size: 13.5px; flex-basis: 100%; }
+.rozvrh-dny { display: grid; gap: 12px; }
+.rozvrh-den { padding: 12px 16px; border-radius: var(--r-tile); box-shadow: var(--shadow-hard-sm); }
+.rozvrh-den.dnes { background: var(--butter); }
+.rozvrh-den-hlava {
+  display: grid;
+  grid-template-columns: minmax(150px, 1.2fr) minmax(140px, 1fr) minmax(90px, auto) auto;
+  align-items: center;
+  gap: 6px 14px;
+}
+.rozvrh-den-jmeno { font-weight: 800; font-size: 16px; }
+.rozvrh-den-plan, .rozvrh-den-hovory { font-weight: 700; font-size: 14.5px; }
+.rozvrh-ton.zle { background: var(--pink); color: var(--paper-on-dark); }
+.rozvrh-ton.dobre { background: var(--green); color: var(--paper-on-dark); }
+.rozvrh-ton.info { background: var(--yellow); color: var(--ink); }
+.rozvrh-ton.nic { background: var(--cream); color: var(--ink-soft); }
+.rozvrh-poznamka { margin: 8px 0 0; font-weight: 700; font-size: 14.5px; white-space: pre-wrap; }
+.rozvrh-pozn-btn { margin-top: 8px; }
+.rozvrh-pozn-form { margin-top: 8px; }
+.rozvrh-uprava { margin: 0 0 16px; }
+.rozvrh-uprava-den {
+  display: grid;
+  grid-template-columns: 110px minmax(110px, 160px) auto 1fr;
+  align-items: center;
+  gap: 8px 12px;
+  padding: 6px 0;
+  border-bottom: 1px dashed var(--butter-dot);
+}
+.rozvrh-od { display: flex; align-items: center; gap: 6px; font-weight: 700; font-size: 14px; }
+.rozvrh-od input { width: 112px; }
+.rozvrh-varovani {
+  background: var(--yellow);
+  border: 2px solid var(--ink);
+  border-radius: var(--r-ctl);
+  font-weight: 800;
+  padding: 8px 12px;
+  margin: 8px 0 12px;
+}
+.rozvrh-clovek {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: none;
+  border-radius: 10px;
+  padding: 8px 10px;
+  cursor: pointer;
+}
+.rozvrh-clovek:hover { background: var(--cream-deep); }
+.rozvrh-clovek.vybrany { background: var(--butter); outline: 2px solid var(--ink); }
+.rozvrh-clovek .u-name { font-weight: 800; font-size: 16px; }
+.rozvrh-dnes-kratce { font-size: 13.5px; }
+.home-rozvrh { display: block; text-decoration: none; color: inherit; margin: 0 0 18px; }
+.home-rozvrh .rozvrh-alert { margin: 0; }
+@media (max-width: 640px) {
+  .rozvrh-den-hlava { grid-template-columns: 1fr auto; }
+  .rozvrh-den-plan { grid-column: 1 / -1; }
+  .rozvrh-uprava-den { grid-template-columns: 1fr 1fr; }
+  .rozvrh-uprava-den .rozvrh-den-jmeno { grid-column: 1 / -1; }
+  .rozvrh-alert-titulek { font-size: 19px; }
+}
