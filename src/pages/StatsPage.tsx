@@ -33,7 +33,7 @@ function StatCards({ stats }: { stats: MyStats }) {
 export default function StatsPage() {
   const session = useSession();
   const isAdmin = isAdminRole(session.role);
-  // Cizí statistiky vidí jen super admin — své lidi; Albert všechny (migrace 023).
+  // Cizí statistiky vidí jen super admin; od migrace 027 každý super admin všechny (allStats), ostatní jen sebe.
   const isSuper = isSuperAdmin(session.role);
   const [myStats, setMyStats] = useState<MyStats | null>(null);
   const [allStats, setAllStats] = useState<UserStats[] | null>(null);
