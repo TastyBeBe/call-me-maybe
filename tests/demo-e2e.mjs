@@ -656,6 +656,60 @@ const bezVytaceni = (page) =>
   await ctx.close();
 }
 
+/* ============ R) Rozvrh (migrace 042, Albert 18. 10. 2026): Volající nastaví jednou, super admin mění a odemyká ============ */
+{
+  const { ctx, page } = await novaStranka('honza');
+  await jdi(page, '#/rozvrh', 600);
+  const alert = () => page.locator('.rozvrh-alert').first().innerText();
+  over('R1', /Ještě nemáš rozvrh/.test(await alert()), 'Honza bez rozvrhu vidí výzvu k nastavení', await alert());
+  await page.getByRole('button', { name: 'Nastavit rozvrh' }).click();
+  await page.selectOption('#rh-0', '4');
+  await page.selectOption('#rh-6', '1');
+  over('R2', /Za týden 50 hovorů/.test(await page.locator('.rozvrh-uprava').innerText()), 'úprava počítá cíl za týden (4 h + 1 h = 50 hovorů)');
+  await page.getByRole('button', { name: 'Uložit rozvrh' }).click();
+  over('R3', (await page.getByRole('button', { name: 'Uložit a zamknout' }).count()) === 1, 'Volající musí uložení potvrdit (pak už rozvrh nezmění)');
+  await page.getByRole('button', { name: 'Uložit a zamknout' }).click();
+  await klid(page, 400);
+  over('R4', /uložený a zamčený/.test(await page.locator('.info-box').innerText())
+    && (await page.getByRole('button', { name: 'Upravit rozvrh' }).count()) === 0, 'po uložení je rozvrh zamčený, Upravit rozvrh chybí');
+  over('R5', /zamčený, změnit ho může jen super admin/.test(await page.locator('.rozvrh-kdo-nastavil').innerText()), 'Volající ví, kdo rozvrh mění');
+  // poznámka ke dnešku
+  const dnes = page.locator('.rozvrh-den.dnes');
+  await dnes.getByRole('button', { name: 'Napsat poznámku' }).click();
+  await dnes.locator('textarea').fill('Nemohl jsem volat, byl jsem u doktora.');
+  await dnes.getByRole('button', { name: 'Uložit poznámku' }).click();
+  await klid(page, 300);
+  over('R6', /u doktora/.test(await dnes.locator('.rozvrh-poznamka').innerText()), 'poznámka ke dnešku se uloží a ukáže');
+  await ctx.close();
+}
+{
+  const { ctx, page } = await novaStranka('mikulas');
+  await jdi(page, '#/rozvrh', 700);
+  const radky = await page.locator('.rozvrh-clovek').allInnerTexts();
+  over('R7', radky.some((r) => /^Petra/.test(r)) && radky.some((r) => /^Honza\s*bez rozvrhu/.test(r)), 'super admin vidí přehled Volajících', radky.join(' | '));
+  await page.locator('.rozvrh-clovek', { hasText: 'Petra' }).click();
+  await klid(page, 400);
+  over('R8', (await page.locator('.rozvrh-kdo').innerText()) === 'Petra' && (await page.locator('.rozvrh-pozn-btn').count()) === 0,
+    'super admin otevře cizí rozvrh, poznámky jen čte');
+  await page.getByRole('button', { name: 'Upravit rozvrh' }).click();
+  await page.selectOption('#rh-0', '2');
+  await page.getByRole('button', { name: 'Uložit rozvrh' }).click();
+  await klid(page, 400);
+  over('R9', (await page.getByRole('button', { name: 'Uložit a zamknout' }).count()) === 0
+    && /naposledy změnil\(a\) Mikuláš/.test(await page.locator('.rozvrh-kdo-nastavil').innerText()), 'super admin uloží bez potvrzení zámku, změna má jeho jméno');
+  await page.getByRole('button', { name: 'Povolit volajícímu nastavit ho znovu' }).click();
+  await klid(page, 400);
+  over('R10', /může rozvrh ještě jednou nastavit/.test(await page.locator('.info-box').innerText()), 'super admin rozvrh odemkne');
+  await ctx.close();
+}
+{
+  const { ctx, page } = await novaStranka('honza', { sirka: 390, vyska: 844 });
+  await jdi(page, '#/rozvrh', 600);
+  const sirka = await page.evaluate(() => document.documentElement.scrollWidth);
+  over('R11', sirka <= 390, 'Rozvrh se na telefonu (390 px) vejde bez vodorovného posunu', `scrollWidth ${sirka}`);
+  await ctx.close();
+}
+
 await browser.close();
 server.close();
 rmSync(OUT, { recursive: true, force: true });

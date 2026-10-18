@@ -1958,9 +1958,10 @@ const mockApiZaklad: Api = {
   async ulozitRozvrh(token: string, userId: number, dny: RozvrhDenVstup[]): Promise<Rozvrh> {
     await delay();
     const me = auth(token);
+    // práva napřed jako server (recenze 18. 10. 2026): Volající podle hlášky nepozná, které id existuje
+    if ((userId ?? me.id) !== me.id && me.role !== 'super_admin') fail('Rozvrh jiného člověka nastavuje jen super admin.');
     const cil = users.find((u) => u.id === (userId ?? me.id));
     if (!cil) fail(`Uživatel id=${userId} neexistuje.`);
-    if (cil.id !== me.id && me.role !== 'super_admin') fail('Rozvrh jiného člověka nastavuje jen super admin.');
     const hlava = rozvrhy.get(cil.id);
     if (me.role !== 'super_admin' && hlava?.zamceno) fail('Rozvrh už je nastavený. Změnit ho může jen super admin.');
     if (!Array.isArray(dny) || dny.length !== 7) fail('Rozvrh musí mít všech 7 dní (pondělí až neděle).');

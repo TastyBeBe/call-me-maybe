@@ -111,7 +111,7 @@ export function flagHint(kind: FlagKind, segment?: string): string {
 export function flagHintDetail(kind: FlagKind, readOnly: boolean, segment?: string): string {
   if (kind === 'chybi_email') {
     return readOnly
-      ? 'Na tohoto klienta nemáme funkční e-mail, takže mu nejde poslat návrh. Když ho zjistíš, dej ho vědět adminovi — příznak pak zruší on nebo ona.'
+      ? 'Na tohoto klienta nemáme funkční e-mail, takže mu nejde poslat návrh. Když ho zjistíš, dej ho vědět svému super adminovi, příznak pak zruší on nebo ona.'
       : 'Na tohoto klienta nemáme funkční e-mail, takže mu nejde poslat návrh. E-mail zapsaný tady v detailu příznak sám nezruší — až je věc vyřešená, klikni na Vyřešeno.';
   }
   return flagHint(kind, segment);

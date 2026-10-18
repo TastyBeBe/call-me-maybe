@@ -273,7 +273,7 @@ export default function RozvrhPage() {
                     >
                       {HODINY.map((h) => (
                         <option key={h} value={String(h)}>
-                          {h === 0 ? 'nevolám' : hodin(h)}
+                          {h === 0 ? (ja ? 'nevolám' : 'nevolá') : hodin(h)}
                         </option>
                       ))}
                     </select>
