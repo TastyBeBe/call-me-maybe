@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { getApi, type AutomationStatus } from '../api';
+import { getApi, type AutomationStatus, type Rozvrh } from '../api';
 import { OWNER_USER_ID, useSession } from '../auth';
 import { accountLabel, powerSummary } from '../automation';
 import { isAdminRole, isSuperAdmin } from '../roles';
-import { ChartIcon, FlagIcon, MessageIcon, PhoneIcon, RocketIcon, TableIcon, UsersIcon } from '../icons';
+import { CalendarIcon, ChartIcon, FlagIcon, MessageIcon, PhoneIcon, RocketIcon, TableIcon, UsersIcon } from '../icons';
+import { dnesHlaska, stavHlaska } from '../rozvrh';
 import { formatDateTime } from '../ui';
 
 /** Podtitulek dlaždice Automatizace: stejný stav jako na stránce, ať ho Albert vidí hned. */
@@ -23,6 +24,38 @@ function AutomationTileSub({ st }: { st: AutomationStatus | null }) {
         {extra}
       </span>
     </span>
+  );
+}
+
+/**
+ * Připomínka rozvrhu na Domů (migrace 042, Albert 18. 10. 2026: „the caller should be reminded when
+ * and how long he is supposed to call today“). Server bez migrace 042 rozvrh_get nezná: pak se
+ * nic neukáže (chyba se tu neříká, záložka Rozvrh ji řekne).
+ */
+function RozvrhPripominka({ token, jaSuper }: { token: string; jaSuper: boolean }) {
+  const [r, setR] = useState<Rozvrh | null>(null);
+  useEffect(() => {
+    let alive = true;
+    getApi()
+      .rozvrh(token)
+      .then((x) => {
+        if (alive) setR(x);
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [token]);
+  if (!r) return null;
+  const h = stavHlaska(r, true, jaSuper);
+  const dnes = dnesHlaska(r, true);
+  return (
+    <Link to="/rozvrh" className="home-rozvrh" data-sfx="none">
+      <div className={`card rozvrh-alert ${h.ton}`} role="status">
+        <p className="rozvrh-alert-titulek">{h.titulek}</p>
+        <p className="rozvrh-alert-text">{dnes ?? h.text}</p>
+      </div>
+    </Link>
   );
 }
 
@@ -56,6 +89,7 @@ export default function HomePage() {
     <div>
       <p className="eyebrow">webdomov · interní</p>
       <h1 className="page-title">Ahoj, {session.display_name}!</h1>
+      <RozvrhPripominka token={session.token} jaSuper={isSuper} />
       <div className="home-grid">
         <Link to="/call" className="big-tile hot">
           <span className="tile-emoji"><PhoneIcon size={42} /></span>
@@ -73,6 +107,11 @@ export default function HomePage() {
           <span className="tile-sub">
             {isSuper ? 'moje kontakty + klienti kohokoli' : 'moje kontakty + vzkazy agentům'}
           </span>
+        </Link>
+        <Link to="/rozvrh" className="big-tile">
+          <span className="tile-emoji"><CalendarIcon size={42} /></span>
+          <span className="tile-label">ROZVRH</span>
+          <span className="tile-sub">{isSuper ? 'kdy kdo volá a kdo je pozadu' : 'kdy a jak dlouho volám'}</span>
         </Link>
         <Link to="/admin" className="big-tile">
           <span className="tile-emoji"><TableIcon size={42} /></span>

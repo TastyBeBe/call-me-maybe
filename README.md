@@ -72,9 +72,12 @@ Demo přihlášení (jen DEMO, falešná data v paměti):
 | ---------------------------- | --------- | --------- |
 | super admin + majitel (Albert) | `admin`   | `admin`   |
 | super admin (Mikuláš)        | `mikulas` | `mikulas` |
-| admin (Eva, pod Albertem)    | `eva`     | `eva`     |
-| volající (Petra, pod Albertem) | `petra`   | `volam`   |
-| volající (Honza, pod Mikulášem) | `honza`   | `volam`   |
+| Volající (Eva, pod Albertem)    | `eva`     | `eva`     |
+| Volající (Petra, pod Albertem; rozvrh nastavený a zamčený, je pozadu) | `petra`   | `volam`   |
+| Volající (Honza, pod Mikulášem; rozvrh ještě nemá) | `honza`   | `volam`   |
+
+⚠ Od migrace 042 jsou Petra a Honza Volající (role `admin`) jako Eva; NAHRAZUJE „volající (caller)“.
+Eva má v demu rozvrh a je napřed. Hovory minulých dnů týdne jsou v demu jen pro rozvrh (mimo `callLog`).
 
 Demo mock (`src/api/mock.ts`) má stejná pravidla viditelnosti jako server (migrace 023
 až 036): i hledání osobního IČO jen celým číslem a jen u kontaktů, které smí upravit, IČO
@@ -94,7 +97,9 @@ e-mailu (volala Petra), 303 má odeslaný návrh a čeká na odpověď (volal Ho
 
 ## Role a kdo co vidí (migrace 023, Albert 2026-09-24)
 
-Tři role: **volající**, **admin**, **super admin**; majitel účtu je Albert (users.id 1).
+⚠ Od migrace 042 (Albert 18. 10. 2026) NAHRAZUJE „tři role volající, admin, super admin“: role jsou
+jen dvě, **Volající** (klíč `admin`, stará role `caller` je s ním sloučená) a **Super admin**; majitel
+účtu je Albert (users.id 1).
 Každý vidí **jen svoje** (statistiky, klienty, zprávy, označené); cizí lidi vidí super
 admin a Albert — od migrace 027 (Albert 2026-09-25) **každý super admin všechny**;
 upravovat a psát do vlákna ale dál jen u svých lidí (cizí vlákno je jen ke čtení, server
@@ -173,10 +178,11 @@ který schvaluje Albert (u zprávy je vidět jeho stav).
 | `#/call`      | všichni | fronta hovorů: přepínač chaty / architekti (028), karta kontaktu + výsledky (nedovoláno/odmítnuto/zájem). Poznámka k hovoru je **nepovinná** — zájem jde uložit i bez ní (Albert 2026-09-23; dřív se při prázdné poznámce otevíralo potvrzovací okno navíc) |
 | `#/stats`     | všichni | moje statistiky; super admin (i Albert) přes dropdown kohokoli (027); trychtýř „Klienti podle stavu" (admin) s filtrem segmentu (028) |
 | `#/moji`      | všichni | moji klienti (+ historie poznámek v detailu); super admin může vybrat kohokoli (027); filtr segmentu (028) |
+| `#/rozvrh`    | všichni | Rozvrh (042): týden po až ne, hodiny na den a cíl (hovorů za hodinu posílá server), plnění z hovorů, hláška pozadu / v plánu / napřed, poznámky ke dnům; Volající si ho nastaví jednou, super admin vidí přehled všech, mění a odemyká |
 | `#/admin`     | všichni | Kontakty: celá databáze s filtry (i segment, 028) a fulltextem (i studio, město, IČO; IČO jen admin a super admin, 038); upravovat smí admin a super admin |
 | `#/oznacene`  | admin   | označení klienti — admin svoji; super admin a Albert všichni (027); filtr segmentu (028) |
 | `#/zpravy`    | admin   | vlákna s AI agenty — admin svoje; super admin vlákna všech lidí (cizí jen ke čtení, 027); Albert i automatizaci; odznak architekta u hledaného kontaktu (028) |
-| `#/uzivatele` | super admin | super admin: všichni lidé, upravuje sebe a své lidi + nový volající (027); Albert: role a nadřízení (⚠ od migrace 024 normální admin stránku nemá) |
+| `#/uzivatele` | super admin | super admin: všichni lidé, upravuje sebe a své lidi + nový Volající (027, 042); Albert: role (Volající / Super admin, 042) a nadřízení (⚠ od migrace 024 Volající stránku nemá) |
 | `#/automatizace` | Albert | vypínač automatizace a přepínač účtu Claude                    |
 | `#/setup`     | všichni | nastavení Supabase URL + anon klíče                              |
 

@@ -314,7 +314,7 @@ export default function AutomatizacePage() {
 
   return (
     <div>
-      <p className="eyebrow">admin · jen Albert</p>
+      <p className="eyebrow">jen Albert</p>
       <h1 className="page-title">Automatizace</h1>
       <p className="muted" style={{ marginTop: -6, marginBottom: 6 }}>
         Vypínač celé automatizace a přepínač účtu Claude, který veze agenty. Obojí nechá

@@ -17,6 +17,9 @@ import type {
   MyStats,
   ResolveCallArgs,
   Role,
+  Rozvrh,
+  RozvrhDenVstup,
+  RozvrhPrehledRadek,
   Segment,
   Session,
   ThreadDetail,
@@ -333,5 +336,27 @@ export const supabaseApi: Api = {
 
   async requestAutomationStart(token: string): Promise<AutomationStatus> {
     return rpc<AutomationStatus>('request_automation_start', { p_token: token });
+  },
+
+  /* ---- rozvrh volání (migrace 042) ---- */
+
+  async rozvrh(token: string, userId: number | null = null): Promise<Rozvrh> {
+    return rpc<Rozvrh>('rozvrh_get', { p_token: token, p_user_id: userId });
+  },
+
+  async ulozitRozvrh(token: string, userId: number, dny: RozvrhDenVstup[]): Promise<Rozvrh> {
+    return rpc<Rozvrh>('rozvrh_ulozit', { p_token: token, p_user_id: userId, p_dny: dny });
+  },
+
+  async odemknoutRozvrh(token: string, userId: number): Promise<Rozvrh> {
+    return rpc<Rozvrh>('rozvrh_odemknout', { p_token: token, p_user_id: userId });
+  },
+
+  async poznamkaRozvrhu(token: string, den: string, text: string): Promise<Rozvrh> {
+    return rpc<Rozvrh>('rozvrh_poznamka', { p_token: token, p_den: den, p_text: text });
+  },
+
+  async prehledRozvrhu(token: string): Promise<RozvrhPrehledRadek[]> {
+    return (await rpc<RozvrhPrehledRadek[]>('rozvrh_prehled', { p_token: token })) ?? [];
   },
 };

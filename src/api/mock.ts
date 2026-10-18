@@ -26,6 +26,11 @@ import type {
   Rating,
   ResolveCallArgs,
   Role,
+  Rozvrh,
+  RozvrhDen,
+  RozvrhDenVstup,
+  RozvrhPrehledRadek,
+  RozvrhStav,
   Segment,
   Session,
   ThreadDetail,
@@ -60,11 +65,13 @@ const daysAgo = (d: number) => new Date(Date.now() - d * 86400000).toISOString()
 const delay = (ms = 180) => new Promise<void>((r) => setTimeout(r, ms));
 
 // Demo role (migrace 023): Albert = majitel + super admin; Mikuláš = super admin a pod
-// ním Honza; Petra a Eva (admin) pod Albertem. Hesla jsou jen pro DEMO (README).
+// ním Honza; Petra a Eva pod Albertem. Hesla jsou jen pro DEMO (README).
+// ⚠ Od migrace 042 (Albert 18. 10. 2026) jsou Petra a Honza Volající (role admin) jako Eva;
+// NAHRAZUJE „Petra a Honza = caller“. Role caller na serveru není, mock ji taky nemá.
 const users: MockUser[] = [
   { id: 1, username: 'admin', display_name: 'Albert', password: 'admin', role: 'super_admin', active: true, manager_id: null },
-  { id: 2, username: 'petra', display_name: 'Petra', password: 'volam', role: 'caller', active: true, manager_id: 1 },
-  { id: 3, username: 'honza', display_name: 'Honza', password: 'volam', role: 'caller', active: true, manager_id: 4 },
+  { id: 2, username: 'petra', display_name: 'Petra', password: 'volam', role: 'admin', active: true, manager_id: 1 },
+  { id: 3, username: 'honza', display_name: 'Honza', password: 'volam', role: 'admin', active: true, manager_id: 4 },
   { id: 4, username: 'mikulas', display_name: 'Mikuláš', password: 'mikulas', role: 'super_admin', active: true, manager_id: null },
   { id: 5, username: 'eva', display_name: 'Eva', password: 'eva', role: 'admin', active: true, manager_id: 1 },
 ];
@@ -913,6 +920,161 @@ function mockAutomationStatus(): AutomationStatus {
   };
 }
 
+/* ---- rozvrh volání — zrcadlí db/migration_042_volajici_rozvrh.sql ---- */
+
+/** app_rozvrh_za_hodinu() na serveru; appka číslo bere z odpovědi (hovoru_za_hodinu), ne odtud. */
+const ZA_HODINU = 10;
+
+interface MockRozvrh {
+  zamceno: boolean;
+  nastavil_id: number;
+  nastaveno_at: string;
+  zmenil_id: number | null;
+  zmeneno_at: string | null;
+  dny: { den: number; hodiny: number; od: string | null }[];
+}
+
+const rozvrhy = new Map<number, MockRozvrh>();
+/** Poznámky ke dni: klíč `${user_id}|${YYYY-MM-DD}`. */
+const rozvrhPoznamky = new Map<string, { text: string; at: string }>();
+/**
+ * Hovory z minulých dnů týdne jen pro demo rozvrhu (klíč `${user_id}|${YYYY-MM-DD}` -> počet).
+ * Schválně mimo callLog: falešné hovory by v demu změnily frontu volání a „svoje“ klienty, které
+ * měří npm test. Server počítá jen call_log; hovory zapsané v demu (resolveCall) se počítají taky.
+ */
+const demoHovoryRozvrhu = new Map<string, number>();
+
+const PRAHA_DEN = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Prague', year: 'numeric', month: '2-digit', day: '2-digit' });
+/** Den v Praze jako YYYY-MM-DD (rozvrh, poznámky a hovory se počítají po pražských dnech). */
+function denPraha(d: Date): string {
+  return PRAHA_DEN.format(d);
+}
+function posunDen(datum: string, n: number): string {
+  const [y, m, d] = datum.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, d + n)).toISOString().slice(0, 10);
+}
+/** ISO den v týdnu: 1 = pondělí … 7 = neděle. */
+function isoDen(datum: string): number {
+  const [y, m, d] = datum.split('-').map(Number);
+  const w = new Date(Date.UTC(y, m - 1, d)).getUTCDay();
+  return w === 0 ? 7 : w;
+}
+
+/** app_rozvrh_stav: rozvrh, hovory a plnění týdne s dneškem `dnes` (bez práv přihlášeného). */
+function rozvrhStav(uid: number, dnes = denPraha(new Date())) {
+  const hlava = rozvrhy.get(uid) ?? null;
+  const dnesI = isoDen(dnes);
+  const od = posunDen(dnes, -(dnesI - 1));
+  // den, kdy byl rozvrh poprvé nastavený: dny před ním cíl nemají a jejich hovory se nepočítají
+  const start = hlava ? denPraha(new Date(hlava.nastaveno_at)) : od;
+  const dny: RozvrhDen[] = [];
+  for (let i = 1; i <= 7; i++) {
+    const datum = posunDen(od, i - 1);
+    const sablona = hlava?.dny.find((d) => d.den === i);
+    const hodiny = sablona?.hodiny ?? 0;
+    const hovory =
+      callLog.filter((l) => l.user_id === uid && denPraha(new Date(l.created_at)) === datum).length +
+      (demoHovoryRozvrhu.get(`${uid}|${datum}`) ?? 0);
+    const pozn = rozvrhPoznamky.get(`${uid}|${datum}`) ?? null;
+    const pred = datum < start;
+    dny.push({
+      den: i,
+      datum,
+      hodiny,
+      od: hodiny > 0 ? sablona?.od ?? null : null,
+      cil: pred ? 0 : Math.round(hodiny * ZA_HODINU),
+      hovory,
+      minuly: datum < dnes,
+      dnes: datum === dnes,
+      pred_rozvrhem: pred,
+      poznamka: pozn?.text ?? null,
+      poznamka_at: pozn?.at ?? null,
+    });
+  }
+  const soucet = (f: (d: RozvrhDen) => boolean, v: (d: RozvrhDen) => number) => dny.filter(f).reduce((a, d) => a + v(d), 0);
+  const cilV = soucet((d) => d.den < dnesI, (d) => d.cil);
+  const cilD = soucet((d) => d.den <= dnesI, (d) => d.cil);
+  const hov = soucet((d) => d.datum <= dnes && !d.pred_rozvrhem, (d) => d.hovory);
+  let stav: RozvrhStav = 'v_planu';
+  let rozdil = 0;
+  if (!hlava) stav = 'bez_rozvrhu';
+  else if (hov < cilV) { stav = 'pozadu'; rozdil = cilV - hov; }
+  else if (hov > cilD) { stav = 'napred'; rozdil = hov - cilD; }
+  const dnesD = dny[dnesI - 1];
+  const zbyva = Math.max(cilD - hov, 0);
+  const jmeno = (id: number | null | undefined) => users.find((u) => u.id === id)?.display_name ?? null;
+  return {
+    user_id: uid,
+    nastaveny: !!hlava,
+    zamceno: hlava?.zamceno ?? false,
+    nastavil: jmeno(hlava?.nastavil_id),
+    nastaveno_at: hlava?.nastaveno_at ?? null,
+    zmenil: jmeno(hlava?.zmenil_id),
+    zmeneno_at: hlava?.zmeneno_at ?? null,
+    hovoru_za_hodinu: ZA_HODINU,
+    tyden_od: od,
+    tyden_do: posunDen(od, 6),
+    dnes,
+    dny,
+    souhrn: {
+      stav,
+      rozdil,
+      rozdil_hodiny: Math.round((rozdil / ZA_HODINU) * 10) / 10,
+      cil_do_vcera: cilV,
+      cil_do_dnes: cilD,
+      cil_tyden: soucet(() => true, (d) => d.cil),
+      hovory_tyden: hov,
+      dnes_hodiny: dnesD.hodiny,
+      dnes_od: dnesD.od,
+      dnes_cil: dnesD.cil,
+      dnes_hovory: dnesD.hovory,
+      dnes_zbyva: zbyva,
+      dnes_zbyva_hodiny: Math.round((zbyva / ZA_HODINU) * 10) / 10,
+    },
+  };
+}
+
+/** app_rozvrh_pro: stav + co s ním smí přihlášený dělat. */
+function rozvrhPro(me: MockUser, cil: MockUser): Rozvrh {
+  const s = rozvrhStav(cil.id);
+  return {
+    ...s,
+    display_name: cil.display_name,
+    role: cil.role,
+    smi_upravit: me.role === 'super_admin' || (cil.id === me.id && !s.zamceno),
+    smi_odemknout: me.role === 'super_admin' && s.nastaveny && s.zamceno,
+    smi_psat_poznamky: cil.id === me.id,
+  };
+}
+
+const DNY_ZKRATKY = ['po', 'út', 'st', 'čt', 'pá', 'so', 'ne'];
+
+// Demo: Petra má rozvrh nastavený a zamčený a je pozadu, Eva je napřed, Honza rozvrh ještě nemá
+// (může si ho nastavit sám). Hovory z minulých dnů týdne jsou jen v demoHovoryRozvrhu.
+(() => {
+  const dnes = denPraha(new Date());
+  const od = posunDen(dnes, -(isoDen(dnes) - 1));
+  const tyden = (h: number[], odKdy: (string | null)[]) => h.map((hodiny, i) => ({ den: i + 1, hodiny, od: hodiny > 0 ? odKdy[i] : null }));
+  rozvrhy.set(2, {
+    zamceno: true, nastavil_id: 2, nastaveno_at: daysAgo(14), zmenil_id: null, zmeneno_at: null,
+    dny: tyden([3, 3, 2, 3, 2, 0, 0], ['09:00', '09:00', '14:00', '09:00', '10:00', null, null]),
+  });
+  rozvrhy.set(5, {
+    zamceno: true, nastavil_id: 4, nastaveno_at: daysAgo(14), zmenil_id: null, zmeneno_at: null,
+    dny: tyden([2, 2, 2, 2, 2, 2, 2], ['16:00', '16:00', '16:00', '16:00', '16:00', '10:00', '10:00']),
+  });
+  for (let i = 1; i < isoDen(dnes); i++) {
+    const datum = posunDen(od, i - 1);
+    const petra = rozvrhy.get(2)!.dny[i - 1].hodiny * ZA_HODINU;
+    if (petra > 0) demoHovoryRozvrhu.set(`2|${datum}`, Math.max(petra - 7, 0));
+    demoHovoryRozvrhu.set(`5|${datum}`, 2 * ZA_HODINU + 4);
+  }
+  demoHovoryRozvrhu.set(`5|${dnes}`, 5);
+  if (isoDen(dnes) > 2) {
+    rozvrhPoznamky.set(`2|${posunDen(od, 1)}`, { text: 'Dopoledne jsem byla u doktora, volala jsem až odpoledne.', at: daysAgo(1) });
+  }
+})();
+
 const mockApiZaklad: Api = {
   async login(username: string, password: string): Promise<Session> {
     await delay();
@@ -1377,11 +1539,14 @@ const mockApiZaklad: Api = {
     if (admin.role !== 'super_admin') fail('Nové uživatele zakládá jen super admin. Požádejte svého super admina.');
     if (!username.trim()) fail('Uživatelské jméno nesmí být prázdné.');
     if (!password || password.length < 6) fail('Heslo musí mít alespoň 6 znaků.');
-    if (role !== 'admin' && role !== 'caller' && role !== 'super_admin') {
-      fail(`Neplatná role: ${role}. Povolené: caller, admin, super_admin.`);
+    // migrace 042: role jen admin („Volající“) a super_admin; stará hodnota caller = admin
+    if (role === 'caller') role = 'admin';
+    if (role !== 'admin' && role !== 'super_admin') {
+      fail(`Neplatná role: ${role}. Povolené: admin (Volající), super_admin.`);
     }
-    if (role !== 'caller' && admin.id !== OWNER_ID) {
-      fail('Nového admina nebo super admina může založit jen Albert. Vy můžete zakládat volající.');
+    // ⚠ NAHRAZUJE (042) „Nového admina nebo super admina může založit jen Albert“
+    if (role === 'super_admin' && admin.id !== OWNER_ID) {
+      fail('Nového super admina může založit jen Albert. Vy můžete zakládat volající.');
     }
     if (users.some((u) => u.username === username.trim())) {
       fail(`Uživatel "${username.trim()}" už existuje.`);
@@ -1408,7 +1573,8 @@ const mockApiZaklad: Api = {
     const admin = authAdmin(token);
     const dn = args.display_name ?? null;
     const pw = args.password ?? null;
-    const role = args.role ?? null;
+    // migrace 042: stará hodnota caller = admin („Volající“)
+    const role: Role | null = args.role === 'caller' ? 'admin' : args.role ?? null;
     const active = args.active ?? null;
     const mgr = args.manager_id ?? null;
 
@@ -1427,11 +1593,13 @@ const mockApiZaklad: Api = {
     if (role !== null && role !== user.role) {
       if (admin.id !== OWNER_ID) fail('Roli může měnit jen majitel účtu.');
       if (userId === admin.id) fail('Vlastní roli změnit nejde.');
+      if (role !== 'admin' && role !== 'super_admin') fail(`Neplatná role: ${role}. Povolené: admin (Volající), super_admin.`);
     }
     if (mgr !== null && mgr !== user.manager_id && admin.id !== OWNER_ID) fail('Nadřízeného může měnit jen Albert.');
     if (active === false && active !== user.active) {
       if (userId === admin.id) fail('Nemůžete deaktivovat sám sebe.');
-      if (user.role !== 'caller' && admin.id !== OWNER_ID) fail('Deaktivovat admina nebo super admina může jen Albert.');
+      // ⚠ NAHRAZUJE (042) „Deaktivovat admina nebo super admina může jen Albert“: Volajícího pod sebou smí super admin
+      if (user.role === 'super_admin' && admin.id !== OWNER_ID) fail('Deaktivovat super admina může jen Albert.');
     }
     if (pw !== null && pw.length < 6) fail('Heslo musí mít alespoň 6 znaků.');
     if (dn !== null && dn.trim() !== user.display_name) checkName(dn, userId);
@@ -1772,6 +1940,104 @@ const mockApiZaklad: Api = {
       return this.cancelAutomationStop(token);
     }
     return mockAutomationStatus();
+  },
+
+  /* ---- rozvrh volání (migrace 042): stejná pravidla a hlášky jako server ---- */
+
+  async rozvrh(token: string, userId: number | null = null): Promise<Rozvrh> {
+    await delay(120);
+    const me = auth(token);
+    if (userId !== null && userId !== undefined && userId !== me.id && me.role !== 'super_admin') {
+      fail('Rozvrh jiného člověka vidí jen super admin.');
+    }
+    const cil = users.find((u) => u.id === (userId ?? me.id));
+    if (!cil) fail(`Uživatel id=${userId} neexistuje.`);
+    return rozvrhPro(me, cil);
+  },
+
+  async ulozitRozvrh(token: string, userId: number, dny: RozvrhDenVstup[]): Promise<Rozvrh> {
+    await delay();
+    const me = auth(token);
+    // práva napřed jako server (recenze 18. 10. 2026): Volající podle hlášky nepozná, které id existuje
+    if ((userId ?? me.id) !== me.id && me.role !== 'super_admin') fail('Rozvrh jiného člověka nastavuje jen super admin.');
+    const cil = users.find((u) => u.id === (userId ?? me.id));
+    if (!cil) fail(`Uživatel id=${userId} neexistuje.`);
+    const hlava = rozvrhy.get(cil.id);
+    if (me.role !== 'super_admin' && hlava?.zamceno) fail('Rozvrh už je nastavený. Změnit ho může jen super admin.');
+    if (!Array.isArray(dny) || dny.length !== 7) fail('Rozvrh musí mít všech 7 dní (pondělí až neděle).');
+    const videno = new Set<number>();
+    for (const d of dny) {
+      const hodiny = Number(d.hodiny ?? 0);
+      if (!Number.isInteger(d.den) || Number.isNaN(hodiny)) fail('Neplatný den nebo počet hodin v rozvrhu.');
+      if (d.den < 1 || d.den > 7 || videno.has(d.den)) fail('Rozvrh musí mít každý den pondělí až neděle právě jednou.');
+      if (hodiny < 0 || hodiny > 12 || hodiny * 2 !== Math.trunc(hodiny * 2)) {
+        fail(`Hodiny na den jsou 0 až 12, po půlhodinách (${DNY_ZKRATKY[d.den - 1]}: ${hodiny}).`);
+      }
+      videno.add(d.den);
+    }
+    const ulozene = [...dny]
+      .sort((a, b) => a.den - b.den)
+      .map((d) => {
+        const hodiny = Number(d.hodiny ?? 0);
+        const od = hodiny > 0 && d.od && d.od.trim() ? d.od.trim() : null;
+        if (od !== null && !/^([01]?[0-9]|2[0-3]):[0-5][0-9]$/.test(od)) {
+          fail(`Čas začátku je ve tvaru HH:MM (${DNY_ZKRATKY[d.den - 1]}: ${od}).`);
+        }
+        return { den: d.den, hodiny, od: od && od.length === 4 ? '0' + od : od };
+      });
+    rozvrhy.set(cil.id, hlava
+      ? { ...hlava, zamceno: true, zmenil_id: me.id, zmeneno_at: now(), dny: ulozene }
+      : { zamceno: true, nastavil_id: me.id, nastaveno_at: now(), zmenil_id: null, zmeneno_at: null, dny: ulozene });
+    return rozvrhPro(me, cil);
+  },
+
+  async odemknoutRozvrh(token: string, userId: number): Promise<Rozvrh> {
+    await delay();
+    const me = auth(token);
+    if (me.role !== 'super_admin') fail('Odemknout rozvrh může jen super admin.');
+    const cil = users.find((u) => u.id === userId);
+    if (!cil) fail(`Uživatel id=${userId} neexistuje.`);
+    const hlava = rozvrhy.get(cil.id);
+    if (!hlava) fail('Rozvrh ještě není nastavený, není co odemknout.');
+    rozvrhy.set(cil.id, { ...hlava, zamceno: false, zmenil_id: me.id, zmeneno_at: now() });
+    return rozvrhPro(me, cil);
+  },
+
+  async poznamkaRozvrhu(token: string, den: string, text: string): Promise<Rozvrh> {
+    await delay(120);
+    const me = auth(token);
+    const dnes = denPraha(new Date());
+    const od = posunDen(dnes, -(isoDen(dnes) - 1));
+    if (!den || den < od || den > posunDen(od, 6)) fail('Poznámku jde napsat jen ke dni tohoto týdne.');
+    const t = (text ?? '').trim();
+    if (!t) rozvrhPoznamky.delete(`${me.id}|${den}`);
+    else {
+      if (t.length > 1000) fail('Poznámka může mít nejvýš 1000 znaků.');
+      rozvrhPoznamky.set(`${me.id}|${den}`, { text: t, at: now() });
+    }
+    return rozvrhPro(me, me);
+  },
+
+  async prehledRozvrhu(token: string): Promise<RozvrhPrehledRadek[]> {
+    await delay();
+    const me = auth(token);
+    if (me.role !== 'super_admin') fail('Přehled rozvrhů vidí jen super admin.');
+    const poradi: Record<RozvrhStav, number> = { pozadu: 0, bez_rozvrhu: 1, v_planu: 2, napred: 3 };
+    return users
+      .filter((u) => u.active && (u.role !== 'super_admin' || rozvrhy.has(u.id)))
+      .map((u) => {
+        const { dny, ...s } = rozvrhStav(u.id);
+        return {
+          ...s,
+          display_name: u.display_name,
+          role: u.role,
+          manager_id: u.manager_id,
+          manager_name: users.find((m) => m.id === u.manager_id)?.display_name ?? null,
+          poznamek: dny.filter((d) => d.poznamka !== null).length,
+        };
+      })
+      .sort((a, b) => poradi[a.souhrn.stav] - poradi[b.souhrn.stav] || b.souhrn.rozdil - a.souhrn.rozdil
+        || a.display_name.localeCompare(b.display_name, 'cs'));
   },
 };
 

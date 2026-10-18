@@ -539,25 +539,26 @@ const bezVytaceni = (page) =>
   await ctx.close();
 }
 
-/* ============ D2) Kontakty a detail: volající IČO nevidí ani nehledá (Albert 3. 10. 2026, migrace 038) ============ */
-// Volající (Petra) v Kontaktech: hledání neslibuje IČO, hledání čísla IČO nic nenajde, detail architekta
-// neukazuje žádné IČO ani poznámku o DPH studia, místo nich řádek „obrat“ podle DPH. Albert beze změny.
+/* ============ D2) Kontakty a detail: Volající IČO vidí a hledá jako admin (Albert 18. 10. 2026, migrace 042) ============ */
+// ⚠ NAHRAZENO migrací 042 (Albert 18. 10. 2026: „Volající“ mají práva dnešních adminů, IČO vidí jako
+// admini): dřív „volající (role caller) IČO nevidí ani nehledá, detail ukazuje jen obrat“ (038).
+// Petra je Volající: hledání nabízí IČO, IČO studia najde, u cizího architekta (300) vidí IČO studia
+// a osobní IČO má skryté (smí ho upravit jen kdo mu volá, 028).
 {
   const { ctx, page } = await novaStranka('petra');
   await jdi(page, '#/admin', 600);
   const hledani = page.locator('input.search-input');
-  over('D2a', !/IČO/.test((await hledani.getAttribute('placeholder')) ?? ''), 'volající: pole hledání neslibuje hledání podle IČO', await hledani.getAttribute('placeholder'));
+  over('D2a', /IČO/.test((await hledani.getAttribute('placeholder')) ?? ''), 'Volající: pole hledání nabízí hledání podle IČO (042)', await hledani.getAttribute('placeholder'));
   await hledani.fill('22222222');
   await klid(page, 700);
-  over('D2b', (await page.locator('table.kontakty tbody tr', { hasText: /Ukázka|Příklad/ }).count()) === 0, 'volající: hledání IČO studia architekta nenajde');
+  over('D2b', (await page.locator('table.kontakty tbody tr', { hasText: /Ukázka|Příklad/ }).count()) > 0, 'Volající: hledání IČO studia architekta najde (042)');
   await hledani.fill('');
   await klid(page, 700);
   await filtr(page, 'architekti').click();
   await klid(page, 400);
   await page.locator('table.kontakty tbody tr', { hasText: 'Tomáš Ukázka' }).click();
   const udaje = (await page.locator('.drawer .arch-udaje').innerText()).replace(/\s+/g, ' ');
-  over('D2c', !/IČO/i.test(udaje) && !/\b\d{8}\b/.test(udaje) && !/DPH studia/i.test(udaje), 'volající: detail architekta bez IČO a bez poznámky o DPH studia', udaje);
-  over('D2d', /obrat:\s*nad 2 mil\. Kč ročně \(plátce DPH\)/.test(udaje), 'volající: detail ukazuje obrat podle DPH (300: ateliér plátce)', udaje);
+  over('D2c', /IČO studia:\s*22222222/.test(udaje) && /IČO osobně:\s*skryto/.test(udaje), 'Volající: u cizího architekta IČO studia vidí, osobní IČO skryté (042, 028)', udaje);
   await ctx.close();
 }
 {
@@ -618,7 +619,10 @@ const bezVytaceni = (page) =>
   await ctx.close();
 }
 
-/* ============ D4) detail jen ke čtení (volající): nápověda bez slibu a bez tlačítka, které nemá ============ */
+/* ============ D4) detail u vlastního klienta Volajícího: nápověda bez slibu, tlačítko Vyřešeno má ============ */
+// ⚠ NAHRAZENO migrací 042 (Albert 18. 10. 2026): dřív „detail jen ke čtení (volající, role caller):
+// nápověda posílá za adminem a tlačítko Vyřešeno chybí“. Role caller není, Petra je Volající (admin)
+// a Jana Vzorová (302) je její klientka: příznak smí vyřešit sama, nápověda jí neslibuje zmizení.
 {
   const { ctx, page } = await novaStranka('petra');
   await jdi(page, '#/admin', 600);
@@ -627,10 +631,10 @@ const bezVytaceni = (page) =>
   await page.locator('table.kontakty tbody tr', { hasText: 'Jana Vzorová' }).click();
   const detail = page.locator('.drawer');
   const napoveda = (await detail.locator('.flag-hint').innerText()).replace(/\s+/g, ' ');
-  over('D4a', /Chybí e-mail/.test(await detail.locator('.flag-panel-head').innerText()), 'volající vidí v detailu příznak Chybí e-mail (jinak scénář nic neměří)');
-  over('D4b', !/zmizí sám/.test(napoveda) && !/Vyřešeno/.test(napoveda) && /adminovi/.test(napoveda),
-    'detail jen ke čtení: nápověda neslibuje zmizení ani tlačítko Vyřešeno, posílá za adminem', napoveda);
-  over('D4c', (await detail.getByRole('button', { name: 'Vyřešeno' }).count()) === 0, 'volající v detailu tlačítko Vyřešeno nemá');
+  over('D4a', /Chybí e-mail/.test(await detail.locator('.flag-panel-head').innerText()), 'Volající vidí v detailu příznak Chybí e-mail (jinak scénář nic neměří)');
+  over('D4b', !/zmizí sám/.test(napoveda) && /Vyřešeno/.test(napoveda) && !/adminovi/.test(napoveda),
+    'Volající u svého klienta: nápověda neslibuje zmizení a říká, ať klikne na Vyřešeno', napoveda);
+  over('D4c', (await detail.getByRole('button', { name: 'Vyřešeno' }).count()) > 0, 'Volající má u svého klienta tlačítko Vyřešeno');
   await ctx.close();
 }
 
@@ -649,6 +653,60 @@ const bezVytaceni = (page) =>
   const nove = (await volani(page)).slice(pred).find((v) => v.fn === 'createThread');
   over('D3a', !!nove, 'vzkaz založil nové vlákno (jinak scénář nic neměří)', JSON.stringify(nazvyVolani((await volani(page)).slice(pred))));
   over('D3b', !!nove && nove.args[0] === 'Vzkaz od Albert: Studio Příklad', 'předmět vlákna u architekta bez jména nese studio, ne #id', nove && nove.args[0]);
+  await ctx.close();
+}
+
+/* ============ R) Rozvrh (migrace 042, Albert 18. 10. 2026): Volající nastaví jednou, super admin mění a odemyká ============ */
+{
+  const { ctx, page } = await novaStranka('honza');
+  await jdi(page, '#/rozvrh', 600);
+  const alert = () => page.locator('.rozvrh-alert').first().innerText();
+  over('R1', /Ještě nemáš rozvrh/.test(await alert()), 'Honza bez rozvrhu vidí výzvu k nastavení', await alert());
+  await page.getByRole('button', { name: 'Nastavit rozvrh' }).click();
+  await page.selectOption('#rh-0', '4');
+  await page.selectOption('#rh-6', '1');
+  over('R2', /Za týden 50 hovorů/.test(await page.locator('.rozvrh-uprava').innerText()), 'úprava počítá cíl za týden (4 h + 1 h = 50 hovorů)');
+  await page.getByRole('button', { name: 'Uložit rozvrh' }).click();
+  over('R3', (await page.getByRole('button', { name: 'Uložit a zamknout' }).count()) === 1, 'Volající musí uložení potvrdit (pak už rozvrh nezmění)');
+  await page.getByRole('button', { name: 'Uložit a zamknout' }).click();
+  await klid(page, 400);
+  over('R4', /uložený a zamčený/.test(await page.locator('.info-box').innerText())
+    && (await page.getByRole('button', { name: 'Upravit rozvrh' }).count()) === 0, 'po uložení je rozvrh zamčený, Upravit rozvrh chybí');
+  over('R5', /zamčený, změnit ho může jen super admin/.test(await page.locator('.rozvrh-kdo-nastavil').innerText()), 'Volající ví, kdo rozvrh mění');
+  // poznámka ke dnešku
+  const dnes = page.locator('.rozvrh-den.dnes');
+  await dnes.getByRole('button', { name: 'Napsat poznámku' }).click();
+  await dnes.locator('textarea').fill('Nemohl jsem volat, byl jsem u doktora.');
+  await dnes.getByRole('button', { name: 'Uložit poznámku' }).click();
+  await klid(page, 300);
+  over('R6', /u doktora/.test(await dnes.locator('.rozvrh-poznamka').innerText()), 'poznámka ke dnešku se uloží a ukáže');
+  await ctx.close();
+}
+{
+  const { ctx, page } = await novaStranka('mikulas');
+  await jdi(page, '#/rozvrh', 700);
+  const radky = await page.locator('.rozvrh-clovek').allInnerTexts();
+  over('R7', radky.some((r) => /^Petra/.test(r)) && radky.some((r) => /^Honza\s*bez rozvrhu/.test(r)), 'super admin vidí přehled Volajících', radky.join(' | '));
+  await page.locator('.rozvrh-clovek', { hasText: 'Petra' }).click();
+  await klid(page, 400);
+  over('R8', (await page.locator('.rozvrh-kdo').innerText()) === 'Petra' && (await page.locator('.rozvrh-pozn-btn').count()) === 0,
+    'super admin otevře cizí rozvrh, poznámky jen čte');
+  await page.getByRole('button', { name: 'Upravit rozvrh' }).click();
+  await page.selectOption('#rh-0', '2');
+  await page.getByRole('button', { name: 'Uložit rozvrh' }).click();
+  await klid(page, 400);
+  over('R9', (await page.getByRole('button', { name: 'Uložit a zamknout' }).count()) === 0
+    && /naposledy změnil\(a\) Mikuláš/.test(await page.locator('.rozvrh-kdo-nastavil').innerText()), 'super admin uloží bez potvrzení zámku, změna má jeho jméno');
+  await page.getByRole('button', { name: 'Povolit volajícímu nastavit ho znovu' }).click();
+  await klid(page, 400);
+  over('R10', /může rozvrh ještě jednou nastavit/.test(await page.locator('.info-box').innerText()), 'super admin rozvrh odemkne');
+  await ctx.close();
+}
+{
+  const { ctx, page } = await novaStranka('honza', { sirka: 390, vyska: 844 });
+  await jdi(page, '#/rozvrh', 600);
+  const sirka = await page.evaluate(() => document.documentElement.scrollWidth);
+  over('R11', sirka <= 390, 'Rozvrh se na telefonu (390 px) vejde bez vodorovného posunu', `scrollWidth ${sirka}`);
   await ctx.close();
 }
 
