@@ -539,25 +539,26 @@ const bezVytaceni = (page) =>
   await ctx.close();
 }
 
-/* ============ D2) Kontakty a detail: volající IČO nevidí ani nehledá (Albert 3. 10. 2026, migrace 038) ============ */
-// Volající (Petra) v Kontaktech: hledání neslibuje IČO, hledání čísla IČO nic nenajde, detail architekta
-// neukazuje žádné IČO ani poznámku o DPH studia, místo nich řádek „obrat“ podle DPH. Albert beze změny.
+/* ============ D2) Kontakty a detail: Volající IČO vidí a hledá jako admin (Albert 18. 10. 2026, migrace 042) ============ */
+// ⚠ NAHRAZENO migrací 042 (Albert 18. 10. 2026: „Volající“ mají práva dnešních adminů, IČO vidí jako
+// admini): dřív „volající (role caller) IČO nevidí ani nehledá, detail ukazuje jen obrat“ (038).
+// Petra je Volající: hledání nabízí IČO, IČO studia najde, u cizího architekta (300) vidí IČO studia
+// a osobní IČO má skryté (smí ho upravit jen kdo mu volá, 028).
 {
   const { ctx, page } = await novaStranka('petra');
   await jdi(page, '#/admin', 600);
   const hledani = page.locator('input.search-input');
-  over('D2a', !/IČO/.test((await hledani.getAttribute('placeholder')) ?? ''), 'volající: pole hledání neslibuje hledání podle IČO', await hledani.getAttribute('placeholder'));
+  over('D2a', /IČO/.test((await hledani.getAttribute('placeholder')) ?? ''), 'Volající: pole hledání nabízí hledání podle IČO (042)', await hledani.getAttribute('placeholder'));
   await hledani.fill('22222222');
   await klid(page, 700);
-  over('D2b', (await page.locator('table.kontakty tbody tr', { hasText: /Ukázka|Příklad/ }).count()) === 0, 'volající: hledání IČO studia architekta nenajde');
+  over('D2b', (await page.locator('table.kontakty tbody tr', { hasText: /Ukázka|Příklad/ }).count()) > 0, 'Volající: hledání IČO studia architekta najde (042)');
   await hledani.fill('');
   await klid(page, 700);
   await filtr(page, 'architekti').click();
   await klid(page, 400);
   await page.locator('table.kontakty tbody tr', { hasText: 'Tomáš Ukázka' }).click();
   const udaje = (await page.locator('.drawer .arch-udaje').innerText()).replace(/\s+/g, ' ');
-  over('D2c', !/IČO/i.test(udaje) && !/\b\d{8}\b/.test(udaje) && !/DPH studia/i.test(udaje), 'volající: detail architekta bez IČO a bez poznámky o DPH studia', udaje);
-  over('D2d', /obrat:\s*nad 2 mil\. Kč ročně \(plátce DPH\)/.test(udaje), 'volající: detail ukazuje obrat podle DPH (300: ateliér plátce)', udaje);
+  over('D2c', /IČO studia:\s*22222222/.test(udaje) && /IČO osobně:\s*skryto/.test(udaje), 'Volající: u cizího architekta IČO studia vidí, osobní IČO skryté (042, 028)', udaje);
   await ctx.close();
 }
 {
@@ -618,7 +619,10 @@ const bezVytaceni = (page) =>
   await ctx.close();
 }
 
-/* ============ D4) detail jen ke čtení (volající): nápověda bez slibu a bez tlačítka, které nemá ============ */
+/* ============ D4) detail u vlastního klienta Volajícího: nápověda bez slibu, tlačítko Vyřešeno má ============ */
+// ⚠ NAHRAZENO migrací 042 (Albert 18. 10. 2026): dřív „detail jen ke čtení (volající, role caller):
+// nápověda posílá za adminem a tlačítko Vyřešeno chybí“. Role caller není, Petra je Volající (admin)
+// a Jana Vzorová (302) je její klientka: příznak smí vyřešit sama, nápověda jí neslibuje zmizení.
 {
   const { ctx, page } = await novaStranka('petra');
   await jdi(page, '#/admin', 600);
@@ -627,10 +631,10 @@ const bezVytaceni = (page) =>
   await page.locator('table.kontakty tbody tr', { hasText: 'Jana Vzorová' }).click();
   const detail = page.locator('.drawer');
   const napoveda = (await detail.locator('.flag-hint').innerText()).replace(/\s+/g, ' ');
-  over('D4a', /Chybí e-mail/.test(await detail.locator('.flag-panel-head').innerText()), 'volající vidí v detailu příznak Chybí e-mail (jinak scénář nic neměří)');
-  over('D4b', !/zmizí sám/.test(napoveda) && !/Vyřešeno/.test(napoveda) && /adminovi/.test(napoveda),
-    'detail jen ke čtení: nápověda neslibuje zmizení ani tlačítko Vyřešeno, posílá za adminem', napoveda);
-  over('D4c', (await detail.getByRole('button', { name: 'Vyřešeno' }).count()) === 0, 'volající v detailu tlačítko Vyřešeno nemá');
+  over('D4a', /Chybí e-mail/.test(await detail.locator('.flag-panel-head').innerText()), 'Volající vidí v detailu příznak Chybí e-mail (jinak scénář nic neměří)');
+  over('D4b', !/zmizí sám/.test(napoveda) && /Vyřešeno/.test(napoveda) && !/adminovi/.test(napoveda),
+    'Volající u svého klienta: nápověda neslibuje zmizení a říká, ať klikne na Vyřešeno', napoveda);
+  over('D4c', (await detail.getByRole('button', { name: 'Vyřešeno' }).count()) > 0, 'Volající má u svého klienta tlačítko Vyřešeno');
   await ctx.close();
 }
 

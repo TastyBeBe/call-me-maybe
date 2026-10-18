@@ -65,11 +65,13 @@ const daysAgo = (d: number) => new Date(Date.now() - d * 86400000).toISOString()
 const delay = (ms = 180) => new Promise<void>((r) => setTimeout(r, ms));
 
 // Demo role (migrace 023): Albert = majitel + super admin; Mikuláš = super admin a pod
-// ním Honza; Petra a Eva (admin) pod Albertem. Hesla jsou jen pro DEMO (README).
+// ním Honza; Petra a Eva pod Albertem. Hesla jsou jen pro DEMO (README).
+// ⚠ Od migrace 042 (Albert 18. 10. 2026) jsou Petra a Honza Volající (role admin) jako Eva;
+// NAHRAZUJE „Petra a Honza = caller“. Role caller na serveru není, mock ji taky nemá.
 const users: MockUser[] = [
   { id: 1, username: 'admin', display_name: 'Albert', password: 'admin', role: 'super_admin', active: true, manager_id: null },
-  { id: 2, username: 'petra', display_name: 'Petra', password: 'volam', role: 'caller', active: true, manager_id: 1 },
-  { id: 3, username: 'honza', display_name: 'Honza', password: 'volam', role: 'caller', active: true, manager_id: 4 },
+  { id: 2, username: 'petra', display_name: 'Petra', password: 'volam', role: 'admin', active: true, manager_id: 1 },
+  { id: 3, username: 'honza', display_name: 'Honza', password: 'volam', role: 'admin', active: true, manager_id: 4 },
   { id: 4, username: 'mikulas', display_name: 'Mikuláš', password: 'mikulas', role: 'super_admin', active: true, manager_id: null },
   { id: 5, username: 'eva', display_name: 'Eva', password: 'eva', role: 'admin', active: true, manager_id: 1 },
 ];

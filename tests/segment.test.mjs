@@ -131,8 +131,9 @@ over('A7c', segmentOf({ segment: 'x' }) === 'chata', 'segmentOf s neznámou hodn
 over('A7d', segmentOf({ obor: 'architekt' }) === 'chata', 'segmentOf se řídí sloupcem segment, ne popiskem obor (1.1)');
 
 /* ---------------- přihlášení ---------------- */
-const petra = (await api.login('petra', 'volam')).token;   // volající pod Albertem
-const honza = (await api.login('honza', 'volam')).token;   // volající pod Mikulášem
+// ⚠ Od migrace 042 jsou Petra a Honza Volající (role admin) se stejnými právy jako Eva.
+const petra = (await api.login('petra', 'volam')).token;   // Volající pod Albertem
+const honza = (await api.login('honza', 'volam')).token;   // Volající pod Mikulášem
 const albert = (await api.login('admin', 'admin')).token;  // majitel, smí upravit vše
 const mikulas = (await api.login('mikulas', 'mikulas')).token; // super admin
 const eva = (await api.login('eva', 'eva')).token;          // admin pod Albertem
@@ -167,17 +168,20 @@ await blok('O', async () => {
     });
   }
   const ma = (r, k) => !!r && Object.prototype.hasOwnProperty.call(r, k);
-  // mock = server (037): volající dostane kartu bez IČO, s DPH; admin a super admin jako dřív
-  for (const [kdo, tok, ico] of [['Petra (volající)', petra, false], ['Honza (volající)', honza, false], ['Eva (admin)', eva, true], ['Albert', albert, true]]) {
+  // mock = server (037): volající (role caller) dostal kartu bez IČO; admin a super admin jako dřív.
+  // ⚠ NAHRAZENO migrací 042 (Albert 18. 10. 2026: Volající vidí IČO jako dřív admini): role caller není,
+  // Petra a Honza jsou Volající a kartu dostanou s IČO jako Eva.
+  for (const [kdo, tok, ico] of [['Petra (Volající)', petra, true], ['Honza (Volající)', honza, true], ['Eva (Volající)', eva, true], ['Albert', albert, true]]) {
     const k = await api.nextContact(tok, 'architekt');
     if (!k) { over('O2', false, `${kdo}: fronta architektů je prázdná, nejde změřit`); continue; }
     await api.updateKontakt(albert, k.id, { clear_lock: true }); // další uživatel dostane volnou kartu
     over('O2', ma(k, 'ico_osobni') === ico && ma(k, 'ico_firma') === ico, `${kdo}: karta ve volání ${ico ? 'nese' : 'nenese'} IČO architekta`, `karta ${k.id}`);
     over('O3', ma(k, 'dph_osobni') && ma(k, 'dph_firma') && ma(k, 'firma'), `${kdo}: karta nese DPH osobně, DPH ateliéru a firmu (obrat se z nich počítá)`, `karta ${k.id}`);
   }
-  // oznacit_za_sveho: volajícímu taky bez IČO (Petra volala 302, ten je nedovolano)
+  // oznacit_za_sveho (Petra volala 302, ten je nedovolano). ⚠ NAHRAZENO migrací 042 (Albert 18. 10. 2026: Volající vidí IČO jako dřív admini): 
+  // Volající dostane řádek s IČO jako admin.
   const oz = await api.claimKontakt(petra, 302);
-  over('O4', !ma(oz, 'ico_osobni') && !ma(oz, 'ico_firma') && ma(oz, 'dph_osobni'), 'označení klienta volajícímu IČO nepošle, DPH ano (037)');
+  over('O4', oz.ico_osobni === '11111111' && ma(oz, 'dph_osobni'), 'označení klienta Volajícímu pošle IČO i DPH jako adminovi (042)');
 });
 
 /* ---------------- P) seznamy a detail: volající IČO nevidí ani nehledá (Albert 3. 10. 2026, migrace 038) ---------------- */
@@ -189,17 +193,21 @@ await blok('P', async () => {
     over('P0b', icoVidi('admin') && icoVidi('super_admin') && !icoVidi('caller') && !icoVidi(undefined) && !icoVidi('neco'),
       'IČO vidí jen admin a super admin (neznámá role ne)');
   }
-  for (const [kdo, tok] of [['Petra', petra], ['Honza', honza]]) {
+  // ⚠ NAHRAZENO migrací 042 (Albert 18. 10. 2026: Volající vidí IČO jako dřív admini): dřív tu Petra a Honza
+  // (role caller) IČO neviděli ani nehledali a Označené neměli. Teď jsou Volající jako Eva: osobní IČO
+  // jen u svých klientů (smi_upravit), IČO studia (jiné než osobní) u všech, Označené jen svoje.
+  for (const [kdo, tok, svuj] of [['Petra', petra, 302], ['Honza', honza, 303]]) {
     const vse = (await api.listKontakty(tok, { segment: 'architekt', limit: 50 })).rows;
-    over('P1', vse.length === 4 && vse.every((r) => !ma(r, 'ico_osobni') && !ma(r, 'ico_firma')), `${kdo}: seznam Kontakty bez IČO architekta (038)`);
+    over('P1', vse.length === 4 && vse.every((r) => ma(r, 'ico_osobni') === r.smi_upravit), `${kdo}: seznam Kontakty: osobní IČO jen u kontaktů, které smí upravit (028)`);
+    over('P1a', vse.find((r) => r.id === 300)?.ico_firma === '22222222', `${kdo}: seznam Kontakty: IČO studia vidí jako admin (042)`);
     over('P1b', vse.every((r) => ma(r, 'dph_osobni') || ma(r, 'dph_firma')), `${kdo}: seznam nese DPH (obrat v detailu)`);
     const moje = (await api.myKontakty(tok, 2000, 0, null, 'architekt')).rows;
-    over('P2', moje.length > 0 && moje.every((r) => !ma(r, 'ico_osobni') && !ma(r, 'ico_firma')), `${kdo}: Moji klienti bez IČO architekta (038)`);
-    for (const q of ['22222222', '2222', '11111111']) {
-      const r = await api.listKontakty(tok, { search: q, limit: 50 });
-      over('P3', r.rows.length === 0 && r.total === 0, `${kdo}: hledání „${q}“ (IČO) nenajde nic, ani v počtu`, `total ${r.total}`);
-    }
-    await chyba('P4', () => api.listFlagged(tok, null, null), /admin|Nemáte|oprávn/i, `${kdo}: Označené volající nemá`);
+    over('P2', moje.some((r) => r.id === svuj) && moje.every((r) => r.id !== svuj || (r.smi_upravit && ma(r, 'ico_osobni'))), `${kdo}: Moji klienti: u svého architekta osobní IČO vidí (042)`);
+    over('P3', (await api.listKontakty(tok, { search: '22222222', limit: 50 })).rows.some((r) => r.id === 300), `${kdo}: hledání IČO studia najde studio (042)`);
+    const osobni = (await api.listKontakty(tok, { search: '11111111', limit: 50 })).rows.map((r) => r.id);
+    over('P3b', !osobni.includes(300) && osobni.includes(svuj) === (svuj === 302), `${kdo}: osobní IČO najde jen u kontaktu, který smí upravit`, osobni.join());
+    const ozn = await api.listFlagged(tok, null, null);
+    over('P4', Array.isArray(ozn) && ozn.every((r) => r.je_muj || r.smi_upravit), `${kdo}: Označené otevře, jen svoje (042)`);
   }
   const ev = (await api.listKontakty(eva, { segment: 'architekt', limit: 50 })).rows.find((r) => r.id === 300);
   over('P5', ev?.ico_firma === '22222222' && !ma(ev, 'ico_osobni'), 'admin (nesmí upravit) dál vidí IČO studia, osobní ne (028, 032)');
@@ -243,10 +251,11 @@ await blok('E', async () => {
 
   // [ALBERT 28]: osobní IČO v seznamech jen tomu, kdo kontakt smí upravit (2.2 l)
   const radekPetra = (await api.listKontakty(petra, { segment: 'architekt', limit: 50 })).rows;
-  over('E6', radekPetra.length === 4 && radekPetra.every((r) => !Object.prototype.hasOwnProperty.call(r, 'ico_osobni')),
-    'volající nedostane v seznamu osobní IČO (klíč chybí jako u serveru)');
-  // ⚠ NAHRAZENO 3. 10. 2026 (Albert, migrace 038): dřív „IČO studia v seznamu zůstává“ i volajícímu
-  over('E6b', radekPetra.every((r) => !Object.prototype.hasOwnProperty.call(r, 'ico_firma')), 'volající nedostane v seznamu ani IČO studia (038)');
+  over('E6', radekPetra.length === 4 && radekPetra.every((r) => Object.prototype.hasOwnProperty.call(r, 'ico_osobni') === r.smi_upravit),
+    'Volající dostane v seznamu osobní IČO jen u kontaktů, které smí upravit (klíč jinak chybí jako u serveru)');
+  // ⚠ NAHRAZENO 3. 10. 2026 (Albert, migrace 038): dřív „IČO studia v seznamu zůstává“ i volajícímu.
+  // ⚠ NAHRAZENO migrací 042 (Albert 18. 10. 2026: Volající vidí IČO jako dřív admini): IČO studia Volající zase vidí.
+  over('E6b', radekPetra.find((r) => r.id === 300)?.ico_firma === '22222222', 'Volající dostane v seznamu IČO studia jako admin (042)');
   over('E6b2', radekPetra.find((r) => r.id === 300)?.dph_firma === 'platce', 'DPH studia volající v seznamu dostane (detail z něj ukáže obrat)');
   const radekAlbert = (await api.listKontakty(albert, { segment: 'architekt', limit: 50 })).rows;
   over('E6c', radekAlbert.find((r) => r.id === 300)?.ico_osobni === '11111111', 'kdo smí upravit, vidí osobní IČO i v seznamu');
@@ -254,11 +263,11 @@ await blok('E', async () => {
   over('E6d', radekEva.every((r) => r.smi_upravit === true || !Object.prototype.hasOwnProperty.call(r, 'ico_osobni')),
     'admin vidí osobní IČO jen u kontaktů, které smí upravit');
   const chataPetra = (await api.listKontakty(petra, { segment: 'chata', limit: 50 })).rows;
-  over('E6e', chataPetra.every((r) => !Object.prototype.hasOwnProperty.call(r, 'ico_osobni')), 'maska platí i pro chaty (server odebírá klíč u každého řádku)');
+  over('E6e', chataPetra.every((r) => r.smi_upravit || !Object.prototype.hasOwnProperty.call(r, 'ico_osobni')), 'maska platí i pro chaty (server odebírá klíč u každého řádku, který nesmí upravit)');
 
   const mojeA = await api.myKontakty(petra, 2000, 0, null, 'architekt');
   over('E7', mojeA.total === 1 && mojeA.rows.length === 1 && mojeA.rows[0].id === 302, 'Moji klienti s filtrem architekti: Petra má 302', `total ${mojeA.total}`);
-  over('E7b', !Object.prototype.hasOwnProperty.call(mojeA.rows[0] ?? {}, 'ico_osobni'), 'Moji klienti: osobní IČO jen pro toho, kdo smí upravit (volající ne)');
+  over('E7b', mojeA.rows[0]?.smi_upravit === true && mojeA.rows[0]?.ico_osobni === '11111111', 'Moji klienti: Volající u svého klienta osobní IČO vidí (smí ho upravit, 042)');
   const mojeC = await api.myKontakty(petra, 2000, 0, null, 'chata');
   const mojeV = await api.myKontakty(petra, 2000, 0, null);
   over('E7c', mojeC.rows.every((r) => r.segment === 'chata') && mojeC.total + mojeA.total === mojeV.total, 'Moji klienti: chaty + architekti = vše, počet ze serveru');
@@ -287,22 +296,24 @@ await blok('L', async () => {
   const castecne = await najdi(albert, '1111111');
   over('L1', !castecne.includes(302) && !castecne.includes(300), 'osobní IČO se hledá jen celým číslem, ne kouskem (028)', castecne.join());
   const petraIco = await najdi(petra, '11111111');
-  over('L2', !petraIco.includes(302) && !petraIco.includes(300), 'volající osobní IČO nevyhledá (nesmí kontakt upravit)', petraIco.join());
+  over('L2', petraIco.includes(302) && !petraIco.includes(300), 'Volající osobní IČO vyhledá jen u svého klienta (302 ano, 300 ne)', petraIco.join());
   const sMezerou = await najdi(albert, '1111 1111');
   over('L2b', sMezerou.includes(300) && sMezerou.includes(302), 'mezery v hledaném osobním IČO se ignorují jako na serveru', sMezerou.join());
   const evaIco = await najdi(eva, '11111111');
   over('L3', !evaIco.includes(300) && !evaIco.includes(302), 'admin osobní IČO vyhledá jen u kontaktů, které smí upravit', evaIco.join());
   // ⚠ NAHRAZENO 3. 10. 2026 (Albert, migrace 038): dřív „IČO ateliéru (jiné než osobní) hledá každý“
-  over('L4', !(await najdi(petra, '22222222')).includes(300), 'volající IČO ateliéru nevyhledá (038)');
+  // ⚠ NAHRAZENO migrací 042 (Albert 18. 10. 2026: Volající vidí IČO jako dřív admini): Volající IČO ateliéru zase vyhledá.
+  over('L4', (await najdi(petra, '22222222')).includes(300), 'Volající IČO ateliéru (jiné než osobní) vyhledá jako admin (042)');
   over('L4b', (await najdi(eva, '22222222')).includes(300), 'admin IČO ateliéru (jiné než osobní) vyhledá dál');
 
   // živnostník: IČO ateliéru = osobní IČO (032)
   await api.updateKontakt(albert, 302, { ico_firma: '11111111', dph_firma: 'neplatce' });
   try {
-    const r = (await api.listKontakty(petra, { segment: 'architekt', limit: 50 })).rows.find((x) => x.id === 302);
+    // maska 032 pro toho, kdo kontakt nesmí upravit (⚠ 042: měří se na Evě, Petra je u 302 Volající, která ho smí upravit)
+    const r = (await api.listKontakty(eva, { segment: 'architekt', limit: 50 })).rows.find((x) => x.id === 302);
     over('L5', !!r && !maKlic(r, 'ico_osobni') && !maKlic(r, 'ico_firma') && !maKlic(r, 'dph_firma'),
       'seznam skryje i IČO ateliéru rovné osobnímu a DPH ateliéru (032)', r && Object.keys(r).filter((k) => k.startsWith('ico') || k.startsWith('dph')).join());
-    over('L5b', !(await najdi(petra, '11111111')).includes(302), 'IČO ateliéru rovné osobnímu se nevyhledá přes ico_firma (032)');
+    over('L5b', !(await najdi(eva, '11111111')).includes(302), 'IČO ateliéru rovné osobnímu se nevyhledá přes ico_firma (032)');
     const ra = (await api.listKontakty(albert, { segment: 'architekt', limit: 50 })).rows.find((x) => x.id === 302);
     over('L5c', ra?.ico_firma === '11111111' && ra?.ico_osobni === '11111111', 'kdo smí upravit, vidí obě IČO');
     // úpravy: Eva (admin) smí příznak a zámek, upravit 302 nesmí
@@ -324,9 +335,10 @@ await blok('L', async () => {
   await api.clearFlag(albert, 300);
   // oznacit_za_sveho (Petra 302 volala): ⚠ NAHRAZENO 3. 10. 2026 (Albert, migrace 037), dřív
   // „vrací řádek celý jako server“; volajícímu teď bez IČO architekta, detail řádek pošle přes bezCizihoIco
+  // ⚠ NAHRAZENO migrací 042 (Albert 18. 10. 2026: Volající vidí IČO jako dřív admini): Volající dostane řádek s IČO jako admin.
   const claim = await api.claimKontakt(petra, 302);
-  over('L7', claim.smi_upravit === false && !maKlic(claim, 'ico_osobni') && !maKlic(claim, 'ico_firma') && claim.dph_osobni === 'identifikovana_osoba',
-    'oznacit_za_sveho volajícímu IČO architekta nepošle, DPH ano (jako server od 037)');
+  over('L7', claim.smi_upravit === true && claim.ico_osobni === '11111111' && claim.dph_osobni === 'identifikovana_osoba',
+    'oznacit_za_sveho pošle Volajícímu u jeho klienta IČO i DPH (jako server od 042)');
 
   // vlastní karta napřed (036): reload nebo další volání dá tutéž kartu, nezamkne další
   const k1 = await api.nextContact(eva, 'chata');
@@ -376,9 +388,11 @@ await blok('BCD', async () => {
   over('B2', !!a1 && a1.segment === 'architekt' && [300, 301, 302].includes(a1.id), 'nextContact s architekt dá volatelného architekta', a1 && `${a1.id}`);
   // ⚠ NAHRAZENO 3. 10. 2026 (Albert, APP-8, migrace 037): dřív „karta ve volání nese řádek celý
   // včetně osobního IČO“. Volající IČO architekta nevidí, karta z DPH ukáže jen řádek obrat.
-  over('H1', a1 && !Object.prototype.hasOwnProperty.call(a1, 'ico_osobni') && !Object.prototype.hasOwnProperty.call(a1, 'ico_firma')
+  // ⚠ NAHRAZENO migrací 042 (Albert 18. 10. 2026: Volající vidí IČO jako dřív admini): Petra je Volající
+  // (role admin) a kartu dostane celou jako admin; karta sama dál ukazuje jen řádek obrat (CallPage).
+  over('H1', a1 && Object.prototype.hasOwnProperty.call(a1, 'ico_osobni')
     && Object.prototype.hasOwnProperty.call(a1, 'dph_osobni') && Object.prototype.hasOwnProperty.call(a1, 'dph_firma'),
-    'karta ve volání volajícímu nenese IČO architekta (osobní ani ateliéru), DPH ano (037)');
+    'karta ve volání Volajícímu nese IČO i DPH jako adminovi (042)');
   await chyba('C2', () => api.returnContact(honza, a1.id), new RegExp(`Kontakt ${a1.id} nemáte zamčený\\. Nic se nevrátilo\\.`), 'cizí zámek se nevrací');
   const skutecne = Date.now;
   Date.now = () => skutecne() + 31 * 60 * 1000;
