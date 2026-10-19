@@ -703,6 +703,30 @@ for (const kdo of ['petra', 'mikulas']) {
   await ctx.close();
 }
 
+/* ============ S) čísla jiných lidí vidí jen super admin (Albert 19. 10. 2026, migrace 045) ============ */
+// Volající (Petra): Statistiky jen svoje karty, bez výběru člověka a bez trychtýře celé databáze (součty jsou
+// i prodeje kolegů); hledání jména kolegy v Kontaktech nic nenajde ani nespočítá (hlavičky poznámek „[datum
+// Honza]“). Super admin (Mikuláš): výběr člověka, trychtýř i hledání podle jména kolegy jako dřív.
+for (const [kdo, superAdmin] of [['petra', false], ['mikulas', true]]) {
+  const { ctx, page } = await novaStranka(kdo);
+  await jdi(page, '#/stats', 700);
+  const text = await page.evaluate(() => document.body.innerText);
+  const karty = await page.locator('.stat-card').count();
+  const trychtyr = /klienti podle stavu/i.test(text);
+  const vyber = (await page.locator('#user-select').count()) > 0;
+  over('S1', karty >= 6 && /hovorů/i.test(text) && trychtyr === superAdmin && vyber === superAdmin,
+    `${kdo}: Statistiky ${superAdmin ? 'mají' : 'nemají'} výběr člověka a trychtýř celé databáze`, `karet ${karty}, trychtýř ${trychtyr}, výběr ${vyber}`);
+  const pred = (await volani(page)).length;
+  await jdi(page, '#/admin', 600);
+  await page.locator('input.search-input').fill('Honza');
+  await klid(page, 800);
+  const radky = await page.locator('table.kontakty tbody tr').count();
+  const vs = (await volani(page)).slice(pred).filter((v) => v.fn === 'listKontakty');
+  over('S2', vs.some((v) => v.ok && JSON.stringify(v.args).includes('Honza')) && (superAdmin ? radky >= 3 : radky === 0 && /Nic nenalezeno/.test(await page.evaluate(() => document.body.innerText))),
+    `${kdo}: hledání „Honza“ (jméno kolegy v poznámkách) ${superAdmin ? 'najde jeho kontakty' : 'nic nenajde'}`, `${radky} řádků`);
+  await ctx.close();
+}
+
 await browser.close();
 server.close();
 rmSync(OUT, { recursive: true, force: true });

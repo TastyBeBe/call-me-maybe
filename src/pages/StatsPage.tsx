@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { getApi, type KontaktStatus, type MyStats, type Segment, type UserStats } from '../api';
 import { useSession } from '../auth';
 import { dayWord, topDaysFor } from '../pig/progress';
-import { isAdminRole, isSuperAdmin, roleLabel } from '../roles';
+import { isSuperAdmin, roleLabel } from '../roles';
 import { ALL_STATUSES, ErrorBox, SegmentFilter, Spinner, STATUS_LABELS, errMsg } from '../ui';
 
 function StatCards({ stats }: { stats: MyStats }) {
@@ -32,8 +32,9 @@ function StatCards({ stats }: { stats: MyStats }) {
 
 export default function StatsPage() {
   const session = useSession();
-  const isAdmin = isAdminRole(session.role);
   // Cizí statistiky vidí jen super admin; od migrace 027 každý super admin všechny (allStats), ostatní jen sebe.
+  // ⚠ Albert 19. 10. 2026 (migrace 045): Volající nesmí nijak vidět čísla jiných lidí, jen super admini.
+  // Volající proto vidí jen svoje karty; trychtýř celé databáze (prodeje a zájmy všech) jen super admin.
   const isSuper = isSuperAdmin(session.role);
   const [myStats, setMyStats] = useState<MyStats | null>(null);
   const [allStats, setAllStats] = useState<UserStats[] | null>(null);
@@ -116,7 +117,7 @@ export default function StatsPage() {
           <p className="muted" style={{ margin: '10px 0 0' }}>
             {shownName} · Čísla nahoře jsou <strong>hovory</strong>, ne klienti: jeden
             klient může mít víc hovorů a po projeveném zájmu se přesune dál podle toho,
-            jak daleko je jeho web. Kolik klientů je právě teď v jakém stavu, je níž.
+            jak daleko je jeho web.{isSuper && ' Kolik klientů je právě teď v jakém stavu, je níž.'}
           </p>
           <p className="muted" style={{ margin: '4px 0 0' }}>
             dovoláno = odmítli + zájem · konverze = zájem / dovoláno · prodáno = klient
@@ -138,7 +139,7 @@ export default function StatsPage() {
               <div className="stat-label">{dayWord(topDays)} jako #1 prodejce</div>
             </div>
           </div>
-          {isAdmin && <KlientiFunnel token={session.token} />}
+          {isSuper && <KlientiFunnel token={session.token} />}
         </>
       )}
     </div>
@@ -151,6 +152,8 @@ export default function StatsPage() {
  * rozbitě: „Zájem 69" na jedné stránce proti „Mají zájem 0" na druhé. Čísla si
  * neodporují, jen měří jinou věc — a od teď jsou vidět vedle sebe.
  * Počty jdou ze serveru (`list_kontakty` vrací `total`), ne z načtených řádků.
+ * ⚠ Jen super admin (Albert 19. 10. 2026, migrace 045): součty celé databáze jsou i prodeje a zájmy
+ * kolegů, Volající vidí jen svoje čísla výš. NAHRAZUJE „trychtýř vidí každý admin“ (isAdminRole).
  * Filtr „vše / chaty / architekti" (migrace 028) jde do všech 15 dotazů; karty hovorů
  * výš zůstávají společné (hovor je hovor, docs/ARCHITEKTI.md 9.6).
  */

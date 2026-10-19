@@ -706,6 +706,23 @@ function threadIdsFor(u: MockUser, ids: number[]): Set<number> {
   return out;
 }
 
+/**
+ * app_poznamka_bez_cizich (migrace 045, Albert 19. 10. 2026: čísla jiných lidí vidí jen super admin):
+ * jméno z `cizi` v hlavičce poznámky „[datum Jméno]“ nebo „[datum Jméno, …]“ nahradí „jiný volající“.
+ * Jen pro HLEDÁNÍ v listKontakty: Volající si hledáním jména kolegy nespočítá jeho kontakty a prodeje.
+ * Text poznámky v řádku zůstává (Albert 25. 9. 2026: jména kolegů v poznámkách smí vidět).
+ */
+export function poznamkaBezCizich(note: string | null, cizi: string[]): string | null {
+  if (note === null || cizi.length === 0) return note;
+  let out = note;
+  for (const jm of cizi) {
+    if (!jm || !out.includes(jm)) continue;
+    const doslova = jm.replace(/[.^$*+?()[\]{}|\\]/g, '\\$&');
+    out = out.replace(new RegExp(`(\\[\\d{4}-\\d{2}-\\d{2} )${doslova}(\\]|,)`, 'g'), `$1${JINY}$2`);
+  }
+  return out;
+}
+
 /** app_kontakt_ven: jméno volajícího jen svoje / svých lidí (Albert vše), je_muj. */
 function maskedName(u: MockUser, name: string | null): string | null {
   if (name === null) return null;
@@ -1297,6 +1314,8 @@ const mockApiZaklad: Api = {
       icoVidi(me.role) &&
       ((!!c.ico_osobni && c.ico_osobni === icoHledane && canEdit(me, c.id)) ||
         (!!c.ico_firma && c.ico_firma !== c.ico_osobni && c.ico_firma.toLowerCase().includes(search)));
+    // jména lidí, které přihlášený vidět nesmí: hledání je v hlavičkách poznámek nenajde (migrace 045)
+    const cizi = me.id === OWNER_ID ? [] : users.filter((u) => !visibleIds(me).includes(u.id)).map((u) => u.display_name);
     const matches = (c: Kontakt) =>
       (!f.segment || segmentOf(c) === f.segment) &&
       (!f.status || c.status === f.status) &&
@@ -1307,7 +1326,7 @@ const mockApiZaklad: Api = {
       // hledání i ve studiu, městě a IČO (migrace 028), IČO podle icoShoda výš
       (!search ||
         icoShoda(c) ||
-        [c.name, c.phone, c.web, c.email, c.note, c.firma, c.mesto].some(
+        [c.name, c.phone, c.web, c.email, poznamkaBezCizich(c.note, cizi), c.firma, c.mesto].some(
           (v) => v && v.toLowerCase().includes(search)
         ));
     const filtered = kontakty.filter(matches).sort((a, b) => {

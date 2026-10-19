@@ -34,7 +34,7 @@ let bundle;
   const out = await build({
     stdin: {
       contents: [
-        "export { mockApi } from './src/api/mock.ts';",
+        "export { mockApi, poznamkaBezCizich } from './src/api/mock.ts';",
         "export { supabaseApi } from './src/api/supabase.ts';",
         "export { loadCallSegment, saveCallSegment, segmentOf } from './src/segment.ts';",
         "export * as segmentModul from './src/segment.ts';",
@@ -60,7 +60,7 @@ let bundle;
   bundle = createRequire(import.meta.url)(f);
   rmSync(dir, { recursive: true, force: true });
 }
-const { mockApi: api, supabaseApi, loadCallSegment, saveCallSegment, segmentOf, segmentModul, PhoneLinks, uiModul } = bundle;
+const { mockApi: api, poznamkaBezCizich, supabaseApi, loadCallSegment, saveCallSegment, segmentOf, segmentModul, PhoneLinks, uiModul } = bundle;
 
 let pocet = 0;
 let chyby = 0;
@@ -123,6 +123,59 @@ async function blok(id, fn) {
     over(id, false, 'blok testu spadl na nečekané chybě', String(e && e.message));
   }
 }
+
+/* ---------------- S) čísla jiných lidí vidí jen super admin (Albert 19. 10. 2026, migrace 045) ---------------- */
+// Albert: Volající (role admin) nesmí NIJAK vidět čísla jiných lidí (prodeje, počty hovorů, žebříček, statistiky
+// kolegů), jen super admini. Mock = server (db/tests/test_045): all_stats, my_stats, top_prodejce, rozvrh, výběr
+// člověka a hledání v poznámkách (hlavička „[datum Jméno]“ kolegy Volajícímu nic nenajde, ani v počtu). Stránky:
+// Statistiky ukazují trychtýř celé databáze jen super adminovi; allStats volá jen super admin. Běží před bloky,
+// které mění data (hovory, poznámky).
+await blok('S', async () => {
+  await chyba('S1', () => api.allStats(petra), /^Statistiky ostatních vidí jen super admin/, 'all_stats Volajícímu odmítnut');
+  const vsichni = await api.allStats(mikulas);
+  const petraVsech = vsichni.find((u) => u.user_id === 2);
+  const mojeP = await api.myStats(petra);
+  over('S2', !!petraVsech && Object.keys(mojeP).sort().join() === 'calls,conversion,nedovolano,odmitnuto,reached,sold,zajem'
+    && ['calls', 'reached', 'zajem', 'sold'].every((k) => mojeP[k] === petraVsech[k]),
+    'my_stats Volajícímu vrátí jen jeho vlastní čísla (stejná, jaká o něm vidí super admin)', JSON.stringify(mojeP));
+  over('S2b', vsichni.some((u) => u.user_id !== 2 && u.calls > 0), 'super admin vidí čísla kolegů (jinak by S nic neměřil)');
+  const top = await api.topSeller(petra);
+  over('S3', Object.keys(top).join() === 'je_prvni' && typeof top.je_prvni === 'boolean', 'top_prodejce vrátí jen {je_prvni}', JSON.stringify(top));
+  await chyba('S4', () => api.prehledRozvrhu(petra), /^Přehled rozvrhů vidí jen super admin/, 'přehled rozvrhů (plnění všech) Volajícímu odmítnut');
+  await chyba('S4b', () => api.rozvrh(petra, 3), /^Rozvrh jiného člověka vidí jen super admin/, 'rozvrh kolegy Volajícímu odmítnut');
+  await chyba('S4c', () => api.myKontakty(petra, 200, 0, 3), /jiného člověka vidí jen super admin/, 'Moji klienti kolegy Volajícímu odmítnuti');
+  await chyba('S4d', () => api.listKontakty(petra, { caller: 'Honza', limit: 5 }), /^Podle volajícího můžete filtrovat jen sebe/, 'filtr Kontaktů podle kolegy Volajícímu odmítnut');
+  // hledání v poznámkách: Honza je v mocku jen v hlavičkách „[2026-08-.. Honza]“
+  const honzaV = await api.listKontakty(petra, { search: 'Honza', limit: 200 });
+  const honzaS = await api.listKontakty(mikulas, { search: 'Honza', limit: 200 });
+  const honzaA = await api.listKontakty(albert, { search: 'Honza', limit: 200 });
+  over('S5', honzaV.total === 0 && honzaV.rows.length === 0, 'Volající hledáním jména kolegy v poznámkách nic nenajde, ani v počtu', `total ${honzaV.total}`);
+  over('S5b', honzaS.total >= 3 && honzaA.total === honzaS.total, 'super admin a Albert hledáním jména najdou kolegovy kontakty', `${honzaS.total} / ${honzaA.total}`);
+  for (const q of ['onza', 'Honza]', 'nza]']) {
+    const r = await api.listKontakty(petra, { search: q, limit: 200 });
+    over(`S5c ${q}`, r.total === 0, `ani kousek jména kolegy („${q}“) Volajícímu nic nenajde`, `total ${r.total}`);
+  }
+  const mojeHlav = await api.listKontakty(petra, { search: 'Petra', limit: 200 });
+  over('S5d', mojeHlav.total >= 1, 'svou hlavičku v poznámce Volající najde dál', `total ${mojeHlav.total}`);
+  const text = await api.listKontakty(petra, { search: 'Zase nebrali', limit: 200 });
+  over('S5e', text.total === 1 && /\[2026-08-29 Honza\]/.test(text.rows[0]?.note ?? ''),
+    'text poznámky (mimo hlavičku) Volající najde a poznámka v řádku zůstává beze změny (Albert 25. 9. 2026)', text.rows[0]?.note ?? '');
+  over('S6', poznamkaBezCizich('[2026-01-02 Eda] text Eda]\n[2026-01-03 Edan] x\n[2026-01-04 Eda, chat 2] y', ['Eda'])
+    === '[2026-01-02 jiný volající] text Eda]\n[2026-01-03 Edan] x\n[2026-01-04 jiný volající, chat 2] y', 'maska bere jen hlavičky [datum Jméno] a [datum Jméno, …] (jako app_poznamka_bez_cizich)');
+  over('S6b', poznamkaBezCizich('[2026-01-02 A.*] x [2026-01-02 AB] y', ['A.*']) === '[2026-01-02 jiný volající] x [2026-01-02 AB] y',
+    'maska bere jméno doslova (metaznaky regulárního výrazu)');
+  // stránky: kdo volá allStats a kdo vidí trychtýř celé databáze
+  const stats = readFileSync(join(ROOT, 'src/pages/StatsPage.tsx'), 'utf8');
+  over('S7', /\{isSuper && <KlientiFunnel/.test(stats) && !/isAdmin(Role)?\b[^\n]*<KlientiFunnel/.test(stats),
+    'Statistiky: trychtýř „Klienti podle stavu“ (součty celé databáze) jen pro super admina');
+  over('S7b', /if \(isSuper\) \{\s*const all = await api\.allStats/.test(stats), 'Statistiky volají allStats jen pro super admina');
+  const picker = readFileSync(join(ROOT, 'src/components/PersonPicker.tsx'), 'utf8');
+  over('S7c', /if \(!superAdmin\) \{\s*setPeople\(\[\]\);\s*return;/.test(picker), 'výběr člověka (PersonPicker) volá allStats jen pro super admina');
+  const uziv = readFileSync(join(ROOT, 'src/pages/UzivatelePage.tsx'), 'utf8');
+  over('S7d', /if \(!isSuper\) return;[^\n]*\n[\s\S]{0,200}allStats/.test(uziv), 'stránka Uživatelé volá allStats jen pro super admina');
+  const pig = readFileSync(join(ROOT, 'src/pig/PigLayer.tsx'), 'utf8');
+  over('S7e', !/allStats/.test(pig) && /topSeller\(/.test(pig), 'Prokchop bere jen svoje myStats a topSeller (jsi #1?), čísla ostatních (allStats) nedostane');
+});
 
 /* ---------------- O) karta architekta: obrat místo IČO (Albert 3. 10. 2026, APP-8, migrace 037) ---------------- */
 // Volající nevidí IČO architekta. Karta ukáže jeden řádek „obrat“ podle veřejné registrace k DPH
