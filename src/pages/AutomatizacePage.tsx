@@ -75,7 +75,7 @@ function PowerCard({
           {drainingStop
             ? `Vypínání od ${formatDateTime(control.stop_requested_at)}.`
             : `Přepínání od ${formatDateTime(control.drain_started_at)}.`}{' '}
-          Až doběhnou, přijde ti zpráva (chat v appce + e-mail + notifikace).
+          Až doběhnou, přijde ti zpráva (chat v appce + notifikace na Macu).
         </p>
       )}
 
@@ -147,8 +147,8 @@ function StatusBox({ st }: { st: AutomationStatus }) {
         )}
         <p className="auto-meta">
           {forStop
-            ? `Až doběhnou, automatizace se vypne a dostaneš zprávu (chat v appce + e-mail). Vypínání od ${formatDateTime(control.stop_requested_at)}.`
-            : `Až doběhnou, dostaneš zprávu (chat v appce + e-mail) a automatizace pokračuje na účtu ${targetLabel}. Přepínání od ${formatDateTime(control.drain_started_at)}.`}
+            ? `Až doběhnou, automatizace se vypne a dostaneš zprávu (chat v appce + notifikace na Macu). Vypínání od ${formatDateTime(control.stop_requested_at)}.`
+            : `Až doběhnou, dostaneš zprávu (chat v appce + notifikace na Macu) a automatizace pokračuje na účtu ${targetLabel}. Přepínání od ${formatDateTime(control.drain_started_at)}.`}
         </p>
       </div>
     );
@@ -354,8 +354,8 @@ export default function AutomatizacePage() {
           onCancel={() => setConfirmStop(false)}
         >
           {st.running.length > 0
-            ? `Rozdělané joby (${st.running.length}) doběhnou, nový už si žádný agent nevezme. Až všichni skončí, automatizace se vypne a přijde ti zpráva (chat v appce + e-mail + notifikace).`
-            : 'Nic neběží, vypne se hned a přijde ti o tom zpráva (chat v appce + e-mail + notifikace).'}{' '}
+            ? `Rozdělané joby (${st.running.length}) doběhnou, nový už si žádný agent nevezme. Až všichni skončí, automatizace se vypne a přijde ti zpráva (chat v appce + notifikace na Macu).`
+            : 'Nic neběží, vypne se hned a přijde ti o tom zpráva (chat v appce + notifikace na Macu).'}{' '}
           Zapnout ji můžeš kdykoli tady; agenti se pak rozjedou do 15 minut.
         </ConfirmModal>
       )}

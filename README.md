@@ -80,7 +80,7 @@ Demo přihlášení (jen DEMO, falešná data v paměti):
 Eva má v demu rozvrh a je napřed. Hovory minulých dnů týdne jsou v demu jen pro rozvrh (mimo `callLog`).
 
 Demo mock (`src/api/mock.ts`) má stejná pravidla viditelnosti jako server (migrace 023
-až 036): i hledání osobního IČO jen celým číslem a jen u kontaktů, které smí upravit, IČO
+až 038, role z 042; ⚠ NAHRAZUJE „023 až 036“, mock už zrcadlí i 037 a 038): i hledání osobního IČO jen celým číslem a jen u kontaktů, které smí upravit, IČO
 ateliéru rovné osobnímu skryté s ním, vlastní karta ve volání napřed a strop 10 vrácení do
 fronty za hodinu (audit 1. 10., APP-4 a APP-5; `npm test` blok L). Chaty mají id 1 až 9
 a 90 až 92, falešní architekti id 300 až 303 (jen adresy `example.cz`, telefony s předvolbou 999, IČO `11111111` a `22222222` s neplatným
@@ -134,7 +134,8 @@ který schvaluje Albert (u zprávy je vidět jeho stav).
 - `next_contact` od migrace 036 vrací nejdřív vlastní platnou kartu v segmentu (zámek mladší
   2 h, zámek se neposouvá): reload nebo návrat na Volání ukáže tutéž kartu a nezamkne další.
 - Karta architekta: jméno (jinak studio), studio, telefon, e-mail, město, web, „obrat“
-  a odkud máme číslo. IČO architekta volající nevidí (Albert 3. 10. 2026, migrace 037):
+  a odkud máme číslo. IČO architekta volající nevidí (Albert 3. 10. 2026, migrace 037; ⚠ od 042
+  role `caller` není a Volající = `admin` IČO vidí, viz níž):
   server mu ho v kartě ani v „Označit jako mého klienta“ nepošle a řádek „obrat“ říká
   z veřejné registrace k DPH (povinná nad 2 mil. Kč obratu za rok) jen „nad 2 mil. Kč ročně
   (plátce DPH)“, když je plátce on nebo ateliér, „do 2 mil. Kč ročně (neplátce DPH)“, když je
@@ -161,6 +162,8 @@ který schvaluje Albert (u zprávy je vidět jeho stav).
   „obrat“ podle DPH jako na kartě a pole hledání IČO nenabízí (`icoVidi` v `src/segment.ts`).
   Admin a super admin beze změny. ⚠ NAHRAZUJE „IČO ateliéru v seznamu zůstává a hledá ho
   každý“ pro volající.
+  ⚠ Od migrace 042 (18. 10. 2026) role `caller` není: Volající je role `admin` a IČO vidí
+  i hledá jako admin (`icoVidi` = `isAdminRole`), takže maska z 037 a 038 výš na nikoho nedopadá.
 - Seznamy (Kontakty, Moji klienti, Označené) zahodí odpověď staršího požadavku: po
   rychlém přepnutí filtru nezůstanou pod „chaty" architekti z pozdní odpovědi.
 - Server bez migrace 028 odpoví na `next_contact` s `p_segment` chybou `PGRST202`. Appka
