@@ -3,7 +3,6 @@ import { getApi, type Kontakt, type Rating, type Segment } from '../api';
 import { audio } from '../audio';
 import { useSession } from '../auth';
 import { loadCallSegment, saveCallSegment, segmentOf } from '../segment';
-import { tipArchitekt } from '../tipArchitekt';
 import {
   ConfirmModal,
   ErrorBox,
@@ -520,22 +519,9 @@ export default function CallPage() {
           </div>
         )}
 
-        {/* Scénář až pod tlačítky výsledku a poznámkou: nad nimi odsouval tlačítka pod okraj
-            obrazovky (na 1280×900 na 1 230 px, na mobilu skoro 1 900 px; revize 28. 9.).
-            Rozbalený, dá se sbalit. */}
-        {architekt && (
-          <details className="call-hint" open>
-            <summary className="call-hint-head">
-              <CompassIcon size={16} /> Tip pro hovor
-            </summary>
-            {tipArchitekt().map((b) => (
-              <p key={b.nadpis}>
-                {b.nadpis && <strong>{b.nadpis}: </strong>}
-                {b.text}
-              </p>
-            ))}
-          </details>
-        )}
+        {/* ⚠ Box s tipy pro volajícího (scénář architekta, docs/ARCHITEKTI.md 9.4) je pryč: Albert
+            19. 10. 2026 ho chtěl dole ve volání úplně odstranit. Pod poznámkou už nic není; u chat
+            žádný takový box nikdy nebyl. Hlídá npm test blok T a kontrola 104 v repu webdomov. */}
       </div>
 
       {modal === 'odmitnout' && (

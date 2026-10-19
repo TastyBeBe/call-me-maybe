@@ -1584,55 +1584,8 @@ table.kontakty tr:last-child td {
   min-width: 124px;
 }
 
-/* TIP PRO HOVOR: stejný tvar jako cedulka příznaku, ale inkoustový (růžová = problém).
-   Stojí pod tlačítky výsledku a poznámkou (<details>, rozbalený, dá se sbalit). */
-.call-hint {
-  border: var(--border-w) solid var(--ink);
-  border-radius: var(--r-ctl);
-  background: var(--cream-deep);
-  padding: 10px 12px;
-  margin: 16px 0 0;
-}
-
-.call-hint-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 13px;
-  font-weight: 800;
-  text-transform: uppercase;
-  letter-spacing: 1px;
-  color: var(--ink-soft);
-  cursor: pointer;
-  list-style: none;
-}
-
-.call-hint-head::-webkit-details-marker {
-  display: none;
-}
-
-/* šipka říká, že se tip dá sbalit a rozbalit */
-.call-hint-head::after {
-  content: '';
-  width: 7px;
-  height: 7px;
-  margin-left: auto;
-  border-right: 2px solid currentColor;
-  border-bottom: 2px solid currentColor;
-  transform: rotate(-45deg);
-  transition: transform 0.15s ease;
-}
-
-.call-hint[open] > .call-hint-head::after {
-  transform: rotate(45deg);
-}
-
-.call-hint p {
-  margin: 6px 0 0;
-  font-size: 14px;
-  font-weight: 600;
-  line-height: 1.35;
-}
+/* ⚠ Styly boxu s tipy pro volajícího (dřív pod tlačítky výsledku u architekta) jsou pryč spolu
+   s boxem (Albert 19. 10. 2026). */
 
 /* ---------------------------------------------------------------------------
    Zvukové menu (tři kanály: aplikace / Prokchop / hudba)

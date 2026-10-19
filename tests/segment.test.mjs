@@ -9,7 +9,7 @@
 // Výsledek: řádek „ALL OK (N kontrol)", jinak řádky „FAIL <id>: <česky> (…)" a kód 1.
 
 import { build } from 'esbuild';
-import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -60,29 +60,7 @@ let bundle;
   bundle = createRequire(import.meta.url)(f);
   rmSync(dir, { recursive: true, force: true });
 }
-// Scénář architekta (src/tipArchitekt.ts, audit APP-7) se sestavuje zvlášť: když chybí,
-// skončí to FAIL M0, ne pádem celého testu.
-let tipModul = null;
-{
-  const out = await build({
-    entryPoints: [join(ROOT, 'src/tipArchitekt.ts')],
-    bundle: true,
-    format: 'cjs',
-    platform: 'node',
-    jsx: 'automatic',
-    write: false,
-    logLevel: 'silent',
-  }).catch(() => null);
-  if (out) {
-    const dir = mkdtempSync(join(tmpdir(), 'segment-test-'));
-    const f = join(dir, 't.cjs');
-    writeFileSync(f, out.outputFiles[0].text);
-    tipModul = createRequire(import.meta.url)(f);
-    rmSync(dir, { recursive: true, force: true });
-  }
-}
 const { mockApi: api, supabaseApi, loadCallSegment, saveCallSegment, segmentOf, segmentModul, PhoneLinks, uiModul } = bundle;
-const tipArchitekt = tipModul?.tipArchitekt;
 
 let pocet = 0;
 let chyby = 0;
@@ -576,12 +554,7 @@ function souborySrc(dir) {
   return readdirSync(dir, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? souborySrc(join(dir, e.name)) : [join(dir, e.name)]));
 }
 await blok('M', async () => {
-  over('M0', typeof tipArchitekt === 'function' && tipArchitekt.length === 0, 'tipArchitekt() nebere zdroj čísla (žádný parametr)');
-  if (typeof tipArchitekt !== 'function') return;
-  const uvod = tipArchitekt().find((b) => b.nadpis === 'Úvod')?.text ?? '';
-  over('M1', /^„Dobrý den, tady <tvoje jméno> z WEBDOMOV\./.test(uvod) && !ZAKAZANY_ZDROJ.test(uvod) && !/číslo mám|<číslo/.test(uvod),
-    'úvod scénáře neříká, odkud máme číslo', uvod.slice(0, 160));
-  over('M2', tipArchitekt().length === 8, 'scénář má dál osm bloků (9.4)');
+  // ⚠ M0 až M2 měřily scénář architekta (tipArchitekt): box s tipy je od 19. 10. 2026 pryč (blok T níž).
   over('M3', !Object.keys(uiModul).some((k) => /zdroj/i.test(k)), 'ui.tsx nemá žádný popisek ani funkci zdroje čísla', Object.keys(uiModul).filter((k) => /zdroj/i.test(k)).join());
   const nalezy = souborySrc(join(ROOT, 'src')).flatMap((f) =>
     readFileSync(f, 'utf8').split('\n').map((r, i) => (ZAKAZANY_ZDROJ.test(r) ? `${f.slice(ROOT.length + 1)}:${i + 1}` : null)).filter(Boolean));
@@ -589,6 +562,21 @@ await blok('M', async () => {
   // fronta architektů je tu už obvolaná (blok BCD), měří se proto seznam: řádky jako ze serveru po 043
   const rows = (await api.listKontakty(albert, { segment: 'architekt', limit: 50 })).rows;
   over('M5', rows.length === 4 && rows.every((r) => !('zdroj_telefonu' in r)), 'řádky architektů z mocku (jako server po 043) nenesou zdroj čísla (e-mailový email_zdroj se netýká)', `${rows.length} řádků`);
+});
+
+/* ---------------- T) box s tipy pro hovor ve volání není (Albert 19. 10. 2026) ---------------- */
+// ⚠ NAHRAZUJE scénář architekta „Tip pro hovor“ pod tlačítky výsledku (docs/ARCHITEKTI.md 9.4, src/tipArchitekt.ts,
+// audit APP-7 a revize 28. 9.): Albert chce blok dole ve volání úplně pryč, u architektů i u chat (tam nikdy nebyl).
+// Pojistka proti návratu: soubor scénáře neexistuje, žádný soubor v src/ nemá třídu boxu ani jeho nadpis a nikdo
+// neimportuje tipArchitekt (kontrola 104 v repu webdomov ten blok čte).
+const ZAKAZANY_TIP = /call-hint|tipArchitekt|Tip pro hovor|TIP PRO HOVOR/;
+await blok('T', async () => {
+  over('T1', !existsSync(join(ROOT, 'src/tipArchitekt.ts')), 'src/tipArchitekt.ts (scénář pro hovor) neexistuje');
+  const nalezy = souborySrc(join(ROOT, 'src')).flatMap((f) =>
+    readFileSync(f, 'utf8').split('\n').map((r, i) => (ZAKAZANY_TIP.test(r) ? `${f.slice(ROOT.length + 1)}:${i + 1}` : null)).filter(Boolean));
+  over('T2', nalezy.length === 0, 'žádný soubor v src/ nemá box s tipy pro hovor (call-hint, tipArchitekt, nadpis)', nalezy.slice(0, 5).join(' '));
+  const call = readFileSync(join(ROOT, 'src/pages/CallPage.tsx'), 'utf8');
+  over('T3', !/<details\b/.test(call), 'CallPage nemá žádný rozbalovací box (<details>) pod tlačítky výsledku');
 });
 
 /* ---------------- N) vytočené číslo dělá kartu rozdělanou (audit APP-3) ---------------- */

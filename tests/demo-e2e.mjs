@@ -269,16 +269,15 @@ const nazvyVolani = (vs) => vs.map((v) => v.fn);
   over('V4l', y !== null && (await segmentKontaktu(page, y)) === 'architekt', 'po potvrzení je na obrazovce architekt');
   over('V4m', JSON.stringify(await zamkyUzivatele(page, UID.petra)) === JSON.stringify([y]), 'zamčený je jen nový architekt');
 
-  // TIP PRO HOVOR (9.4): jmenuje jen tlačítka, která na kartě jsou, a nestojí nad nimi
+  // ⚠ Box s tipy pro hovor (9.4) je pryč (Albert 19. 10. 2026; NAHRAZUJE V4n až V4q „tip jmenuje tlačítko
+  // Odmítnuto a stojí pod tlačítky výsledku“): na kartě architekta žádný není, tlačítka výsledku dál bez posouvání.
   await page.evaluate(() => window.scrollTo(0, 0));
   const tlacitka = (await page.locator('.outcome-row button').allInnerTexts()).map((t) => t.trim());
-  const tip = await page.locator('.call-hint').innerText();
-  over('V4n', tlacitka.includes('Odmítnuto') && /Odmítnuto/.test(tip), 'tip posílá volajícího na tlačítko Odmítnuto', tlacitka.join('|'));
-  over('V4o', !/Nemají zájem/i.test(tip), 'tip nejmenuje tlačítko, které na kartě není („Nemají zájem")');
+  over('V4n', tlacitka.includes('Odmítnuto') && tlacitka.includes('Nedovoláno'), 'karta architekta má tlačítka výsledku Nedovoláno a Odmítnuto', tlacitka.join('|'));
+  over('V4o', (await page.locator('.call-hint, details').count()) === 0 && !/Tip pro hovor/i.test(await page.evaluate(() => document.body.innerText)),
+    've volání u architekta není box s tipy pro hovor');
   const tlacitkaBox = await page.locator('.outcome-row').boundingBox();
-  const tipBox = await page.locator('.call-hint').boundingBox();
   over('V4p', !!tlacitkaBox && tlacitkaBox.y + tlacitkaBox.height <= 900, 'tlačítka výsledku jsou na 1280×900 vidět bez posouvání', tlacitkaBox && `spodek ${Math.round(tlacitkaBox.y + tlacitkaBox.height)} px`);
-  over('V4q', !!tlacitkaBox && !!tipBox && tipBox.y >= tlacitkaBox.y + tlacitkaBox.height, 'tip stojí pod tlačítky výsledku, ne nad nimi');
 
   // po výsledku hovoru jde další kontakt ze zvoleného segmentu
   await page.getByRole('button', { name: 'Nedovoláno' }).click();
@@ -288,14 +287,14 @@ const nazvyVolani = (vs) => vs.map((v) => v.fn);
   await ctx.close();
 }
 
-/* ============ V5) mobil: tlačítka výsledku před tipem, žádné vodorovné posouvání ============ */
+/* ============ V5) mobil: karta architekta bez boxu s tipy, žádné vodorovné posouvání ============ */
+// ⚠ NAHRAZUJE „tlačítka výsledku před tipem“ (box s tipy je od 19. 10. 2026 pryč, Albert).
 {
   const { ctx, page } = await novaStranka('petra', { sirka: 375, vyska: 812 });
   await page.evaluate(() => localStorage.setItem('volacka_segment', 'architekt'));
   await jdi(page, '#/call');
   const tlacitkaBox = await page.locator('.outcome-row').boundingBox();
-  const tipBox = await page.locator('.call-hint').boundingBox();
-  over('V5a', !!tlacitkaBox && !!tipBox && tipBox.y >= tlacitkaBox.y + tlacitkaBox.height, 'na mobilu je tip pod tlačítky výsledku');
+  over('V5a', !!tlacitkaBox && (await page.locator('.call-hint, details').count()) === 0, 'na mobilu má karta architekta tlačítka výsledku a žádný box s tipy');
   const sirka = await page.evaluate(() => document.scrollingElement.scrollWidth);
   over('V5b', sirka <= 375, 'karta architekta na mobilu nemá vodorovné posouvání', `${sirka} px`);
   await ctx.close();
@@ -371,8 +370,8 @@ const bezVytaceni = (page) =>
 }
 
 /* ============ V8) zdroj telefonu ve volání není (Albert 19. 10. 2026, migrace 043) ============ */
-// ⚠ NAHRAZUJE „scénář architekta: Vaše číslo mám z … ve 2. osobě podle karty (audit APP-7)“: karta ani tip
-// pro hovor neříkají, odkud máme číslo, pro Volajícího ani pro super admina.
+// ⚠ NAHRAZUJE „scénář architekta: Vaše číslo mám z … ve 2. osobě podle karty (audit APP-7)“: karta neříká,
+// odkud máme číslo, pro Volajícího ani pro super admina; box s tipy pro hovor ve volání od 19. 10. 2026 není vůbec.
 for (const kdo of ['petra', 'mikulas']) {
   const { ctx, page } = await novaStranka(kdo);
   await page.evaluate(() => localStorage.setItem('volacka_segment', 'architekt'));
@@ -381,9 +380,9 @@ for (const kdo of ['petra', 'mikulas']) {
   for (let i = 0; i < 2; i++) {
     if ((await kartaId(page)) === null) break;
     const text = await page.evaluate(() => document.body.innerText);
-    const tip = await page.locator('.call-hint').innerText();
     over('V8a', !/číslo máme z|číslo mám z/i.test(text), `${kdo}: karta ve volání neukazuje, odkud máme číslo`, text.match(/.{0,40}číslo m[áa]m[e]? z.{0,40}/i)?.[0] ?? '');
-    over('V8b', /Dobrý den, tady <tvoje jméno> z WEBDOMOV\./.test(tip) && !/číslo mám/.test(tip), `${kdo}: tip pro hovor bez věty o zdroji čísla`);
+    over('V8b', (await page.locator('.call-hint, details').count()) === 0 && !/Tip pro hovor|Dobrý den, tady <tvoje jméno>/.test(text),
+      `${kdo}: ve volání u architekta není box s tipy pro hovor ani jeho scénář`);
     videno += 1;
     await page.getByRole('button', { name: 'Nedovoláno' }).click();
     await klid(page, 300);
