@@ -41,8 +41,6 @@ export type Segment = 'chata' | 'architekt';
 /** DPH architekta a jeho studia zvlášť (migrace 028, CHECK na čtyři hodnoty). */
 export type DphStav = 'platce' | 'neplatce' | 'identifikovana_osoba' | 'neovereno';
 
-/** Odkud máme telefon architekta (migrace 028). Volající to říká na „odkud máte moje číslo". */
-export type ZdrojTelefonu = 'cka_registr' | 'web_vlastni' | 'firmy_cz' | 'jiny' | 'neznamy';
 
 /**
  * Červený příznak (migrace 005) — klient, který není 100 % vyřešený.
@@ -130,7 +128,7 @@ export interface Kontakt {
   ico_firma?: string | null;
   dph_osobni?: DphStav | null;
   dph_firma?: DphStav | null;
-  zdroj_telefonu?: ZdrojTelefonu | null;
+  // ⚠ Zdroj telefonu („odkud máme číslo“) v appce není (Albert 19. 10. 2026, migrace 043; NAHRAZUJE [ALBERT 10]). Server ho od 043 neposílá.
   created_at: string;
   updated_at: string;
 }

@@ -142,8 +142,9 @@ který schvaluje Albert (u zprávy je vidět jeho stav).
   známý neplátce nebo identifikovaná osoba, jinak „nezjištěno“ (`obratArchitekta`
   v `src/ui.tsx`). ⚠ NAHRAZUJE řádky „IČO osobně“, „IČO studia“ a poznámku o DPH studia.
   Tip pro hovor (scénář z oddílu 9.4
-  v `src/tipArchitekt.ts`: věta „Vaše číslo mám z …“ říká, odkud číslo máme, oslovením
-  ve 2. osobě, `zdrojTelefonuVeta` v `src/ui.tsx`, audit APP-7; okna volání jako rada)
+  v `src/tipArchitekt.ts`; okna volání jako rada; ⚠ od migrace 043, Albert 19. 10. 2026, bez věty
+  o tom, odkud máme číslo: zdroj telefonu appka neukazuje nikde, na kartě, v detailu ani ve scénáři,
+  a server ho neposílá; `npm test` blok M hlídá, že se do `src/` nevrátí)
   stojí až pod tlačítky výsledku a poznámkou, aby tlačítka zůstala na počítači vidět bez posouvání, a dá se sbalit. Eyebrow nad kartou
   říká segment karty, bez karty zvolený segment.
 - **Seznamy** (Kontakty, Moji klienti, Označené, trychtýř ve Statistikách) mají filtr

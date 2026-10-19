@@ -113,7 +113,6 @@ function k(partial: Partial<Kontakt> & { id: number }): Kontakt {
     ico_firma: null,
     dph_osobni: null,
     dph_firma: null,
-    zdroj_telefonu: null,
     created_at: daysAgo(30),
     updated_at: daysAgo(5),
     ...partial,
@@ -299,7 +298,6 @@ const kontakty: Kontakt[] = [
     dph_osobni: 'neplatce',
     ico_firma: '22222222',
     dph_firma: 'platce',
-    zdroj_telefonu: 'cka_registr',
     note: 'Město: Brno, Žabovřesky',
   }),
   k({
@@ -326,7 +324,6 @@ const kontakty: Kontakt[] = [
     ma_web: 'má web',
     ico_osobni: '11111111',
     dph_osobni: 'identifikovana_osoba',
-    zdroj_telefonu: 'firmy_cz',
     status: 'nedovolano',
     last_caller: 'Petra',
     note: '[2026-09-26 Petra] Nebrala, zkusit v úterý dopoledne.',
@@ -349,7 +346,6 @@ const kontakty: Kontakt[] = [
     ma_web: 'má web',
     ico_firma: '22222222',
     dph_firma: 'neplatce',
-    zdroj_telefonu: 'jiny',
     status: 'navrh_odeslan',
     rating: 'B',
     cena_web: '6500',
@@ -1432,7 +1428,8 @@ const mockApiZaklad: Api = {
     }
     if (segmentOf(kontakt) !== 'architekt') {
       const vysledek = ARCH_POLE.map((key) => (key in archNove ? archNove[key] : kontakt[key] ?? null));
-      if (vysledek.some((v) => v !== null) || (kontakt.zdroj_telefonu ?? null) !== null) {
+      // zdroj čísla appka od migrace 043 nezná (server ho neposílá), CHECK tu hlídá jen pole výš
+      if (vysledek.some((v) => v !== null)) {
         porusuje('kontakty_architekt_pole_check');
       }
     }

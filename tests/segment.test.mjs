@@ -9,7 +9,7 @@
 // Výsledek: řádek „ALL OK (N kontrol)", jinak řádky „FAIL <id>: <česky> (…)" a kód 1.
 
 import { build } from 'esbuild';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -82,7 +82,6 @@ let tipModul = null;
   }
 }
 const { mockApi: api, supabaseApi, loadCallSegment, saveCallSegment, segmentOf, segmentModul, PhoneLinks, uiModul } = bundle;
-const zdrojTelefonuVeta = uiModul.zdrojTelefonuVeta;
 const tipArchitekt = tipModul?.tipArchitekt;
 
 let pocet = 0;
@@ -567,23 +566,29 @@ await blok('J', async () => {
   over('J7b', bezKlice(jine) && jine.ico_firma === '22222222' && jine.dph_firma === 'platce', 'jiné IČO ateliéru v detailu zůstává');
 });
 
-/* ---------------- M) odkud máme číslo: věta pro hovor ve 2. osobě (audit APP-7) ---------------- */
+/* ---------------- M) zdroj telefonu v appce není (Albert 19. 10. 2026, migrace 043) ---------------- */
+// ⚠ NAHRAZUJE blok „odkud máme číslo: věta pro hovor ve 2. osobě (audit APP-7)“ a [ALBERT 10]: zdroj čísla
+// (dřív kontakty.zdroj_telefonu na kartě, v detailu a ve scénáři) appka nesmí ukázat nikde, ani Albertovi.
+// Pojistka proti návratu: žádný soubor v src/ to slovo, popisek ani větu nezmiňuje (kontrola 104 v repu
+// webdomov ten test pouští).
+const ZAKAZANY_ZDROJ = /zdroj_?telefon|zdrojTelefon|ZDROJ_TELEFON|číslo máme z|číslo mám z/i;
+function souborySrc(dir) {
+  return readdirSync(dir, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? souborySrc(join(dir, e.name)) : [join(dir, e.name)]));
+}
 await blok('M', async () => {
-  over('M0', typeof zdrojTelefonuVeta === 'function' && typeof tipArchitekt === 'function', 'ui.tsx má zdrojTelefonuVeta a tipArchitekt.ts tipArchitekt');
-  if (typeof zdrojTelefonuVeta !== 'function' || typeof tipArchitekt !== 'function') return;
-  const zdroje = ['cka_registr', 'web_vlastni', 'firmy_cz', 'jiny', 'neznamy', null, 'smeti'];
-  for (const z of zdroje) {
-    const veta = zdrojTelefonuVeta(z);
-    over('M1', typeof veta === 'string' && veta.length > 0 && !/\bjeho\b|\bjejí\b|neznámo|řekni|</i.test(veta),
-      'mluvená věta o zdroji čísla je oslovení ve 2. osobě, bez poznámky pro volajícího', `${z}: ${veta}`);
-    const uvod = tipArchitekt(z).find((b) => b.nadpis === 'Úvod')?.text ?? '';
-    over('M2', uvod.includes(`Vaše číslo mám z ${veta}.`) && !uvod.includes('<číslo máme z>'),
-      'úvod scénáře obsahuje skutečný zdroj čísla, ne zástupný text', `${z}: ${uvod.slice(0, 160)}`);
-  }
-  over('M3', zdrojTelefonuVeta('web_vlastni') === 'vašeho webu', 'web architekta: „Vaše číslo mám z vašeho webu.“', zdrojTelefonuVeta('web_vlastni'));
-  over('M4', /^registru České komory architektů$/.test(zdrojTelefonuVeta('cka_registr')), 'registr ČKA zůstává');
-  over('M5', zdrojTelefonuVeta('neznamy') === zdrojTelefonuVeta(null), 'neznámý zdroj a chybějící zdroj zní stejně');
-  over('M6', tipArchitekt('web_vlastni').length === 8, 'scénář má dál osm bloků (9.4)');
+  over('M0', typeof tipArchitekt === 'function' && tipArchitekt.length === 0, 'tipArchitekt() nebere zdroj čísla (žádný parametr)');
+  if (typeof tipArchitekt !== 'function') return;
+  const uvod = tipArchitekt().find((b) => b.nadpis === 'Úvod')?.text ?? '';
+  over('M1', /^„Dobrý den, tady <tvoje jméno> z WEBDOMOV\./.test(uvod) && !ZAKAZANY_ZDROJ.test(uvod) && !/číslo mám|<číslo/.test(uvod),
+    'úvod scénáře neříká, odkud máme číslo', uvod.slice(0, 160));
+  over('M2', tipArchitekt().length === 8, 'scénář má dál osm bloků (9.4)');
+  over('M3', !Object.keys(uiModul).some((k) => /zdroj/i.test(k)), 'ui.tsx nemá žádný popisek ani funkci zdroje čísla', Object.keys(uiModul).filter((k) => /zdroj/i.test(k)).join());
+  const nalezy = souborySrc(join(ROOT, 'src')).flatMap((f) =>
+    readFileSync(f, 'utf8').split('\n').map((r, i) => (ZAKAZANY_ZDROJ.test(r) ? `${f.slice(ROOT.length + 1)}:${i + 1}` : null)).filter(Boolean));
+  over('M4', nalezy.length === 0, 'žádný soubor v src/ nezmiňuje zdroj telefonu (Albert 19. 10. 2026)', nalezy.slice(0, 5).join(' '));
+  // fronta architektů je tu už obvolaná (blok BCD), měří se proto seznam: řádky jako ze serveru po 043
+  const rows = (await api.listKontakty(albert, { segment: 'architekt', limit: 50 })).rows;
+  over('M5', rows.length === 4 && rows.every((r) => !('zdroj_telefonu' in r)), 'řádky architektů z mocku (jako server po 043) nenesou zdroj čísla (e-mailový email_zdroj se netýká)', `${rows.length} řádků`);
 });
 
 /* ---------------- N) vytočené číslo dělá kartu rozdělanou (audit APP-3) ---------------- */

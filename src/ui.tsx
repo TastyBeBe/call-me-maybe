@@ -8,7 +8,6 @@ import type {
   Kontakt,
   KontaktStatus,
   Segment,
-  ZdrojTelefonu,
 } from './api';
 import { CompassIcon, FlagIcon, HomeIcon } from './icons';
 import { SEGMENTY, segmentOf } from './segment';
@@ -450,32 +449,5 @@ export function icoDph(ico: string | null | undefined, dph: DphStav | null | und
   return dph && DPH_LABELS[dph] ? `${ico} · ${DPH_LABELS[dph]}` : ico;
 }
 
-/** Odkud máme číslo (9.3, [ALBERT 10]). Volající to říká na „odkud máte moje číslo". */
-export const ZDROJ_TELEFONU_LABELS: Record<ZdrojTelefonu, string> = {
-  cka_registr: 'registru České komory architektů',
-  web_vlastni: 'jeho webu',
-  firmy_cz: 'firmy.cz',
-  jiny: 'jiného veřejného zdroje',
-  neznamy: 'neznámo, řekni: z veřejného seznamu architektů',
-};
-
-export function zdrojTelefonu(z: ZdrojTelefonu | null | undefined): string {
-  return (z && ZDROJ_TELEFONU_LABELS[z]) || ZDROJ_TELEFONU_LABELS.neznamy;
-}
-
-/**
- * Totéž, jak to volající ŘEKNE architektovi: „Vaše číslo mám z …“ (scénář 9.4, audit APP-7).
- * Popisky výš jsou pro řádek karty a mluví o architektovi ve 3. osobě („jeho webu“); věta
- * v hovoru ho oslovuje. Neznámý zdroj = to, co popisek radí říct.
- */
-export const ZDROJ_TELEFONU_VETA: Record<ZdrojTelefonu, string> = {
-  cka_registr: 'registru České komory architektů',
-  web_vlastni: 'vašeho webu',
-  firmy_cz: 'firmy.cz',
-  jiny: 'veřejně dostupného zdroje',
-  neznamy: 'veřejného seznamu architektů',
-};
-
-export function zdrojTelefonuVeta(z: ZdrojTelefonu | null | undefined): string {
-  return (z && ZDROJ_TELEFONU_VETA[z]) || ZDROJ_TELEFONU_VETA.neznamy;
-}
+/* ⚠ Zdroj telefonu („odkud máme číslo“) v appce není (Albert 19. 10. 2026, migrace 043; NAHRAZUJE [ALBERT 10]).
+   Popisky zdroje čísla (pro kartu i pro větu ve scénáři) a funkce k nim jsou proto pryč. */

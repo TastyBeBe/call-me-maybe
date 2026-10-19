@@ -37,7 +37,6 @@ import {
   kontaktJmeno,
   obratArchitekta,
   pravidloPopisek,
-  zdrojTelefonu,
 } from '../ui';
 import {
   CheckIcon,
@@ -351,7 +350,7 @@ function KontaktThreads({ kontakt, canWrite }: { kontakt: Kontakt; canWrite: boo
 /* ---------- údaje architekta (migrace 028), jen ke čtení ---------- */
 
 /**
- * Studio, město, IČO a DPH osobně i studia zvlášť, odkud máme číslo (docs/ARCHITEKTI.md
+ * Studio, město, IČO a DPH osobně i studia zvlášť (zdroj čísla od migrace 043 ne; docs/ARCHITEKTI.md
  * 9.6). Osobní IČO, které server v seznamu neposlal (klíč chybí, [ALBERT 28]), je
  * „skryto", ne „nezjištěno". Volajícímu (icoVidi false) žádné IČO ani poznámku o DPH studia,
  * jen řádek „obrat“ podle DPH jako na kartě ve volání (Albert 3. 10. 2026, migrace 038;
@@ -366,7 +365,6 @@ function ArchitektUdaje({ kontakt, icoVidi: vidi }: { kontakt: Kontakt; icoVidi:
         <p className="meta-line">studio: {kontakt.firma || nezjisteno}</p>
         <p className="meta-line">město: {kontakt.mesto || nezjisteno}</p>
         <p className="meta-line">obrat: {obratArchitekta(kontakt.dph_osobni, kontakt.dph_firma) ?? nezjisteno}</p>
-        <p className="meta-line">číslo máme z: {zdrojTelefonu(kontakt.zdroj_telefonu)}</p>
       </div>
     );
   }
@@ -388,7 +386,6 @@ function ArchitektUdaje({ kontakt, icoVidi: vidi }: { kontakt: Kontakt; icoVidi:
         IČO studia: {icoDph(kontakt.ico_firma, kontakt.dph_firma) ?? nezjisteno}
         {kontakt.ico_firma && <> (DPH studia neříká nic o DPH architekta)</>}
       </p>
-      <p className="meta-line">číslo máme z: {zdrojTelefonu(kontakt.zdroj_telefonu)}</p>
     </div>
   );
 }

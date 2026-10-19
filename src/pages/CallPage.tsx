@@ -17,7 +17,6 @@ import {
   StatusBadge,
   errMsg,
   obratArchitekta,
-  zdrojTelefonu,
 } from '../ui';
 import {
   ArrowDownIcon,
@@ -368,10 +367,7 @@ export default function CallPage() {
               <span className="k">obrat</span>
               {obrat ? <span>{obrat}</span> : <span className="muted">nezjištěno</span>}
             </div>
-            <div className="call-row">
-              <span className="k">číslo máme z</span>
-              <span>{zdrojTelefonu(kontakt.zdroj_telefonu)}</span>
-            </div>
+            {/* ⚠ Zdroj telefonu („odkud máme číslo“) v appce není (Albert 19. 10. 2026, migrace 043; NAHRAZUJE [ALBERT 10]). */}
           </>
         ) : (
           <>
@@ -532,7 +528,7 @@ export default function CallPage() {
             <summary className="call-hint-head">
               <CompassIcon size={16} /> Tip pro hovor
             </summary>
-            {tipArchitekt(kontakt.zdroj_telefonu).map((b) => (
+            {tipArchitekt().map((b) => (
               <p key={b.nadpis}>
                 {b.nadpis && <strong>{b.nadpis}: </strong>}
                 {b.text}

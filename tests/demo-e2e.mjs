@@ -370,32 +370,25 @@ const bezVytaceni = (page) =>
   await ctx.close();
 }
 
-/* ============ V8) scénář architekta: „Vaše číslo mám z …“ ve 2. osobě podle karty (audit APP-7) ============ */
-{
-  const VETA = {
-    'registru České komory architektů': 'registru České komory architektů',
-    'jeho webu': 'vašeho webu',
-    'firmy.cz': 'firmy.cz',
-    'jiného veřejného zdroje': 'veřejně dostupného zdroje',
-    'neznámo, řekni: z veřejného seznamu architektů': 'veřejného seznamu architektů',
-  };
-  const { ctx, page } = await novaStranka('petra');
+/* ============ V8) zdroj telefonu ve volání není (Albert 19. 10. 2026, migrace 043) ============ */
+// ⚠ NAHRAZUJE „scénář architekta: Vaše číslo mám z … ve 2. osobě podle karty (audit APP-7)“: karta ani tip
+// pro hovor neříkají, odkud máme číslo, pro Volajícího ani pro super admina.
+for (const kdo of ['petra', 'mikulas']) {
+  const { ctx, page } = await novaStranka(kdo);
   await page.evaluate(() => localStorage.setItem('volacka_segment', 'architekt'));
   await jdi(page, '#/call');
   let videno = 0;
-  for (let i = 0; i < 3; i++) {
+  for (let i = 0; i < 2; i++) {
     if ((await kartaId(page)) === null) break;
-    // hodnota řádku (popisek .k je přes CSS velkými písmeny)
-    const radek = (await page.locator('.call-row', { hasText: /číslo máme z/i }).locator('span:not(.k)').first().innerText()).trim();
+    const text = await page.evaluate(() => document.body.innerText);
     const tip = await page.locator('.call-hint').innerText();
-    const veta = /Vaše číslo mám z ([^.]+(?:\.cz)?)\./.exec(tip)?.[1] ?? '';
-    over('V8a', !!VETA[radek] && veta === VETA[radek], 'úvod scénáře říká zdroj z karty oslovením (2. osoba)', `karta „${radek}“, scénář „${veta}“`);
-    over('V8b', !/jeho webu|neznámo|<číslo máme z>/.test(tip), 'scénář nemluví o architektovi ve 3. osobě ani nenechá zástupný text');
+    over('V8a', !/číslo máme z|číslo mám z/i.test(text), `${kdo}: karta ve volání neukazuje, odkud máme číslo`, text.match(/.{0,40}číslo m[áa]m[e]? z.{0,40}/i)?.[0] ?? '');
+    over('V8b', /Dobrý den, tady <tvoje jméno> z WEBDOMOV\./.test(tip) && !/číslo mám/.test(tip), `${kdo}: tip pro hovor bez věty o zdroji čísla`);
     videno += 1;
     await page.getByRole('button', { name: 'Nedovoláno' }).click();
     await klid(page, 300);
   }
-  over('V8c', videno >= 2, 'scénář změřen aspoň u dvou architektů', `${videno}`);
+  over('V8c', videno >= 1, `${kdo}: aspoň jedna karta architekta změřena`, `${videno}`);
   await ctx.close();
 }
 
@@ -559,6 +552,7 @@ const bezVytaceni = (page) =>
   await page.locator('table.kontakty tbody tr', { hasText: 'Tomáš Ukázka' }).click();
   const udaje = (await page.locator('.drawer .arch-udaje').innerText()).replace(/\s+/g, ' ');
   over('D2c', /IČO studia:\s*22222222/.test(udaje) && /IČO osobně:\s*skryto/.test(udaje), 'Volající: u cizího architekta IČO studia vidí, osobní IČO skryté (042, 028)', udaje);
+  over('D2d', !/číslo máme z|číslo mám z/i.test(await page.locator('.drawer').innerText()), 'Volající: detail architekta neukazuje, odkud máme číslo (043)', udaje);
   await ctx.close();
 }
 {

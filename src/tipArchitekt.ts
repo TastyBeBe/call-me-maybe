@@ -1,18 +1,15 @@
-import type { ZdrojTelefonu } from './api/types';
-import { zdrojTelefonuVeta } from './ui';
-
 /**
- * Scénář pro volajícího u architekta (docs/ARCHITEKTI.md 9.4). Stejný pro všechny, jen věta
- * o tom, odkud máme číslo, nese skutečný zdroj z karty ve 2. osobě („Vaše číslo mám z vašeho
- * webu."), ne popisek řádku karty („jeho webu"; audit APP-7). Okna volání jsou jen rada,
- * appka volání v jiný čas neomezuje ([ALBERT 25]). Tlačítko jmenuje přesně tak, jak je na
- * kartě: „Odmítnuto" (9.4 psal „Nemají zájem", takové tlačítko není; revize 28. 9.).
+ * Scénář pro volajícího u architekta (docs/ARCHITEKTI.md 9.4). Stejný pro všechny. Okna volání
+ * jsou jen rada, appka volání v jiný čas neomezuje ([ALBERT 25]). Tlačítko jmenuje přesně tak,
+ * jak je na kartě: „Odmítnuto" (9.4 psal „Nemají zájem", takové tlačítko není; revize 28. 9.).
+ * ⚠ NAHRAZENO migrací 043 (Albert 19. 10. 2026): úvod už neříká, odkud máme číslo; zdroj
+ * telefonu v appce není nikde (NAHRAZUJE [ALBERT 10] a audit APP-7, věta ve 2. osobě podle karty).
  */
-export function tipArchitekt(zdroj: ZdrojTelefonu | null | undefined): { nadpis?: string; text: string }[] {
+export function tipArchitekt(): { nadpis?: string; text: string }[] {
   return [
     {
       nadpis: 'Úvod',
-      text: `„Dobrý den, tady <tvoje jméno> z WEBDOMOV. Volám, protože z vašich zveřejněných realizací umím sestavit náhled webu a poslat vám ho e-mailem. Vaše číslo mám z ${zdrojTelefonuVeta(zdroj)}. Když o to nestojíte, řekněte a už se neozvu." Nikdy se neptej „neruším?". Důvod hovoru patří do první věty.`,
+      text: `„Dobrý den, tady <tvoje jméno> z WEBDOMOV. Volám, protože z vašich zveřejněných realizací umím sestavit náhled webu a poslat vám ho e-mailem. Když o to nestojíte, řekněte a už se neozvu." Nikdy se neptej „neruším?". Důvod hovoru patří do první věty.`,
     },
     {
       nadpis: 'Kontrolní otázka',
