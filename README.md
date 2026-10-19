@@ -133,8 +133,8 @@ který schvaluje Albert (u zprávy je vidět jeho stav).
   dorazí až po přepnutí, se zahodí a její zámek se vrátí.
 - `next_contact` od migrace 036 vrací nejdřív vlastní platnou kartu v segmentu (zámek mladší
   2 h, zámek se neposouvá): reload nebo návrat na Volání ukáže tutéž kartu a nezamkne další.
-- Karta architekta: jméno (jinak studio), studio, telefon, e-mail, město, web, „obrat“
-  a odkud máme číslo. IČO architekta volající nevidí (Albert 3. 10. 2026, migrace 037; ⚠ od 042
+- Karta architekta: jméno (jinak studio), studio, telefon, e-mail, město, web a „obrat“
+  (⚠ odkud máme číslo už ne: migrace 043, Albert 19. 10. 2026). IČO architekta volající nevidí (Albert 3. 10. 2026, migrace 037; ⚠ od 042
   role `caller` není a Volající = `admin` IČO vidí, viz níž):
   server mu ho v kartě ani v „Označit jako mého klienta“ nepošle a řádek „obrat“ říká
   z veřejné registrace k DPH (povinná nad 2 mil. Kč obratu za rok) jen „nad 2 mil. Kč ročně
