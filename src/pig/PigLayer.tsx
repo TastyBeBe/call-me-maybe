@@ -4,6 +4,7 @@ import { getApi } from '../api';
 import { audio } from '../audio';
 import { useAuth } from '../auth';
 import { LockIcon } from '../icons';
+import { isSuperAdmin } from '../roles';
 import { DANCES, PigRuntime, TOOLS } from './runtime';
 import {
   COSMETICS, COS_PRICE, MILESTONES, TOOL_PRICES, TOP_COSMETIC, UNLOCKS, balance, dayWord,
@@ -106,6 +107,8 @@ export default function PigLayer() {
   const firedRef = useRef<Set<string>>(new Set());
   const seenRef = useRef<Set<string>>(new Set());
   const uid = session?.user_id ?? null;
+  // „#1 prodejce“ je žebříček kolegů: jen super admin (Albert 20. 10. 2026, migrace 045, top_prodejce)
+  const zebricek = isSuperAdmin(session?.role);
   const hasSession = !!session;
   const counters = real;
   const chops = balance(counters, progress);
@@ -279,12 +282,14 @@ export default function PigLayer() {
   }, [setProgress, showReveal, nextDance]);
   useEffect(() => {
     if (!ready || !session || uid === null) return;
+    // ⚠ ZMĚNĚNO migrací 045 (Albert 20. 10. 2026, „Hide all of it“): Volající se na #1 neptá vůbec
+    // (server mu top_prodejce odmítne) a odměnu za něj nemá; NAHRAZUJE „funguje pro každou roli“.
+    if (!zebricek) { awardTop(false); return; }
     let stop = false;
     const check = async () => {
       try {
         // ⚠ ZMĚNĚNO 2026-09-24 (migrace 023): dřív all_stats — čísla VŠECH, jenže ty od teď
-        // vidí jen super admin. top_prodejce říká jen „jsi #1?" a funguje pro každou roli
-        // (dřív ho volající nedostali nikdy). Dny na #1 si prohlížeč počítá jen pro sebe.
+        // vidí jen super admin. top_prodejce říká jen „jsi #1?". Dny na #1 si prohlížeč počítá jen pro sebe.
         const r = await getApi().topSeller(session.token);
         if (stop || !r) return;
         tickTopDays(session.user_id, r.je_prvni);
@@ -296,7 +301,7 @@ export default function PigLayer() {
     const onChange = () => { void check(); };
     window.addEventListener('cmm:data-changed', onChange);
     return () => { stop = true; window.clearInterval(iv); window.removeEventListener('cmm:data-changed', onChange); };
-  }, [ready, session, uid, awardTop]);
+  }, [ready, session, uid, awardTop, zebricek]);
 
   /* ---------- the closet ---------- */
   /** Koupě NÁSTROJE za PROKCHOPY (růžový glock, 100). Málo chopů = jen kviknutí. */
@@ -440,6 +445,7 @@ export default function PigLayer() {
       {closetOpen && (
         <Closet
           rt={rtRef.current}
+          zebricek={zebricek}
           ownsCos={ownsCos}
           chops={chops}
           progress={progress}
@@ -453,8 +459,8 @@ export default function PigLayer() {
 }
 
 /* ---------- the CLOSET: him, wearing what you pick ---------- */
-function Closet({ rt, ownsCos, chops, progress, onBuy, onWear, onClose }: {
-  rt: PigRuntime | null; ownsCos: (id: string) => boolean; chops: number; progress: Progress;
+function Closet({ rt, zebricek, ownsCos, chops, progress, onBuy, onWear, onClose }: {
+  rt: PigRuntime | null; zebricek: boolean; ownsCos: (id: string) => boolean; chops: number; progress: Progress;
   onBuy: (id: string) => void; onWear: (id: string | null) => void; onClose: () => void;
 }) {
   const prevRef = useRef<HTMLCanvasElement | null>(null);
@@ -486,7 +492,8 @@ function Closet({ rt, ownsCos, chops, progress, onBuy, onWear, onClose }: {
               </svg>
             </span>
           </button>
-          {COSMETICS.map((c) => {
+          {/* odměnu za #1 prodejce (swagger brýle) Volající nevidí: žebříček je jen pro super admina (045) */}
+          {COSMETICS.filter((c) => zebricek || c.price !== null).map((c) => {
             const owned = ownsCos(c.id);
             const award = c.price === null;
             return (

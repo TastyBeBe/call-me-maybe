@@ -703,10 +703,11 @@ for (const kdo of ['petra', 'mikulas']) {
   await ctx.close();
 }
 
-/* ============ S) čísla jiných lidí vidí jen super admin (Albert 19. 10. 2026, migrace 045) ============ */
-// Volající (Petra): Statistiky jen svoje karty, bez výběru člověka a bez trychtýře celé databáze (součty jsou
-// i prodeje kolegů); hledání jména kolegy v Kontaktech nic nenajde ani nespočítá (hlavičky poznámek „[datum
-// Honza]“). Super admin (Mikuláš): výběr člověka, trychtýř i hledání podle jména kolegy jako dřív.
+/* ============ S) čísla jiných lidí vidí jen super admin (Albert 19. a 20. 10. 2026, migrace 045) ============ */
+// Volající (Petra): Statistiky jen svoje karty, bez výběru člověka, bez trychtýře celé databáze (součty jsou
+// i prodeje kolegů) a bez dlaždice „jako #1 prodejce“; hledání jména kolegy v Kontaktech nic nenajde ani nespočítá
+// (hlavičky poznámek „[datum Honza]“); Kontakty bez počtů u stavů a bez celkového počtu; v detailu kontaktu jméno
+// kolegy v poznámce „jiný volající“; Prokchop se na top_prodejce neptá. Super admin (Mikuláš): všechno jako dřív.
 for (const [kdo, superAdmin] of [['petra', false], ['mikulas', true]]) {
   const { ctx, page } = await novaStranka(kdo);
   await jdi(page, '#/stats', 700);
@@ -716,6 +717,7 @@ for (const [kdo, superAdmin] of [['petra', false], ['mikulas', true]]) {
   const vyber = (await page.locator('#user-select').count()) > 0;
   over('S1', karty >= 6 && /hovorů/i.test(text) && trychtyr === superAdmin && vyber === superAdmin,
     `${kdo}: Statistiky ${superAdmin ? 'mají' : 'nemají'} výběr člověka a trychtýř celé databáze`, `karet ${karty}, trychtýř ${trychtyr}, výběr ${vyber}`);
+  over('S1b', /jako #1 prodejce/i.test(text) === superAdmin, `${kdo}: dlaždice „jako #1 prodejce“ ${superAdmin ? 'je' : 'není'}`);
   const pred = (await volani(page)).length;
   await jdi(page, '#/admin', 600);
   await page.locator('input.search-input').fill('Honza');
@@ -724,6 +726,28 @@ for (const [kdo, superAdmin] of [['petra', false], ['mikulas', true]]) {
   const vs = (await volani(page)).slice(pred).filter((v) => v.fn === 'listKontakty');
   over('S2', vs.some((v) => v.ok && JSON.stringify(v.args).includes('Honza')) && (superAdmin ? radky >= 3 : radky === 0 && /Nic nenalezeno/.test(await page.evaluate(() => document.body.innerText))),
     `${kdo}: hledání „Honza“ (jméno kolegy v poznámkách) ${superAdmin ? 'najde jeho kontakty' : 'nic nenajde'}`, `${radky} řádků`);
+  // počty u stavů a celkový počet (součty celé databáze) jen super admin
+  await page.locator('input.search-input').fill('');
+  await klid(page, 800);
+  const moznosti = await page.locator('select[aria-label="Filtr statusu"] option').allInnerTexts();
+  const sPocty = moznosti.filter((o) => /\(\d+\)/.test(o)).length;
+  const pilulka = await page.locator('h1.page-title .count-pill').count();
+  const dotazyPocty = (await volani(page)).slice(pred).filter((v) => v.fn === 'listKontakty' && JSON.stringify(v.args).includes('"limit":1')).length;
+  over('S3', superAdmin ? sPocty >= 3 && pilulka === 1 && dotazyPocty >= 10 : sPocty === 0 && pilulka === 0 && dotazyPocty === 0,
+    `${kdo}: Kontakty ${superAdmin ? 'mají' : 'nemají'} počty u stavů a celkový počet`, `stavů s počtem ${sPocty}, pilulka ${pilulka}, dotazů na počty ${dotazyPocty}`);
+  // detail kontaktu 2 (poznámka „[2026-08-29 Honza] Zase nebrali.“): jméno kolegy jen pro super admina
+  await page.locator('input.search-input').fill('Zase nebrali');
+  await klid(page, 800);
+  await page.locator('table.kontakty tbody tr').first().click();
+  await klid(page, 500);
+  const detail = await page.locator('.drawer-note-ro, .drawer textarea, textarea').allInnerTexts().catch(() => []);
+  const hodnoty = await page.locator('textarea').evaluateAll((els) => els.map((e) => e.value)).catch(() => []);
+  const poznamka = [...detail, ...hodnoty, await page.evaluate(() => document.body.innerText)].join('\n');
+  over('S4', superAdmin ? /\[2026-08-29 Honza\] Zase nebrali/.test(poznamka) : /\[2026-08-29 jiný volající\] Zase nebrali/.test(poznamka) && !/\[2026-08-29 Honza\]/.test(poznamka),
+    `${kdo}: v detailu kontaktu ${superAdmin ? 'je' : 'není'} jméno kolegy v poznámce`, poznamka.match(/\[2026-08-29 [^\]]*\]/)?.[0] ?? 'poznámka nenalezena');
+  // Prokchop: top_prodejce (žebříček) jen za super admina
+  const top = (await volani(page)).filter((v) => v.fn === 'topSeller').length;
+  if (!superAdmin) over('S5', top === 0, 'petra: Prokchop se Volajícího na „#1 prodejce“ (top_prodejce) neptá', `${top} volání`);
   await ctx.close();
 }
 

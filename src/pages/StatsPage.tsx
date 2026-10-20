@@ -35,6 +35,8 @@ export default function StatsPage() {
   // Cizí statistiky vidí jen super admin; od migrace 027 každý super admin všechny (allStats), ostatní jen sebe.
   // ⚠ Albert 19. 10. 2026 (migrace 045): Volající nesmí nijak vidět čísla jiných lidí, jen super admini.
   // Volající proto vidí jen svoje karty; trychtýř celé databáze (prodeje a zájmy všech) jen super admin.
+  // ⚠ Albert 20. 10. 2026 („Hide all of it“): ani dlaždici „jako #1 prodejce“ (žebříček kolegů); server
+  // top_prodejce Volajícímu odmítne a total z list_kontakty mu pošle null.
   const isSuper = isSuperAdmin(session.role);
   const [myStats, setMyStats] = useState<MyStats | null>(null);
   const [allStats, setAllStats] = useState<UserStats[] | null>(null);
@@ -133,11 +135,13 @@ export default function StatsPage() {
               <div className="stat-value">{shown.nedovolano}</div>
               <div className="stat-label">Nedovolaných pokusů</div>
             </div>
-            {/* kolik dní drží tenhle člověk korunu #1 prodejce (Prokchopovo počítadlo) */}
-            <div className="card stat-card">
-              <div className="stat-value">{topDays}</div>
-              <div className="stat-label">{dayWord(topDays)} jako #1 prodejce</div>
-            </div>
+            {/* kolik dní drží tenhle člověk korunu #1 prodejce (Prokchopovo počítadlo); jen super admin (045) */}
+            {isSuper && (
+              <div className="card stat-card">
+                <div className="stat-value">{topDays}</div>
+                <div className="stat-label">{dayWord(topDays)} jako #1 prodejce</div>
+              </div>
+            )}
           </div>
           {isSuper && <KlientiFunnel token={session.token} />}
         </>
@@ -175,7 +179,7 @@ function KlientiFunnel({ token }: { token: string }) {
         const pairs = await Promise.all(
           ALL_STATUSES.map(async (s) => {
             const r = await api.listKontakty(token, { status: s, segment: segment || null, limit: 1 });
-            return [s, r.total] as const;
+            return [s, r.total ?? 0] as const;
           })
         );
         if (alive) setCounts(Object.fromEntries(pairs));

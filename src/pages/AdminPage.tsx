@@ -47,6 +47,9 @@ const PAGE_SIZE = 50;
 // admin a super admin, volající jen čte.
 // Filtr „vše / chaty / architekti" (migrace 028) jde na server do seznamu i do všech
 // počtů; výchozí je vše a nepamatuje se (docs/ARCHITEKTI.md 9.6).
+// ⚠ Od migrace 045 (Albert 20. 10. 2026, „Hide all of it“): součty celé databáze (počty u stavů a košů,
+// celkový počet) jen super admin; Volajícímu server posílá total null, stránkuje se podle `dalsi`.
+// NAHRAZUJE „počty stavů a košů vidí každý“.
 export default function AdminPage() {
   const session = useSession();
   const isAdmin = isAdminRole(session.role);
@@ -67,7 +70,8 @@ export default function AdminPage() {
   const [page, setPage] = useState(0);
 
   const [rows, setRows] = useState<Kontakt[]>([]);
-  const [total, setTotal] = useState(0);
+  const [total, setTotal] = useState<number | null>(0);
+  const [dalsi, setDalsi] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [selected, setSelected] = useState<Kontakt | null>(null);
@@ -88,8 +92,12 @@ export default function AdminPage() {
     return () => clearTimeout(t);
   }, [search]);
 
-  // počty pro status dropdown (1 dotaz s limit 1 na každý status)
+  // počty pro status dropdown (1 dotaz s limit 1 na každý status); jen super admin (migrace 045)
   useEffect(() => {
+    if (!isSuper) {
+      setStatusCounts({});
+      return;
+    }
     let alive = true;
     (async () => {
       try {
@@ -101,7 +109,7 @@ export default function AdminPage() {
               segment: segment || null,
               limit: 1,
             });
-            return [s, r.total] as const;
+            return [s, r.total ?? 0] as const;
           })
         );
         if (alive) setStatusCounts(Object.fromEntries(counts));
@@ -112,12 +120,12 @@ export default function AdminPage() {
     return () => {
       alive = false;
     };
-  }, [session.token, segment, tick]);
+  }, [session.token, segment, tick, isSuper]);
 
   // počty v koších (jen když je filtr čekání zapnutý) — ať je vidět, kolik jich
-  // je v tom studeném balíku, aniž by zaplavily začátek seznamu
+  // je v tom studeném balíku, aniž by zaplavily začátek seznamu; jen super admin (migrace 045)
   useEffect(() => {
-    if (!cekani) {
+    if (!cekani || !isSuper) {
       setKosCounts({});
       return;
     }
@@ -133,7 +141,7 @@ export default function AdminPage() {
               segment: segment || null,
               limit: 1,
             });
-            return [k, r.total] as const;
+            return [k, r.total ?? 0] as const;
           })
         );
         if (alive) setKosCounts(Object.fromEntries(counts));
@@ -144,7 +152,7 @@ export default function AdminPage() {
     return () => {
       alive = false;
     };
-  }, [session.token, cekani, segment, tick]);
+  }, [session.token, cekani, segment, tick, isSuper]);
 
   const load = useCallback(async () => {
     const muj = ++posledniSeznam.current;
@@ -165,6 +173,7 @@ export default function AdminPage() {
       if (muj !== posledniSeznam.current) return; // mezitím se změnil filtr
       setRows(r.rows);
       setTotal(r.total);
+      setDalsi(r.dalsi ?? (r.total !== null && (page + 1) * PAGE_SIZE < r.total));
     } catch (e) {
       if (muj !== posledniSeznam.current) return;
       setError(errMsg(e));
@@ -185,7 +194,8 @@ export default function AdminPage() {
     setTick(reloadTick.current);
   };
 
-  const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  // Volající total nedostane (null): stránky bez celkového počtu, „Další“ podle `dalsi` (migrace 045)
+  const pageCount = total === null ? null : Math.max(1, Math.ceil(total / PAGE_SIZE));
   const totalAll = useMemo(
     () => Object.values(statusCounts).reduce((a, b) => a + b, 0),
     [statusCounts]
@@ -196,7 +206,7 @@ export default function AdminPage() {
       <p className="eyebrow">databáze kontaktů</p>
       <h1 className="page-title">
         Kontakty
-        {total > 0 && <span className="count-pill">{total}</span>}
+        {total !== null && total > 0 && <span className="count-pill">{total}</span>}
       </h1>
 
       <SegmentFilter
@@ -390,7 +400,7 @@ export default function AdminPage() {
         </div>
       )}
 
-      {pageCount > 1 && (
+      {(pageCount === null ? page > 0 || dalsi : pageCount > 1) && (
         <div className="pagination">
           <button
             className="pill-btn sm"
@@ -400,11 +410,11 @@ export default function AdminPage() {
             <ArrowLeftIcon size={16} /> Předchozí
           </button>
           <span className="muted">
-            strana {page + 1} / {pageCount}
+            strana {page + 1}{pageCount === null ? '' : ` / ${pageCount}`}
           </span>
           <button
             className="pill-btn sm"
-            disabled={page + 1 >= pageCount || loading}
+            disabled={(pageCount === null ? !dalsi : page + 1 >= pageCount) || loading}
             onClick={() => setPage((p) => p + 1)}
           >
             Další <ArrowRightIcon size={16} />

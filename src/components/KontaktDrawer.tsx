@@ -528,9 +528,10 @@ export default function KontaktDrawer({
           </p>
         )}
         {segmentOf(kontakt) === 'architekt' && <ArchitektUdaje kontakt={kontakt} icoVidi={icoVidi(session.role)} />}
-        {!readOnly && kontakt.lock_by !== null && (
+        {/* migrace 045: cizí zámek Volající dostane jen jako zamceno, bez toho, kdo kartu volá */}
+        {!readOnly && (kontakt.zamceno ?? kontakt.lock_by !== null) && (
           <div className="info-box">
-            Kontakt je zamčený (volající id {kontakt.lock_by}).{' '}
+            Kontakt je zamčený{kontakt.lock_by !== null ? ` (volající id ${kontakt.lock_by})` : ''}.{' '}
             <button className="pill-btn sm" onClick={() => void clearLock()} disabled={busy}>
               Uvolnit zámek
             </button>

@@ -80,7 +80,7 @@ Demo přihlášení (jen DEMO, falešná data v paměti):
 Eva má v demu rozvrh a je napřed. Hovory minulých dnů týdne jsou v demu jen pro rozvrh (mimo `callLog`).
 
 Demo mock (`src/api/mock.ts`) má stejná pravidla viditelnosti jako server (migrace 023
-až 038, role z 042, hledání v poznámkách bez jmen kolegů z 045; ⚠ NAHRAZUJE „023 až 036“, mock už zrcadlí i 037 a 038): i hledání osobního IČO jen celým číslem a jen u kontaktů, které smí upravit, IČO
+až 038, role z 042, z 045 jména kolegů v poznámkách, u příznaku a zámku a v hledání maskovaná, Volajícímu bez `total` a `top_prodejce`; ⚠ NAHRAZUJE „023 až 036“, mock už zrcadlí i 037 a 038): i hledání osobního IČO jen celým číslem a jen u kontaktů, které smí upravit, IČO
 ateliéru rovné osobnímu skryté s ním, vlastní karta ve volání napřed a strop 10 vrácení do
 fronty za hodinu (audit 1. 10., APP-4 a APP-5; `npm test` blok L). Chaty mají id 1 až 9
 a 90 až 92, falešní architekti id 300 až 303 (jen adresy `example.cz`, telefony s předvolbou 999, IČO `11111111` a `22222222` s neplatným
@@ -109,13 +109,18 @@ Automatizace vidí jen Albert. **Hlídá to server** (SQL funkce), appka jen neu
 server odmítl. Podrobně: `../docs/ROLE-A-VIDITELNOST.md`.
 
 **Čísla jiných lidí vidí jen super admin** (Albert 19. 10. 2026: Volající nesmí nijak vidět prodeje,
-počty hovorů, žebříček ani jiné statistiky kolegů; migrace 045, test `../db/tests/test_045_statistiky_jen_super_admin.sql`).
-Server: `all_stats` a `rozvrh_prehled` jen super admin, `my_stats` jen vlastní, `top_prodejce` jen `{je_prvni}`,
-výběr jiného člověka (`p_user_id`, `p_caller`) jen super admin a od 045 hledání v Kontaktech nenajde nikoho podle
-jména kolegy v hlavičce poznámky „[datum Jméno]“ (jinak si Volající spočítal jeho kontakty a prodeje). Appka:
-trychtýř „Klienti podle stavu“ ve Statistikách jen super admin, `allStats` volá jen super admin, demo mock maskuje
-hledání stejně (`poznamkaBezCizich`); `npm test` blok S a e2e S. Text poznámek se jmény kolegů zůstává
-(Albert 25. 9. 2026), stejně jako `lock_by` u zamčené karty; obojí je otázka pro Alberta (`../docs/ROLE-A-VIDITELNOST.md`).
+počty hovorů, žebříček ani jiné statistiky kolegů; 20. 10. 2026 „Hide all of it“; migrace 045, test
+`../db/tests/test_045_statistiky_jen_super_admin.sql`, celé pravidlo `../docs/ROLE-A-VIDITELNOST.md`).
+Server: `all_stats`, `rozvrh_prehled` a `top_prodejce` („#1 prodejce“) jen super admin, `my_stats` jen vlastní,
+výběr jiného člověka (`p_user_id`, `p_caller`) jen super admin; Volajícímu jména kolegů v poznámce a poznámce
+příznaku „jiný volající“ (hlavička „[datum Jméno]“ i text, ne jméno klienta s titulem nebo příjmením), kdo z kolegů
+dal příznak taky, u cizího zámku jen `zamceno` (bez `lock_by`), hledání podle jména kolegy nic nenajde a `total`
+z `list_kontakty` (součty celé databáze) je `null`, stránkuje se podle `dalsi`. Uložení maskované poznámky jména
+kolegů v databázi nezničí (`app_poznamka_zpet`). Appka: Kontakty Volajícímu bez počtů u stavů a košů a bez celkového
+počtu, Statistiky bez trychtýře „Klienti podle stavu“ a dlaždice „jako #1 prodejce“, Prokchop se na #1 neptá a swagger
+brýle nenabízí, detail u cizího zámku jen „Kontakt je zamčený“; `allStats` a `topSeller` volá jen super admin;
+demo mock dělá totéž (`poznamkaBezCizich`, `poznamkaZpet`); `npm test` blok S a e2e S. ⚠ NAHRAZUJE „text poznámek
+se jmény kolegů zůstává (Albert 25. 9. 2026), stejně jako `lock_by`“ a „`top_prodejce` jen `{je_prvni}` pro každého“.
 
 Od migrace 024/025 (Albert 2026-09-24 večer): kontakt **upravuje** jen ten, komu patří,
 jeho super admin a Albert (server posílá u každého řádku `smi_upravit`; příznak a zámek
@@ -190,10 +195,10 @@ který schvaluje Albert (u zprávy je vidět jeho stav).
 | `#/login`     | všichni | přihlášení                                                       |
 | `#/`          | všichni | domů — dlaždice podle role                                       |
 | `#/call`      | všichni | fronta hovorů: přepínač chaty / architekti (028), karta kontaktu + výsledky (nedovoláno/odmítnuto/zájem). Poznámka k hovoru je **nepovinná** — zájem jde uložit i bez ní (Albert 2026-09-23; dřív se při prázdné poznámce otevíralo potvrzovací okno navíc) |
-| `#/stats`     | všichni | moje statistiky; super admin (i Albert) přes dropdown kohokoli (027) a trychtýř „Klienti podle stavu" (součty celé databáze) s filtrem segmentu (028); ⚠ trychtýř od 19. 10. 2026 jen super admin (migrace 045, NAHRAZUJE „(admin)“): Volající vidí jen svoje čísla |
+| `#/stats`     | všichni | moje statistiky; super admin (i Albert) přes dropdown kohokoli (027) a trychtýř „Klienti podle stavu" (součty celé databáze) s filtrem segmentu (028); ⚠ trychtýř od 19. 10. 2026 a dlaždice „jako #1 prodejce“ od 20. 10. 2026 jen super admin (migrace 045, NAHRAZUJE „(admin)“): Volající vidí jen svoje čísla |
 | `#/moji`      | všichni | moji klienti (+ historie poznámek v detailu); super admin může vybrat kohokoli (027); filtr segmentu (028) |
 | `#/rozvrh`    | všichni | Rozvrh (042): týden po až ne, hodiny na den a cíl (hovorů za hodinu posílá server), plnění z hovorů, hláška pozadu / v plánu / napřed, poznámky ke dnům; Volající si ho nastaví jednou, super admin vidí přehled všech, mění a odemyká |
-| `#/admin`     | všichni | Kontakty: celá databáze s filtry (i segment, 028) a fulltextem (i studio, město, IČO; IČO jen admin a super admin, 038); upravovat smí admin a super admin |
+| `#/admin`     | všichni | Kontakty: celá databáze s filtry (i segment, 028) a fulltextem (i studio, město, IČO; IČO jen admin a super admin, 038); upravovat smí admin a super admin; počty u stavů a košů a celkový počet jen super admin (045, Volající stránkuje bez počtu) |
 | `#/oznacene`  | admin   | označení klienti — admin svoji; super admin a Albert všichni (027); filtr segmentu (028) |
 | `#/zpravy`    | admin   | vlákna s AI agenty — admin svoje; super admin vlákna všech lidí (cizí jen ke čtení, 027); Albert i automatizaci; odznak architekta u hledaného kontaktu (028) |
 | `#/uzivatele` | super admin | super admin: všichni lidé, upravuje sebe a své lidi + nový Volající (027, 042); Albert: role (Volající / Super admin, 042) a nadřízení (⚠ od migrace 024 Volající stránku nemá) |

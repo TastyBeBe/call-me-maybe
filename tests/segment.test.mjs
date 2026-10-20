@@ -34,7 +34,7 @@ let bundle;
   const out = await build({
     stdin: {
       contents: [
-        "export { mockApi, poznamkaBezCizich } from './src/api/mock.ts';",
+        "export { mockApi, poznamkaBezCizich, poznamkaZpet } from './src/api/mock.ts';",
         "export { supabaseApi } from './src/api/supabase.ts';",
         "export { loadCallSegment, saveCallSegment, segmentOf } from './src/segment.ts';",
         "export * as segmentModul from './src/segment.ts';",
@@ -60,7 +60,7 @@ let bundle;
   bundle = createRequire(import.meta.url)(f);
   rmSync(dir, { recursive: true, force: true });
 }
-const { mockApi: api, poznamkaBezCizich, supabaseApi, loadCallSegment, saveCallSegment, segmentOf, segmentModul, PhoneLinks, uiModul } = bundle;
+const { mockApi: api, poznamkaBezCizich, poznamkaZpet, supabaseApi, loadCallSegment, saveCallSegment, segmentOf, segmentModul, PhoneLinks, uiModul } = bundle;
 
 let pocet = 0;
 let chyby = 0;
@@ -124,12 +124,14 @@ async function blok(id, fn) {
   }
 }
 
-/* ---------------- S) čísla jiných lidí vidí jen super admin (Albert 19. 10. 2026, migrace 045) ---------------- */
+/* ---------------- S) čísla jiných lidí vidí jen super admin (Albert 19. a 20. 10. 2026, migrace 045) ---------------- */
 // Albert: Volající (role admin) nesmí NIJAK vidět čísla jiných lidí (prodeje, počty hovorů, žebříček, statistiky
-// kolegů), jen super admini. Mock = server (db/tests/test_045): all_stats, my_stats, top_prodejce, rozvrh, výběr
-// člověka a hledání v poznámkách (hlavička „[datum Jméno]“ kolegy Volajícímu nic nenajde, ani v počtu). Stránky:
-// Statistiky ukazují trychtýř celé databáze jen super adminovi; allStats volá jen super admin. Běží před bloky,
-// které mění data (hovory, poznámky).
+// kolegů), jen super admini; 20. 10. 2026 „Hide all of it“. Mock = server (db/tests/test_045): all_stats, my_stats,
+// top_prodejce jen super admin, rozvrh, výběr člověka, hledání i řádky s maskou jmen kolegů v poznámce a poznámce
+// příznaku, kdo dal příznak, cizí zámek bez id, total null a dalsi, uložení maskované poznámky bez ztráty jmen.
+// Stránky: Kontakty bez počtů, Statistiky bez trychtýře a „#1 prodejce“, Prokchop bez top_prodejce. ⚠ NAHRAZUJE S3
+// („top_prodejce vrátí {je_prvni} každému“) a S5e („poznámka v řádku beze změny, Albert 25. 9. 2026“).
+// Běží před bloky, které mění data (hovory, poznámky); co tu změní (příznak, zámek, poznámka), vrátí.
 await blok('S', async () => {
   await chyba('S1', () => api.allStats(petra), /^Statistiky ostatních vidí jen super admin/, 'all_stats Volajícímu odmítnut');
   const vsichni = await api.allStats(mikulas);
@@ -139,8 +141,9 @@ await blok('S', async () => {
     && ['calls', 'reached', 'zajem', 'sold'].every((k) => mojeP[k] === petraVsech[k]),
     'my_stats Volajícímu vrátí jen jeho vlastní čísla (stejná, jaká o něm vidí super admin)', JSON.stringify(mojeP));
   over('S2b', vsichni.some((u) => u.user_id !== 2 && u.calls > 0), 'super admin vidí čísla kolegů (jinak by S nic neměřil)');
-  const top = await api.topSeller(petra);
-  over('S3', Object.keys(top).join() === 'je_prvni' && typeof top.je_prvni === 'boolean', 'top_prodejce vrátí jen {je_prvni}', JSON.stringify(top));
+  await chyba('S3', () => api.topSeller(petra), /^Žebříček prodejců vidí jen super admin/, 'top_prodejce („jsi #1?“, žebříček kolegů) Volajícímu odmítnut');
+  const top = await api.topSeller(mikulas);
+  over('S3b', Object.keys(top).join() === 'je_prvni' && typeof top.je_prvni === 'boolean', 'top_prodejce super adminovi vrátí jen {je_prvni}', JSON.stringify(top));
   await chyba('S4', () => api.prehledRozvrhu(petra), /^Přehled rozvrhů vidí jen super admin/, 'přehled rozvrhů (plnění všech) Volajícímu odmítnut');
   await chyba('S4b', () => api.rozvrh(petra, 3), /^Rozvrh jiného člověka vidí jen super admin/, 'rozvrh kolegy Volajícímu odmítnut');
   await chyba('S4c', () => api.myKontakty(petra, 200, 0, 3), /jiného člověka vidí jen super admin/, 'Moji klienti kolegy Volajícímu odmítnuti');
@@ -149,32 +152,102 @@ await blok('S', async () => {
   const honzaV = await api.listKontakty(petra, { search: 'Honza', limit: 200 });
   const honzaS = await api.listKontakty(mikulas, { search: 'Honza', limit: 200 });
   const honzaA = await api.listKontakty(albert, { search: 'Honza', limit: 200 });
-  over('S5', honzaV.total === 0 && honzaV.rows.length === 0, 'Volající hledáním jména kolegy v poznámkách nic nenajde, ani v počtu', `total ${honzaV.total}`);
-  over('S5b', honzaS.total >= 3 && honzaA.total === honzaS.total, 'super admin a Albert hledáním jména najdou kolegovy kontakty', `${honzaS.total} / ${honzaA.total}`);
-  for (const q of ['onza', 'Honza]', 'nza]']) {
+  over('S5', honzaV.rows.length === 0 && honzaV.total === null && honzaV.dalsi === false, 'Volající hledáním jména kolegy v poznámkách nic nenajde (a součet nedostane)', `řádků ${honzaV.rows.length}, total ${honzaV.total}`);
+  over('S5b', honzaS.total >= 3 && honzaA.total === honzaS.total && honzaS.rows.length === honzaS.total, 'super admin a Albert hledáním jména najdou kolegovy kontakty i se součtem', `${honzaS.total} / ${honzaA.total}`);
+  for (const q of ['onza', 'Honza]', 'nza]', 'honza']) {
     const r = await api.listKontakty(petra, { search: q, limit: 200 });
-    over(`S5c ${q}`, r.total === 0, `ani kousek jména kolegy („${q}“) Volajícímu nic nenajde`, `total ${r.total}`);
+    over(`S5c ${q}`, r.rows.length === 0, `ani kousek jména kolegy („${q}“) Volajícímu nic nenajde`, `řádků ${r.rows.length}`);
   }
   const mojeHlav = await api.listKontakty(petra, { search: 'Petra', limit: 200 });
-  over('S5d', mojeHlav.total >= 1, 'svou hlavičku v poznámce Volající najde dál', `total ${mojeHlav.total}`);
+  over('S5d', mojeHlav.rows.length >= 1, 'svou hlavičku v poznámce Volající najde dál', `řádků ${mojeHlav.rows.length}`);
+  // S5e: text poznámky Volající najde, ale jméno kolegy v ní dostane jako „jiný volající“ (hlavička i text)
   const text = await api.listKontakty(petra, { search: 'Zase nebrali', limit: 200 });
-  over('S5e', text.total === 1 && /\[2026-08-29 Honza\]/.test(text.rows[0]?.note ?? ''),
-    'text poznámky (mimo hlavičku) Volající najde a poznámka v řádku zůstává beze změny (Albert 25. 9. 2026)', text.rows[0]?.note ?? '');
-  over('S6', poznamkaBezCizich('[2026-01-02 Eda] text Eda]\n[2026-01-03 Edan] x\n[2026-01-04 Eda, chat 2] y', ['Eda'])
-    === '[2026-01-02 jiný volající] text Eda]\n[2026-01-03 Edan] x\n[2026-01-04 jiný volající, chat 2] y', 'maska bere jen hlavičky [datum Jméno] a [datum Jméno, …] (jako app_poznamka_bez_cizich)');
+  over('S5e', text.rows.length === 1 && text.rows[0].note === '[2026-08-20 Petra] Nebrali telefon, zkusit odpoledne.\n[2026-08-29 jiný volající] Zase nebrali.',
+    'text poznámky Volající najde a jméno kolegy v ní má jako „jiný volající“, své jméno ne', text.rows[0]?.note ?? '');
+  const textS = await api.listKontakty(mikulas, { search: 'Zase nebrali', limit: 200 });
+  over('S5f', /\[2026-08-29 Honza\]/.test(textS.rows[0]?.note ?? ''), 'super admin vidí v poznámce jméno beze změny', textS.rows[0]?.note ?? '');
+  // maska stejná jako app_poznamka_bez_cizich (db/tests/test_045 45a8 až 45a9c)
+  over('S6', poznamkaBezCizich('[2026-01-02 Eda] text Eda]\n[2026-01-03 Edan] x\n[2026-01-04 Eda, chat 2] y, eda volal', ['Eda'], ['Kuba'])
+    === '[2026-01-02 jiný volající] text jiný volající]\n[2026-01-03 Edan] x\n[2026-01-04 jiný volající, chat 2] y, jiný volající volal',
+    'maska bere jméno kolegy v hlavičce i v textu, jen celé slovo, bez ohledu na velikost písmen');
   over('S6b', poznamkaBezCizich('[2026-01-02 A.*] x [2026-01-02 AB] y', ['A.*']) === '[2026-01-02 jiný volající] x [2026-01-02 AB] y',
     'maska bere jméno doslova (metaznaky regulárního výrazu)');
-  // stránky: kdo volá allStats a kdo vidí trychtýř celé databáze
+  over('S6c', poznamkaBezCizich('Ateliér: MgA. Mikuláš Medlík. Mikuláš chtěl kopii; Albert Pražák; (Albert 2026-09-28); L. Kuba. Ing. arch. Kryštof Peřestý; [2026-10-01 Albert] Novák',
+    ['Mikuláš', 'Albert', 'Kuba', 'Kryštof'], ['Eda'])
+    === 'Ateliér: MgA. Mikuláš Medlík. jiný volající chtěl kopii; Albert Pražák; (jiný volající 2026-09-28); L. Kuba. Ing. arch. Kryštof Peřestý; [2026-10-01 jiný volající] Novák',
+    'maska nesáhne na jméno klienta (titul, iniciála, příjmení za jménem), jinde jméno kolegy maskuje');
+  over('S6d', poznamkaBezCizich('[2026-10-01 Adam] já, [2026-10-02 Adam T] kolega', ['Adam T'], ['Adam']) === '[2026-10-01 Adam] já, [2026-10-02 jiný volající] kolega',
+    'vlastní jméno zůstane, delší jméno kolegy se maskuje celé');
+  over('S6e', poznamkaZpet('[2026-10-01 Eda] a\n[2026-10-02 Mikuláš] b', '[2026-10-02 jiný volající] b', ['Eda', 'Mikuláš'], ['Kuba']) === '[2026-10-02 Mikuláš] b',
+    'poznamkaZpet po smazání řádku nepřiřadí jméno jinému řádku (jako app_poznamka_zpet)');
+  // součty celé databáze: Volající total null při každém filtru, dalsi sedí; super admin a Albert total mají
+  for (const f of [{ status: 'zaplaceno', limit: 1 }, { limit: 1 }, { segment: 'architekt', limit: 1 }, { caller: 'Petra', limit: 1 }, { cekani: 'ceka_prvni', limit: 1 }]) {
+    const r = await api.listKontakty(petra, f);
+    over('S8', r.total === null, `Volající nedostane součet celé databáze (${JSON.stringify(f)})`, `total ${r.total}`);
+  }
+  const strana = await api.listKontakty(petra, { limit: 2 });
+  const konec = await api.listKontakty(petra, { limit: 2, offset: 100000 });
+  over('S8b', strana.rows.length === 2 && strana.dalsi === true && konec.dalsi === false, 'Volající stránkuje podle dalsi (je ještě další stránka?)', `${strana.dalsi} / ${konec.dalsi}`);
+  for (const [kdo, tok] of [['super admin', mikulas], ['Albert', albert]]) {
+    const r = await api.listKontakty(tok, { status: 'zaplaceno', limit: 1 });
+    over('S8c', typeof r.total === 'number' && r.total >= 1 && r.dalsi === r.total > 1, `${kdo} dostane součet stavu i dalsi`, `total ${r.total}, dalsi ${r.dalsi}`);
+  }
+  const moji = await api.myKontakty(petra, 200, 0);
+  over('S8d', moji.total === moji.rows.length && moji.total > 0, 'Moji klienti (vlastní čísla) Volající počet dál má', `total ${moji.total}`);
+  // kdo dal příznak a co v poznámce příznaku stojí: kolega Honza označí svého klienta 3
+  await api.setFlag(honza, 3, 'jine', 'Honza slíbil zjistit e-mail');
+  const k3 = (await api.listKontakty(petra, { search: 'jednoduchý web s fotkami', limit: 5 })).rows.find((r) => r.id === 3);
+  over('S9', k3?.flagged_by === 'jiný volající' && k3?.flag_note === 'jiný volající slíbil zjistit e-mail',
+    'Volající nevidí, kdo z kolegů dal příznak, ani jméno v poznámce příznaku', `${k3?.flagged_by} / ${k3?.flag_note}`);
+  const k3s = (await api.listKontakty(mikulas, { search: 'jednoduchý web s fotkami', limit: 5 })).rows.find((r) => r.id === 3);
+  over('S9b', k3s?.flagged_by === 'Honza' && k3s?.flag_note === 'Honza slíbil zjistit e-mail', 'super admin vidí, kdo dal příznak, i poznámku beze změny', `${k3s?.flagged_by}`);
+  const auto = (await api.listFlagged(albert)).find((r) => r.id === 92);
+  const p302 = (await api.listKontakty(petra, { search: 'Nebrala, zkusit v úterý', limit: 5 })).rows.find((r) => r.id === 302);
+  over('S9c', auto?.flagged_by === 'automatizace' && p302?.flagged_by === 'Petra', 'štítek agenta a vlastní jméno u příznaku zůstávají', `${auto?.flagged_by} / ${p302?.flagged_by}`);
+  // Volající přepíše příznak se stejnou (maskovanou) poznámkou: jméno kolegy v datech zůstane
+  await api.setFlag(petra, 3, 'jine', 'jiný volající slíbil zjistit e-mail');
+  const k3po = (await api.listKontakty(albert, { search: 'jednoduchý web s fotkami', limit: 5 })).rows.find((r) => r.id === 3);
+  over('S9d', k3po?.flag_note === 'Honza slíbil zjistit e-mail' && k3po?.flagged_by === 'Petra', 'uložení maskované poznámky příznaku jméno kolegy nesmaže', k3po?.flag_note ?? '');
+  await api.clearFlag(albert, 3);
+  // zámek kolegy: Volající ví jen, že je karta zamčená
+  const karta = await api.nextContact(honza, 'chata');
+  if (!karta) over('S10', false, 'fronta chat je prázdná, zámek nejde změřit');
+  else {
+    const vsechnyP = await api.listKontakty(petra, { limit: 500 });
+    const vsechnyS = await api.listKontakty(mikulas, { limit: 500 });
+    const kp = vsechnyP.rows.find((r) => r.id === karta.id);
+    const ks = vsechnyS.rows.find((r) => r.id === karta.id);
+    over('S10', kp?.lock_by === null && kp?.lock_at === null && kp?.zamceno === true, 'Volající u karty, kterou volá kolega, vidí jen zamceno (ne kdo)', `lock_by ${kp?.lock_by}, zamceno ${kp?.zamceno}`);
+    over('S10b', ks?.lock_by === 3 && ks?.zamceno === true && karta.lock_by === 3, 'super admin a volající sám vidí id u zámku', `${ks?.lock_by} / ${karta.lock_by}`);
+    await api.updateKontakt(albert, karta.id, { clear_lock: true });
+  }
+  // uložení maskované poznámky svého klienta (7 má hlavičku Alberta): jména v datech zůstanou
+  const k7 = (await api.myKontakty(petra, 200, 0)).rows.find((r) => r.id === 7);
+  const puvodni7 = (await api.listKontakty(albert, { search: 'faktura zaplacena', limit: 5 })).rows.find((r) => r.id === 7)?.note ?? null;
+  over('S11', k7?.note === '[2026-07-30 Petra] Zájem, rating A, domluvená cena.\n[2026-08-15 jiný volající] Web hotový, faktura zaplacena.', 'Moji klienti: jméno kolegy (Albert) v poznámce maskované', k7?.note ?? '');
+  const vraceno = await api.updateKontakt(petra, 7, { note: `${k7?.note}\n[2026-10-20 Petra] doplněno` });
+  const ulozeno = (await api.listKontakty(albert, { search: 'faktura zaplacena', limit: 5 })).rows.find((r) => r.id === 7)?.note;
+  over('S11b', ulozeno === `${puvodni7}\n[2026-10-20 Petra] doplněno` && !/Albert/.test(vraceno.note ?? ''),
+    'uložení maskované poznámky Volajícím jména kolegů v datech nesmaže a vrácený řádek je dál maskovaný', ulozeno ?? '');
+  await api.updateKontakt(albert, 7, { note: puvodni7 });
+  // stránky: kdo volá allStats a topSeller, kdo vidí trychtýř, počty Kontaktů a dlaždici #1
   const stats = readFileSync(join(ROOT, 'src/pages/StatsPage.tsx'), 'utf8');
   over('S7', /\{isSuper && <KlientiFunnel/.test(stats) && !/isAdmin(Role)?\b[^\n]*<KlientiFunnel/.test(stats),
     'Statistiky: trychtýř „Klienti podle stavu“ (součty celé databáze) jen pro super admina');
   over('S7b', /if \(isSuper\) \{\s*const all = await api\.allStats/.test(stats), 'Statistiky volají allStats jen pro super admina');
+  over('S7f', /\{isSuper && \(\s*<div className="card stat-card">\s*<div className="stat-value">\{topDays\}/.test(stats), 'Statistiky: dlaždice „jako #1 prodejce“ jen pro super admina');
   const picker = readFileSync(join(ROOT, 'src/components/PersonPicker.tsx'), 'utf8');
   over('S7c', /if \(!superAdmin\) \{\s*setPeople\(\[\]\);\s*return;/.test(picker), 'výběr člověka (PersonPicker) volá allStats jen pro super admina');
   const uziv = readFileSync(join(ROOT, 'src/pages/UzivatelePage.tsx'), 'utf8');
   over('S7d', /if \(!isSuper\) return;[^\n]*\n[\s\S]{0,200}allStats/.test(uziv), 'stránka Uživatelé volá allStats jen pro super admina');
   const pig = readFileSync(join(ROOT, 'src/pig/PigLayer.tsx'), 'utf8');
-  over('S7e', !/allStats/.test(pig) && /topSeller\(/.test(pig), 'Prokchop bere jen svoje myStats a topSeller (jsi #1?), čísla ostatních (allStats) nedostane');
+  over('S7e', !/allStats/.test(pig) && /if \(!zebricek\) \{ awardTop\(false\); return; \}[\s\S]{0,700}\.topSeller\(/.test(pig)
+    && /COSMETICS\.filter\(\(c\) => zebricek \|\| c\.price !== null\)/.test(pig),
+    'Prokchop: allStats nikdy, topSeller jen za super admina, odměnu za #1 Volajícímu nenabízí');
+  const admin = readFileSync(join(ROOT, 'src/pages/AdminPage.tsx'), 'utf8');
+  over('S7g', (admin.match(/if \(!isSuper\) \{\s*setStatusCounts\(\{\}\);\s*return;/g) ?? []).length === 1 && /if \(!cekani \|\| !isSuper\) \{/.test(admin)
+    && /total !== null && total > 0 && <span className="count-pill">/.test(admin),
+    'Kontakty: počty u stavů a košů a celkový počet jen pro super admina');
 });
 
 /* ---------------- O) karta architekta: obrat místo IČO (Albert 3. 10. 2026, APP-8, migrace 037) ---------------- */

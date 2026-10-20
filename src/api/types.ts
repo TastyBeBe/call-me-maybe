@@ -82,8 +82,11 @@ export interface Kontakt {
   cena_web: string | null;
   cena_hosting: string | null;
   last_caller: string | null;
+  /** kdo kartu volá; od migrace 045 Volajícímu jen u vlastního zámku (cizí = null, zamceno řekne, že je zamčená) */
   lock_by: number | null;
   lock_at: string | null;
+  /** migrace 045: kontakt má zámek (lock_by není null), bez toho kdo; server ho posílá každému */
+  zamceno?: boolean;
   obor: string;
   lovable_project_id: string | null;
   live_url: string | null;
@@ -225,8 +228,14 @@ export interface ThreadDetail {
 }
 
 export interface ListKontaktyResult {
-  total: number;
+  /**
+   * Kolik řádků celkem sedí na filtr. Od migrace 045 (Albert 20. 10. 2026) u list_kontakty jen super admin
+   * a Albert; Volající dostane null (součty celé databáze jsou i čísla kolegů). my_kontakty ho posílá dál.
+   */
+  total: number | null;
   rows: Kontakt[];
+  /** migrace 045: za touhle stránkou je ještě aspoň jeden řádek (list_kontakty, každý) */
+  dalsi?: boolean;
 }
 
 export interface ResolveCallArgs {
@@ -434,7 +443,7 @@ export interface Api {
   myStats(token: string): Promise<MyStats>;
   /** Statistiky svoje a lidí pod sebou — jen super admin; Albert všech (migrace 023). */
   allStats(token: string): Promise<UserStats[]>;
-  /** Je přihlášený #1 prodejce? (Prokchop) — nevrací čísla ostatních (migrace 023). */
+  /** Je přihlášený #1 prodejce? (Prokchop) — nevrací čísla ostatních (migrace 023); od 045 jen super admin. */
   topSeller(token: string): Promise<{ je_prvni: boolean }>;
   /** Celá databáze kontaktů — vidí všichni (migrace 023); jméno kolegy jen svoje/svých lidí. */
   listKontakty(token: string, filters: ListKontaktyFilters): Promise<ListKontaktyResult>;

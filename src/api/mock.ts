@@ -706,21 +706,77 @@ function threadIdsFor(u: MockUser, ids: number[]): Set<number> {
   return out;
 }
 
+/** Před jménem klienta stojí titul nebo iniciála („MgA. Mikuláš Medlík“, „L. Kuba“), jako v SQL masce. */
+const TITUL_PRED = /(^|[^\p{L}\p{N}_])(\p{Lu}|Ing|arch|Akad|akad|MgA|Mgr|BcA|Bc|doc|prof|Dr|PhDr|RNDr|JUDr|MUDr)\. $/u;
+
 /**
- * app_poznamka_bez_cizich (migrace 045, Albert 19. 10. 2026: čísla jiných lidí vidí jen super admin):
- * jméno z `cizi` v hlavičce poznámky „[datum Jméno]“ nebo „[datum Jméno, …]“ nahradí „jiný volající“.
- * Jen pro HLEDÁNÍ v listKontakty: Volající si hledáním jména kolegy nespočítá jeho kontakty a prodeje.
- * Text poznámky v řádku zůstává (Albert 25. 9. 2026: jména kolegů v poznámkách smí vidět).
+ * app_poznamka_bez_cizich (migrace 045, Albert 19. a 20. 10. 2026: čísla jiných lidí vidí jen super admin,
+ * „Hide all of it“): jméno z `cizi` v poznámce nahradí „jiný volající“. V hlavičce „[datum Jméno]“
+ * a „[datum Jméno, …]“ vždy, v ostatním textu jako samostatné slovo (velikost písmen nerozhoduje), ale ne jako
+ * část jména klienta (za jménem příjmení s velkým písmenem, před ním titul nebo iniciála). Jména z `vlastni`
+ * zůstávají; nejdelší jméno první, aby „Adam“ nesáhl do „Adam T“. Server to dělá v řádcích i v hledání
+ * (app_kontakt_ven, list_kontakty). ⚠ NAHRAZUJE „jen hlavičky a jen pro hledání; text poznámky zůstává
+ * (Albert 25. 9. 2026)“.
  */
-export function poznamkaBezCizich(note: string | null, cizi: string[]): string | null {
+export function poznamkaBezCizich(note: string | null, cizi: string[], vlastni: string[] = []): string | null {
   if (note === null || cizi.length === 0) return note;
-  let out = note;
-  for (const jm of cizi) {
-    if (!jm || !out.includes(jm)) continue;
+  let out = note.replace(/[\uE000\uE001]/g, '');
+  const kusy: string[] = [];
+  const jmena = [...new Set([...cizi, ...vlastni].map((x) => x.trim()).filter(Boolean))]
+    .sort((a, b) => b.length - a.length || (a < b ? -1 : a > b ? 1 : 0));
+  for (const jm of jmena) {
+    if (!out.toLowerCase().includes(jm.toLowerCase())) continue;
     const doslova = jm.replace(/[.^$*+?()[\]{}|\\]/g, '\\$&');
-    out = out.replace(new RegExp(`(\\[\\d{4}-\\d{2}-\\d{2} )${doslova}(\\]|,)`, 'g'), `$1${JINY}$2`);
+    const maskovat = cizi.includes(jm) && !vlastni.includes(jm);
+    out = out.replace(new RegExp(`(?<![\\p{L}\\p{N}_])${doslova}(?![\\p{L}\\p{N}_])`, 'giu'), (kus: string, pos: number, cele: string) => {
+      const pred = cele.slice(0, pos);
+      const za = cele.slice(pos + kus.length);
+      const hlavicka = /\[\d{4}-\d{2}-\d{2} $/.test(pred);
+      const klient = /^ \p{Lu}/u.test(za) || TITUL_PRED.test(pred);
+      kusy.push(maskovat && (hlavicka || !klient) ? JINY : kus);
+      return `\uE000${kusy.length}\uE001`;
+    });
   }
-  return out;
+  return out.replace(/\uE000(\d+)\uE001/g, (_m: string, i: string) => kusy[Number(i) - 1]);
+}
+
+/**
+ * app_poznamka_zpet (migrace 045): Volající uloží poznámku, kterou dostal maskovanou. Řádky, které nezměnil,
+ * se uloží s původními jmény, upravený řádek s hlavičkou „[datum jiný volající…“ dostane jméno z hlavičky
+ * nejbližšího dalšího uloženého řádku; jinak by uložení jména kolegů v databázi smazalo.
+ */
+export function poznamkaZpet(ulozena: string | null, nova: string | null, cizi: string[], vlastni: string[] = []): string | null {
+  if (nova === null || ulozena === null || cizi.length === 0) return nova;
+  if (poznamkaBezCizich(ulozena, cizi, vlastni) === ulozena) return nova;
+  const st = ulozena.split('\n');
+  const maska = st.map((x) => poznamkaBezCizich(x, cizi, vlastni) ?? '');
+  const out: string[] = [];
+  let od = 0;
+  for (const radek of nova === '' ? [] : nova.split('\n')) {
+    let j = -1;
+    for (let i = od; i < st.length; i++) if (maska[i] === radek) { j = i; break; }
+    if (j >= 0) { out.push(st[j]); od = j + 1; continue; }
+    let l = radek;
+    const hl = /^\[\d{4}-\d{2}-\d{2} jiný volající[\],]/.exec(radek)?.[0];
+    if (hl) {
+      for (let i = od; i < st.length; i++) {
+        if (maska[i].startsWith(hl)) {
+          l = (/^\[\d{4}-\d{2}-\d{2} [^\],]*[\],]/.exec(st[i])?.[0] ?? hl) + radek.slice(hl.length);
+          od = i + 1;
+          break;
+        }
+      }
+    }
+    out.push(l);
+  }
+  return out.join('\n');
+}
+
+/** app_jmena_cizi (migrace 045): jména lidí, které přihlášený vidět nesmí, a ta, která vidí. */
+function jmenaPro(u: MockUser): { cizi: string[]; vidi: string[] } {
+  const vidi = namesOf(visibleIds(u));
+  if (u.id === OWNER_ID) return { cizi: [], vidi };
+  return { cizi: users.map((x) => x.display_name).filter((n) => n && !vidi.includes(n)), vidi };
 }
 
 /** app_kontakt_ven: jméno volajícího jen svoje / svých lidí (Albert vše), je_muj. */
@@ -742,12 +798,26 @@ function canEdit(u: MockUser, kid: number): boolean {
 }
 
 function forViewer(u: MockUser, c: Kontakt): Kontakt {
-  return {
+  const r: Kontakt = {
     ...c,
     last_caller: maskedName(u, c.last_caller),
     je_muj: myKontaktIds(u).has(c.id),
     smi_upravit: canEdit(u, c.id),
+    zamceno: c.lock_by !== null,
   };
+  // app_kontakt_ven (migrace 045, Albert 20. 10. 2026): kdo nevidí všechny lidi (Volající), dostane jména
+  // kolegů v poznámkách jako „jiný volající“, kdo z kolegů dal příznak taky, a u cizího zámku jen zamceno
+  const { cizi, vidi } = jmenaPro(u);
+  if (cizi.length > 0) {
+    r.note = poznamkaBezCizich(c.note, cizi, vidi);
+    r.flag_note = poznamkaBezCizich(c.flag_note, cizi, vidi);
+    if (c.flagged_by !== null && cizi.includes(c.flagged_by)) r.flagged_by = JINY;
+    if (c.lock_by !== null && !visibleIds(u).includes(c.lock_by)) {
+      r.lock_by = null;
+      r.lock_at = null;
+    }
+  }
+  return r;
 }
 
 /**
@@ -1291,6 +1361,8 @@ const mockApiZaklad: Api = {
   async topSeller(token: string): Promise<{ je_prvni: boolean }> {
     await delay(60);
     const me = auth(token);
+    // migrace 045 (Albert 20. 10. 2026): „jsi #1?“ je žebříček kolegů, Volajícímu ne
+    if (me.role !== 'super_admin') fail('Žebříček prodejců vidí jen super admin.');
     const best = users
       .map((u) => ({ id: u.id, ...statsFor(u.id) }))
       .sort((a, b) => b.sold - a.sold || b.calls - a.calls || a.id - b.id)[0];
@@ -1314,8 +1386,8 @@ const mockApiZaklad: Api = {
       icoVidi(me.role) &&
       ((!!c.ico_osobni && c.ico_osobni === icoHledane && canEdit(me, c.id)) ||
         (!!c.ico_firma && c.ico_firma !== c.ico_osobni && c.ico_firma.toLowerCase().includes(search)));
-    // jména lidí, které přihlášený vidět nesmí: hledání je v hlavičkách poznámek nenajde (migrace 045)
-    const cizi = me.id === OWNER_ID ? [] : users.filter((u) => !visibleIds(me).includes(u.id)).map((u) => u.display_name);
+    // jména lidí, které přihlášený vidět nesmí: hledání je v poznámkách nenajde, stejná maska jako řádky (migrace 045)
+    const { cizi, vidi } = jmenaPro(me);
     const matches = (c: Kontakt) =>
       (!f.segment || segmentOf(c) === f.segment) &&
       (!f.status || c.status === f.status) &&
@@ -1326,7 +1398,7 @@ const mockApiZaklad: Api = {
       // hledání i ve studiu, městě a IČO (migrace 028), IČO podle icoShoda výš
       (!search ||
         icoShoda(c) ||
-        [c.name, c.phone, c.web, c.email, poznamkaBezCizich(c.note, cizi), c.firma, c.mesto].some(
+        [c.name, c.phone, c.web, c.email, poznamkaBezCizich(c.note, cizi, vidi), c.firma, c.mesto].some(
           (v) => v && v.toLowerCase().includes(search)
         ));
     const filtered = kontakty.filter(matches).sort((a, b) => {
@@ -1347,7 +1419,9 @@ const mockApiZaklad: Api = {
     const offset = Math.max(f.offset ?? 0, 0);
     const limit = Math.max(f.limit ?? 200, 1);
     return {
-      total: filtered.length,
+      // součty celé databáze jen super admin a Albert (migrace 045); Volající jen „je další stránka?“
+      total: me.id === OWNER_ID || me.role === 'super_admin' ? filtered.length : null,
+      dalsi: filtered.length > offset + limit,
       rows: filtered.slice(offset, offset + limit).map((c) => {
         const cek = cekaniOf(c);
         return {
@@ -1453,8 +1527,12 @@ const mockApiZaklad: Api = {
       }
     }
     const target = kontakt as unknown as Record<string, unknown>;
+    // migrace 045: poznámku a poznámku příznaku dostal Volající maskovanou, nezměněné řádky s původními jmény
+    const { cizi, vidi } = jmenaPro(me);
     for (const [key, value] of Object.entries(patch)) {
-      if (key in archNove) {
+      if ((key === 'note' || key === 'flag_note') && cizi.length > 0 && value !== null && value !== undefined) {
+        target[key] = poznamkaZpet(target[key] as string | null, String(value), cizi, vidi);
+      } else if (key in archNove) {
         target[key] = archNove[key];
       } else if (key === 'clear_lock') {
         if (value) {
@@ -1500,7 +1578,9 @@ const mockApiZaklad: Api = {
     const kontakt = kontakty.find((c) => c.id === id);
     if (!kontakt) fail(`Kontakt id=${id} neexistuje.`);
     kontakt.flag_kind = kind;
-    kontakt.flag_note = note.trim() || null;
+    // migrace 045: poznámka příznaku přišla Volajícímu maskovaná, nezměněné řádky s původními jmény
+    const { cizi, vidi } = jmenaPro(user);
+    kontakt.flag_note = ((cizi.length > 0 ? poznamkaZpet(kontakt.flag_note, note, cizi, vidi) : note) ?? '').trim() || null;
     kontakt.flagged_at = now();
     kontakt.flagged_by = user.display_name;
     kontakt.updated_at = now();
