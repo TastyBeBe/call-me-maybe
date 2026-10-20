@@ -624,11 +624,14 @@ export default function ZpravyPage() {
           <span className="count-pill">{openCount} otevřených</span>
         )}
       </h1>
+      {/* Migrace 045 (Albert 20. 10. 2026: Volající vidí stav jen u svých klientů): vlákno o klientovi vidí Volající jen
+          u svého klienta, vlákna bez klienta jako dřív. ⚠ NAHRAZUJE „Vidíš zprávy o svých klientech a ty, které jsi
+          založil nebo do kterých jsi psal“ (to by slibovalo i vlákno cizího klienta, do kterého kdysi psal). */}
       {!isOwner && (
         <p className="muted" style={{ marginTop: -6 }}>
           {people.length > 1
             ? 'Vidíš zprávy všech lidí; psát můžeš do svých, svých lidí a ke klientům, které smíš upravit (ostatní jsou jen ke čtení)'
-            : 'Vidíš zprávy o svých klientech a ty, které jsi založil nebo do kterých jsi psal'}
+            : 'Vidíš vlákna o svých klientech a vlákna bez klienta, která jsi založil nebo do kterých jsi psal'}
           . Hlášení o chodu automatizace chodí jen Albertovi.
         </p>
       )}

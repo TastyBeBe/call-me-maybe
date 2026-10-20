@@ -761,6 +761,18 @@ for (const [kdo, superAdmin] of [['petra', false], ['mikulas', true]]) {
     over('S6', napoveda === 1 && ulozeni.length === 1 && ulozeni[0].ok === false
       && chyba.some((c) => /^Řádek kolegy upravit ani smazat nejde, připište nový řádek\./.test(c)),
       'petra: nápověda u poznámky, upravený řádek kolegy server odmítne a detail chybu ukáže', `${napoveda} / ${chyba.join(' | ').slice(0, 120)}`);
+    // recenze 046 (20. 10. 2026): obyčejný řádek pod zápisem kolegy se uloží s vlastní hlavičkou a detail ji po uložení
+    // hned ukáže (server vrátí uloženou poznámku); ⚠ NAHRAZUJE odmítnutí „Řádek hned za záznamem kolegy začněte hlavičkou …“
+    const dnes = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Prague', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+    const predPripsanim = (await volani(page)).length;
+    await pole.fill(`${puvodni}\nzavolám zítra`);
+    await page.getByRole('button', { name: 'Uložit změny' }).click();
+    await klid(page, 700);
+    const pripsani = (await volani(page)).slice(predPripsanim).filter((v) => v.fn === 'updateKontakt');
+    const poUlozeni = await pole.inputValue();
+    over('S6b', pripsani.length === 1 && pripsani[0].ok === true && poUlozeni === `${puvodni}\n[${dnes} Petra] zavolám zítra`
+      && (await page.locator('.radky-kolegu').innerText()).includes('dostane při uložení vaši hlavičku'),
+      'petra: obyčejný řádek pod zápisem kolegy se uloží s její hlavičkou a pole ji po uložení hned ukáže', JSON.stringify(poUlozeni.slice(-60)));
   }
   // Prokchop: top_prodejce (žebříček) jen za super admina
   const top = (await volani(page)).filter((v) => v.fn === 'topSeller').length;
@@ -798,6 +810,23 @@ for (const [kdo, superAdmin, sirka] of [['petra', false, 1280], ['petra', false,
     : zaklad === 1 && /jen u svých klientů/.test(drawer) && /\+420 604 777 888/.test(drawer)
       && !/status|Mají zájem|Vzkazy agentovi|Označit klienta|4900|Honza|jiný volající|naposledy volal|změněno|známka/i.test(drawer),
     `${kdo}: detail cizího kontaktu ${superAdmin ? 'celý' : 'jen jméno a kontakt'}`, drawer.replace(/\s+/g, ' ').slice(0, 160));
+  // recenze appky 20. 10. 2026: detail cizího kontaktu (větev jenZaklad, třída „drawer drawer-skryto“) nemá odznak stavu
+  // (StatusBadge, třída status-badge), příznak ani tlačítko příznaku, text poznámky ani známku; u super admina řádek
+  // tabulky odznak stavu s tou třídou má (jinak by kontrola u Volajícího nic neměřila)
+  if (!superAdmin) {
+    const skryty = page.locator('.drawer.drawer-skryto');
+    const textSkryty = (await skryty.innerText().catch(() => '')).replace(/\s+/g, ' ');
+    const stavy = await skryty.locator('.status-badge').count();
+    const priznaky = await skryty.locator('.flag-panel, .flag-add-btn, .flag-note').count();
+    const znamky = await skryty.locator('.badge.rating').count();
+    const poznamky = await skryty.locator('textarea, .drawer-note-ro').count();
+    over(`U3b ${kdo} ${sirka}`, (await skryty.count()) === 1 && stavy === 0 && priznaky === 0 && znamky === 0 && poznamky === 0
+      && !/jednoduchý web s fotkami|kalendářem/.test(textSkryty),
+      `${kdo}: detail cizího kontaktu (drawer-skryto) bez odznaku stavu, příznaku, textu poznámky a známky`,
+      `drawer-skryto ${await skryty.count()}, stav ${stavy}, příznak ${priznaky}, známka ${znamky}, poznámka ${poznamky}`);
+  } else {
+    over(`U3b ${kdo} ${sirka}`, (await radek.locator('.status-badge').count()) === 1, `${kdo}: odznak stavu v řádku má třídu status-badge (selektor U3b měří)`);
+  }
   await page.locator('.drawer-close').click();
   await klid(page, 300);
   if (sirka < 768) {

@@ -52,10 +52,11 @@ export const STATUS_COLORS: Record<KontaktStatus, { bg: string; fg: string }> = 
   eskalace: { bg: '#e2596f', fg: '#fdf6e9' },
 };
 
+// třída status-badge (20. 10. 2026): podle ní e2e ověří, že detail cizího kontaktu Volajícího žádný stav neukazuje
 export function StatusBadge({ status }: { status: KontaktStatus }) {
   const c = STATUS_COLORS[status] ?? { bg: '#fdf6e9', fg: '#221e33' };
   return (
-    <span className="badge" style={{ background: c.bg, color: c.fg }}>
+    <span className="badge status-badge" style={{ background: c.bg, color: c.fg }}>
       {STATUS_LABELS[status] ?? status}
     </span>
   );

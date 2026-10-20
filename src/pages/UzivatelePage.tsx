@@ -12,7 +12,10 @@ import { CheckIcon, PencilIcon } from '../icons';
  *   - Albert (id 1): všichni, role (Volající / Super admin) i nadřízený.
  *     ⚠ NAHRAZUJE tři role volající / admin / super admin (migrace 042, Albert 18. 10. 2026).
  *   - super admin: VIDÍ všechny (migrace 027), upravuje sebe a lidi pod sebou; zakládá Volající pod sebe.
- *   - Volající: stránku nemá (route i dlaždice jen pro super admina).
+ *   - Volající: stránku nemá (route i dlaždice jen pro super admina). Volající mění u sebe jen heslo, své zobrazované
+ *     jméno ne: přejmenuje ho jeho super admin nebo Albert (migrace 046, dvě recenze 045 z 20. 10. 2026; server update_user
+ *     to odmítne). Jinde v appce pole pro jméno ani heslo není (updateUser volá jen tahle stránka).
+ *     ⚠ NAHRAZUJE „Admin mění jen sebe“ pro jméno (migrace 023).
  *     ⚠ NAHRAZUJE stav z migrace 023, kdy admin mohl zakládat volající —
  *     od migrace 024 lidi zakládá jen super admin.
  */
@@ -202,7 +205,8 @@ export default function UzivatelePage() {
                             autoComplete="off"
                           />
                           <p className="muted" style={{ fontSize: 13, margin: '2px 0 0' }}>
-                            Musí být jedinečné — podle jména se lidem přiřazují klienti a zprávy.
+                            Musí být jedinečné: podle jména se lidem přiřazují klienti a zprávy. Velikost písmen ani
+                            diakritika nerozhodují („Mikulas“ je totéž co „Mikuláš“, migrace 046).
                           </p>
                         </div>
                         <div className="field">

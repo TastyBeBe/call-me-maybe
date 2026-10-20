@@ -352,7 +352,13 @@ export default function AdminPage() {
         <div className="card empty-state">
           <div className="big-emoji"><SearchIcon size={56} /></div>
           <h2>Nic nenalezeno</h2>
-          <p className="muted">Zkus změnit filtry nebo hledaný výraz.</p>
+          {/* Migrace 045 (Albert 20. 10. 2026): Volajícímu bere filtr stavu, známky a čekání jen jeho klienty, u cizích
+              kontaktů stav nevidí. ⚠ NAHRAZUJE obecné „Zkus změnit filtry“ pro tenhle případ (recenze appky 20. 10. 2026). */}
+          <p className="muted">
+            {!isSuper && (status || rating || cekani || kos)
+              ? 'Filtr stavu, známky a čekání ukazuje jen tvoje klienty (u ostatních kontaktů stav nevidíš) a mezi nimi takový není. Zruš filtr a uvidíš všechny kontakty.'
+              : 'Zkus změnit filtry nebo hledaný výraz.'}
+          </p>
         </div>
       ) : (
         <div className="table-wrap">

@@ -115,7 +115,8 @@ export interface Kontakt {
   /**
    * migrace 024: smí přihlášený měnit obsah kontaktu (stav, e-mail, ceny, poznámku)?
    * Admin jen u svých klientů, super admin u svých, svých lidí a klientů bez volajícího,
-   * Albert u všech, volající nikde. Příznak a zámek smí admin u každého kontaktu.
+   * Albert u všech, volající nikde. Příznak a zámek smí super admin u každého kontaktu, Volající jen u svého
+   * klienta (migrace 045, Albert 20. 10. 2026). ⚠ NAHRAZUJE „Příznak a zámek smí admin u každého kontaktu“ (024).
    */
   smi_upravit?: boolean;
   /* ---- segment a pole architekta (migrace 028); u chat prázdná, starý server je neposílá ---- */

@@ -771,22 +771,149 @@ export function poznamkaBezCizich(note: string | null, cizi: string[], vlastni: 
 
 const radkyPoznamky = (s: string | null): string[] => (s === null || s === '' ? [] : s.split('\n'));
 
+/** btrim a trim v SQL: oříznou jen obyčejné mezery (ne tabulátor ani konec řádku), na rozdíl od String.trim(). */
+const oriznoutMezery = (s: string): string => s.replace(/^ +| +$/g, '');
+
+/** left(text, 80) v SQL: prvních 80 znaků (kódových bodů, ne jednotek UTF-16). */
+const prvnich80 = (s: string | null): string => [...(s ?? '')].slice(0, 80).join('');
+
 /**
- * app_poznamka_zpet (migrace 045, recenze 20. 10. 2026): poznámka, kterou ukládá Volající. Řádky kolegů (maska je
- * mění, Volající je dostává jako „jiný volající“) jsou jen ke čtení: každý musí v nové poznámce zůstat beze změny
- * a ve stejném pořadí vůči ostatním řádkům kolegů a uloží se doslova (přiřazení podle pořadí, ne podle textu, takže
- * se dva stejně maskované řádky dvou kolegů nespletou); jinak chyba „Řádek kolegy upravit ani smazat nejde, připište
- * nový řádek.“ Nový řádek s hlavičkou „[datum …]“, kde je jméno kolegy nebo „jiný volající“, taky chyba. Vlastní
- * řádky volně. ⚠ NAHRAZUJE „nezměněné řádky s původními jmény, upravený řádek dostane jméno z hlavičky“.
+ * app_jmeno_klic (migrace 046, dvě recenze 045 z 20. 10. 2026): klíč pro porovnání jmen a hlaviček poznámky, krok za
+ * krokem jako na serveru: pryč neviditelné znaky (nulová šířka, měkký spojovník, směr textu, kombinující diakritika),
+ * každá mezera Unicode (NBSP, tabulátor, úzké mezery) jako obyčejná, cyrilice, řečtina a široké znaky podobné latince
+ * jako latinka, pomlčky jako „-“, závorky jako „[“ a „]“ (tabulka KLIC_Z a KLIC_NA, znak za znak), pak bezDiakritiky,
+ * malá písmena, mezery sloučené a oříznuté. Délka se mění, proto jen na porovnání, nikdy na pozice v textu.
+ * Tabulka je zapsaná únikovými sekvencemi \u, aby v kódu nebyl žádný neviditelný ani cyrilský znak.
  */
-export function poznamkaZpet(ulozena: string | null, nova: string | null, cizi: string[], vlastni: string[] = []): string | null {
-  if (cizi.length === 0) return nova;
+const KLIC_NEVIDITELNE = /[\u00AD\u034F\u061C\u115F\u1160\u17B4\u17B5\u180B-\u180F\u200B-\u200F\u202A-\u202E\u2060-\u206F\u3164\uFE00-\uFE0F\uFEFF\uFFA0\u0300-\u036F]/g;
+const KLIC_MEZERY = /[\u0009-\u000D\u0085\u00A0\u1680\u2000-\u200A\u2028\u2029\u202F\u205F\u3000]/g;
+export const KLIC_Z =
+  // cyrilice a řečtina, velká písmena
+  '\u0410\u0412\u0415\u041A\u041C\u041D\u041E\u0420\u0421\u0422\u0425\u0423\u0405\u0406\u0408\u051A\u051C\u0391\u0392\u0395\u0396\u0397\u0399\u039A\u039C\u039D\u039F\u03A1\u03A4\u03A5\u03A7' +
+  // cyrilice a řečtina, malá písmena
+  '\u0430\u0435\u043E\u0440\u0441\u0443\u0445\u0455\u0456\u0458\u04BB\u0501\u051B\u051D\u043A\u043C\u0442\u043D\u0432\u03B1\u03BF\u03C1\u03B9\u03BA\u03BD\u03C4\u03C5\u03C7' +
+  // široká písmena A a B b až Z z
+  '\uFF21\uFF41\uFF22\uFF42\uFF23\uFF43\uFF24\uFF44\uFF25\uFF45\uFF26\uFF46\uFF27\uFF47\uFF28\uFF48\uFF29\uFF49\uFF2A\uFF4A\uFF2B\uFF4B\uFF2C\uFF4C\uFF2D\uFF4D' +
+  '\uFF2E\uFF4E\uFF2F\uFF4F\uFF30\uFF50\uFF31\uFF51\uFF32\uFF52\uFF33\uFF53\uFF34\uFF54\uFF35\uFF55\uFF36\uFF56\uFF37\uFF57\uFF38\uFF58\uFF39\uFF59\uFF3A\uFF5A' +
+  // široké číslice
+  '\uFF10\uFF11\uFF12\uFF13\uFF14\uFF15\uFF16\uFF17\uFF18\uFF19' +
+  // závorky „[“ a „]“, pomlčky a mínus
+  '\uFF3B\u3010\u27E6\u2045\uFE5D\uFF3D\u3011\u27E7\u2046\uFE5E\u2010\u2011\u2012\u2013\u2014\u2015\u2212\uFE58\uFE63\uFF0D';
+export const KLIC_NA =
+  'ABEKMHOPCTXYSIJQWABEZHIKMNOPTYXaeopcyxsijhdqwkmthbaopikvtuxAaBbCcDdEeFfGgHhIiJjKkLlMmNnOoPpQqRrSsTtUuVvWwXxYyZz0123456789[[[[[]]]]]----------';
+export function jmenoKlic(s: string | null | undefined): string {
+  if (s === null || s === undefined) return '';   // server vrátí null; mock prázdný klíč, který se nikdy nerovná jménu
+  let prelozeno = '';
+  for (const ch of s.replace(KLIC_NEVIDITELNE, '').replace(KLIC_MEZERY, ' ')) {
+    const i = KLIC_Z.indexOf(ch);
+    prelozeno += i >= 0 ? KLIC_NA[i] : ch;
+  }
+  return oriznoutMezery(bezDiakritiky(prelozeno).toLowerCase().replace(/ {2,}/g, ' '));
+}
+
+/**
+ * Hlavička s datem „[YYYY-MM-DD …]“ jen na začátku řádku v klíči (app_hlavicka_cizi i app_poznamka_zpet; recenze 046,
+ * 20. 10. 2026: ⚠ NAHRAZUJE „hlavička kdekoli v textu“, datum v závorkách uprostřed řádku hlavička není).
+ * Druhá recenze 046 (20. 10. 2026; ⚠ NAHRAZUJE „hlavička přesně na začátku klíče“): před hlavičkou smí stát znaky, které
+ * nejsou písmeno ani číslice (odrážka „- “, neviditelné znaky, které klíč nezná: U+E0100, U+E0020, U+2800, U+1D173,
+ * U+FFF9), hlavička to pořád je; jako „[^[:alnum:][]*“ na serveru (písmena a desítkové číslice Unicode).
+ */
+const HLAVICKA_NA_ZACATKU = /^[^\p{L}\p{Nd}[]*\[ ?\d{4} ?- ?\d{1,2} ?- ?\d{1,2}([^\][]*)/u;
+const HLAVICKA_RADKU = /^[^\p{L}\p{Nd}[]*(\[ ?\d{4} ?- ?\d{1,2} ?- ?\d{1,2}([^\][]*)\]?)/u;
+/** Konce řádků jako v app_hlavicka_cizi: \r\n, \n až \r, U+0085, U+2028 a U+2029. */
+const KONCE_RADKU = /\r\n|[\n\v\f\r\u0085\u2028\u2029]/;
+
+/**
+ * app_hlavicka_cizi (migrace 046, dvě recenze 045 a recenze 046 z 20. 10. 2026): první hlavička s datem na začátku
+ * řádku textu (konce řádků i Unicode), která nenese žádné z vlastních jmen (za jménem smí být jen „, …“), porovnáno
+ * klíčem jmenoKlic; null = žádná cizí. Volající smí řádek začít hlavičkou s datem jen se svým jménem: neviditelný
+ * znak, cyrilice, NBSP nebo tabulátor za datem, chybějící mezera, mezera na začátku ani jiná velikost písmen kontrolu
+ * neobejdou. Datum v závorkách uprostřed řádku („zavolat [2026-10-25 odpoledne]“) projde.
+ */
+export function hlavickaCizi(text: string | null, vlastni: string[]): string | null {
+  const klice = vlastni.map((v) => jmenoKlic(v)).filter((kl) => kl !== '');
+  for (const radek of (text ?? '').split(KONCE_RADKU)) {
+    const h = HLAVICKA_RADKU.exec(jmenoKlic(radek));
+    if (!h) continue;
+    const jm = oriznoutMezery(h[2]);
+    if (!klice.some((kl) => jm === kl || jm.startsWith(`${kl},`))) return h[1];
+  }
+  return null;
+}
+
+/**
+ * Druhá recenze 046 (20. 10. 2026, pravidlo 045; ⚠ NAHRAZUJE „za vlastním jménem cokoli za čárkou“): hlavička s datem na
+ * začátku některého řádku textu, ve které je jméno kolegy nebo „jiný volající“ kdekoli, i za čárkou („[2026-10-20 Petra,
+ * Honza] Honza souhlasí“, „[2026-10-20 tabulka, Honza] x“): maska jmen kolegů v klíči (jména i text jmenoKlic) by ji
+ * změnila. Jako dotaz nad app_jmeno_klic a app_poznamka_bez_cizich v app_poznamka_zpet na serveru.
+ */
+function hlavickaSKolegou(text: string, kliceCizich: string[], kliceVlastnich: string[]): boolean {
+  for (const radek of text.split(KONCE_RADKU)) {
+    const h = HLAVICKA_RADKU.exec(jmenoKlic(radek));
+    if (h && (h[1].includes('jiny volajici') || poznamkaBezCizich(h[1], kliceCizich, kliceVlastnich) !== h[1])) return true;
+  }
+  return false;
+}
+
+/**
+ * app_poznamka_zpet (migrace 045 a 046, recenze 045 a dvě další recenze 20. 10. 2026): poznámka, kterou ukládá Volající,
+ * krok za krokem jako na serveru. Řádky kolegů jsou jen ke čtení: řádek, který maska mění, a každý řádek záznamu
+ * kolegy (hlavička „[datum Jméno]“ se jménem kolegy a řádky bez hlavičky za ní až do další hlavičky; `celaCizi` =
+ * celý uložený text je kolegův, poznámka příznaku, který dal kolega). Každý musí v nové poznámce zůstat beze změny
+ * a ve stejném pořadí a uloží se doslova (přiřazení podle pořadí, takže se dva stejně maskované řádky dvou kolegů
+ * nespletou); záznam kolegy zůstane celý (nic se do něj nevloží, nic se z něj nevyjme). Nový nebo upravený řádek smí
+ * mít hlavičku s datem jen s vlastním jménem (hlavickaCizi). Konce řádků \r\n a \r jako \n. Vlastní řádky volně.
+ * ⚠ NAHRAZUJE „řádek kolegy = řádek, který maska mění“ a „hlavička nesmí nést jméno kolegy ani jiný volající“
+ * (podobu po první recenzi 20. 10. 2026).
+ * Recenze 046 (20. 10. 2026; ⚠ NAHRAZUJE odmítnutí „Řádek hned za záznamem kolegy začněte hlavičkou …“): prázdný řádek
+ * nepatří nikomu (nikdy se neodmítne, záznam jím nekončí), vlastní řádek bez hlavičky v záznamu kolegy dostane hlavičku
+ * „[dnešní den v Praze vlastní jméno] “ a jméno z hlavičky uloženého řádku, který kolegův není (systémová hlavička),
+ * smí být i v novém řádku (nikdy jméno kolegy, „jiný volající“, prázdné ani jméno začínající jménem kolegy).
+ * Druhá recenze 046 (20. 10. 2026): hlavička i za odrážkou nebo neviditelným znakem; v hlavičce nového řádku ani za čárkou
+ * jméno kolegy nebo „jiný volající“ (hlavickaSKolegou); poznámka příznaku kolegy (`celaCizi`) je celá jeden jeho záznam
+ * (beh 0 u každého neprázdného řádku, výstup začíná v něm): nic se do ní nevloží, řádek připsaný na konec dostane vlastní
+ * hlavičku a uložený řádek s hlavičkou její záznam nekončí (⚠ NAHRAZUJE „celaCizi chrání jen uložené řádky“).
+ */
+export function poznamkaZpet(
+  ulozena: string | null,
+  nova: string | null,
+  cizi: string[],
+  vlastni: string[] = [],
+  celaCizi = false,
+): string | null {
+  if (cizi.length === 0) return nova;   // super admin a Albert ukládají beze změny
   const st = radkyPoznamky(ulozena);
-  const nv = radkyPoznamky(nova);
+  // konce řádků: \r\n i samotné \r jako \n (jinak by se řádek kolegy s \r na konci nenašel)
+  const nv = radkyPoznamky(nova === null ? null : nova.replace(/\r\n/g, '\n').replace(/\r/g, '\n'));
   const n = st.length;
   const m = nv.length;
+  if (n * m > 160000) fail('Poznámka je na uložení moc dlouhá, zkraťte ji.');
+  const ck = cizi.filter((x) => oriznoutMezery(x) !== '').map((x) => jmenoKlic(x));
+  const vk = vlastni.filter((x) => oriznoutMezery(x) !== '').map((x) => jmenoKlic(x));
   const maska = st.map((x) => poznamkaBezCizich(x, cizi, vlastni) ?? '');
-  const kol = st.map((x, i) => maska[i] !== x);
+  const kol: boolean[] = [];   // uložený řádek kolegy (Volající ho dostává maskovaný nebo patří k záznamu kolegy)
+  const hk: boolean[] = [];    // uložený řádek je hlavička se jménem kolegy (začátek jeho záznamu)
+  const beh: number[] = [];    // beh[k] = hlavička kolegy, k jejímuž záznamu uložený řádek k patří (-1 = žádná, prázdný vždy -1;
+                               // celaCizi: 0 u každého neprázdného řádku, celý text je jeden záznam kolegy)
+  const sys: string[] = [];    // jména z hlaviček uložených řádků, které kolegovy nejsou (smí zůstat v upraveném řádku)
+  let b = -1;
+  for (let k = 0; k < n; k++) {
+    hk[k] = false;
+    beh[k] = -1;
+    kol[k] = false;
+    const kl = jmenoKlic(st[k]);
+    if (kl === '') continue;   // prázdný řádek nepatří nikomu (recenze 046)
+    const h = HLAVICKA_NA_ZACATKU.exec(kl);
+    if (h) {
+      hk[k] = ck.includes(oriznoutMezery(h[1].split(',')[0]));
+      b = hk[k] ? k : -1;
+    }
+    beh[k] = celaCizi ? 0 : b;   // druhá recenze 046: poznámka příznaku kolegy je celá jeden jeho záznam
+    kol[k] = celaCizi || b >= 0 || maska[k] !== st[k];
+    if (!kol[k] && h) sys.push(oriznoutMezery(h[1].split(',')[0]));
+  }
+  // jméno systémové hlavičky nikdy nesmí být jméno kolegy, „jiný volající“, prázdné ani začínat jménem kolegy
+  const sysJmena = sys.filter((x) => x !== '' && x !== 'jiny volajici' && !ck.includes(x) && !ck.some((c) => x.startsWith(`${c} `)));
   // vážená nejdelší společná podposloupnost: řádek kolegy váží víc než všechny ostatní shody dohromady
   const w = n + 1;
   const dp: number[][] = Array.from({ length: n + 1 }, () => new Array<number>(m + 1).fill(0));
@@ -810,28 +937,71 @@ export function poznamkaZpet(ulozena: string | null, nova: string | null, cizi: 
     } else if (dp[i - 1][j] >= dp[i][j - 1]) i -= 1;
     else j -= 1;
   }
+  // každý řádek kolegy musí zůstat beze změny a na svém místě vůči ostatním řádkům kolegů
   for (let k = 0; k < n; k++) {
     if (kol[k] && !hit[k]) {
-      fail(`Řádek kolegy upravit ani smazat nejde, připište nový řádek. Chybí nebo je změněný či přesunutý řádek „${[...maska[k]].slice(0, 80).join('')}“.`);
+      fail(`Řádek kolegy upravit ani smazat nejde, připište nový řádek. Chybí nebo je změněný či přesunutý řádek „${prvnich80(maska[k])}“.`);
     }
   }
+  const jm = oriznoutMezery(vlastni[0] ?? '') || 'vaše jméno';
+  // hlavička, kterou dostane vlastní řádek bez hlavičky v záznamu kolegy (dnešní den v Praze, vlastní jméno)
+  const pred = oriznoutMezery(vlastni[0] ?? '') !== '' ? `[${denPraha(new Date())} ${oriznoutMezery(vlastni[0] ?? '')}] ` : null;
   const out: string[] = [];
+  // druhá recenze 046: v poznámce příznaku kolegy výstup začíná v jeho záznamu (vložení před jeho řádek nebo mezi ně se
+  // odmítne, řádek připsaný na konec dostane vlastní hlavičku)
+  b = celaCizi ? 0 : -1;
   for (let k = 0; k < m; k++) {
-    if (par[k] >= 0) {
-      out.push(st[par[k]]);   // uložený řádek doslova (řádek kolegy s původním jménem)
-      continue;
-    }
-    if (!st.some((x, s) => !kol[s] && x === nv[k])) {
-      for (const h of nv[k].matchAll(/\[\d{4}-\d{2}-\d{2} [^\][]*\]?/g)) {
-        if (bezDiakritiky(h[0]).toLowerCase().includes('jiny volajici') || poznamkaBezCizich(h[0], cizi, vlastni) !== h[0]) {
-          fail(`Nový řádek nesmí mít v hlavičce „[datum jméno]“ jméno kolegy ani „jiný volající“, napište ho pod svým jménem: „${[...(poznamkaBezCizich(nv[k], cizi, vlastni) ?? '')].slice(0, 80).join('')}“.`);
+    const p = par[k];
+    if (p >= 0) {
+      out.push(st[p]);   // uložený řádek doslova (řádek kolegy s původním jménem)
+    } else {
+      // nový nebo upravený řádek: hlavička „[datum …]“ na začátku jen s vlastním jménem nebo jménem systémové hlavičky,
+      // která v poznámce už je; výjimka je vlastní uložený řádek, který se jen přesunul
+      if (!st.some((x, s) => !kol[s] && x === nv[k])) {
+        if (hlavickaCizi(nv[k], [...vlastni, ...sysJmena]) !== null) {
+          fail(`Nový řádek nesmí mít v hlavičce „[datum jméno]“ jiné jméno než vaše (ani jméno kolegy, „jiný volající“ nebo prázdné), napište ho pod svým jménem („[2026-10-20 ${jm}] …“): „${prvnich80(poznamkaBezCizich(nv[k], cizi, vlastni))}“.`);
+        }
+        // druhá recenze 046 (pravidlo 045): ani za čárkou jméno kolegy nebo „jiný volající“
+        if (hlavickaSKolegou(nv[k], ck, vk)) {
+          fail(`Nový řádek nesmí mít v hlavičce „[datum jméno]“ jméno kolegy ani „jiný volající“, ani za čárkou, napište ho pod svým jménem („[2026-10-20 ${jm}] …“): „${prvnich80(poznamkaBezCizich(nv[k], cizi, vlastni))}“.`);
         }
       }
+      out.push(nv[k]);   // nový řádek přesně, jak ho Volající napsal
     }
-    out.push(nv[k]);          // nový řádek přesně, jak ho Volající napsal
+    // záznam kolegy zůstává celý: každý řádek patří k témuž záznamu jako v uložené poznámce, nový k žádnému;
+    // prázdný řádek nepatří nikomu (nic se nekontroluje, záznam jím nekončí)
+    const kl = jmenoKlic(out[k]);
+    if (kl === '') continue;
+    // (druhá recenze 046: v poznámce příznaku kolegy uložený řádek s hlavičkou jeho záznam nekončí)
+    if (HLAVICKA_NA_ZACATKU.test(kl) && !(celaCizi && p >= 0)) b = p >= 0 && hk[p] ? p : -1;
+    else if (b >= 0 && !(p >= 0 && beh[p] >= 0) && pred !== null) {
+      out[k] = pred + out[k];   // vlastní řádek bez hlavičky v záznamu kolegy dostane vlastní hlavičku (recenze 046)
+      b = -1;
+    }
+    if (b !== (p >= 0 ? beh[p] : -1)) {
+      if (p >= 0 && beh[p] >= 0) {
+        fail(`Řádek kolegy upravit ani smazat nejde, připište nový řádek. Do záznamu kolegy nejde nic vložit ani z něj nic vyjmout: „${prvnich80(maska[p])}“.`);
+      }
+      fail(`Řádek hned za záznamem kolegy začněte hlavičkou se svým jménem („[2026-10-20 ${jm}] …“), jinak by patřil ke kolegovu záznamu: „${prvnich80(poznamkaBezCizich(out[k], cizi, vlastni))}“.`);
+    }
   }
-  if (m === 0) return nova;
+  if (m === 0) return nova;   // prázdná poznámka (jen když v ní žádný řádek kolegy nebyl)
   return out.join('\n');
+}
+
+/**
+ * Strop délky poznámek z appky (migrace 046, dvě recenze 045 z 20. 10. 2026; update_kontakt, set_flag): odmítne se jen text,
+ * který má víc než 5 000 znaků nebo víc než 100 řádků A je delší než uložená poznámka tak, jak ji ukládající vidí
+ * (`videna`, maskovaná: recenze 046, ⚠ NAHRAZUJE „delší než uložený originál“, maska přidá 6 až 10 znaků na jméno
+ * kolegy); delší poznámku jde vždy nechat nebo zkrátit; maska roste s druhou mocninou délky. Délka ve znacích jako
+ * length() v SQL, řádky jako string_to_array(…, E'\n'); null strop nemá. ⚠ NAHRAZUJE „nejvýš 20 000 znaků a 300 řádků
+ * vždy“ (stejný den).
+ */
+function poznamkaPresStrop(nova: unknown, videna: string | null | undefined): boolean {
+  if (nova === null || nova === undefined) return false;
+  const t = String(nova);
+  const delka = [...t].length;
+  return (delka > 5000 || (t === '' ? 0 : t.split('\n').length) > 100) && delka > [...(videna ?? '')].length;
 }
 
 /** app_jmena_cizi (migrace 045): jména lidí, které přihlášený vidět nesmí, a ta, která vidí. */
@@ -981,15 +1151,27 @@ function mayPick(u: MockUser, target: number | null | undefined, what: string): 
   }
 }
 
-const RESERVED = ['agent', 'automatizace', 'dispatcher', 'hlídka', 'hlidka', 'watchdog', 'live:session',
-  'admin', 'systém', 'system', 'jiný volající', 'jiny volajici'];
+/**
+ * app_over_jmeno (migrace 023, 042, 046): kontrola zobrazovaného jména. Od migrace 046 (dvě recenze 045, 20. 10. 2026) se vyhrazená jména
+ * i jedinečnost porovnávají klíčem jmenoKlic (velikost písmen, diakritika, neviditelné znaky, mezery a znaky podobné
+ * latince nerozhodují: „Mikulas“ vedle „Mikuláš“ neprojde) a jméno s neviditelným nebo řídicím znakem neprojde vůbec.
+ * Jméno je vzor masky jmen kolegů, proto nesmí být dvojník. ⚠ NAHRAZUJE porovnání jen malými písmeny (042). Od recenze 046
+ * (20. 10. 2026) neprojde ani čárka nebo hranatá závorka (i podobná).
+ */
+const VYHRAZENA = ['agent', 'automatizace', 'dispatcher', 'hlidka', 'watchdog', 'live:session', 'admin', 'system', 'jiny volajici'];
+const JMENO_NEVIDITELNE = /[\u00AD\u034F\u061C\u115F\u1160\u17B4\u17B5\u180B-\u180F\u200B-\u200F\u202A-\u202E\u2060-\u206F\u3164\uFE00-\uFE0F\uFEFF\uFFA0\u0001-\u001F\u007F]/;
 
 function checkName(name: string, selfId: number | null): void {
-  const n = name.trim();
-  if (n.length < 2 || n.length > 60) fail('Zobrazované jméno musí mít 2–60 znaků.');
-  if (RESERVED.includes(n.toLowerCase()) || /^agent\b/i.test(n)) fail(`Jméno „${n}" je vyhrazené pro automatizaci. Zvolte jiné.`);
-  if (users.some((x) => x.id !== selfId && x.display_name.trim().toLowerCase() === n.toLowerCase())) {
-    fail(`Jméno „${n}" už má jiný uživatel. Zvolte jiné (klienti a zprávy se lidem přiřazují podle jména).`);
+  const n = oriznoutMezery(name);
+  if ([...n].length < 2 || [...n].length > 60) fail('Zobrazované jméno musí mít 2–60 znaků.');
+  if (JMENO_NEVIDITELNE.test(name)) fail('Zobrazované jméno obsahuje neviditelný nebo řídicí znak. Napište ho znovu obyčejnými písmeny.');
+  const klic = jmenoKlic(name);
+  // recenze 046 (20. 10. 2026): čárka nebo hranatá závorka (i podobná, klíčem) by hlavičku „[datum jméno]“ rozbila
+  if (/[\][,]/.test(klic)) fail('Zobrazované jméno nesmí obsahovat čárku ani hranatou závorku (jméno se píše do hlaviček poznámek „[datum jméno]“).');
+  // \M v SQL = konec slova (za „agent“ nesmí být písmeno, číslice ani podtržítko)
+  if (VYHRAZENA.includes(klic) || /^agent(?![\p{L}\p{N}_])/u.test(klic)) fail(`Jméno „${n}" je vyhrazené pro automatizaci. Zvolte jiné.`);
+  if (users.some((x) => x.id !== selfId && jmenoKlic(x.display_name) === klic)) {
+    fail(`Jméno „${n}" už má jiný uživatel (velikost písmen ani diakritika nerozhodují). Zvolte jiné (klienti a zprávy se lidem přiřazují podle jména).`);
   }
 }
 
@@ -1350,8 +1532,9 @@ const mockApiZaklad: Api = {
     const kontakt = kontakty.find((c) => c.id === id);
     if (!kontakt) fail(`Kontakt ${id} neexistuje.`);
     if (kontakt.lock_by !== user.id) fail(`Kontakt ${id} nemáte zamčený. Nic se nevrátilo.`);
+    // migrace 046 (dvě recenze 045, 20. 10. 2026): bez stavu v textu (⚠ NAHRAZUJE „(stav …)“ z migrace 028)
     if (kontakt.status !== 'nekontaktovano' && kontakt.status !== 'nedovolano') {
-      fail(`Kontakt ${id} už není ve frontě volání (stav ${kontakt.status}). Nic se nevrátilo.`);
+      fail(`Kontakt ${id} už není ve frontě volání. Nic se nevrátilo.`);
     }
     if (kontakt.lock_at !== null && new Date(kontakt.lock_at).getTime() < Date.now() - 30 * 60 * 1000) {
       fail('Kartu máte déle než 30 minut. Zapište výsledek hovoru, zámek sám vyprší do 2 hodin.');
@@ -1386,6 +1569,18 @@ const mockApiZaklad: Api = {
         fail('Výsledek "zajem" vyžaduje vyplněnou cenu hostingu (cena_hosting).');
       if (!['A', 'B', 'C'].includes(rating)) fail('Výsledek "zajem" vyžaduje rating A, B nebo C.');
     }
+    // Migrace 046 (dvě recenze 045, 20. 10. 2026): poznámka z hovoru je v poznámce kontaktu jeden řádek s hlavičkou
+    // „[datum Jméno]“. ⚠ NAHRAZUJE víceřádkový zápis (migrace 029): řádky pod hlavičkou nenesly jméno a kolega je mohl
+    // upravit nebo smazat. Konce řádků (i Unicode) jako mezera, strop 2 000 znaků, Volající v ní hlavičku s datem
+    // jen se svým jménem (super admin a Albert beze změny). Všechno před načtením kontaktu, jako na serveru.
+    if ([...(args.note ?? '')].length > 2000) fail('Poznámka z hovoru je moc dlouhá: nejvýš 2 000 znaků.');
+    // recenze 046 (20. 10. 2026; ⚠ NAHRAZUJE „hlavička kdekoli v poznámce“): hlavička jen na začátku řádku, jak je Volající
+    // napsal, proto PŘED spojením řádků; datum v závorkách uprostřed řádku projde
+    const note = args.note ?? '';
+    if (user.id !== OWNER_ID && user.role !== 'super_admin' && hlavickaCizi(note, [user.display_name]) !== null) {
+      fail('Poznámka z hovoru nesmí mít hlavičku „[datum jméno]“ s jiným jménem než vaším (ani jméno kolegy, „jiný volající“ nebo prázdné). Hlavičku s datem a vaším jménem připíše zápis hovoru sám.');
+    }
+    const jedenRadek = oriznoutMezery(note.replace(/[\n\v\f\r\u0085\u2028\u2029]+/g, ' '));
     const kontakt = kontakty.find((c) => c.id === args.kontakt_id);
     if (!kontakt) fail(`Kontakt id=${args.kontakt_id} neexistuje.`);
     // KONTROLA VLASTNICTVÍ (migrace 015): v mocku dřív chyběla, takže demo nikdy neukázalo,
@@ -1393,8 +1588,10 @@ const mockApiZaklad: Api = {
     if (kontakt.lock_by !== user.id) {
       fail('Tenhle kontakt teď nemáte přidělený (zámek patří někomu jinému). Načtěte si dalšího.');
     }
+    // migrace 046 (dvě recenze 045, 20. 10. 2026): bez stavu v textu (⚠ NAHRAZUJE „(…)“ se stavem z migrace 015): kartu,
+    // kterou Volající drží a kterou mezitím někdo posunul, nevidí se stavem, chyba ho neprozradí
     if (kontakt.status !== 'nekontaktovano' && kontakt.status !== 'nedovolano') {
-      fail(`Kontakt už není ve stavu, který se uzavírá hovorem (${kontakt.status}). Váš zámek na něj tedy neplatí — načtěte si dalšího.`);
+      fail('Kontakt už není ve frontě volání, váš zámek na něj tedy neplatí. Načtěte si dalšího.');
     }
 
     callLog.push({
@@ -1405,7 +1602,6 @@ const mockApiZaklad: Api = {
       created_at: now(),
     });
 
-    const note = (args.note ?? '').trim();
     kontakt.status = outcome as KontaktStatus;
     kontakt.last_caller = user.display_name;
     kontakt.lock_by = null;
@@ -1425,8 +1621,8 @@ const mockApiZaklad: Api = {
       kontakt.flagged_at = null;
       kontakt.flagged_by = null;
     }
-    if (note) {
-      const stamp = `[${new Date().toISOString().slice(0, 10)} ${user.display_name}] ${note}`;
+    if (jedenRadek) {
+      const stamp = `[${new Date().toISOString().slice(0, 10)} ${user.display_name}] ${jedenRadek}`;
       kontakt.note = kontakt.note ? `${kontakt.note}\n${stamp}` : stamp;
     }
     kontakt.updated_at = now();
@@ -1585,25 +1781,9 @@ const mockApiZaklad: Api = {
   async updateKontakt(token: string, id: number, patch: Record<string, unknown>): Promise<Kontakt> {
     await delay();
     const me = authAdmin(token);
-    if (!kontakty.some((c) => c.id === id)) fail(`Kontakt id=${id} neexistuje.`);
-    // Volající u kontaktu, kterému nevolal, nevidí stav, poznámky, příznak ani zámek, takže je ani nemění (migrace
-    // 045, Albert 20. 10. 2026; ⚠ NAHRAZUJE „příznak a zámek u každého kontaktu“ pro Volající)
-    if (me.id !== OWNER_ID && me.role !== 'super_admin' && !myKontaktIds(me).has(id)) {
-      fail('Tohle není váš klient: u kontaktu, kterému jste nevolal/a, nevidíte ani neměníte stav, poznámky, příznak ani zámek. Upraví ho ten, kdo mu volá, jeho super admin nebo Albert.');
-    }
-    // obsah jen u vlastních klientů; příznak a zámek super admin u každého kontaktu (migrace 024, 045)
-    const vsude = ['clear_lock', 'flag_kind', 'flag_note'];
-    if (patch && Object.keys(patch).some((key) => !vsude.includes(key)) && !canEdit(me, id)) {
-      fail('Tohle není váš klient — upravit ho může ten, kdo mu volá, jeho super admin nebo Albert. Příznak a zámek u něj měnit smíte.');
-    }
-    // komu kontakt patří (last_caller) mění jen super admin, a jen na své lidi (migrace 023)
-    if (patch && 'last_caller' in patch) {
-      if (me.role !== 'super_admin') fail('Přeřadit kontakt jinému volajícímu smí jen super admin.');
-      const v = String(patch.last_caller ?? '').trim();
-      if (v && me.id !== OWNER_ID && !namesOf(ownPeopleIds(me)).includes(v)) {   // migrace 027: jen na SVÉ lidi
-        fail('Kontakt můžete přeřadit jen sobě nebo svým lidem.');
-      }
-    }
+    // Pořadí kontrol jako update_kontakt na serveru (migrace 046, dvě recenze 045 z 20. 10. 2026): prázdný patch, povolená
+    // pole, kontakt existuje, strop délky, vlastní klient, obsah, last_caller, poznámky, druh příznaku, pole architekta.
+    // ⚠ NAHRAZUJE pořadí mocku „kontakt existuje, vlastní klient, obsah, last_caller, prázdný patch, povolená pole“.
     // migrace 028 přidává pole architekta; segment ani zdroj telefonu appka nemění (import)
     const allowed = [
       'phone', 'name', 'ma_web', 'web', 'email', 'note', 'status', 'rating',
@@ -1620,6 +1800,52 @@ const mockApiZaklad: Api = {
     }
     const kontakt = kontakty.find((c) => c.id === id);
     if (!kontakt) fail(`Kontakt id=${id} neexistuje.`);
+    // Volající u kontaktu, kterému nevolal, nevidí stav, poznámky, příznak ani zámek, takže je ani nemění (migrace
+    // 045, Albert 20. 10. 2026; ⚠ NAHRAZUJE „příznak a zámek u každého kontaktu“ pro Volající)
+    if (me.id !== OWNER_ID && me.role !== 'super_admin' && !myKontaktIds(me).has(id)) {
+      fail('Tohle není váš klient: u kontaktu, kterému jste nevolal/a, nevidíte ani neměníte stav, poznámky, příznak ani zámek. Upraví ho ten, kdo mu volá, jeho super admin nebo Albert.');
+    }
+    // obsah jen u vlastních klientů; příznak a zámek super admin u každého kontaktu (migrace 024, 045)
+    const vsude = ['clear_lock', 'flag_kind', 'flag_note'];
+    if (Object.keys(patch).some((key) => !vsude.includes(key)) && !canEdit(me, id)) {
+      fail('Tohle není váš klient — upravit ho může ten, kdo mu volá, jeho super admin nebo Albert. Příznak a zámek u něj měnit smíte.');
+    }
+    // komu kontakt patří (last_caller) mění jen super admin, a jen na své lidi (migrace 023)
+    if ('last_caller' in patch) {
+      if (me.role !== 'super_admin') fail('Přeřadit kontakt jinému volajícímu smí jen super admin.');
+      const v = String(patch.last_caller ?? '').trim();
+      if (v && me.id !== OWNER_ID && !namesOf(ownPeopleIds(me)).includes(v)) {   // migrace 027: jen na SVÉ lidi
+        fail('Kontakt můžete přeřadit jen sobě nebo svým lidem.');
+      }
+    }
+    const target = kontakt as unknown as Record<string, unknown>;
+    // migrace 045 (recenze 20. 10. 2026): poznámku a poznámku příznaku dostal Volající maskovanou; řádky kolegů jsou
+    // jen ke čtení (poznamkaZpet je uloží doslova, jinak chyba). Spočítá se napřed, aby chyba nic nezměnila.
+    // Dvě recenze 20. 10. 2026: poznámka příznaku, který dal kolega (flagged_by), je celá jeho (celaCizi).
+    const { cizi, vidi } = jmenaPro(me);
+    // strop délky poznámek z appky (migrace 046), všem; recenze 046 (20. 10. 2026, ⚠ NAHRAZUJE „ještě před kontrolou
+    // vlastníka, proti uloženému originálu“): až po kontrole vlastníka a proti poznámce tak, jak ji ukládající vidí
+    if ('note' in patch && poznamkaPresStrop(patch.note, poznamkaBezCizich(kontakt.note, cizi, vidi))) {
+      fail('Poznámka je moc dlouhá: nejvýš 5 000 znaků a 100 řádků (delší poznámku jde jen zkrátit).');
+    }
+    if ('flag_note' in patch && poznamkaPresStrop(patch.flag_note, poznamkaBezCizich(kontakt.flag_note, cizi, vidi))) {
+      fail('Poznámka příznaku je moc dlouhá: nejvýš 5 000 znaků a 100 řádků (delší poznámku jde jen zkrátit).');
+    }
+    const poznamky: Record<string, string | null> = {};
+    for (const key of ['note', 'flag_note']) {
+      if (key in patch && cizi.length > 0) {
+        const value = patch[key];
+        const celaCizi = key === 'flag_note' && kontakt.flagged_by !== null && cizi.includes(kontakt.flagged_by);
+        poznamky[key] = poznamkaZpet(target[key] as string | null, value === null || value === undefined ? null : String(value), cizi, vidi, celaCizi);
+      }
+    }
+    // druh příznaku: nullif(trim(…), '') jako server, neplatný druh = chyba s hodnotou, jak přišla
+    const druhSurovy = patch.flag_kind === null || patch.flag_kind === undefined ? null : String(patch.flag_kind);
+    const druh = druhSurovy === null ? null : oriznoutMezery(druhSurovy) || null;
+    if ('flag_kind' in patch && druh !== null
+        && !['chybi_email', 'email_neoveren', 'info_neoverene', 'chybi_info', 'jine', 'neodpovida'].includes(druh)) {
+      fail(`Neplatný druh příznaku: ${druhSurovy}.`);
+    }
     // Pole architekta: stejné úpravy a CHECKy jako server (migrace 028, 2.2 b a g), a než
     // se cokoli zapíše (v SQL by porušený CHECK vrátil celý update).
     const ARCH_POLE = ['firma', 'mesto', 'ico_osobni', 'ico_firma', 'dph_osobni', 'dph_firma'] as const;
@@ -1648,19 +1874,20 @@ const mockApiZaklad: Api = {
         porusuje('kontakty_architekt_pole_check');
       }
     }
-    const target = kontakt as unknown as Record<string, unknown>;
-    // migrace 045 (recenze 20. 10. 2026): poznámku a poznámku příznaku dostal Volající maskovanou; řádky kolegů jsou
-    // jen ke čtení (poznamkaZpet je uloží doslova, jinak chyba). Spočítá se napřed, aby chyba nic nezměnila.
-    const { cizi, vidi } = jmenaPro(me);
-    const poznamky: Record<string, string | null> = {};
-    for (const key of ['note', 'flag_note']) {
-      if (key in patch && cizi.length > 0) {
-        const value = patch[key];
-        poznamky[key] = poznamkaZpet(target[key] as string | null, value === null || value === undefined ? null : String(value), cizi, vidi);
-      }
+    // Migrace 046 (dvě recenze 045, 20. 10. 2026): kdo a kdy příznak dal, se přepíše jen se změnou druhu (⚠ NAHRAZUJE
+    // „každé uložení flag_kind přepíše flagged_by na toho, kdo ukládá“; mock dřív flagged_* neměnil vůbec). Server od
+    // recenze 046 zapíše změněný nebo zrušený příznak (druh, kdo, kdy, poznámka) do události update; mock události nevede.
+    if ('flag_kind' in patch && druh !== kontakt.flag_kind) {
+      kontakt.flagged_at = druh === null ? null : now();
+      kontakt.flagged_by = druh === null ? null : me.display_name;
     }
     for (const [key, value] of Object.entries(patch)) {
-      if (key in poznamky) {
+      if (key === 'flag_kind') {
+        kontakt.flag_kind = druh as FlagKind | null;
+      } else if (key === 'flag_note') {
+        const text = key in poznamky ? poznamky[key] : value === null || value === undefined ? null : String(value);
+        kontakt.flag_note = text === null ? null : oriznoutMezery(text) || null;   // nullif(trim(…), '')
+      } else if (key in poznamky) {
         target[key] = poznamky[key];
       } else if (key in archNove) {
         target[key] = archNove[key];
@@ -1705,20 +1932,34 @@ const mockApiZaklad: Api = {
   async setFlag(token: string, id: number, kind: FlagKind, note: string): Promise<Kontakt> {
     await delay();
     const user = authAdmin(token);
+    const druh = oriznoutMezery(kind ?? '');
+    if (!['chybi_email', 'email_neoveren', 'info_neoverene', 'chybi_info', 'jine', 'neodpovida'].includes(druh)) {
+      fail(`Neplatný druh příznaku: ${kind ?? '(null)'}. Povolené: chybi_email, email_neoveren, info_neoverene, chybi_info, jine, neodpovida.`);
+    }
     // příznak cizího kontaktu Volající nevidí, nasadí ho jen u svého klienta (migrace 045, Albert 20. 10. 2026)
     if (user.id !== OWNER_ID && user.role !== 'super_admin' && !myKontaktIds(user).has(id)) {
       fail('Tohle není váš klient: příznak u kontaktu, kterému jste nevolal/a, nevidíte ani neměníte. Nastaví ho ten, kdo mu volá, jeho super admin nebo Albert.');
     }
     const kontakt = kontakty.find((c) => c.id === id);
-    if (!kontakt) fail(`Kontakt id=${id} neexistuje.`);
     // migrace 045 (recenze 20. 10. 2026): poznámka příznaku přišla Volajícímu maskovaná; řádky kolegů jen ke čtení
-    // (poznamkaZpet, napřed, aby chyba nic nezměnila)
+    // (poznamkaZpet, napřed, aby chyba nic nezměnila). Dvě recenze 20. 10. 2026: poznámka příznaku, který dal kolega
+    // (flagged_by), je celá jeho (celaCizi); hlavička s datem jen s vlastním jménem.
     const { cizi, vidi } = jmenaPro(user);
-    const flagNote = ((cizi.length > 0 ? poznamkaZpet(kontakt.flag_note, note, cizi, vidi) : note) ?? '').trim() || null;
-    kontakt.flag_kind = kind;
+    // strop délky poznámky z appky (migrace 046; jako update_kontakt: jen delší než uložená poznámka příznaku tak, jak ji
+    // ukládající vidí, recenze 046 ⚠ NAHRAZUJE „delší než uložený originál“)
+    if (poznamkaPresStrop(note, poznamkaBezCizich(kontakt?.flag_note ?? null, cizi, vidi))) {
+      fail('Poznámka příznaku je moc dlouhá: nejvýš 5 000 znaků a 100 řádků (delší poznámku jde jen zkrátit).');
+    }
+    if (!kontakt) fail(`Kontakt ${id} neexistuje.`);
+    const celaCizi = kontakt.flagged_by !== null && cizi.includes(kontakt.flagged_by);
+    const text = cizi.length > 0 ? poznamkaZpet(kontakt.flag_note, note, cizi, vidi, celaCizi) : note;
+    const flagNote = text === null || text === undefined ? null : oriznoutMezery(text) || null;   // nullif(trim(…), '')
+    // Migrace 046 (dvě recenze 045, 20. 10. 2026): flagged_at a flagged_by jen se změnou druhu příznaku, nebo když chybí
+    // (⚠ NAHRAZUJE „každé set_flag přepíše, kdo a kdy příznak dal“); stejný druh s novou poznámkou nechá autora
+    if (kontakt.flag_kind !== druh || kontakt.flagged_at === null) kontakt.flagged_at = now();
+    if (kontakt.flag_kind !== druh || kontakt.flagged_by === null) kontakt.flagged_by = user.display_name;
+    kontakt.flag_kind = druh as FlagKind;
     kontakt.flag_note = flagNote;
-    kontakt.flagged_at = now();
-    kontakt.flagged_by = user.display_name;
     kontakt.updated_at = now();
     return forList(user, kontakt); // bez osobního IČO, když nesmí upravit (028, 036)
   },
@@ -1732,6 +1973,9 @@ const mockApiZaklad: Api = {
     }
     const kontakt = kontakty.find((c) => c.id === id);
     if (!kontakt) fail(`Kontakt id=${id} neexistuje.`);
+    // Server od dvou recenzí 20. 10. 2026 zapíše do události flag_cleared, jaký příznak to byl, kdo ho dal, kdy
+    // a jeho poznámku („Příznak zrušen (vyřešeno). Byl: …, dal ho …, poznámka příznaku: …“). Mock události nevede
+    // (appka je nikde nečte), proto ten zápis vynechává; řádek kontaktu vrací stejně jako server.
     kontakt.flag_kind = null;
     kontakt.flag_note = null;
     kontakt.flagged_at = null;
@@ -1826,6 +2070,12 @@ const mockApiZaklad: Api = {
       if (admin.role !== 'super_admin') fail('Upravit můžete jen svůj účet. Účty ostatních mění jejich super admin.');
       if (user.manager_id !== admin.id) fail('Upravit můžete jen sebe a lidi, kteří jsou pod vámi.');
     }
+    // Migrace 046 (dvě recenze 045, 20. 10. 2026): Volající (admin) své zobrazované jméno nemění, jen heslo; přejmenuje ho
+    // jeho super admin nebo Albert. Jméno je vzor masky jmen kolegů (přejmenování na „chata“ by kolegovi schovalo jeho
+    // vlastní řádky). ⚠ NAHRAZUJE „Admin mění jen sebe“ pro jméno (migrace 023).
+    if (dn !== null && oriznoutMezery(dn) !== user.display_name && admin.id !== OWNER_ID && admin.role !== 'super_admin') {
+      fail('Zobrazované jméno mění jen super admin nebo Albert. Požádejte svého super admina.');
+    }
     if (role !== null && role !== user.role) {
       if (admin.id !== OWNER_ID) fail('Roli může měnit jen majitel účtu.');
       if (userId === admin.id) fail('Vlastní roli změnit nejde.');
@@ -1838,13 +2088,14 @@ const mockApiZaklad: Api = {
       if (user.role === 'super_admin' && admin.id !== OWNER_ID) fail('Deaktivovat super admina může jen Albert.');
     }
     if (pw !== null && pw.length < 6) fail('Heslo musí mít alespoň 6 znaků.');
-    if (dn !== null && dn.trim() !== user.display_name) checkName(dn, userId);
+    // jméno jako server: trim (jen mezery), a jen když se opravdu mění (app_over_jmeno)
+    if (dn !== null && oriznoutMezery(dn) !== user.display_name) checkName(oriznoutMezery(dn), userId);
     if (mgr !== null && users.find((u) => u.id === mgr)?.role !== 'super_admin') fail('Nadřízený musí být super admin.');
 
     // přejmenování: přepsat jméno i u klientů a zpráv, ať staré jméno nejde „převzít"
-    if (dn !== null && dn.trim() !== user.display_name) {
+    if (dn !== null && oriznoutMezery(dn) !== user.display_name) {
       const old = user.display_name;
-      const nove = dn.trim();
+      const nove = oriznoutMezery(dn);
       for (const c of kontakty) if (c.last_caller === old) c.last_caller = nove;
       for (const t of chatThreads) if (t.created_by === old && t.created_by !== 'agent') t.created_by = nove;
       for (const m of chatMessages) if (m.sender_type === 'admin' && m.sender_name === old) m.sender_name = nove;

@@ -149,6 +149,51 @@ příznaku, zámku a vzkazů); karta ve volání u kontaktu, kterému Volající
 (po hovoru je jeho a vidí ho celý). Super admin a Albert vidí všechno jako dřív. Hlídá `npm test` blok U, e2e U
 a kontrola 193 v repu webdomov.
 
+**Po dvou recenzích 045 (20. 10. 2026)** (databáze a appka, ROLLBACK proti živé DB; migrace 046, test 046
+případ 45t). Server a demo mock stejně: **záznam kolegy v poznámce je Volajícímu celý jen ke čtení**, i řádky bez jména
+pod hlavičkou „[datum kolega]“ až do další hlavičky; nic se do něj nevloží a nic se z něj nevyjme (⚠ od recenze 046
+obyčejný řádek pod ním dostane při uložení vlastní hlavičku „[dnešní den v Praze vlastní jméno] “ sám a detail ji po
+uložení hned ukáže; NAHRAZUJE odmítnutí „Řádek hned za záznamem kolegy začněte hlavičkou se svým jménem …“).
+Poznámka příznaku, který dal kolega, je celá jeho. **Hlavička s datem jen s vlastním jménem**: nový nebo upravený řádek
+(i poznámka z hovoru) smí mít „[datum …]“ jen se jménem přihlášeného; porovnává se klíčem `app_jmeno_klic` (v mocku
+`jmenoKlic`: bez neviditelných znaků, mezery Unicode jako mezera, cyrilice, řečtina a široké znaky jako latinka, bez
+diakritiky, malými písmeny), takže znak nulové šířky, NBSP, tabulátor, chybějící mezera, „[ 2026“, „jiný  volající“,
+Albert ani hlavička bez jména kontrolu neobejdou (`app_hlavicka_cizi`, v mocku `hlavickaCizi`).
+**Poznámka z hovoru je jeden řádek** (konce řádků jako mezera, nejvýš 2 000 znaků). **Volající se nepřejmenuje** (jméno
+mění super admin nebo Albert; heslo si změní dál) a **jména jsou jedinečná i bez diakritiky** („Mikulas“ vedle „Mikuláš“
+neprojde, jméno s neviditelným znakem taky ne). **Chyby `resolve_call` a `vratit_do_fronty` mimo frontu neříkají stav.**
+`set_flag` a `update_kontakt` **přepíšou autora a čas příznaku jen se změnou druhu**; `clear_flag` zapíše zrušený
+příznak do události (mock události nevede). **Strop délky**: poznámka a poznámka příznaku nad 5 000 znaků nebo nad
+100 řádků, která je delší než uložená, se odmítne (delší poznámku jde jen zkrátit). Appka: nápověda u poznámky
+(`RADKY_KOLEGU_NAPOVEDA`) a u příznaku kolegy (`PRIZNAK_KOLEGY_NAPOVEDA`), Zprávy říkají „vlákna o svých klientech
+a vlákna bez klienta“, prázdné Kontakty s filtrem stavu Volajícímu vysvětlí, že filtr bere jen jeho klienty. Hlídá
+`npm test` blok W a e2e U3b. ⚠ NAHRAZUJE „řádek kolegy = řádek, který maska mění“, „hlavička nesmí nést jméno kolegy ani
+jiný volající“, víceřádkovou poznámku z hovoru (029), „Admin mění jen sebe“ pro jméno (023), jedinečnost jména jen podle
+velikosti písmen (042), stav v textu chyby (015, 028) a přepis autora příznaku při každém uložení.
+
+**Po recenzi 046 (20. 10. 2026)** (ROLLBACK proti živé DB a přehrání 1 722 běžných úprav Volajících; opravy přímo
+v migraci 046, která ostře neběžela). Server a mock stejně: **prázdný řádek nepatří nikomu** (nikdy jen ke čtení, nikdy
+se neodmítne) a **obyčejný řádek pod zápisem kolegy dostane vlastní hlavičku** s dnešním dnem v Praze (Edovy kontakty
+1582 a 1962 s jediným řádkem Mikuláše by jinak nešly doplnit); detail po uložení ukáže poznámku tak, jak ji server
+uložil (`setNote(updated.note)`). **Hlavička s datem jen na začátku řádku** (i za Unicode koncem řádku; „zavolat
+[2026-10-25 odpoledne]“ projde i v zápisu hovoru, kde se hlavička hledá před spojením řádků). **Řádek se systémovou
+hlavičkou** („[datum tabulka]“, „[datum Agent — rešerše]“) Volající upraví a hlavička, která v poznámce je, smí být
+i v novém řádku; jméno kolegy, „jiný volající“ ani prázdné nikdy. **Strop délky proti poznámce, jak ji ukládající
+vidí** (maskované, maska přidá 6 až 10 znaků na jméno kolegy; až po kontrole vlastníka), takže zkrátit jde vždy.
+**Jméno bez čárky a hranaté závorky** (i podobné). Server navíc nechá změněný nebo zrušený příznak z `update_kontakt`
+v události (mock události nevede). Nápověda `RADKY_KOLEGU_NAPOVEDA` to říká. Hlídá `npm test` blok W (W0f, W2d, W9d,
+W9e, W12g až W12j, W13, W13b, W14 až W16d) a e2e S6b.
+
+**Po druhé recenzi 046 (20. 10. 2026)** (ROLLBACK proti živé DB; opravy přímo v migraci 046, která ostře neběžela).
+Server a mock stejně: **hlavička s datem i za znaky, které nejsou písmeno ani číslice** (odrážka „- “, neviditelné znaky,
+které klíč nezná: U+E0100, U+E0020, U+2800, U+1D173, U+FFF9), takže podvržená hlavička kolegy za nimi neprojde a uložený
+zápis kolegy za nimi je začátek jeho záznamu (`HLAVICKA_RADKU` a `HLAVICKA_NA_ZACATKU` s `[^\p{L}\p{Nd}[]*` jako
+`[^[:alnum:][]*` na serveru); **v hlavičce nového řádku ani za čárkou jméno kolegy nebo „jiný volající“**
+(„[datum Petra, Honza] Honza souhlasí“, „[datum tabulka, Honza] x“; `hlavickaSKolegou`, maska jmen v klíči);
+**poznámka příznaku kolegy je celá jeden jeho záznam**: nic se do ní nevloží (ani před ni), řádek připsaný na konec
+dostane vlastní hlavičku a autor zůstane kolega. Nápovědy `RADKY_KOLEGU_NAPOVEDA` a `PRIZNAK_KOLEGY_NAPOVEDA` to říkají.
+Hlídá `npm test` blok W (W0g, W2e, W2f, W3m až W3v, W14h až W14j, W15g, W17 až W17f, W13c, W13d).
+
 Od migrace 024/025 (Albert 2026-09-24 večer): kontakt **upravuje** jen ten, komu patří,
 jeho super admin a Albert (server posílá u každého řádku `smi_upravit`; příznak a zámek
 smí každý admin, ⚠ od migrace 045 Volající jen u svých klientů, super admin u každého), vzkaz agentovi ke klientovi taky; kdo kontaktu volal, si ho může

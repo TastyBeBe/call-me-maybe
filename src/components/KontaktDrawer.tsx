@@ -22,7 +22,7 @@ import {
 } from '../api';
 import { audio } from '../audio';
 import { useSession } from '../auth';
-import { isSuperAdmin } from '../roles';
+import { JINY_VOLAJICI, isSuperAdmin } from '../roles';
 import { bezCizihoIco, icoVidi, segmentOf } from '../segment';
 import {
   ALL_FLAGS,
@@ -59,11 +59,36 @@ import {
  * Migrace 045, recenze 20. 10. 2026: Volající dostává řádky kolegů v poznámce jako „jiný volající“ a jsou pro něj
  * jen ke čtení; server uložení se změněným, smazaným nebo přesunutým řádkem kolegy odmítne (chyba se ukáže
  * v ErrorBox). Nápověda pod polem, ať to ví dřív, než uloží. Super admin a Albert jména vidí, nápovědu nedostanou.
+ * Dvě recenze 20. 10. 2026: jen ke čtení je celý záznam kolegy (i řádky bez jména pod jeho hlavičkou) a hlavička s datem
+ * smí nést jen vlastní jméno. Recenze 046 (20. 10. 2026): obyčejný řádek pod zápisem kolegy dostane při uložení vlastní
+ * hlavičku s dnešním datem sám a prázdné řádky jdou přidat i smazat (⚠ NAHRAZUJE „obyčejný řádek hned za záznamem kolegy
+ * začněte svou hlavičkou, jinak by patřil kolegovi“); hlavička je jen na začátku řádku.
+ * Druhá recenze 046 (20. 10. 2026): hlavičkou je i „[datum …]“ za odrážkou nebo neviditelným znakem a jméno kolegy v ní
+ * neprojde ani za čárkou (⚠ NAHRAZUJE „Řádek, který začíná hlavičkou s datem, pište jen se svým jménem.“).
  */
 export const RADKY_KOLEGU_NAPOVEDA =
-  'Řádky s „jiný volající“ psali kolegové: upravit, přesunout ani smazat je nejde, připište nový řádek.';
+  'Řádky s „jiný volající“ psali kolegové: upravit, přesunout ani smazat je nejde, a to ani řádky bez jména, které stojí ' +
+  'pod hlavičkou kolegy (patří k jeho záznamu). Připište nový řádek: obyčejný řádek pod zápisem kolegy dostane při ' +
+  'uložení vaši hlavičku „[dnešní datum vaše jméno]“ sám. Prázdné řádky můžete přidat i smazat. Hlavičku s datem na ' +
+  'začátku řádku (i za odrážkou) pište jen se svým jménem, bez jména kolegy, ani za čárkou.';
 export function maRadkyKolegu(text: string | null | undefined, role: string | null | undefined): boolean {
   return !isSuperAdmin(role) && /jiný volající/i.test(text ?? '');
+}
+
+/**
+ * Dvě recenze 045 z 20. 10. 2026 (migrace 046): poznámka příznaku, který dal kolega (Volající ho vidí jako „jiný volající“),
+ * je celá jeho, i řádky bez jména; server její úpravu nebo smazání odmítne, připsat nový řádek jde. Stejný druh
+ * příznaku autora nemění, jiný druh zapíše za autora toho, kdo ukládá.
+ * Druhá recenze 046 (20. 10. 2026; ⚠ NAHRAZUJE „jen pod ni připsat nový řádek“ bez dalšího): do poznámky příznaku kolegy
+ * nejde nic vložit (ani před ni), řádek připsaný na konec dostane při uložení vlastní hlavičku a dokud příznak patří
+ * kolegovi, je jen ke čtení jako zbytek jeho poznámky.
+ */
+export const PRIZNAK_KOLEGY_NAPOVEDA =
+  'Příznak dal kolega: jeho poznámku příznaku upravit, smazat ani do ní nic vložit nejde, jen na konec připsat nový ' +
+  'řádek. Ten dostane při uložení vaši hlavičku „[dnešní datum vaše jméno]“ a dokud příznak patří kolegovi, zůstane ' +
+  'taky jen ke čtení.';
+export function priznakKolegy(kontakt: Pick<Kontakt, 'flagged_by'>, role: string | null | undefined): boolean {
+  return !isSuperAdmin(role) && kontakt.flagged_by === JINY_VOLAJICI;
 }
 
 /* ---------- červený příznak (migrace 005) ---------- */
@@ -197,6 +222,9 @@ function FlagPanel({
             />
             {maRadkyKolegu(kontakt.flag_note, session.role) && (
               <p className="muted radky-kolegu" style={{ fontSize: 13.5, margin: '6px 0 0' }}>{RADKY_KOLEGU_NAPOVEDA}</p>
+            )}
+            {priznakKolegy(kontakt, session.role) && (
+              <p className="muted priznak-kolegy" style={{ fontSize: 13.5, margin: '6px 0 0' }}>{PRIZNAK_KOLEGY_NAPOVEDA}</p>
             )}
           </div>
           <ErrorBox>{error}</ErrorBox>
@@ -442,7 +470,9 @@ export default function KontaktDrawer({
 
   // Obsah kontaktu (stav, e-mail, ceny, poznámku) smí měnit jen ten, komu kontakt patří,
   // jeho super admin a Albert — rozhoduje server (smi_upravit, migrace 024). Příznak
-  // a zámek smí admin u každého kontaktu, proto se `readOnly` pro ně nemění.
+  // a zámek smí super admin u každého kontaktu, Volající jen u svého klienta, proto se `readOnly` pro ně nemění.
+  // ⚠ NAHRAZUJE „Příznak a zámek smí admin u každého kontaktu“ (migrace 045, Albert 20. 10. 2026): cizí kontakt
+  // Volajícího sem nedojde (detail jde přes jenZaklad níž, bez příznaku a zámku), `cizi` je tu jen u super admina.
   const cizi = !readOnly && kontakt.smi_upravit === false;
   const obsahJenCteni = readOnly || cizi;
   // „Označit jako mého klienta": volal mu (je_muj bez toho, aby byl last_caller) a kontakt
@@ -490,6 +520,9 @@ export default function KontaktDrawer({
       const updated = await getApi().updateKontakt(session.token, kontakt.id, patch);
       audio.play('success');
       onSaved?.(updated);
+      // server vrátí uloženou poznámku: obyčejný řádek pod zápisem kolegy v ní už má vlastní hlavičku (recenze 046),
+      // pole ji ukáže hned a uložení se nezdá rozpracované
+      if ('note' in patch) setNote(updated.note ?? '');
       setSavedFlash(true);
       setTimeout(() => setSavedFlash(false), 1500);
     } catch (e) {

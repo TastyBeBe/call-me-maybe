@@ -34,7 +34,7 @@ let bundle;
   const out = await build({
     stdin: {
       contents: [
-        "export { mockApi, poznamkaBezCizich, poznamkaZpet } from './src/api/mock.ts';",
+        "export { mockApi, poznamkaBezCizich, poznamkaZpet, jmenoKlic, hlavickaCizi, KLIC_Z, KLIC_NA } from './src/api/mock.ts';",
         "export { supabaseApi } from './src/api/supabase.ts';",
         "export { loadCallSegment, saveCallSegment, segmentOf } from './src/segment.ts';",
         "export * as segmentModul from './src/segment.ts';",
@@ -60,7 +60,7 @@ let bundle;
   bundle = createRequire(import.meta.url)(f);
   rmSync(dir, { recursive: true, force: true });
 }
-const { mockApi: api, poznamkaBezCizich, poznamkaZpet, supabaseApi, loadCallSegment, saveCallSegment, segmentOf, segmentModul, PhoneLinks, uiModul } = bundle;
+const { mockApi: api, poznamkaBezCizich, poznamkaZpet, jmenoKlic, hlavickaCizi, KLIC_Z, KLIC_NA, supabaseApi, loadCallSegment, saveCallSegment, segmentOf, segmentModul, PhoneLinks, uiModul } = bundle;
 
 let pocet = 0;
 let chyby = 0;
@@ -216,10 +216,12 @@ await blok('S', async () => {
   const auto = (await api.listFlagged(albert)).find((r) => r.id === 92);
   const p302 = (await api.listKontakty(petra, { search: 'Nebrala, zkusit v úterý', limit: 5 })).rows.find((r) => r.id === 302);
   over('S9c', auto?.flagged_by === 'automatizace' && p302?.flagged_by === 'Petra', 'štítek agenta a vlastní jméno u příznaku zůstávají', `${auto?.flagged_by} / ${p302?.flagged_by}`);
-  // Volající přepíše příznak se stejnou (maskovanou) poznámkou: jméno kolegy v datech zůstane
+  // Volající přepíše příznak se stejnou (maskovanou) poznámkou: jméno kolegy v datech zůstane, a protože druh je stejný,
+  // zůstane i to, kdo příznak dal. ⚠ NAHRAZUJE „flagged_by === 'Petra'“ (každé set_flag přepsalo autora; migrace 045,
+  // dvě recenze 20. 10. 2026: flagged_by a flagged_at jen se změnou druhu)
   await api.setFlag(petra, 2, 'jine', 'jiný volající slíbil zjistit e-mail');
   const k3po = (await api.listKontakty(albert, { search: 'Roubenka U Lesa', limit: 5 })).rows.find((r) => r.id === 2);
-  over('S9d', k3po?.flag_note === 'Honza slíbil zjistit e-mail' && k3po?.flagged_by === 'Petra', 'uložení maskované poznámky příznaku jméno kolegy nesmaže', k3po?.flag_note ?? '');
+  over('S9d', k3po?.flag_note === 'Honza slíbil zjistit e-mail' && k3po?.flagged_by === 'Honza', 'uložení maskované poznámky příznaku jméno kolegy nesmaže ani nepřepíše, kdo příznak dal', `${k3po?.flag_note} / ${k3po?.flagged_by}`);
   await api.clearFlag(albert, 2);
   // zámek kolegy: Volající ví jen, že je karta zamčená
   const karta = await api.nextContact(honza, 'chata');
@@ -391,6 +393,408 @@ await blok('U', async () => {
   over('U9b', /if \(jenZaklad\(kontakt\)\) \{\s*return \(/.test(drawerSrc), 'detail cizího kontaktu jen se základními údaji (bez stavu, poznámek, příznaku, zámku a vláken)');
   const callSrc = readFileSync(join(ROOT, 'src/pages/CallPage.tsx'), 'utf8');
   over('U9c', /\{!jenZaklad\(kontakt\) && \(\s*<div className="call-row">\s*<span className="k">status<\/span>/.test(callSrc), 'karta ve volání ukáže stav jen u vlastního klienta');
+});
+
+/* ---------------- W) po dvou recenzích 045: záznam kolegy, hlavička s datem, jméno, chyby bez stavu (20. 10. 2026) ---------------- */
+// Dvě recenze 20. 10. 2026 (databáze a appka, ROLLBACK proti živé DB) našly obejití pravidel 045: řádky záznamu kolegy
+// bez jména (pokračování zápisu z resolve_call) šly upravit i smazat; podvrženou hlavičku „[datum kolega]“ obešel znak
+// nulové šířky, cyrilice, NBSP nebo tabulátor za datem, chybějící mezera i mezera na začátku a resolve_call ji uložil bez
+// kontroly; Volající se mohl přejmenovat a „Mikulas“ vedle „Mikuláš“ prošel; chyba resolve_call a vratit_do_fronty říkala
+// stav; set_flag a update_kontakt se stejným druhem přepsaly autora příznaku; poznámky neměly strop. Mock = server
+// (db/migration_046_privatnost_po_recenzi.sql, db/tests/test_046_privatnost_po_recenzi.sql). Speciální znaky se skládají z kódů (String.fromCodePoint), aby
+// v testu nebyl žádný neviditelný ani cyrilský znak. Běží po bloku U a před bloky, které frontu provolají; co změní
+// (poznámka, příznak, zámek, jméno, stav), vrátí.
+await blok('W', async () => {
+  const ZW = String.fromCodePoint(0x200b);      // znak nulové šířky
+  const NBSP = String.fromCodePoint(0xa0);      // nezlomitelná mezera
+  const TAB = String.fromCodePoint(0x9);        // tabulátor
+  const LS = String.fromCodePoint(0x2028);      // oddělovač řádků Unicode
+  const CYR_T = String.fromCodePoint(0x422);    // cyrilské velké T
+  const CYR_A = String.fromCodePoint(0x430);    // cyrilské malé a
+  // kladný krok, který mutace mocku může odmítnout: zapíše FAIL a blok jede dál (ověřeno mutacemi, každá kontrola zvlášť)
+  const projde = async (id, fn, text) => {
+    try {
+      await fn();
+      return true;
+    } catch (e) {
+      over(id, false, text, `odmítnuto: ${e.message}`);
+      return false;
+    }
+  };
+  const poznamka2 = async () => (await api.listKontakty(albert, { search: 'Roubenka U Lesa', limit: 5 })).rows.find((r) => r.id === 2) ?? null;
+  const puvodni2 = (await poznamka2())?.note ?? null;
+
+  // klíč jmen (app_jmeno_klic) a hlavička s datem (app_hlavicka_cizi) jako server
+  over('W0', typeof jmenoKlic === 'function' && typeof hlavickaCizi === 'function' && KLIC_Z?.length === 141 && KLIC_NA?.length === 141,
+    'mock má jmenoKlic, hlavickaCizi a tabulku podobných znaků 141 na 141 (jako app_jmeno_klic)', `${KLIC_Z?.length} / ${KLIC_NA?.length}`);
+  over('W0b', jmenoKlic(`  Mi${ZW}kul${CYR_A}š${NBSP}${NBSP}${TAB}Novák `) === 'mikulas novak' && jmenoKlic(null) === '',
+    'jmenoKlic: bez neviditelných znaků, cyrilice jako latinka, mezery Unicode sloučené, bez diakritiky, malými písmeny', jmenoKlic(`  Mi${ZW}kul${CYR_A}š${NBSP}${NBSP}${TAB}Novák `));
+  over('W0c', hlavickaCizi('[2026-10-20 petra] x', ['Petra']) === null && hlavickaCizi('[2026-10-20 Petra, chata 2] x', ['Petra']) === null
+    && hlavickaCizi('[2026-10-20 Petrak] x', ['Petra']) === '[2026-10-20 petrak]',
+    'hlavickaCizi: vlastní jméno (i malými a s „, …“) projde, jiné jméno vrátí v klíči');
+  // recenze 046 (20. 10. 2026): jen hlavička na začátku řádku (i za Unicode koncem řádku); datum uprostřed řádku projde
+  over('W0f', hlavickaCizi('zavolat [2026-10-25 odpoledne]', ['Petra']) === null && hlavickaCizi('text [2026-10-20 Petrak] x', ['Petra']) === null
+    && hlavickaCizi(`ok${LS}[2026-10-20 Petrak] x`, ['Petra']) === '[2026-10-20 petrak]' && hlavickaCizi('ok\r[2026-10-20 Petrak] x', ['Petra']) === '[2026-10-20 petrak]',
+    'hlavickaCizi: hlavička jen na začátku řádku (i za U+2028 a \\r), datum v závorkách uprostřed řádku projde');
+  // druhá recenze 046 (20. 10. 2026): hlavička i za odrážkou a za neviditelnými znaky, které klíč nezná
+  const PRED_HLAVICKOU = [0xe0100, 0xe0020, 0x2800, 0x1d173, 0xfff9].map((k) => String.fromCodePoint(k));
+  over('W0g', [...PRED_HLAVICKOU, '- ', `- ${PRED_HLAVICKOU[2]}`].every((z) => hlavickaCizi(`${z}[2026-10-20 Petrak] x`, ['Petra']) === '[2026-10-20 petrak]')
+    && hlavickaCizi('- [2026-10-20 Petra] x', ['Petra']) === null && hlavickaCizi(`${PRED_HLAVICKOU[0]}[2026-10-20 Petra] x`, ['Petra']) === null
+    && hlavickaCizi('zavolat [2026-10-25 odpoledne]', ['Petra']) === null && hlavickaCizi('1) [2026-10-20 Petrak] x', ['Petra']) === null,
+    'hlavickaCizi: hlavička i za odrážkou a za U+E0100, U+E0020, U+2800, U+1D173, U+FFF9 (jako server), vlastní projde, za slovem nebo číslem hlavička není',
+    [...PRED_HLAVICKOU, '- '].map((z) => hlavickaCizi(`${z}[2026-10-20 Petrak] x`, ['Petra'])).join(' | '));
+  const mockZdroj = readFileSync(join(ROOT, 'src/api/mock.ts'), 'utf8');
+  const podezrely = [...mockZdroj].filter((c) => {
+    const k = c.codePointAt(0);
+    return (k >= 0x370 && k <= 0x52f) || k === 0xa0 || k === 0xad || (k >= 0x2000 && k <= 0x200f) || (k >= 0x2028 && k <= 0x202f)
+      || (k >= 0x2060 && k <= 0x206f) || k === 0xfeff || (k >= 0xfe00 && k <= 0xfe0f) || (k >= 0xff00 && k <= 0xffef);
+  });
+  over('W0d', podezrely.length === 0, 'src/api/mock.ts nemá žádný neviditelný, cyrilský ani široký znak doslova (tabulka jen únikovými sekvencemi)',
+    podezrely.slice(0, 5).map((c) => c.codePointAt(0).toString(16)).join());
+  await chyba('W0e', async () => poznamkaZpet(Array(600).fill('a').join('\n'), Array(300).fill('a').join('\n'), ['Eda'], ['Kuba']),
+    /^Poznámka je na uložení moc dlouhá, zkraťte ji\.$/, 'poznamkaZpet odmítne uložení nad 160 000 porovnání (jako app_poznamka_zpet)');
+
+  // záznam kolegy s pokračováním bez jména (víceřádkový zápis z doby před 045): celý je Volajícímu jen ke čtení
+  const sPokracovanim = `${puvodni2}\nPokračování zápisu kolegy bez jména.`;
+  await api.updateKontakt(albert, 2, { note: sPokracovanim });
+  try {
+    const maska = (await api.myKontakty(petra, 200, 0)).rows.find((r) => r.id === 2)?.note ?? '';
+    const [vlastni, kolegy, pokracovani] = maska.split('\n');
+    over('W1', kolegy === '[2026-08-29 jiný volající] Zase nebrali.' && pokracovani === 'Pokračování zápisu kolegy bez jména.',
+      'Volající má u klienta 2 záznam kolegy se dvěma řádky (jinak W nic neměří)', maska);
+    const ODMITNUTI = [
+      ['W2', `${vlastni}\n${kolegy}`, /^Řádek kolegy upravit ani smazat nejde, připište nový řádek\. Chybí nebo je změněný či přesunutý řádek „Pokračování/, 'smazaný řádek bez jména v záznamu kolegy'],
+      ['W2b', `${vlastni}\n${kolegy}\nPokračování zápisu kolegy, upravené.`, /^Řádek kolegy upravit ani smazat nejde/, 'upravený řádek bez jména v záznamu kolegy'],
+      ['W2c', `${vlastni}\n${kolegy}\n[2026-10-20 Petra] vložené doprostřed\n${pokracovani}`,
+        /^Řádek kolegy upravit ani smazat nejde, připište nový řádek\. Do záznamu kolegy nejde nic vložit ani z něj nic vyjmout: „Pokračování/, 'vlastní hlavička vložená do záznamu kolegy'],
+      // recenze 046: obyčejný řádek vložený doprostřed záznamu dostane vlastní hlavičku, pokračování kolegy by pak stálo pod ní
+      ['W2d', `${vlastni}\n${kolegy}\nobyčejný vložený doprostřed\n${pokracovani}`,
+        /^Řádek kolegy upravit ani smazat nejde, připište nový řádek\. Do záznamu kolegy nejde nic vložit ani z něj nic vyjmout: „Pokračování/, 'obyčejný řádek vložený do záznamu kolegy'],
+    ];
+    // podvržená hlavička: každé obejití z recenze (server hledá v klíči app_jmeno_klic)
+    const PODVRHY = [
+      ['W3', '[2026-10-20 Honza] podvrh', 'jméno kolegy'],
+      ['W3b', `[2026-10-20 Hon${ZW}za] podvrh`, 'znak nulové šířky ve jménu'],
+      ['W3c', `[2026-10-20${NBSP}Honza] podvrh`, 'NBSP za datem'],
+      ['W3d', `[2026-10-20 Alber${CYR_T}] podvrh`, 'cyrilské T místo latinského'],
+      ['W3e', `[2026-10-20${TAB}Honza] podvrh`, 'tabulátor za datem'],
+      ['W3f', '[2026-10-20Honza] podvrh', 'bez mezery za datem'],
+      ['W3g', ' [2026-10-20 Honza] podvrh', 'mezera na začátku řádku'],
+      ['W3h', '[ 2026-10-20 Honza] podvrh', 'mezera za závorkou „[ 2026“'],
+      ['W3j', '[2026-10-20 jiný  volající] podvrh', 'dvě mezery v „jiný  volající“'],
+      ['W3k', '[2026-10-20 Albert] podvrh', 'jméno Alberta'],
+      ['W3l', '[2026-10-20] podvrh', 'hlavička bez jména'],
+      // druhá recenze 046: hlavička kolegy za neviditelným znakem, který klíč nezná, nebo za odrážkou
+      ['W3m', `${PRED_HLAVICKOU[0]}[2026-10-15 Honza] podvrh`, 'U+E0100 před hlavičkou'],
+      ['W3n', `${PRED_HLAVICKOU[1]}[2026-10-15 Honza] podvrh`, 'U+E0020 před hlavičkou'],
+      ['W3o', `${PRED_HLAVICKOU[2]}[2026-10-15 Honza] podvrh`, 'U+2800 před hlavičkou'],
+      ['W3p', `${PRED_HLAVICKOU[3]}[2026-10-15 Honza] podvrh`, 'U+1D173 před hlavičkou'],
+      ['W3q', `${PRED_HLAVICKOU[4]}[2026-10-15 Honza] podvrh`, 'U+FFF9 před hlavičkou'],
+      ['W3r', '- [2026-10-15 Honza] podvrh', 'odrážka před hlavičkou'],
+    ];
+    for (const [id, radek, co] of PODVRHY) {
+      ODMITNUTI.push([id, `${maska}\n${radek}`,
+        /^Nový řádek nesmí mít v hlavičce „\[datum jméno\]“ jiné jméno než vaše \(ani jméno kolegy, „jiný volající“ nebo prázdné\), napište ho pod svým jménem \(„\[2026-10-20 Petra\] …“\): „/, `podvržená hlavička: ${co}`]);
+    }
+    // druhá recenze 046 (pravidlo 045): jméno kolegy ani „jiný volající“ v hlavičce ani za čárkou
+    for (const [id, radek, co] of [
+      ['W3s', '[2026-10-20 Petra, Honza] Honza souhlasí', 'vlastní jméno, za čárkou kolega'],
+      ['W3t', '[2026-10-20 Petra, jiný volající] x', 'za čárkou „jiný volající“'],
+      ['W3u', `[2026-10-20 Petra, Honz${CYR_A}] x`, 'za čárkou kolega s cyrilským a'],
+      ['W3v', `- [2026-10-20 Petra, Hon${ZW}za] x`, 'za odrážkou, za čárkou kolega se znakem nulové šířky'],
+    ]) {
+      ODMITNUTI.push([id, `${maska}\n${radek}`,
+        /^Nový řádek nesmí mít v hlavičce „\[datum jméno\]“ jméno kolegy ani „jiný volající“, ani za čárkou, napište ho pod svým jménem \(„\[2026-10-20 Petra\] …“\): „/, `jméno kolegy za čárkou: ${co}`]);
+    }
+    for (const [id, nova, vzor, co] of ODMITNUTI) {
+      await chyba(id, () => api.updateKontakt(petra, 2, { note: nova }), vzor, `Volající neuloží: ${co}`);
+      const po = (await poznamka2())?.note ?? null;
+      over(`${id}x`, po === sPokracovanim, `odmítnuté uložení (${co}) nechá data beze změny`, po ?? '');
+      if (po !== sPokracovanim) await api.updateKontakt(albert, 2, { note: sPokracovanim });   // další případ od stejného stavu
+    }
+    // druhá recenze 046: uložený zápis kolegy za odrážkou nebo neviditelným znakem je hlavička jeho záznamu (pokračování
+    // pod ním jen ke čtení)
+    for (const [id, z] of [['W2e', '- '], ['W2f', PRED_HLAVICKOU[2]]]) {
+      // vlastní řádek mezi záznamy, aby pokračování nepatřilo k předchozímu zápisu Honzy v puvodni2
+      const sOdrazkou = `${puvodni2}\n[2026-10-19 Petra] moje mezi\n${z}[2026-10-15 Honza] zapsal\npokračování bez jména`;
+      await api.updateKontakt(albert, 2, { note: sOdrazkou });
+      const maskaOdr = (await api.myKontakty(petra, 200, 0)).rows.find((r) => r.id === 2)?.note ?? '';
+      await chyba(id, () => api.updateKontakt(petra, 2, { note: maskaOdr.split('\n').slice(0, -1).join('\n') }), /^Řádek kolegy upravit ani smazat nejde/,
+        `Volající nesmaže pokračování zápisu kolegy, jehož hlavička stojí za „${z === '- ' ? '- ' : 'U+2800'}“`);
+      over(`${id}x`, (await poznamka2())?.note === sOdrazkou, 'odmítnutí nechá zápis kolegy beze změny');
+    }
+    await api.updateKontakt(albert, 2, { note: sPokracovanim });
+    // recenze 046 (20. 10. 2026): běžná práce pod zápisem kolegy projde (tvar kontaktů 1582 a 1962: last_caller kolega,
+    // Volající volal); prázdný řádek nepatří nikomu, obyčejný řádek dostane vlastní hlavičku s dnešním dnem v Praze
+    const dnes = `[${new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Prague', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date())} Petra] `;
+    for (const [id, ulozena, nova, cil, co] of [
+      ['W14', sPokracovanim, `${maska}\nobyčejný řádek bez hlavičky`, `${sPokracovanim}\n${dnes}obyčejný řádek bez hlavičky`, 'obyčejně připsaný řádek pod zápisem kolegy'],
+      ['W14b', sPokracovanim, `${maska}\n\n[2026-10-20 Petra] text`, `${sPokracovanim}\n\n[2026-10-20 Petra] text`, 'prázdný řádek a pod ním vlastní hlavička'],
+      ['W14c', sPokracovanim, `${maska}\n`, `${sPokracovanim}\n`, 'jen Enter (prázdný poslední řádek)'],
+      ['W14d', sPokracovanim, `${maska}\n\ntext`, `${sPokracovanim}\n\n${dnes}text`, 'Enter dvakrát a text'],
+      ['W14e', `${sPokracovanim}\n`, `${maska}\ntext`, `${sPokracovanim}\n${dnes}text`, 'psaní na prázdném posledním řádku'],
+      ['W14f', `${puvodni2}\n\nPokračování zápisu kolegy bez jména.`, maska, sPokracovanim, 'smazaný prázdný řádek uprostřed záznamu kolegy'],
+      ['W14g', sPokracovanim, `${maska}\nzavolat [2026-10-25 odpoledne]`, `${sPokracovanim}\n${dnes}zavolat [2026-10-25 odpoledne]`, 'datum v závorkách uprostřed řádku'],
+      // druhá recenze 046: vlastní hlavička za odrážkou nebo za neviditelným znakem a „[datum Petra, …]“ bez kolegy projdou
+      ['W14h', sPokracovanim, `${maska}\n- [2026-10-20 Petra] s odrážkou`, `${sPokracovanim}\n- [2026-10-20 Petra] s odrážkou`, 'vlastní hlavička za odrážkou'],
+      ['W14i', sPokracovanim, `${maska}\n${PRED_HLAVICKOU[2]}[2026-10-20 petra] za znakem`, `${sPokracovanim}\n${PRED_HLAVICKOU[2]}[2026-10-20 petra] za znakem`, 'vlastní hlavička za U+2800'],
+      ['W14j', sPokracovanim, `${maska}\n[2026-10-20 Petra, volala klientovi] ok`, `${sPokracovanim}\n[2026-10-20 Petra, volala klientovi] ok`, 'vlastní hlavička s čárkou bez jména kolegy'],
+    ]) {
+      await api.updateKontakt(albert, 2, { note: ulozena });
+      let vraceno = null;
+      await projde(id, async () => { vraceno = await api.updateKontakt(petra, 2, { note: nova }); }, `Volající uloží: ${co}`);
+      over(id, (await poznamka2())?.note === cil, `Volající uloží běžnou práci pod zápisem kolegy (${co}), řádky kolegy zůstanou doslova`,
+        JSON.stringify((await poznamka2())?.note ?? ''));
+      if (id === 'W14') {
+        over('W14x', vraceno?.note === `${maska}\n${dnes}obyčejný řádek bez hlavičky` && !/Honza/.test(vraceno?.note ?? ''),
+          'update_kontakt vrátí uloženou poznámku s připsanou hlavičkou (detail ji hned ukáže), jména kolegů maskovaná', vraceno?.note ?? '');
+      }
+    }
+    await api.updateKontakt(albert, 2, { note: sPokracovanim });
+
+    // recenze 046: řádek se systémovou hlavičkou Volající upraví; hlavička, která v poznámce je, smí být i v novém řádku
+    const sSystemovou = `${sPokracovanim}\n[2026-10-01 tabulka] import z tabulky\n[2026-10-02 Agent — rešerše] web nalezen`;
+    await api.updateKontakt(albert, 2, { note: sSystemovou });
+    const maskaSys = (await api.myKontakty(petra, 200, 0)).rows.find((r) => r.id === 2)?.note ?? '';
+    for (const [id, nova, cil, co] of [
+      ['W15', maskaSys.replace('import z tabulky', 'import z tabulky, opraveno'), sSystemovou.replace('import z tabulky', 'import z tabulky, opraveno'), 'upravený řádek „[datum tabulka]“'],
+      ['W15b', maskaSys.replace('web nalezen', 'web nalezen, starý'), sSystemovou.replace('web nalezen', 'web nalezen, starý'), 'upravený řádek „[datum Agent — rešerše]“'],
+      ['W15c', `${maskaSys}\n[2026-10-20 tabulka] nová řádka`, `${sSystemovou}\n[2026-10-20 tabulka] nová řádka`, 'nový řádek s hlavičkou „tabulka“, která v poznámce je'],
+    ]) {
+      await api.updateKontakt(albert, 2, { note: sSystemovou });
+      await projde(id, () => api.updateKontakt(petra, 2, { note: nova }), `Volající uloží: ${co}`);
+      over(id, (await poznamka2())?.note === cil, `Volající upraví řádek se systémovou hlavičkou (${co})`, JSON.stringify((await poznamka2())?.note ?? ''));
+    }
+    for (const [id, nova, co] of [
+      ['W15d', `${maskaSys}\n[2026-10-20 živá session] x`, 'systémová hlavička, která v poznámce není'],
+      ['W15e', `${maskaSys}\n[2026-10-20 jiný volající] x`, '„jiný volající“'],
+      ['W15f', maskaSys.replace('[2026-10-01 tabulka]', '[2026-10-01 Honza]'), 'jméno kolegy místo „tabulka“'],
+      ['W15g', `${maskaSys}\n[2026-10-20 tabulka, Honza] x`, 'systémová hlavička, za čárkou kolega (druhá recenze 046)'],
+    ]) {
+      await api.updateKontakt(albert, 2, { note: sSystemovou });
+      await chyba(id, () => api.updateKontakt(petra, 2, { note: nova }), /^Nový řádek nesmí mít v hlavičce/, `Volající neuloží: ${co}`);
+      over(`${id}x`, (await poznamka2())?.note === sSystemovou, `odmítnutí (${co}) nechá data beze změny`);
+    }
+    await api.updateKontakt(albert, 2, { note: sPokracovanim });
+
+    // recenze 046: strop proti poznámce, jak ji Volající vidí (maskované): poznámka 4 960 znaků se jmény kolegy je pro
+    // Petru přes 5 000; smazat vlastní řádek a uložit beze změny jde, prodloužit ne
+    const kolegaRadky = Array.from({ length: 95 }, (_, i) => `[2026-10-${String((i % 28) + 1).padStart(2, '0')} Honza] volal Honza, pak Honza znovu`).join('\n');
+    let blizko = `${kolegaRadky}\n[2026-10-19 Petra] moje `;
+    blizko += 'm'.repeat(4960 - [...blizko].length);
+    await api.updateKontakt(albert, 2, { note: blizko });
+    const maskaBlizko = (await api.myKontakty(petra, 200, 0)).rows.find((r) => r.id === 2)?.note ?? '';
+    over('W16', [...blizko].length === 4960 && [...maskaBlizko].length > 5000, 'Petra vidí poznámku 4 960 znaků se jmény kolegy jako delší než 5 000 (jinak W16 nic neměří)', `${[...maskaBlizko].length}`);
+    const bezMoji = maskaBlizko.split('\n').slice(0, -1).join('\n');
+    await projde('W16b', () => api.updateKontakt(petra, 2, { note: bezMoji }), 'smazaný vlastní řádek u stropu projde');
+    over('W16b', (await poznamka2())?.note === kolegaRadky, 'poznámku přes strop (jak ji Volající vidí) jde zkrátit smazáním vlastního řádku', `${[...((await poznamka2())?.note ?? '')].length}`);
+    await api.updateKontakt(albert, 2, { note: blizko });
+    await projde('W16c', () => api.updateKontakt(petra, 2, { note: maskaBlizko }), 'uložení beze změny u stropu projde');
+    over('W16c', (await poznamka2())?.note === blizko, 'poznámku u stropu jde uložit beze změny');
+    await chyba('W16d', () => api.updateKontakt(petra, 2, { note: `${maskaBlizko} x` }),
+      /^Poznámka je moc dlouhá: nejvýš 5 000 znaků a 100 řádků \(delší poznámku jde jen zkrátit\)\.$/, 'prodloužit poznámku přes strop nejde');
+    await api.updateKontakt(albert, 2, { note: sPokracovanim });
+
+    // co smí: vlastní hlavičku za záznamem kolegy (i malými písmeny, i s „, …“) a pod ní obyčejný řádek; \r\n jako \n
+    await projde('W4', () => api.updateKontakt(petra, 2, { note: `${maska}\n[2026-10-20 Petra] moje po kolegovi\na pokračuji pod svým jménem` }), 'vlastní hlavička za záznamem kolegy projde');
+    over('W4', (await poznamka2())?.note === `${sPokracovanim}\n[2026-10-20 Petra] moje po kolegovi\na pokračuji pod svým jménem`,
+      'Volající připíše vlastní hlavičku za záznam kolegy a pod ni obyčejný řádek, záznam kolegy zůstane doslova', (await poznamka2())?.note ?? '');
+    await api.updateKontakt(albert, 2, { note: sPokracovanim });
+    await projde('W4b', () => api.updateKontakt(petra, 2, { note: `${maska}\n[2026-10-20 petra] malými písmeny\n[2026-10-20 Petra, druhý hovor] s čárkou` }), 'vlastní hlavička malými písmeny projde');
+    over('W4b', (await poznamka2())?.note === `${sPokracovanim}\n[2026-10-20 petra] malými písmeny\n[2026-10-20 Petra, druhý hovor] s čárkou`,
+      'vlastní hlavička malými písmeny i „[datum Jméno, …]“ projde', (await poznamka2())?.note ?? '');
+    await api.updateKontakt(albert, 2, { note: sPokracovanim });
+    await projde('W5', () => api.updateKontakt(petra, 2, { note: `${maska.split('\n').join('\r\n')}\r\n[2026-10-20 Petra] přes CRLF` }), 'poznámka s \\r\\n projde');
+    over('W5', (await poznamka2())?.note === `${sPokracovanim}\n[2026-10-20 Petra] přes CRLF`,
+      'poznámka s konci řádků \\r\\n se uloží (řádky kolegy se najdou) a uloží se s \\n', JSON.stringify((await poznamka2())?.note ?? ''));
+    await api.updateKontakt(albert, 2, { note: sPokracovanim });
+
+    // strop délky (všem, i super adminovi): text nad 5 000 znaků nebo nad 100 řádků, který je delší než uložený
+    const radky = (pocet) => Array(pocet).fill('[2026-10-20 Petra] ř').join('\n');
+    const DLOUHA = /^Poznámka je moc dlouhá: nejvýš 5 000 znaků a 100 řádků \(delší poznámku jde jen zkrátit\)\.$/;
+    const DLOUHA_PRIZNAK = /^Poznámka příznaku je moc dlouhá: nejvýš 5 000 znaků a 100 řádků \(delší poznámku jde jen zkrátit\)\.$/;
+    for (const [id, tok, patch, vzor, co] of [
+      ['W6', petra, { note: 'x'.repeat(5001) }, DLOUHA, 'poznámka 5 001 znaků'],
+      ['W6b', petra, { note: `${maska}\n${radky(98)}` }, DLOUHA, 'poznámka 101 řádků'],
+      ['W6c', albert, { note: 'x'.repeat(5001) }, DLOUHA, 'poznámka 5 001 znaků od Alberta'],
+      ['W6d', petra, { flag_note: 'x'.repeat(5001) }, DLOUHA_PRIZNAK, 'poznámka příznaku 5 001 znaků'],
+      ['W6e', petra, { flag_note: radky(101) }, DLOUHA_PRIZNAK, 'poznámka příznaku 101 řádků'],
+    ]) {
+      await chyba(id, () => api.updateKontakt(tok, 2, patch), vzor, `update_kontakt odmítne: ${co}`);
+      const po = await poznamka2();
+      if (po?.note !== sPokracovanim || po?.flag_kind !== null || po?.flag_note !== null) {
+        over(`${id}x`, false, `odmítnutá dlouhá poznámka (${co}) nechá data beze změny`);
+        await api.updateKontakt(albert, 2, { note: sPokracovanim });
+        await api.clearFlag(albert, 2);
+      }
+    }
+    await chyba('W6f', () => api.setFlag(petra, 2, 'jine', radky(101)), DLOUHA_PRIZNAK, 'set_flag odmítne poznámku příznaku 101 řádků');
+    const po6 = await poznamka2();
+    over('W6x', po6?.note === sPokracovanim && po6?.flag_kind === null && po6?.flag_note === null, 'odmítnuté dlouhé poznámky nechají data beze změny', `${po6?.flag_kind}`);
+    if (po6?.flag_kind !== null || po6?.flag_note !== null) await api.clearFlag(albert, 2);
+    await projde('W6g', () => api.updateKontakt(petra, 2, { note: `${maska}\n${radky(97)}` }), 'poznámka 100 řádků projde');
+    over('W6g', ((await poznamka2())?.note ?? '').split('\n').length === 100, 'poznámka přesně 100 řádků projde (strop je nad 100)');
+    await api.updateKontakt(albert, 2, { note: sPokracovanim });
+  } finally {
+    await api.updateKontakt(albert, 2, { note: puvodni2 });
+  }
+
+  // příznak: poznámka příznaku, který dal kolega, je celá jeho (i řádek bez jména); autor se mění jen se změnou druhu
+  await api.clearFlag(albert, 2);   // čistý stav i po případném selhání výš
+  await api.setFlag(honza, 2, 'jine', 'Zavolat zpět\nřádek bez jména od kolegy');
+  try {
+    await chyba('W7', () => api.setFlag(petra, 2, 'jine', 'Zavolat zpět'), /^Řádek kolegy upravit ani smazat nejde/, 'Volající nesmaže řádek bez jména v poznámce příznaku kolegy (set_flag)');
+    await chyba('W7b', () => api.updateKontakt(petra, 2, { flag_note: 'Zavolat zpět' }), /^Řádek kolegy upravit ani smazat nejde/, 'ani přes update_kontakt');
+    const p7 = await poznamka2();
+    over('W7x', p7?.flag_note === 'Zavolat zpět\nřádek bez jména od kolegy' && p7?.flagged_by === 'Honza', 'odmítnutí nechá poznámku příznaku i autora', `${p7?.flagged_by}`);
+    // druhá recenze 046 (20. 10. 2026): poznámka příznaku kolegy je celá jeden jeho záznam: vložit nejde, připsaný řádek
+    // dostane vlastní hlavičku, autor zůstane kolega, uložení beze změny projde
+    const dnes17 = `[${new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Prague', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date())} Petra] `;
+    const priznakHonzy = 'Zavolat zpět\nřádek bez jména od kolegy';
+    for (const [id, fn, co] of [
+      ['W17', () => api.setFlag(petra, 2, 'jine', 'Zavolat zpět\nvložené mezi\nřádek bez jména od kolegy'), 'obyčejný řádek vložený mezi řádky (set_flag)'],
+      ['W17b', () => api.updateKontakt(petra, 2, { flag_note: `[2026-10-20 Petra] před\n${priznakHonzy}` }), 'vlastní hlavička před poznámkou (update_kontakt)'],
+      ['W17c', () => api.setFlag(petra, 2, 'jine', `před\n${priznakHonzy}`), 'obyčejný řádek před poznámkou (set_flag)'],
+    ]) {
+      await chyba(id, fn, /^Řádek kolegy upravit ani smazat nejde, připište nový řádek\. Do záznamu kolegy nejde nic vložit/, `Volající nevloží do poznámky příznaku kolegy: ${co}`);
+      const p17 = await poznamka2();
+      over(`${id}x`, p17?.flag_note === priznakHonzy && p17?.flagged_by === 'Honza', `odmítnutí (${co}) nechá poznámku příznaku i autora`, `${p17?.flag_note} / ${p17?.flagged_by}`);
+    }
+    await projde('W17d', () => api.setFlag(petra, 2, 'jine', `${priznakHonzy}\nobyčejně připsaný`), 'řádek připsaný na konec poznámky příznaku kolegy projde');
+    const p17d = await poznamka2();
+    over('W17d', p17d?.flag_note === `${priznakHonzy}\n${dnes17}obyčejně připsaný` && p17d?.flagged_by === 'Honza',
+      'řádek připsaný na konec poznámky příznaku kolegy dostane vlastní hlavičku, autor zůstane kolega', `${p17d?.flag_note} / ${p17d?.flagged_by}`);
+    await projde('W17e', () => api.updateKontakt(petra, 2, { flag_note: p17d?.flag_note ?? '' }), 'uložení beze změny s vlastním připsaným řádkem projde');
+    over('W17e', (await poznamka2())?.flag_note === p17d?.flag_note, 'poznámka příznaku kolegy s vlastním připsaným řádkem jde uložit beze změny');
+    await api.setFlag(albert, 2, 'jine', '[2026-10-15 Honza] chybí e-mail\n[2026-10-16 Honza] pořád chybí');
+    await chyba('W17f', () => api.setFlag(petra, 2, 'jine', '[2026-10-15 jiný volající] chybí e-mail\n[2026-10-20 Petra] vložené\n[2026-10-16 jiný volající] pořád chybí'),
+      /^Řádek kolegy upravit ani smazat nejde, připište nový řádek\. Do záznamu kolegy nejde nic vložit/, 'Volající nevloží vlastní hlavičku mezi dva zápisy kolegy v poznámce jeho příznaku');
+    await api.setFlag(albert, 2, 'jine', priznakHonzy);
+    over('W17x', (await poznamka2())?.flagged_by === 'Honza', 'příznak po W17 zase Honzův (W8 měří od stejného stavu)', (await poznamka2())?.flagged_by);
+    await projde('W8', () => api.setFlag(petra, 2, 'jine', 'Zavolat zpět\nřádek bez jména od kolegy\n[2026-10-20 Petra] doplním e-mail'), 'připsaný vlastní řádek v poznámce příznaku kolegy projde');
+    const p8 = await poznamka2();
+    over('W8', p8?.flagged_by === 'Honza' && p8?.flag_note === 'Zavolat zpět\nřádek bez jména od kolegy\n[2026-10-20 Petra] doplním e-mail',
+      'set_flag se stejným druhem nechá autora příznaku (kolegu), připsaný vlastní řádek se uloží', `${p8?.flagged_by} / ${p8?.flag_note}`);
+    await projde('W8b', () => api.setFlag(petra, 2, 'chybi_info', p8?.flag_note ?? ''), 'set_flag s jiným druhem projde');
+    const p8b = await poznamka2();
+    over('W8b', p8b?.flagged_by === 'Petra' && p8b?.flag_kind === 'chybi_info', 'set_flag s jiným druhem zapíše nového autora', `${p8b?.flagged_by}`);
+    await projde('W8c', () => api.updateKontakt(honza, 2, { flag_kind: 'jine' }), 'update_kontakt s druhem příznaku projde');
+    over('W8c', (await poznamka2())?.flagged_by === 'Honza', 'update_kontakt se změnou druhu zapíše autora (kolega Honza)', (await poznamka2())?.flagged_by);
+    await projde('W8d', () => api.updateKontakt(petra, 2, { flag_kind: 'jine', flag_note: p8?.flag_note ?? '' }), 'update_kontakt se stejným druhem a stejnou poznámkou projde');
+    over('W8d', (await poznamka2())?.flagged_by === 'Honza', 'update_kontakt se stejným druhem autora nepřepíše', (await poznamka2())?.flagged_by);
+    // autor před změnou druhu je jistě někdo jiný (Albert přes set_flag s jiným druhem), aby W8e měřil přepis autora
+    await api.setFlag(albert, 2, 'info_neoverene', p8?.flag_note ?? '');
+    const p8pred = await poznamka2();
+    await projde('W8e', () => api.updateKontakt(petra, 2, { flag_kind: 'chybi_email' }), 'update_kontakt s jiným druhem projde');
+    const p8e = await poznamka2();
+    over('W8e', p8pred?.flagged_by === 'Albert' && p8e?.flagged_by === 'Petra' && p8e?.flag_kind === 'chybi_email' && !!p8e?.flagged_at,
+      'update_kontakt s jiným druhem zapíše nového autora a čas', `${p8pred?.flagged_by} → ${p8e?.flagged_by}`);
+    await chyba('W8f', () => api.updateKontakt(petra, 2, { flag_kind: 'blbost' }), /^Neplatný druh příznaku: blbost\.$/, 'update_kontakt odmítne neznámý druh příznaku (jako server)');
+  } finally {
+    await api.clearFlag(albert, 2);
+  }
+
+  // poznámka z hovoru: strop, hlavička jen s vlastním jménem (i přes obejití), jeden řádek; chyby bez stavu
+  const hovoryPred = (await api.myStats(petra)).calls;
+  await chyba('W9', () => api.resolveCall(petra, { kontakt_id: 2, outcome: 'nedovolano', note: '[2026-10-20 Honza] podvrh' }),
+    /^Poznámka z hovoru nesmí mít hlavičku „\[datum jméno\]“ s jiným jménem než vaším \(ani jméno kolegy, „jiný volající“ nebo prázdné\)\. Hlavičku s datem a vaším jménem připíše zápis hovoru sám\.$/,
+    'resolve_call odmítne poznámku s hlavičkou kolegy');
+  await chyba('W9b', () => api.resolveCall(petra, { kontakt_id: 2, outcome: 'nedovolano', note: `řádek\n[2026-10-20 Hon${ZW}za] podvrh` }),
+    /^Poznámka z hovoru nesmí mít hlavičku/, 'resolve_call odmítne podvrženou hlavičku i se znakem nulové šířky na druhém řádku');
+  await chyba('W9c', () => api.resolveCall(petra, { kontakt_id: 2, outcome: 'nedovolano', note: 'x'.repeat(2001) }),
+    /^Poznámka z hovoru je moc dlouhá: nejvýš 2 000 znaků\.$/, 'resolve_call odmítne poznámku nad 2 000 znaků');
+  // recenze 046: datum v závorkách uprostřed řádku kontrolou hlavičky projde (dál zastaví až zámek, kontakt 2 Petra nedrží)
+  await chyba('W9d', () => api.resolveCall(petra, { kontakt_id: 2, outcome: 'nedovolano', note: 'zavolat [2026-10-25 odpoledne]' }),
+    /^Tenhle kontakt teď nemáte přidělený/, 'resolve_call nebere datum uprostřed řádku za hlavičku');
+  await chyba('W9e', () => api.resolveCall(petra, { kontakt_id: 2, outcome: 'nedovolano', note: `ok${LS}[2026-10-20 Honza] podvrh` }),
+    /^Poznámka z hovoru nesmí mít hlavičku/, 'resolve_call najde hlavičku kolegy i za Unicode koncem řádku');
+  over('W9x', (await api.myStats(petra)).calls === hovoryPred && (await poznamka2())?.note === puvodni2, 'odmítnutý zápis hovoru nic nezapíše');
+  const karta = await api.nextContact(honza, 'chata');
+  if (!karta) over('W10', false, 'fronta chat je prázdná, zápis hovoru nejde změřit');
+  else {
+    const radekPred = (await api.listKontakty(albert, { segment: 'chata', limit: 1000 })).rows.find((r) => r.id === karta.id);
+    await api.updateKontakt(albert, karta.id, { status: 'odmitnuto' });
+    let hlaskaHovor = '';
+    let hlaskaVraceni = '';
+    try { await api.resolveCall(honza, { kontakt_id: karta.id, outcome: 'nedovolano' }); } catch (e) { hlaskaHovor = e.message; }
+    try { await api.returnContact(honza, karta.id); } catch (e) { hlaskaVraceni = e.message; }
+    over('W10', hlaskaHovor === 'Kontakt už není ve frontě volání, váš zámek na něj tedy neplatí. Načtěte si dalšího.' && !/odmitnuto|odmítnut/i.test(hlaskaHovor),
+      'chyba resolve_call mimo frontu neřekne stav kontaktu', hlaskaHovor);
+    over('W10b', hlaskaVraceni === `Kontakt ${karta.id} už není ve frontě volání. Nic se nevrátilo.`, 'chyba vratit_do_fronty mimo frontu neřekne stav kontaktu', hlaskaVraceni);
+    await api.updateKontakt(albert, karta.id, { status: radekPred?.status ?? 'nekontaktovano' });
+    // poznámka 4 000 znaků (pod stropem) a k ní zápis hovoru: uložená poznámka pak má přes 5 000 znaků (resolve_call
+    // připisuje bez stropu celé poznámky, jako u klienta s mnoha hovory)
+    const dlouha = 'x'.repeat(4000);
+    await api.updateKontakt(albert, karta.id, { note: dlouha });
+    const ypsilony = 'y'.repeat(1900);
+    await projde('W10c', () => api.resolveCall(honza, { kontakt_id: karta.id, outcome: 'nedovolano', note: `první řádek\nřádek pod ním\r\ntřetí${LS}čtvrtý ${ypsilony}  ` }), 'zápis hovoru s poznámkou projde');
+    const ulozenaPo = async () => (await api.listKontakty(albert, { segment: 'chata', limit: 1000 })).rows.find((r) => r.id === karta.id)?.note ?? null;
+    const zapis = `[${new Date().toISOString().slice(0, 10)} Honza] první řádek řádek pod ním třetí čtvrtý ${ypsilony}`;
+    const ulozena = await ulozenaPo();
+    over('W10c', ulozena === `${dlouha}\n${zapis}`,
+      'resolve_call zapíše poznámku z hovoru jako jeden řádek (konce řádků i Unicode jako mezera)', JSON.stringify((ulozena ?? '').slice(4000, 4080)));
+    // delší poznámku jde jen zkrátit: kratší (pořád přes 5 000 znaků) se uloží, delší ne
+    const kratsi = (ulozena ?? '').slice(0, -100);
+    await projde('W10d', () => api.updateKontakt(honza, karta.id, { note: kratsi }), 'zkrácená dlouhá poznámka projde');
+    over('W10d', [...kratsi].length > 5000 && (await ulozenaPo()) === kratsi, 'uložená poznámka přes 5 000 znaků jde uložit zkrácená (i Volajícím)', `${[...kratsi].length} znaků`);
+    await chyba('W10e', () => api.updateKontakt(albert, karta.id, { note: `${kratsi}x` }),
+      /^Poznámka je moc dlouhá: nejvýš 5 000 znaků a 100 řádků \(delší poznámku jde jen zkrátit\)\.$/, 'poznámku přes 5 000 znaků prodloužit nejde');
+    over('W10f', (await ulozenaPo()) === kratsi, 'odmítnuté prodloužení nechá poznámku beze změny');
+    await api.updateKontakt(albert, karta.id, { note: radekPred?.note ?? null });
+  }
+
+  // zobrazované jméno: Volající se nepřejmenuje (heslo změní), dvojník jména neprojde ani Albertovi
+  await chyba('W11', () => api.updateUser(petra, 2, { display_name: 'Petruška' }),
+    /^Zobrazované jméno mění jen super admin nebo Albert\. Požádejte svého super admina\.$/, 'Volající své zobrazované jméno nezmění');
+  // heslo z demo dat má 5 znaků, server chce aspoň 6; test ho nechá změněné (další bloky jedou na už vydaných tokenech)
+  let heslo = null;
+  let stejne = null;
+  let prihlaseni = null;
+  await projde('W11b', async () => {
+    heslo = await api.updateUser(petra, 2, { password: 'volam-w11' });
+    stejne = await api.updateUser(petra, 2, { display_name: ' Petra ', password: 'volam-w11b' });
+    prihlaseni = await api.login('petra', 'volam-w11b');
+  }, 'Volající si změní heslo');
+  over('W11b', heslo?.display_name === 'Petra' && stejne?.display_name === 'Petra' && prihlaseni?.display_name === 'Petra' && (await api.me(petra)).display_name === 'Petra',
+    'Volající si změní heslo (i se stejným jménem v požadavku), jméno zůstane', `${heslo?.display_name} / ${stejne?.display_name}`);
+  if (prihlaseni) await api.logout(prihlaseni.token);
+  for (const [id, jmeno, vzor, co] of [
+    ['W12', 'Mikulas', /^Jméno „Mikulas" už má jiný uživatel \(velikost písmen ani diakritika nerozhodují\)\. Zvolte jiné/, 'jméno super admina bez diakritiky'],
+    ['W12b', `Mikul${CYR_A}š`, /už má jiný uživatel \(velikost písmen ani diakritika nerozhodují\)/, 'jméno super admina s cyrilským a'],
+    ['W12c', `Miku${ZW}láš`, /^Zobrazované jméno obsahuje neviditelný nebo řídicí znak\. Napište ho znovu obyčejnými písmeny\.$/, 'jméno se znakem nulové šířky'],
+    ['W12d', `Jiný${NBSP}Volající`, /je vyhrazené pro automatizaci/, '„jiný volající“ s NBSP a velkými písmeny'],
+    ['W12e', 'Agent-7', /je vyhrazené pro automatizaci/, 'jméno začínající „agent“'],
+    // recenze 046: čárka a hranatá závorka (i široká a 【) by hlavičku „[datum jméno, …]“ rozbily
+    ['W12g', 'Novák, Jan', /^Zobrazované jméno nesmí obsahovat čárku ani hranatou závorku/, 'jméno s čárkou'],
+    ['W12h', 'Jan] x', /^Zobrazované jméno nesmí obsahovat čárku ani hranatou závorku/, 'jméno s hranatou závorkou'],
+    ['W12i', `Jan${String.fromCodePoint(0xff3b)}x`, /^Zobrazované jméno nesmí obsahovat čárku ani hranatou závorku/, 'jméno se širokou závorkou'],
+    ['W12j', `Jan${String.fromCodePoint(0x3010)}x`, /^Zobrazované jméno nesmí obsahovat čárku ani hranatou závorku/, 'jméno se závorkou 【'],
+  ]) {
+    await chyba(id, () => api.updateUser(albert, 3, { display_name: jmeno }), vzor, `Albert nepřejmenuje Honzu: ${co}`);
+  }
+  const lide = await api.allStats(mikulas);
+  over('W12x', lide.find((u) => u.user_id === 3)?.display_name === 'Honza' && lide.find((u) => u.user_id === 2)?.display_name === 'Petra',
+    'odmítnutá přejmenování nechají jména beze změny');
+  let prejm = null;
+  let zpet = null;
+  await projde('W12f', async () => {
+    prejm = await api.updateUser(albert, 5, { display_name: 'Eva K' });
+    zpet = await api.updateUser(albert, 5, { display_name: 'Eva' });
+  }, 'Albert přejmenuje na jméno bez dvojníka');
+  over('W12f', prejm?.display_name === 'Eva K' && zpet?.display_name === 'Eva', 'Albert dál přejmenuje na jméno bez dvojníka (kontrola nepřísná)');
+
+  // detail: nápověda u poznámky říká nová pravidla (řádky bez jména, řádek za záznamem kolegy, hlavička s datem; druhá
+  // recenze 046: i za odrážkou a bez jména kolegy za čárkou; poznámka příznaku kolegy: nic vložit, připsaný řádek s hlavičkou)
+  const drawer = readFileSync(join(ROOT, 'src/components/KontaktDrawer.tsx'), 'utf8');
+  const napoveda = /export const RADKY_KOLEGU_NAPOVEDA =\s*([\s\S]*?);\n/.exec(drawer)?.[1] ?? '';
+  over('W13', /bez jména/.test(napoveda) && /dostane při ' \+\s*'uložení vaši hlavičku|dostane při uložení vaši hlavičku/.test(napoveda) && /Prázdné řádky/.test(napoveda) && /jen se svým jménem/.test(napoveda)
+    && !/začněte|jinak by patřil/.test(napoveda),
+    'detail: nápověda k řádkům kolegů říká, že řádky bez jména v záznamu kolegy jsou jen ke čtení, obyčejný řádek pod nimi dostane vlastní hlavičku sám, prázdné řádky jdou a hlavička s datem nese jen vlastní jméno (recenze 046)', napoveda.slice(0, 260));
+  over('W13b', /if \('note' in patch\) setNote\(updated\.note \?\? ''\);/.test(drawer), 'detail po uložení ukáže poznámku, jak ji server uložil (s připsanou hlavičkou)');
+  over('W13c', /i za odrážkou/.test(napoveda) && /ani za čárkou/.test(napoveda), 'detail: nápověda říká, že hlavičkou je i řádek za odrážkou a jméno kolegy v ní nesmí být ani za čárkou (druhá recenze 046)', napoveda.slice(0, 400));
+  const napovedaPriznak = /export const PRIZNAK_KOLEGY_NAPOVEDA =\s*([\s\S]*?);\n/.exec(drawer)?.[1] ?? '';
+  over('W13d', /ani do ní nic vložit/.test(napovedaPriznak) && /na konec připsat/.test(napovedaPriznak) && /vaši hlavičku/.test(napovedaPriznak),
+    'detail: nápověda k příznaku kolegy říká, že do poznámky nic vložit nejde a připsaný řádek dostane vlastní hlavičku (druhá recenze 046)', napovedaPriznak.slice(0, 300));
 });
 
 /* ---------------- O) karta architekta: obrat místo IČO (Albert 3. 10. 2026, APP-8, migrace 037) ---------------- */
@@ -656,9 +1060,11 @@ await blok('BCD', async () => {
   // stav z Albertova seznamu: cizí karta Volajícího stav nenese (od 20. 10. 2026, blok U)
   const puvodni = (await api.listKontakty(albert, { segment: 'architekt', limit: 1000 })).rows.find((r) => r.id === a1.id)?.status;
   await api.updateKontakt(albert, a1.id, { status: 'odmitnuto' });
-  await chyba('C5', () => api.returnContact(petra, a1.id), new RegExp(`Kontakt ${a1.id} už není ve frontě volání \\(stav odmitnuto\\)\\. Nic se nevrátilo\\.`), 'kontakt mimo frontu se nevrací');
+  // ⚠ NAHRAZUJE „(stav odmitnuto)“ a „(odmitnuto)“ v textu chyby (migrace 046, dvě recenze 045 z 20. 10. 2026): chyba stav
+  // neprozradí (karta Volajícího stav nenese)
+  await chyba('C5', () => api.returnContact(petra, a1.id), new RegExp(`^Kontakt ${a1.id} už není ve frontě volání\\. Nic se nevrátilo\\.$`), 'kontakt mimo frontu se nevrací');
   await chyba('D2', () => api.resolveCall(petra, { kontakt_id: a1.id, outcome: 'nedovolano' }),
-    /Kontakt už není ve stavu, který se uzavírá hovorem \(odmitnuto\)/, 'výsledek hovoru jen u volatelného stavu (migrace 015)');
+    /^Kontakt už není ve frontě volání, váš zámek na něj tedy neplatí\. Načtěte si dalšího\.$/, 'výsledek hovoru jen u volatelného stavu (migrace 015)');
   await api.updateKontakt(albert, a1.id, { status: puvodni });
   const vr2 = await api.returnContact(petra, a1.id);
   over('C6', vr2.ok === true, 'po obnově stavu jde kontakt vrátit');
