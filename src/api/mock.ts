@@ -1050,6 +1050,15 @@ function canEdit(u: MockUser, kid: number): boolean {
 export const KLICE_CIZI = ['id', 'segment', 'name', 'firma', 'phone', 'email', 'web', 'ma_web', 'obor', 'mesto',
   'ico_osobni', 'ico_firma', 'dph_osobni', 'dph_firma'] as const;
 
+/**
+ * app_bez_cisla_faktury (migrace 048, audit soukromí 20. 10. 2026): číslo faktury z roční řady iDokladu (osm číslic
+ * 20RRNNNN, kolem kterých nestojí číslice) „(číslo skryto)“. Řada je jedna pro celou firmu, číslo by Volajícímu řeklo,
+ * kolik faktur firma vydala. Stejný vzor jako na serveru.
+ */
+export function bezCislaFaktury(s: string): string {
+  return s.replace(/(?<![0-9])20[0-9]{6}(?![0-9])/g, '(číslo skryto)');
+}
+
 function forViewer(u: MockUser, c: Kontakt): Kontakt {
   const je_muj = myKontaktIds(u).has(c.id);
   const { cizi, vidi } = jmenaPro(u);
@@ -1058,7 +1067,14 @@ function forViewer(u: MockUser, c: Kontakt): Kontakt {
   if (cizi.length > 0 && !je_muj) {
     const zdroj = c as unknown as Record<string, unknown>;
     const z: Record<string, unknown> = {};
-    for (const key of KLICE_CIZI) if (key in zdroj) z[key] = zdroj[key];
+    // migrace 048 (audit soukromí 20. 10. 2026): e-mail cizí chaty jen na kartě, kterou Volající právě volá (chata ho má
+    // skoro jen po zájmu v hovoru, prozradil by, které cizí chaty řekly ano); u architekta zůstává
+    const mojeKarta = c.lock_by !== null && c.lock_by === u.id;
+    for (const key of KLICE_CIZI) {
+      if (!(key in zdroj)) continue;
+      if (key === 'email' && segmentOf(c) === 'chata' && !mojeKarta) continue;
+      z[key] = zdroj[key];
+    }
     z.je_muj = false;
     z.skryto = true;
     z.smi_upravit = canEdit(u, c.id);
@@ -1694,6 +1710,8 @@ const mockApiZaklad: Api = {
     const skryty = (c: Kontakt) => jenSvoje && !moje.has(c.id);
     const filtrStavu = !!(f.status || f.rating || f.cekani || f.kos);
     const poznamkaVHledani = (c: Kontakt) => (skryty(c) ? null : poznamkaBezCizich(c.note, cizi, vidi));
+    // migrace 048 (audit soukromí 20. 10. 2026): e-mail cizí chaty Volající nevyhledá (jako poznámku), architekta ano
+    const emailVHledani = (c: Kontakt) => (skryty(c) && segmentOf(c) === 'chata' ? null : c.email);
     const matches = (c: Kontakt) =>
       (!f.segment || segmentOf(c) === f.segment) &&
       (!filtrStavu || !skryty(c)) &&
@@ -1705,7 +1723,7 @@ const mockApiZaklad: Api = {
       // hledání i ve studiu, městě a IČO (migrace 028), IČO podle icoShoda výš
       (!search ||
         icoShoda(c) ||
-        [c.name, c.phone, c.web, c.email, poznamkaVHledani(c), c.firma, c.mesto].some(
+        [c.name, c.phone, c.web, emailVHledani(c), poznamkaVHledani(c), c.firma, c.mesto].some(
           (v) => v && v.toLowerCase().includes(search)
         ));
     const filtered = kontakty.filter(matches).sort((a, b) => {
@@ -2061,6 +2079,11 @@ const mockApiZaklad: Api = {
     if (dn === null && pw === null && role === null && active === null && mgr === null) {
       fail('Není co měnit — zadejte alespoň jedno pole.');
     }
+    // migrace 048 (audit soukromí 20. 10. 2026): Volající smí jen svůj účet, práva napřed (jinak by podle chyby
+    // „neexistuje“ proti „jen svůj účet“ poznal, která id lidí existují)
+    if (admin.id !== OWNER_ID && admin.role !== 'super_admin' && userId !== admin.id) {
+      fail('Upravit můžete jen svůj účet. Účty ostatních mění jejich super admin.');
+    }
     const user = users.find((u) => u.id === userId);
     if (!user) fail(`Uživatel id=${userId} neexistuje.`);
 
@@ -2172,6 +2195,9 @@ const mockApiZaklad: Api = {
     // migrace 045 (recenze 20. 10. 2026): jméno jiného Volajícího „jiný volající“ (created_by, předmět, náhled)
     const { kolegove, vidi } = jmenaKolegu(user);
     const bezKolegu = (s: string) => poznamkaBezCizich(s, kolegove, vidi) ?? s;
+    // migrace 048 (audit soukromí 20. 10. 2026): Volajícímu číslo faktury „(číslo skryto)“ (předmět, náhled)
+    const skryt = !(user.id === OWNER_ID || user.role === 'super_admin');
+    const bezCisel = (s: string) => (skryt ? bezCislaFaktury(s) : s);
     const visible = visibleThreadIds(user);
     const jeho = userId != null ? threadsOf([userId]) : null;
     const rows = chatThreads
@@ -2191,7 +2217,7 @@ const mockApiZaklad: Api = {
           id: t.id,
           kontakt_id: t.kontakt_id,
           kontakt_name: k?.name ?? null,
-          subject: bezKolegu(t.subject),
+          subject: bezCisel(bezKolegu(t.subject)),
           status: t.status,
           scope: mockScope(t),
           alert_key: t.alert_key ?? null,
@@ -2199,13 +2225,14 @@ const mockApiZaklad: Api = {
           last_message_at: t.last_message_at,
           created_at: t.created_at,
           majitel: maskedName(user, k?.last_caller ?? null),
-          last_message_preview: last ? [...bezKolegu(last.body)].slice(0, 140).join('') : null,
+          last_message_preview: last ? [...bezCisel(bezKolegu(last.body))].slice(0, 140).join('') : null,
           last_sender_type: last ? last.sender_type : null,
           message_count: msgs.length,
           same_alert_open:
             user.id === OWNER_ID && t.alert_key && t.kontakt_id === null
               ? chatThreads.filter(
                   (s) => s.alert_key === t.alert_key && s.status === 'open' && s.id !== t.id && s.kontakt_id === null
+                    && s.created_by === 'agent'   // migrace 048: jen systémová vlákna
                 ).length
               : 0,
         };
@@ -2232,11 +2259,14 @@ const mockApiZaklad: Api = {
     // text); super admini, Albert a agenti beze změny
     const { kolegove, vidi } = jmenaKolegu(user);
     const bezKolegu = (s: string) => poznamkaBezCizich(s, kolegove, vidi) ?? s;
+    // migrace 048 (audit soukromí 20. 10. 2026): Volajícímu číslo faktury „(číslo skryto)“ (předmět, text zpráv)
+    const skryt = !(user.id === OWNER_ID || user.role === 'super_admin');
+    const bezCisel = (s: string) => (skryt ? bezCislaFaktury(s) : s);
     const thread: ChatThreadInfo = {
       id: t.id,
       kontakt_id: t.kontakt_id,
       kontakt_name: k?.name ?? null,
-      subject: bezKolegu(t.subject),
+      subject: bezCisel(bezKolegu(t.subject)),
       status: t.status,
       scope: mockScope(t),
       alert_key: t.alert_key ?? null,
@@ -2251,7 +2281,7 @@ const mockApiZaklad: Api = {
       .sort(
         (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime() || a.id - b.id
       )
-      .map((m) => ({ ...m, sender_name: bezKolegu(m.sender_name), body: bezKolegu(m.body), pravidlo_stav: m.pravidlo_stav ?? null }));
+      .map((m) => ({ ...m, sender_name: bezKolegu(m.sender_name), body: bezCisel(bezKolegu(m.body)), pravidlo_stav: m.pravidlo_stav ?? null }));
     return { thread, messages: messagesAsc };
   },
 

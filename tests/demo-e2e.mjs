@@ -863,6 +863,42 @@ for (const [kdo, superAdmin, sirka] of [['petra', false, 1280], ['petra', false,
   await ctx.close();
 }
 
+/* ============ X) po auditu soukromí 20. 10. 2026 (migrace 048): e-mail cizí chaty ============ */
+// Albert 20. 10. 2026: „… how many cottages we've sold as a whole company …“. Chata má e-mail skoro jen po zájmu v hovoru,
+// proto Petra (Volající) u cizí chaty (3 je jen Honzova) e-mail v detailu nevidí a podle e-mailu ji nenajde; e-mail cizího
+// architekta (300, veřejný import) vidí; Mikuláš (super admin) vidí a najde všechno.
+for (const [kdo, superAdmin] of [['petra', false], ['mikulas', true]]) {
+  const { ctx, page } = await novaStranka(kdo, { sirka: 1280, vyska: 900 });
+  await jdi(page, '#/admin', 700);
+  const hledej = async (q) => {
+    await page.locator('input.search-input').fill(q);
+    await klid(page, 800);
+    return page.locator('table.kontakty tbody tr');
+  };
+  const detail = async (q) => {
+    const r = await hledej(q);
+    if ((await r.count()) === 0) return '';
+    await r.first().click();
+    await klid(page, 500);
+    // super admin má e-mail v poli formuláře (innerText ho neukáže), Volající u cizího kontaktu v textu
+    const pole = (await page.locator('.drawer input[type="email"]').count()) > 0 ? await page.locator('.drawer input[type="email"]').first().inputValue() : '';
+    const text = ((await page.locator('.drawer').innerText()) + ' ' + pole).replace(/\s+/g, ' ');
+    await page.locator('.drawer-close').click();
+    await klid(page, 300);
+    return text;
+  };
+  const d3 = await detail('Vysočina');
+  over(`X1 ${kdo}`, superAdmin ? /dvorak@seznam\.cz/.test(d3) : d3.length > 0 && !/dvorak@seznam\.cz|e-mail:/.test(d3),
+    `${kdo}: detail cizí chaty 3 ${superAdmin ? 's e-mailem' : 'bez e-mailu (ani řádek e-mail)'}`, d3.slice(0, 160));
+  const d300 = await detail('Ukázka');
+  over(`X2 ${kdo}`, /ukazka@example\.cz/.test(d300), `${kdo}: detail cizího architekta 300 s e-mailem (veřejný import)`, d300.slice(0, 160));
+  const r = await hledej('@seznam.cz');
+  const n = await r.count();
+  const prazdne = n === 1 && /Žádné kontakty|nic|nenaš/i.test((await r.first().innerText()).replace(/\s+/g, ' '));
+  over(`X3 ${kdo}`, superAdmin ? n >= 1 && !prazdne : n === 0 || prazdne, `${kdo}: hledání „@seznam.cz“ ${superAdmin ? 'najde cizí chatu' : 'cizí chatu podle e-mailu nenajde'}`, `${n} řádků`);
+  await ctx.close();
+}
+
 await browser.close();
 server.close();
 rmSync(OUT, { recursive: true, force: true });

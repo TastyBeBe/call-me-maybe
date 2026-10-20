@@ -24,6 +24,9 @@ globalThis.localStorage = {
   getItem: (k) => { if (hodit) throw new Error('zakázáno'); return uloziste.has(k) ? uloziste.get(k) : null; },
   setItem: (k, v) => { if (hodit) throw new Error('zakázáno'); uloziste.set(k, String(v)); },
   removeItem: (k) => { uloziste.delete(k); },
+  // úklid Prokchopa (blok X) prochází klíče jako v prohlížeči
+  get length() { if (hodit) throw new Error('zakázáno'); return uloziste.size; },
+  key: (i) => { if (hodit) throw new Error('zakázáno'); return [...uloziste.keys()][i] ?? null; },
 };
 // mock čeká 60 až 180 ms na každé volání; test to zkrátí na nulu
 const puvodniTimeout = globalThis.setTimeout;
@@ -34,7 +37,8 @@ let bundle;
   const out = await build({
     stdin: {
       contents: [
-        "export { mockApi, poznamkaBezCizich, poznamkaZpet, jmenoKlic, hlavickaCizi, KLIC_Z, KLIC_NA } from './src/api/mock.ts';",
+        "export { mockApi, poznamkaBezCizich, poznamkaZpet, jmenoKlic, hlavickaCizi, KLIC_Z, KLIC_NA, bezCislaFaktury } from './src/api/mock.ts';",
+        "export * as pokrokModul from './src/pig/progress.ts';",
         "export { supabaseApi } from './src/api/supabase.ts';",
         "export { loadCallSegment, saveCallSegment, segmentOf } from './src/segment.ts';",
         "export * as segmentModul from './src/segment.ts';",
@@ -60,7 +64,7 @@ let bundle;
   bundle = createRequire(import.meta.url)(f);
   rmSync(dir, { recursive: true, force: true });
 }
-const { mockApi: api, poznamkaBezCizich, poznamkaZpet, jmenoKlic, hlavickaCizi, KLIC_Z, KLIC_NA, supabaseApi, loadCallSegment, saveCallSegment, segmentOf, segmentModul, PhoneLinks, uiModul } = bundle;
+const { mockApi: api, poznamkaBezCizich, poznamkaZpet, jmenoKlic, hlavickaCizi, KLIC_Z, KLIC_NA, bezCislaFaktury, pokrokModul, supabaseApi, loadCallSegment, saveCallSegment, segmentOf, segmentModul, PhoneLinks, uiModul } = bundle;
 
 let pocet = 0;
 let chyby = 0;
@@ -795,6 +799,94 @@ await blok('W', async () => {
   const napovedaPriznak = /export const PRIZNAK_KOLEGY_NAPOVEDA =\s*([\s\S]*?);\n/.exec(drawer)?.[1] ?? '';
   over('W13d', /ani do ní nic vložit/.test(napovedaPriznak) && /na konec připsat/.test(napovedaPriznak) && /vaši hlavičku/.test(napovedaPriznak),
     'detail: nápověda k příznaku kolegy říká, že do poznámky nic vložit nejde a připsaný řádek dostane vlastní hlavičku (druhá recenze 046)', napovedaPriznak.slice(0, 300));
+});
+
+/* ---------------- X) po auditu soukromí 20. 10. 2026 (migrace 048) ---------------- */
+// Albert 20. 10. 2026: „double check if there's truly no way for the callers to see ... how many cottages we've sold as a
+// whole company or the stats of any other caller aside from them“. Mock = server (db/migration_048_privatnost_audit.sql,
+// db/tests/test_048_privatnost_audit.sql): e-mail cizí chaty Volající nedostane ani nevyhledá (chata ho má skoro jen po
+// zájmu v hovoru), architekt a vlastní klient ano; číslo faktury (roční řada iDokladu 20RRNNNN) ve vláknech Volajícímu
+// „(číslo skryto)“; update_user stejná chyba pro každé cizí id; Prokchop ostatních uid z localStorage pryč. Běží po bloku W;
+// co změní (zpráva ve vlákně 2, localStorage), nevadí dalším blokům.
+await blok('X', async () => {
+  const vse = await api.listKontakty(petra, { limit: 200 });
+  const radek = (id) => vse.rows.find((r) => r.id === id);
+  const ciziChaty = vse.rows.filter((r) => r.skryto === true && seg(r) === 'chata');
+  over('X1', ciziChaty.length >= 3 && ciziChaty.every((r) => !('email' in r)) && radek(3) && !('email' in radek(3)),
+    'Volající nedostane e-mail cizí chaty (chata ho má skoro jen po zájmu: prozradil by, kdo řekl ano)',
+    ciziChaty.filter((r) => 'email' in r).map((r) => r.id).join());
+  over('X1b', radek(300)?.email === 'ukazka@example.cz' && radek(303)?.email === 'priklad@example.cz' && radek(300)?.skryto === true,
+    'e-mail cizího architekta (veřejný import) Volající vidí dál', `${radek(300)?.email} / ${radek(303)?.email}`);
+  over('X1c', radek(7)?.email === 'kucera@penzion-sumava.cz' && radek(7)?.skryto === false, 'e-mail svého klienta Volající vidí');
+  const ms = (await api.listKontakty(mikulas, { limit: 500 })).rows.find((r) => r.id === 3);
+  over('X1d', ms?.email === 'dvorak@seznam.cz', 'super admin vidí e-mail cizí chaty', ms?.email);
+  for (const [hledani, cekano, kdo] of [['@seznam.cz', [], 'cizí chata'], ['ukazka@', [300], 'cizí architekt'], ['kucera@', [7], 'vlastní klient'], ['dvorak', [], 'cizí chata podle části e-mailu']]) {
+    const r = await api.listKontakty(petra, { search: hledani, limit: 50 });
+    const ids = r.rows.map((x) => x.id).sort((a, b) => a - b);
+    over('X2', JSON.stringify(ids) === JSON.stringify(cekano) && r.dalsi === false, `hledání „${hledani}“ (${kdo}) najde Volajícímu ${JSON.stringify(cekano)}`, JSON.stringify(ids));
+  }
+  const at = await api.listKontakty(petra, { search: '@', segment: 'chata', limit: 200 });
+  over('X2b', at.rows.every((r) => r.je_muj === true), 'hledání „@“ v chatách dá Volajícímu jen jeho klienty', at.rows.filter((r) => !r.je_muj).map((r) => r.id).join());
+  const sm = await api.listKontakty(mikulas, { search: '@seznam.cz', limit: 50 });
+  over('X2c', sm.rows.some((r) => r.id === 3), 'super admin cizí chatu podle e-mailu najde');
+  const mockSrc = readFileSync(join(ROOT, 'src/api/mock.ts'), 'utf8');
+  over('X3', mockSrc.includes("if (key === 'email' && segmentOf(c) === 'chata' && !mojeKarta) continue;")
+    && mockSrc.includes('const mojeKarta = c.lock_by !== null && c.lock_by === u.id;'),
+    'mock nechá e-mail cizí chaty jen na kartě, kterou Volající právě volá (jako server, moje_karta)');
+  // číslo faktury
+  over('X4', bezCislaFaktury('faktura 20260043 (8 200 Kč), VS 20260043, č.20260040') === 'faktura (číslo skryto) (8 200 Kč), VS (číslo skryto), č.(číslo skryto)'
+    && bezCislaFaktury('2026-10-20, 20 260 Kč, 2022-2023, 777 123 456, 987654321, 2026004312') === '2026-10-20, 20 260 Kč, 2022-2023, 777 123 456, 987654321, 2026004312',
+    'bezCislaFaktury maskuje osm číslic 20RRNNNN a nic jiného (jako server)');
+  await api.postThreadMessage(albert, 2, 'Faktura 20260043 je odeslaná, VS 20260043, splatnost 2026-10-29.', false);
+  const dp = await api.getThread(petra, 2);
+  const posl = dp.messages[dp.messages.length - 1]?.body ?? '';
+  over('X5', posl === 'Faktura (číslo skryto) je odeslaná, VS (číslo skryto), splatnost 2026-10-29.', 'Volající ve vlákně svého klienta číslo faktury nevidí', posl);
+  const lp = (await api.listThreads(petra)).find((x) => x.id === 2);
+  over('X5b', !!lp && !/2026004/.test(lp.last_message_preview ?? '') && /číslo skryto/.test(lp.last_message_preview ?? ''), 'náhled vlákna Volajícímu bez čísla faktury', lp?.last_message_preview ?? '');
+  for (const [kdo, tok] of [['Albert', albert], ['super admin', mikulas]]) {
+    const d = await api.getThread(tok, 2);
+    over('X5c', /Faktura 20260043 je odeslaná/.test(d.messages[d.messages.length - 1]?.body ?? ''), `${kdo} číslo faktury vidí`);
+  }
+  // update_user bez věštby id lidí
+  const chybyUpd = [];
+  for (const id of [9999, 3, 4, 1]) {
+    try { await api.updateUser(petra, id, { password: 'x-heslo-048' }); chybyUpd.push('prošlo'); } catch (e) { chybyUpd.push(e.message); }
+  }
+  over('X6', chybyUpd.every((m) => /^Upravit můžete jen svůj účet/.test(m)), 'update_user: Volající dostane pro každé cizí id (i neexistující a Albertovo) stejnou chybu', chybyUpd.join(' | '));
+  // Prokchop ostatních z localStorage pryč
+  const uk = pokrokModul.uklidCiziPokrok;
+  uloziste.clear();
+  uloziste.set('procop_progress_1', '{"fired":["sold10"]}'); uloziste.set('procop_progress_2', '{"fired":["acc1"]}');
+  uloziste.set('procop_progress_5', '{"fired":["sold1"]}'); uloziste.set('volacka_segment', 'chata'); uloziste.set('volacka_session', '{}');
+  uloziste.set('procop_top_days', JSON.stringify({ 1: { days: 4, lastDay: null, sinceDay: null }, 2: { days: 1, lastDay: null, sinceDay: null }, 5: { days: 2, lastDay: null, sinceDay: null } }));
+  uk(2);
+  over('X7', JSON.stringify([...uloziste.keys()].filter((k) => k.startsWith('procop_progress_'))) === '["procop_progress_2"]'
+    && JSON.stringify(Object.keys(JSON.parse(uloziste.get('procop_top_days') ?? '{}'))) === '["2"]'
+    && uloziste.get('volacka_segment') === 'chata' && uloziste.has('volacka_session'),
+    'úklid nechá Prokchopa jen přihlášeného (milníky i dny #1), ostatní klíče appky nechá', JSON.stringify([...uloziste.entries()]).slice(0, 200));
+  uk(null);
+  over('X7b', ![...uloziste.keys()].some((k) => k.startsWith('procop_')) && uloziste.get('volacka_segment') === 'chata', 'úklid bez uživatele smaže Prokchopa všech');
+  uloziste.set('procop_progress_7', '{}'); uk(3);
+  over('X7c', !uloziste.has('procop_progress_7') && !uloziste.has('procop_top_days'), 'úklid po přihlášení jiného člověka smaže předchozího (i bez jeho dnů #1)');
+  hodit = true;
+  let spadlo = false;
+  try { uk(2); } catch { spadlo = true; }
+  hodit = false;
+  over('X7d', !spadlo, 'úklid nespadne, když prohlížeč localStorage zakazuje');
+  uloziste.clear();
+  const authSrc = readFileSync(join(ROOT, 'src/auth.tsx'), 'utf8');
+  over('X8', /const s = await getApi\(\)\.login\(username, password\);\s*(?:\/\/[^\n]*\n\s*)*uklidCiziPokrok\(s\.user_id\);\s*setSession\(s\);/.test(authSrc)
+    && /const current = session;\s*(?:\/\/[^\n]*\n\s*)*uklidCiziPokrok\(current \? current\.user_id : null\);\s*setSession\(null\);/.test(authSrc)
+    && /if \(uid !== null\) uklidCiziPokrok\(uid\);/.test(authSrc),
+    'auth.tsx uklidí Prokchopa ostatních při přihlášení, odhlášení i startu appky');
+  const drawerSrc = readFileSync(join(ROOT, 'src/components/KontaktDrawer.tsx'), 'utf8');
+  const zak = /if \(jenZaklad\(kontakt\)\) \{\s*return \(([\s\S]*?)\n    \);\n  \}/.exec(drawerSrc)?.[1] ?? '';
+  over('X9', zak.includes("{'email' in kontakt && <p className=\"meta-line\">e-mail: {kontakt.email || '—'}</p>}")
+    && !/\n\s*<p className="meta-line">e-mail:/.test(zak),
+    'detail cizího kontaktu ukáže e-mail jen, když ho server poslal (cizí chata bez řádku e-mailu)');
+  const adminSrc = readFileSync(join(ROOT, 'src/pages/AdminPage.tsx'), 'utf8');
+  over('X9b', adminSrc.includes("'Hledat jméno, studio, telefon, web, město, IČO, e-mail architekta; e-mail chaty a poznámku jen u mých…'"),
+    'Kontakty: nápověda hledání Volajícímu neslibuje hledání v e-mailu cizích chat');
 });
 
 /* ---------------- O) karta architekta: obrat místo IČO (Albert 3. 10. 2026, APP-8, migrace 037) ---------------- */

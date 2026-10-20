@@ -194,6 +194,19 @@ zápis kolegy za nimi je začátek jeho záznamu (`HLAVICKA_RADKU` a `HLAVICKA_N
 dostane vlastní hlavičku a autor zůstane kolega. Nápovědy `RADKY_KOLEGU_NAPOVEDA` a `PRIZNAK_KOLEGY_NAPOVEDA` to říkají.
 Hlídá `npm test` blok W (W0g, W2e, W2f, W3m až W3v, W14h až W14j, W15g, W17 až W17f, W13c, W13d).
 
+**Po auditu soukromí 20. 10. 2026 (migrace 048)** (Albert 20. 10. 2026: „double check if there's truly no way for the callers
+to see ... how many cottages we've sold as a whole company or the stats of any other caller aside from them“; pravidlo
+`../docs/ROLE-A-VIDITELNOST.md`, oddíl stejného jména). Server a mock stejně: **e-mail cizí chaty Volající nedostane ani
+nevyhledá** (chata ho má skoro jen po zájmu v hovoru, takže prozradil, které cizí chaty řekly ano a kolik jich je), jen na
+kartě, kterou právě volá; e-mail cizího architekta (veřejný import) a vlastního klienta zůstává; detail cizího kontaktu
+kreslí řádek e-mailu, jen když ho server poslal, a nápověda hledání Volajícímu říká „e-mail architekta; e-mail chaty
+a poznámku jen u mých“. **Číslo faktury** (iDoklad čísluje jednou roční řadou pro celou firmu, 20RRNNNN) je Volajícímu
+ve vláknech „(číslo skryto)“ v předmětu, textu i náhledu (`bezCislaFaktury`, na serveru `app_bez_cisla_faktury`).
+**`update_user`** dá Volajícímu pro každé cizí id stejnou chybu (nepozná, která id lidí existují). **Prokchop** (milníky,
+utracené PROKCHOPy, dny „#1 prodejce“ v `localStorage`) ostatních lidí se smaže při přihlášení, při odhlášení (zůstane jen
+ten, kdo se odhlásil) a při startu appky (`uklidCiziPokrok` v `src/pig/progress.ts`, volá ho `auth.tsx`). Hlídá `npm test`
+blok X, e2e X a kontroly 193 a 201 v repu webdomov. Stará appka s 048 funguje (u cizí chaty ukáže e-mail jako nevyplněný).
+
 Od migrace 024/025 (Albert 2026-09-24 večer): kontakt **upravuje** jen ten, komu patří,
 jeho super admin a Albert (server posílá u každého řádku `smi_upravit`; příznak a zámek
 smí každý admin, ⚠ od migrace 045 Volající jen u svých klientů, super admin u každého), vzkaz agentovi ke klientovi taky; kdo kontaktu volal, si ho může

@@ -571,7 +571,9 @@ export default function KontaktDrawer({
               </a>
             </p>
           )}
-          <p className="meta-line">e-mail: {kontakt.email || '—'}</p>
+          {/* e-mail jen, když ho server poslal (migrace 048, audit soukromí 20. 10. 2026): u cizí chaty ne, chata ho má skoro
+              jen po zájmu v hovoru; u architekta (veřejný import) a na kartě, kterou Volající právě volá, ano */}
+          {'email' in kontakt && <p className="meta-line">e-mail: {kontakt.email || '—'}</p>}
           {segmentOf(kontakt) === 'architekt' && <ArchitektUdaje kontakt={kontakt} icoVidi={icoVidi(session.role)} />}
           <div className="info-box skryto-box">{SKRYTO_NAPOVEDA}</div>
           <button className="pill-btn" onClick={onClose}>

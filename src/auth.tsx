@@ -8,6 +8,7 @@ import {
   type ReactNode,
 } from 'react';
 import { getApi, type Session } from './api';
+import { uklidCiziPokrok } from './pig/progress';
 import { OWNER_USER_ID } from './roles';
 
 export const LS_SESSION = 'volacka_session';
@@ -55,6 +56,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const login = useCallback(async (username: string, password: string) => {
     const s = await getApi().login(username, password);
+    // audit soukromí 20. 10. 2026 (nález 6): Prokchop ostatních lidí z tohohle prohlížeče pryč, než se přihlásí další
+    uklidCiziPokrok(s.user_id);
     setSession(s);
     storeSession(s);
     return s;
@@ -62,6 +65,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = useCallback(async () => {
     const current = session;
+    // audit soukromí 20. 10. 2026 (nález 6): po odhlášení zůstane v prohlížeči jen Prokchop toho, kdo se odhlásil
+    uklidCiziPokrok(current ? current.user_id : null);
     setSession(null);
     storeSession(null);
     if (current) {
@@ -72,6 +77,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     }
   }, [session]);
+
+  // Audit soukromí 20. 10. 2026 (nález 6): při startu appky s přihlášeným člověkem uklidit Prokchopa ostatních
+  // (i záznamy z doby před úklidem při přihlášení a odhlášení)
+  const uid = session?.user_id ?? null;
+  useEffect(() => {
+    if (uid !== null) uklidCiziPokrok(uid);
+  }, [uid]);
 
   // ROLE SE OBNOVUJÍ ZE SERVERU (migrace 023, Albert 2026-09-24). Do té doby appka
   // věřila roli uložené při přihlášení navždy — kdo dostal novou roli (super admin,

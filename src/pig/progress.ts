@@ -154,3 +154,23 @@ export function tickTopDays(uid: number | string, isTop: boolean): TopDays {
   return cur;
 }
 export function dayWord(n: number): string { return n === 1 ? 'den' : n >= 2 && n <= 4 ? 'dny' : 'dní'; }
+
+/* ---------- úklid sdíleného prohlížeče (audit soukromí 20. 10. 2026, nález 6; migrace 048 stejné verze) ----------
+ * Prokchop si drží milníky, utracené PROKCHOPy a dny „#1 prodejce“ v localStorage po uid. Na počítači, kam se hlásí víc lidí,
+ * by tam po odhlášení zůstala čísla každého, kdo se v něm kdy přihlásil (milníky = nejméně N zájmů nebo prodejů). Tohle
+ * smaže záznamy všech ostatních uid a nechá jen `uid` (null = nikoho). Volá se při přihlášení (nový člověk), při odhlášení
+ * (zůstane jen ten, kdo se odhlásil) a při startu appky s přihlášeným člověkem. Ostatní klíče appky se nemění. */
+export function uklidCiziPokrok(uid: number | string | null): void {
+  try {
+    const nech = uid === null ? null : key(uid);
+    const pryc: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k !== null && k.startsWith('procop_progress_') && k !== nech) pryc.push(k);
+    }
+    for (const k of pryc) localStorage.removeItem(k);
+    const vlastni = uid === null ? undefined : loadTopDays()[String(uid)];
+    if (vlastni) localStorage.setItem(TKEY, JSON.stringify({ [String(uid)]: vlastni }));
+    else localStorage.removeItem(TKEY);
+  } catch { /* localStorage nedostupný: není co uklízet */ }
+}

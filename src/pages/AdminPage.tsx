@@ -300,7 +300,7 @@ export default function AdminPage() {
             aria-label="Hledat v kontaktech"
             placeholder={
               !isSuper
-                ? 'Hledat jméno, studio, telefon, web, e-mail, město, IČO, poznámku u mých…'
+                ? 'Hledat jméno, studio, telefon, web, město, IČO, e-mail architekta; e-mail chaty a poznámku jen u mých…'
                 : icoVidi(session.role)
                   ? 'Hledat jméno, studio, telefon, web, e-mail, město, IČO, poznámku…'
                   : 'Hledat jméno, studio, telefon, web, e-mail, město, poznámku…'
