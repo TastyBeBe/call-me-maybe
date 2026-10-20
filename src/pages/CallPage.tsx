@@ -15,6 +15,7 @@ import {
   Spinner,
   StatusBadge,
   errMsg,
+  jenZaklad,
   obratArchitekta,
 } from '../ui';
 import {
@@ -390,15 +391,20 @@ export default function CallPage() {
           </>
         )}
 
-        <div className="call-row">
-          <span className="k">status</span>
-          <StatusBadge status={kontakt.status} />
-          {kontakt.last_caller && (
-            <span className="muted" style={{ fontSize: 13 }}>
-              naposledy volal/a {kontakt.last_caller}
-            </span>
-          )}
-        </div>
+        {/* Albert 20. 10. 2026 (migrace 045): kontakt, kterému Volající ještě nevolal (skryto), přijde bez stavu,
+            pokusů, poznámek a příznaku kolegů; po hovoru je jeho a uvidí ho celý. NAHRAZUJE řádek status
+            a „naposledy volal/a“ u každé karty. Vlastní klient (volal mu dřív) má řádek jako dřív. */}
+        {!jenZaklad(kontakt) && (
+          <div className="call-row">
+            <span className="k">status</span>
+            <StatusBadge status={kontakt.status} />
+            {kontakt.last_caller && (
+              <span className="muted" style={{ fontSize: 13 }}>
+                naposledy volal/a {kontakt.last_caller}
+              </span>
+            )}
+          </div>
+        )}
 
         {kontakt.note && (
           <>

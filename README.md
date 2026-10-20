@@ -80,7 +80,7 @@ Demo přihlášení (jen DEMO, falešná data v paměti):
 Eva má v demu rozvrh a je napřed. Hovory minulých dnů týdne jsou v demu jen pro rozvrh (mimo `callLog`).
 
 Demo mock (`src/api/mock.ts`) má stejná pravidla viditelnosti jako server (migrace 023
-až 038, role z 042, z 045 jména kolegů v poznámkách, u příznaku a zámku a v hledání maskovaná, Volajícímu bez `total` a `top_prodejce`; ⚠ NAHRAZUJE „023 až 036“, mock už zrcadlí i 037 a 038): i hledání osobního IČO jen celým číslem a jen u kontaktů, které smí upravit, IČO
+až 038, role z 042, z 045 jména kolegů v poznámkách, u příznaku a zámku a v hledání maskovaná, Volajícímu bez `total` a `top_prodejce`, u cizího kontaktu jen allowlist `KLICE_CIZI` se `skryto: true`, filtr stavu a hledání v poznámce jen nad jeho klienty, příznak a zámek cizího odmítnut, vlákna o cizím klientovi skrytá; ⚠ NAHRAZUJE „023 až 036“, mock už zrcadlí i 037 a 038): i hledání osobního IČO jen celým číslem a jen u kontaktů, které smí upravit, IČO
 ateliéru rovné osobnímu skryté s ním, vlastní karta ve volání napřed a strop 10 vrácení do
 fronty za hodinu (audit 1. 10., APP-4 a APP-5; `npm test` blok L). Chaty mají id 1 až 9
 a 90 až 92, falešní architekti id 300 až 303 (jen adresy `example.cz`, telefony s předvolbou 999, IČO `11111111` a `22222222` s neplatným
@@ -104,7 +104,9 @@ Každý vidí **jen svoje** (statistiky, klienty, zprávy, označené); cizí li
 admin a Albert — od migrace 027 (Albert 2026-09-25) **každý super admin všechny**;
 upravovat a psát do vlákna ale dál jen u svých lidí (cizí vlákno je jen ke čtení, server
 posílá `smi_psat`). Kontakty (celou databázi) vidí všichni, jméno kolegy u kontaktu jen
-super admin a Albert („jiný volající"). Zprávy automatizace a stránku
+super admin a Albert („jiný volající"); ⚠ od migrace 045 (Albert 20. 10. 2026) Volající stav a průběh jen
+u svých klientů (oddíl „Volající vidí stav jen u svých klientů“ níž, NAHRAZUJE „Kontakty se stavy vidí
+všichni“). Zprávy automatizace a stránku
 Automatizace vidí jen Albert. **Hlídá to server** (SQL funkce), appka jen neukazuje, co by
 server odmítl. Podrobně: `../docs/ROLE-A-VIDITELNOST.md`.
 
@@ -131,9 +133,25 @@ stavu“ a dlaždice „jako #1 prodejce“, Prokchop se na #1 neptá a swagger 
 `{je_prvni}` pro každého“ a „uložení maskované poznámky vrátí jména do nezměněných i upravených řádků“ (recenze
 20. 10. 2026: upravený nebo přesunutý řádek kolegy jméno ztratil nebo ho dostal jiný řádek).
 
+**Volající vidí stav jen u svých klientů** (Albert 20. 10. 2026: „they should only be able to see the status or how
+the website is going for the people they actually called, but not for other people … They should still be able to see
+all the contacts“; migrace 045, test 045 případ 45s, pravidlo `../docs/ROLE-A-VIDITELNOST.md`). ⚠ NAHRAZUJE „Kontakty
+(celou databázi) se stavy vidí všichni“ (migrace 023) a „Co zůstává: součty celé databáze podle stavu po stránkách“.
+Svoji klienti = kontakty, kde je Volající `last_caller`, nebo kterým kdy volal (`je_muj`). U cizího kontaktu server
+pošle `skryto: true` a jen allowlist (`app_kontakt_klice_cizi`, v mocku `KLICE_CIZI`): id, segment, jméno, studio,
+telefon, e-mail, web, „má web“, obor, město, IČO a DPH jako dřív. Stav, známka, ceny, poznámky, příznak, kdo volal,
+zámek kolegy, nový web, čekání ani data změn v řádku nejsou. Filtr stavu, známky a čekání a hledání v poznámce berou
+jen jeho klienty, cizí kontakty server řadí za jeho jen podle id; příznak a zámek cizího kontaktu Volající nemění
+(chyba „Tohle není váš klient: …“), vlákno o cizím klientovi nevidí. Appka (`jenZaklad`, `Skryto`, `SKRYTO_NAPOVEDA`
+v `ui.tsx`): Kontakty ukážou u cizího kontaktu pomlčku místo stavu, známky, „volal/a“, čekání a data změny a nad
+tabulkou nápovědu; detail cizího kontaktu jen jméno, telefon, e-mail, web a údaje architekta (bez stavu, poznámek,
+příznaku, zámku a vzkazů); karta ve volání u kontaktu, kterému Volající ještě nevolal, bez řádku status a poznámek
+(po hovoru je jeho a vidí ho celý). Super admin a Albert vidí všechno jako dřív. Hlídá `npm test` blok U, e2e U
+a kontrola 193 v repu webdomov.
+
 Od migrace 024/025 (Albert 2026-09-24 večer): kontakt **upravuje** jen ten, komu patří,
 jeho super admin a Albert (server posílá u každého řádku `smi_upravit`; příznak a zámek
-smí každý admin), vzkaz agentovi ke klientovi taky; kdo kontaktu volal, si ho může
+smí každý admin, ⚠ od migrace 045 Volající jen u svých klientů, super admin u každého), vzkaz agentovi ke klientovi taky; kdo kontaktu volal, si ho může
 **označit jako svého klienta** (stav i fronta volání zůstávají); **uživatele** zakládá
 jen super admin (stránka Uživatelé jen pro něj); „zapsat do pravidel" je jen **návrh**,
 který schvaluje Albert (u zprávy je vidět jeho stav).
@@ -203,11 +221,11 @@ který schvaluje Albert (u zprávy je vidět jeho stav).
 | ------------- | ------- | --------------------------------------------------------------- |
 | `#/login`     | všichni | přihlášení                                                       |
 | `#/`          | všichni | domů — dlaždice podle role                                       |
-| `#/call`      | všichni | fronta hovorů: přepínač chaty / architekti (028), karta kontaktu + výsledky (nedovoláno/odmítnuto/zájem). Poznámka k hovoru je **nepovinná** — zájem jde uložit i bez ní (Albert 2026-09-23; dřív se při prázdné poznámce otevíralo potvrzovací okno navíc) |
+| `#/call`      | všichni | fronta hovorů: přepínač chaty / architekti (028), karta kontaktu + výsledky (nedovoláno/odmítnuto/zájem); kontakt, kterému Volající ještě nevolal, bez stavu, poznámek a příznaku (045, 20. 10. 2026). Poznámka k hovoru je **nepovinná** — zájem jde uložit i bez ní (Albert 2026-09-23; dřív se při prázdné poznámce otevíralo potvrzovací okno navíc) |
 | `#/stats`     | všichni | moje statistiky; super admin (i Albert) přes dropdown kohokoli (027) a trychtýř „Klienti podle stavu" (součty celé databáze) s filtrem segmentu (028); ⚠ trychtýř od 19. 10. 2026 a dlaždice „jako #1 prodejce“ od 20. 10. 2026 jen super admin (migrace 045, NAHRAZUJE „(admin)“): Volající vidí jen svoje čísla |
 | `#/moji`      | všichni | moji klienti (+ historie poznámek v detailu); super admin může vybrat kohokoli (027); filtr segmentu (028) |
 | `#/rozvrh`    | všichni | Rozvrh (042): týden po až ne, hodiny na den a cíl (hovorů za hodinu posílá server), plnění z hovorů, hláška pozadu / v plánu / napřed, poznámky ke dnům; Volající si ho nastaví jednou, super admin vidí přehled všech, mění a odemyká |
-| `#/admin`     | všichni | Kontakty: celá databáze s filtry (i segment, 028) a fulltextem (i studio, město, IČO; IČO jen admin a super admin, 038); upravovat smí admin a super admin; počty u stavů a košů a celkový počet jen super admin (045, Volající stránkuje bez počtu) |
+| `#/admin`     | všichni | Kontakty: celá databáze s filtry (i segment, 028) a fulltextem (i studio, město, IČO; IČO jen admin a super admin, 038); upravovat smí admin a super admin; počty u stavů a košů a celkový počet jen super admin (045, Volající stránkuje bez počtu); Volající stav, známku, kdo volal, čekání a poznámky jen u svých klientů, filtr stavu a hledání v poznámce jen nad nimi (045, 20. 10. 2026) |
 | `#/oznacene`  | admin   | označení klienti — admin svoji; super admin a Albert všichni (027); filtr segmentu (028) |
 | `#/zpravy`    | admin   | vlákna s AI agenty — admin svoje; super admin vlákna všech lidí (cizí jen ke čtení, 027); Albert i automatizaci; odznak architekta u hledaného kontaktu (028) |
 | `#/uzivatele` | super admin | super admin: všichni lidé, upravuje sebe a své lidi + nový Volající (027, 042); Albert: role (Volající / Super admin, 042) a nadřízení (⚠ od migrace 024 Volající stránku nemá) |

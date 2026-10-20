@@ -116,7 +116,8 @@ export default function HomePage() {
         <Link to="/admin" className="big-tile">
           <span className="tile-emoji"><TableIcon size={42} /></span>
           <span className="tile-label">KONTAKTY</span>
-          <span className="tile-sub">{isAdmin ? 'celá databáze + úpravy' : 'celá databáze kontaktů'}</span>
+          {/* migrace 045 (Albert 20. 10. 2026): Volající vidí stav jen u svých klientů */}
+          <span className="tile-sub">{isSuper ? 'celá databáze + úpravy' : 'všechny kontakty, stav jen u mých'}</span>
         </Link>
         {isAdmin && (
           <>

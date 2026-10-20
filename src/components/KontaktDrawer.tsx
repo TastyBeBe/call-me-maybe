@@ -7,6 +7,9 @@
 // Migrace 028: odznak segmentu vedle oboru a pod metadaty údaje architekta jen ke čtení.
 // Každý řádek, který vrátí úprava, jde ven přes bezCizihoIco: osobní IČO cizího architekta
 // (a IČO ateliéru, které se mu rovná) zůstane skryté i po označení klienta ([ALBERT 28], 032).
+// ⚠ Migrace 045 (Albert 20. 10. 2026: Volající vidí stav jen u svých klientů): cizí kontakt Volajícího (skryto)
+// má jen jméno a kontakt; detail mu ukáže jen ty a nápovědu, žádný stav, poznámky, příznak, zámek ani vlákna.
+// NAHRAZUJE „u cizího kontaktu jen příznak a uvolnění zámku“ pro Volající (příznak a zámek cizího mění jen super admin).
 
 import { useCallback, useEffect, useState } from 'react';
 import {
@@ -29,12 +32,14 @@ import {
   FLAG_LABELS,
   STATUS_LABELS,
   SegmentBadge,
+  SKRYTO_NAPOVEDA,
   Spinner,
   StatusBadge,
   errMsg,
   flagHintDetail,
   formatDateTime,
   icoDph,
+  jenZaklad,
   kontaktJmeno,
   obratArchitekta,
   pravidloPopisek,
@@ -510,6 +515,40 @@ export default function KontaktDrawer({
     }
   };
 
+  // Cizí kontakt Volajícího (migrace 045, Albert 20. 10. 2026): jen jméno a kontakt, nic o průběhu webu
+  if (jenZaklad(kontakt)) {
+    return (
+      <>
+        <div className="drawer-scrim" onClick={onClose} />
+        <div className="drawer drawer-skryto">
+          <button className="drawer-close" onClick={onClose} aria-label="Zavřít">
+            <XIcon size={20} />
+          </button>
+          <p className="eyebrow">kontakt #{kontakt.id}</p>
+          <h2>{kontaktJmeno(kontakt)}</h2>
+          <p className="meta-line">
+            <PhoneIcon size={15} /> {kontakt.phone || '—'}
+            {kontakt.obor ? ` · obor: ${kontakt.obor}` : ''} <SegmentBadge kontakt={kontakt} />
+          </p>
+          {kontakt.web && (
+            <p className="meta-line">
+              <GlobeIcon size={15} />{' '}
+              <a href={kontakt.web} target="_blank" rel="noreferrer">
+                {kontakt.web}
+              </a>
+            </p>
+          )}
+          <p className="meta-line">e-mail: {kontakt.email || '—'}</p>
+          {segmentOf(kontakt) === 'architekt' && <ArchitektUdaje kontakt={kontakt} icoVidi={icoVidi(session.role)} />}
+          <div className="info-box skryto-box">{SKRYTO_NAPOVEDA}</div>
+          <button className="pill-btn" onClick={onClose}>
+            Zavřít
+          </button>
+        </div>
+      </>
+    );
+  }
+
   return (
     <>
       <div className="drawer-scrim" onClick={onClose} />
@@ -571,6 +610,8 @@ export default function KontaktDrawer({
             jeho super admin nebo Albert. Příznak a zámek tu měnit můžeš.
           </p>
         )}
+        {/* ⚠ Věta „Příznak a zámek tu měnit můžeš“ platí od migrace 045 jen super adminovi: cizí kontakt Volajícího
+            jde výš přes jenZaklad (bez příznaku a zámku), sem se dostane jen super admin u kontaktu, který upravit nesmí. */}
 
         {obsahJenCteni ? (
           <>

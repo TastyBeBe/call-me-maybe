@@ -24,12 +24,15 @@ import {
   KOS_LABELS,
   SegmentBadge,
   SegmentFilter,
+  Skryto,
+  SKRYTO_NAPOVEDA,
   Spinner,
   STATUS_LABELS,
   StatusBadge,
   errMsg,
   formatCekani,
   formatDateTime,
+  jenZaklad,
   kontaktJmeno,
 } from '../ui';
 import {
@@ -50,6 +53,10 @@ const PAGE_SIZE = 50;
 // ⚠ Od migrace 045 (Albert 20. 10. 2026, „Hide all of it“): součty celé databáze (počty u stavů a košů,
 // celkový počet) jen super admin; Volajícímu server posílá total null, stránkuje se podle `dalsi`.
 // NAHRAZUJE „počty stavů a košů vidí každý“.
+// ⚠ Od migrace 045 (Albert 20. 10. 2026: Volající vidí stav jen u svých klientů) NAHRAZUJE „celou databázi se stavy
+// vidí všichni“: Volající vidí všechny kontakty, ale u cizího (skryto) jen jméno a kontakt; stav, známka, kdo volal,
+// čekání a datum změny jsou u něj pomlčka, filtr stavu, známky a čekání a hledání v poznámce berou jen jeho klienty
+// a server řadí jeho klienty napřed (cizí podle id).
 export default function AdminPage() {
   const session = useSession();
   const isAdmin = isAdminRole(session.role);
@@ -227,7 +234,7 @@ export default function AdminPage() {
           aria-label="Filtr statusu"
         >
           <option value="">
-            Všechny statusy{totalAll ? ` (${totalAll})` : ''}
+            {isSuper ? `Všechny statusy${totalAll ? ` (${totalAll})` : ''}` : 'Status: vše (filtr jen u mých)'}
           </option>
           {ALL_STATUSES.map((s) => (
             <option key={s} value={s}>
@@ -292,15 +299,23 @@ export default function AdminPage() {
             className="search-input"
             aria-label="Hledat v kontaktech"
             placeholder={
-              icoVidi(session.role)
-                ? 'Hledat jméno, studio, telefon, web, e-mail, město, IČO, poznámku…'
-                : 'Hledat jméno, studio, telefon, web, e-mail, město, poznámku…'
+              !isSuper
+                ? 'Hledat jméno, studio, telefon, web, e-mail, město, IČO, poznámku u mých…'
+                : icoVidi(session.role)
+                  ? 'Hledat jméno, studio, telefon, web, e-mail, město, IČO, poznámku…'
+                  : 'Hledat jméno, studio, telefon, web, e-mail, město, poznámku…'
             }
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
         </div>
       </div>
+
+      {!isSuper && (
+        <p className="muted skryto-napoveda" style={{ fontSize: 13.5, margin: '0 0 10px' }}>
+          {SKRYTO_NAPOVEDA} Filtr stavu, známky a čekání a hledání v poznámce berou jen tvoje klienty.
+        </p>
+      )}
 
       {cekani && (
         <div className="flag-filter-bar">
@@ -366,11 +381,9 @@ export default function AdminPage() {
                     {kontaktJmeno(r)}
                   </td>
                   <td style={{ whiteSpace: 'nowrap' }}>{r.phone || '—'}</td>
-                  <td>
-                    <StatusBadge status={r.status} />
-                  </td>
-                  <td>{r.rating ? <span className="badge rating">{r.rating}</span> : '—'}</td>
-                  <td>{r.last_caller || '—'}</td>
+                  <td>{jenZaklad(r) ? <Skryto /> : <StatusBadge status={r.status} />}</td>
+                  <td>{jenZaklad(r) ? <Skryto /> : r.rating ? <span className="badge rating">{r.rating}</span> : '—'}</td>
+                  <td>{jenZaklad(r) ? <Skryto /> : r.last_caller || '—'}</td>
                   <td>
                     {r.web ? (
                       <a
@@ -387,11 +400,11 @@ export default function AdminPage() {
                   </td>
                   {cekani ? (
                     <td style={{ whiteSpace: 'nowrap' }} className="ceka-cell">
-                      {formatCekani(r.cekani_since)}
+                      {jenZaklad(r) ? <Skryto /> : formatCekani(r.cekani_since)}
                     </td>
                   ) : null}
                   <td style={{ whiteSpace: 'nowrap' }} className="muted">
-                    {formatDateTime(r.updated_at)}
+                    {jenZaklad(r) ? <Skryto /> : formatDateTime(r.updated_at)}
                   </td>
                 </tr>
               ))}

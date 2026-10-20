@@ -61,6 +61,31 @@ export function StatusBadge({ status }: { status: KontaktStatus }) {
   );
 }
 
+/* ---------- Volající vidí stav jen u svých klientů (migrace 045, Albert 20. 10. 2026) ---------- */
+
+/**
+ * Cizí kontakt Volajícího (server poslal skryto true): jen jméno, telefon, e-mail, web, město, studio a IČO jako
+ * dřív. Stav, známka, ceny, poznámky, příznak, kdo volal, nový web ani čekání v řádku nejsou. Albert 20. 10. 2026:
+ * „they should only be able to see the status or how the website is going for the people they actually called“.
+ * ⚠ NAHRAZUJE „Kontakty celé databáze se stavy vidí každý“ (migrace 023).
+ */
+export function jenZaklad(k: Pick<Kontakt, 'skryto'> | null | undefined): boolean {
+  return k?.skryto === true;
+}
+
+/** Nápověda u cizího kontaktu (Kontakty, detail, karta ve volání). */
+export const SKRYTO_NAPOVEDA =
+  'Stav, poznámky a průběh webu vidíš jen u svých klientů, kterým jsi volal/a. U ostatních kontaktů jen jméno a kontakt.';
+
+/** Buňka tabulky u cizího kontaktu: pomlčka bez hodnoty, vysvětlení v title. */
+export function Skryto() {
+  return (
+    <span className="muted skryto" title={SKRYTO_NAPOVEDA}>
+      —
+    </span>
+  );
+}
+
 /* ---------- červené příznaky (migrace 005) ---------- */
 
 /** Krátké popisky příznaků — to, co uvidí volající i admin. */

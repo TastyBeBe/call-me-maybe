@@ -768,6 +768,72 @@ for (const [kdo, superAdmin] of [['petra', false], ['mikulas', true]]) {
   await ctx.close();
 }
 
+/* ============ U) Volající vidí stav jen u svých klientů (Albert 20. 10. 2026, migrace 045) ============ */
+// Albert: „they should only be able to see the status or how the website is going for the people they actually called“.
+// Petra (Volající): v Kontaktech u cizího kontaktu (3 je jen Honzův) pomlčka místo stavu, známky, kdo volal a data změny,
+// nápověda nad tabulkou; detail cizího kontaktu jen jméno a kontakt (bez stavu, poznámek, příznaku, zámku a vzkazů);
+// filtr stavu vrátí jen její klienty; karta ve volání u kontaktu, kterému nevolala, bez řádku status. Na 1280 i 390 px.
+// Mikuláš (super admin): všechno jako dřív. ⚠ NAHRAZUJE „Kontakty se stavy vidí každý“ (023).
+for (const [kdo, superAdmin, sirka] of [['petra', false, 1280], ['petra', false, 390], ['mikulas', true, 1280]]) {
+  const { ctx, page } = await novaStranka(kdo, { sirka, vyska: sirka < 768 ? 844 : 900 });
+  const st = await stav(page);
+  const moje = new Set([...st.callLog.filter((l) => l.user_id === UID[kdo]).map((l) => l.kontakt_id),
+    ...st.kontakty.filter((k) => k.last_caller === 'Petra' && kdo === 'petra').map((k) => k.id)]);
+  await jdi(page, '#/admin', 700);
+  const napoveda = await page.locator('.skryto-napoveda').count();
+  over(`U1 ${kdo} ${sirka}`, napoveda === (superAdmin ? 0 : 1), `${kdo}: nápověda „stav jen u svých“ nad Kontakty ${superAdmin ? 'není' : 'je'}`, `${napoveda}`);
+  await page.locator('input.search-input').fill('Vysočina');
+  await klid(page, 800);
+  const radek = page.locator('table.kontakty tbody tr').first();
+  const pomlcky = await radek.locator('.skryto').count();
+  const odznak = await radek.locator('.badge').allInnerTexts();
+  over(`U2 ${kdo} ${sirka}`, superAdmin ? pomlcky === 0 && odznak.some((o) => /Mají zájem/.test(o)) : pomlcky === 4 && !odznak.some((o) => /Mají zájem/.test(o)),
+    `${kdo}: u cizího kontaktu 3 ${superAdmin ? 'stav vidí' : 'stav, známku, kdo volal a datum změny nevidí'}`, `pomlček ${pomlcky}, odznaky ${odznak.join(',')}`);
+  await radek.click();
+  await klid(page, 500);
+  const drawer = await page.locator('.drawer').innerText();
+  const zaklad = await page.locator('.drawer-skryto').count();
+  over(`U3 ${kdo} ${sirka}`, superAdmin
+    ? zaklad === 0 && /status/i.test(drawer) && /Honza/.test(drawer)
+    : zaklad === 1 && /jen u svých klientů/.test(drawer) && /\+420 604 777 888/.test(drawer)
+      && !/status|Mají zájem|Vzkazy agentovi|Označit klienta|4900|Honza|jiný volající|naposledy volal|změněno|známka/i.test(drawer),
+    `${kdo}: detail cizího kontaktu ${superAdmin ? 'celý' : 'jen jméno a kontakt'}`, drawer.replace(/\s+/g, ' ').slice(0, 160));
+  await page.locator('.drawer-close').click();
+  await klid(page, 300);
+  if (sirka < 768) {
+    const w = await page.evaluate(() => document.documentElement.scrollWidth);
+    over(`U4 ${kdo} ${sirka}`, w <= sirka, `${kdo}: Kontakty se na telefonu vejdou bez vodorovného posunu`, `scrollWidth ${w}`);
+  }
+  // filtr stavu: Volajícímu jen jeho klienti
+  await page.locator('input.search-input').fill('');
+  await klid(page, 600);
+  // stav, který má Petra u svého klienta i někdo jiný u cizího (data mocku se v testu mění, proto výběr za běhu)
+  const st2 = await stav(page);
+  const petriny = new Set([...st2.callLog.filter((l) => l.user_id === 2).map((l) => l.kontakt_id), ...st2.kontakty.filter((k) => k.last_caller === 'Petra').map((k) => k.id)]);
+  const stavF = [...new Set(st2.kontakty.map((k) => k.status))].find((s) =>
+    st2.kontakty.some((k) => k.status === s && petriny.has(k.id)) && st2.kontakty.some((k) => k.status === s && !petriny.has(k.id)));
+  const predF = (await volani(page)).length;
+  await page.selectOption('select[aria-label="Filtr statusu"]', stavF ?? 'zajem');
+  await klid(page, 800);
+  const filtrovane = (await volani(page)).slice(predF).filter((v) => v.fn === 'listKontakty' && v.ok);
+  const sTimStavem = st2.kontakty.filter((k) => k.status === stavF).map((k) => k.id);
+  const radky = await page.locator('table.kontakty tbody tr').count();
+  const cekane = superAdmin ? Math.min(sTimStavem.length, 50) : sTimStavem.filter((id) => petriny.has(id)).length;
+  over(`U5 ${kdo} ${sirka}`, !!stavF && filtrovane.length >= 1 && radky === cekane && cekane >= 1 && (superAdmin || cekane < sTimStavem.length),
+    `${kdo}: filtr stavu vrátí ${superAdmin ? 'všechny' : 'jen svoje'} kontakty`, `${stavF}: ${radky} řádků, čekáno ${cekane} z ${sTimStavem.length}`);
+  // karta ve volání
+  await jdi(page, '#/call', 900);
+  const id = await kartaId(page);
+  if (!id) over(`U6 ${kdo} ${sirka}`, false, `${kdo}: ve volání není karta, nejde změřit`);
+  else {
+    const klice = (await page.locator('.call-card .call-row .k').allInnerTexts()).map((x) => x.trim().toLowerCase());
+    const ciziKarta = !moje.has(id) && !superAdmin;
+    over(`U6 ${kdo} ${sirka}`, klice.includes('telefon') && klice.includes('status') === !ciziKarta,
+      `${kdo}: karta ve volání ${ciziKarta ? 'u kontaktu, kterému nevolal(a), bez stavu' : 'se stavem'}`, `#${id}: ${klice.join(',')}`);
+  }
+  await ctx.close();
+}
+
 await browser.close();
 server.close();
 rmSync(OUT, { recursive: true, force: true });

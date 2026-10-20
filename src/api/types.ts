@@ -105,6 +105,14 @@ export interface Kontakt {
   /** migrace 023: kontakt patří přihlášenému (volal mu / je last_caller) */
   je_muj?: boolean;
   /**
+   * Migrace 045 (Albert 20. 10. 2026: Volající vidí stav jen u svých klientů): true = Volající a kontakt, kterému
+   * nevolal. Server pak pošle jen allowlist (id, segment, name, firma, phone, email, web, ma_web, obor, mesto, IČO
+   * a DPH jako dřív, app_kontakt_klice_cizi) a vlastní zámek; status, rating, ceny, poznámky, příznak, last_caller,
+   * live_url, čekání ani data změn v řádku NEJSOU (typ je nechává povinné kvůli ostatním řádkům, appka se ptá na skryto).
+   * Super admin, Albert a vlastní klienti: false (u starého serveru chybí = false).
+   */
+  skryto?: boolean;
+  /**
    * migrace 024: smí přihlášený měnit obsah kontaktu (stav, e-mail, ceny, poznámku)?
    * Admin jen u svých klientů, super admin u svých, svých lidí a klientů bez volajícího,
    * Albert u všech, volající nikde. Příznak a zámek smí admin u každého kontaktu.
@@ -445,7 +453,8 @@ export interface Api {
   allStats(token: string): Promise<UserStats[]>;
   /** Je přihlášený #1 prodejce? (Prokchop) — nevrací čísla ostatních (migrace 023); od 045 jen super admin. */
   topSeller(token: string): Promise<{ je_prvni: boolean }>;
-  /** Celá databáze kontaktů — vidí všichni (migrace 023); jméno kolegy jen svoje/svých lidí. */
+  /** Celá databáze kontaktů: řádky vidí všichni (migrace 023), Volající u cizího kontaktu jen allowlist (skryto, 045,
+   *  Albert 20. 10. 2026, ⚠ NAHRAZUJE „se stavy“); jméno kolegy jen svoje/svých lidí. */
   listKontakty(token: string, filters: ListKontaktyFilters): Promise<ListKontaktyResult>;
   /** Kontakty přihlášeného — migrace 003; super admin může userId = někdo z jeho lidí (023). */
   myKontakty(

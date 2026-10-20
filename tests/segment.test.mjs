@@ -205,21 +205,22 @@ await blok('S', async () => {
   }
   const moji = await api.myKontakty(petra, 200, 0);
   over('S8d', moji.total === moji.rows.length && moji.total > 0, 'Moji klienti (vlastní čísla) Volající počet dál má', `total ${moji.total}`);
-  // kdo dal příznak a co v poznámce příznaku stojí: kolega Honza označí svého klienta 3
-  await api.setFlag(honza, 3, 'jine', 'Honza slíbil zjistit e-mail');
-  const k3 = (await api.listKontakty(petra, { search: 'jednoduchý web s fotkami', limit: 5 })).rows.find((r) => r.id === 3);
+  // kdo dal příznak a co v poznámce příznaku stojí: kolega Honza označí klienta 2 (volali mu oba, je Petřin i jeho).
+  // ⚠ NAHRAZUJE měření na klientovi 3 (jen Honzův): cizí kontakt Volající od 20. 10. 2026 dostane bez příznaku (blok U)
+  await api.setFlag(honza, 2, 'jine', 'Honza slíbil zjistit e-mail');
+  const k3 = (await api.listKontakty(petra, { search: 'Roubenka U Lesa', limit: 5 })).rows.find((r) => r.id === 2);
   over('S9', k3?.flagged_by === 'jiný volající' && k3?.flag_note === 'jiný volající slíbil zjistit e-mail',
     'Volající nevidí, kdo z kolegů dal příznak, ani jméno v poznámce příznaku', `${k3?.flagged_by} / ${k3?.flag_note}`);
-  const k3s = (await api.listKontakty(mikulas, { search: 'jednoduchý web s fotkami', limit: 5 })).rows.find((r) => r.id === 3);
+  const k3s = (await api.listKontakty(mikulas, { search: 'Roubenka U Lesa', limit: 5 })).rows.find((r) => r.id === 2);
   over('S9b', k3s?.flagged_by === 'Honza' && k3s?.flag_note === 'Honza slíbil zjistit e-mail', 'super admin vidí, kdo dal příznak, i poznámku beze změny', `${k3s?.flagged_by}`);
   const auto = (await api.listFlagged(albert)).find((r) => r.id === 92);
   const p302 = (await api.listKontakty(petra, { search: 'Nebrala, zkusit v úterý', limit: 5 })).rows.find((r) => r.id === 302);
   over('S9c', auto?.flagged_by === 'automatizace' && p302?.flagged_by === 'Petra', 'štítek agenta a vlastní jméno u příznaku zůstávají', `${auto?.flagged_by} / ${p302?.flagged_by}`);
   // Volající přepíše příznak se stejnou (maskovanou) poznámkou: jméno kolegy v datech zůstane
-  await api.setFlag(petra, 3, 'jine', 'jiný volající slíbil zjistit e-mail');
-  const k3po = (await api.listKontakty(albert, { search: 'jednoduchý web s fotkami', limit: 5 })).rows.find((r) => r.id === 3);
+  await api.setFlag(petra, 2, 'jine', 'jiný volající slíbil zjistit e-mail');
+  const k3po = (await api.listKontakty(albert, { search: 'Roubenka U Lesa', limit: 5 })).rows.find((r) => r.id === 2);
   over('S9d', k3po?.flag_note === 'Honza slíbil zjistit e-mail' && k3po?.flagged_by === 'Petra', 'uložení maskované poznámky příznaku jméno kolegy nesmaže', k3po?.flag_note ?? '');
-  await api.clearFlag(albert, 3);
+  await api.clearFlag(albert, 2);
   // zámek kolegy: Volající ví jen, že je karta zamčená
   const karta = await api.nextContact(honza, 'chata');
   if (!karta) over('S10', false, 'fronta chat je prázdná, zámek nejde změřit');
@@ -228,7 +229,11 @@ await blok('S', async () => {
     const vsechnyS = await api.listKontakty(mikulas, { limit: 500 });
     const kp = vsechnyP.rows.find((r) => r.id === karta.id);
     const ks = vsechnyS.rows.find((r) => r.id === karta.id);
-    over('S10', kp?.lock_by === null && kp?.lock_at === null && kp?.zamceno === true, 'Volající u karty, kterou volá kolega, vidí jen zamceno (ne kdo)', `lock_by ${kp?.lock_by}, zamceno ${kp?.zamceno}`);
+    // ⚠ Od 20. 10. 2026 (Volající vidí stav jen u svých): u svého klienta jen zamceno, u cizího ani to (skryto)
+    over('S10', kp?.je_muj
+      ? kp?.lock_by === null && kp?.lock_at === null && kp?.zamceno === true
+      : kp?.skryto === true && !('lock_by' in (kp ?? {})) && !('zamceno' in (kp ?? {})),
+      'Volající u karty, kterou volá kolega, vidí jen zamceno (ne kdo), u cizího kontaktu nic', `je_muj ${kp?.je_muj}, lock_by ${kp?.lock_by}, zamceno ${kp?.zamceno}`);
     over('S10b', ks?.lock_by === 3 && ks?.zamceno === true && karta.lock_by === 3, 'super admin a volající sám vidí id u zámku', `${ks?.lock_by} / ${karta.lock_by}`);
     await api.updateKontakt(albert, karta.id, { clear_lock: true });
   }
@@ -308,6 +313,84 @@ await blok('S', async () => {
   over('S7g', (admin.match(/if \(!isSuper\) \{\s*setStatusCounts\(\{\}\);\s*return;/g) ?? []).length === 1 && /if \(!cekani \|\| !isSuper\) \{/.test(admin)
     && /total !== null && total > 0 && <span className="count-pill">/.test(admin),
     'Kontakty: počty u stavů a košů a celkový počet jen pro super admina');
+});
+
+/* ---------------- U) Volající vidí stav jen u svých klientů (Albert 20. 10. 2026, migrace 045) ---------------- */
+// Albert: „they should only be able to see the status or how the website is going for the people they actually called,
+// but not for other people … They should still be able to see all the contacts“. Mock = server (db/tests/test_045, 45s):
+// cizí kontakt Volajícího jen s klíči z allowlistu (KLICE_CIZI = app_kontakt_klice_cizi), skryto true; filtr stavu,
+// známky a čekání a hledání v poznámce jen nad svými; svoji napřed, cizí podle id; příznak a zámek cizího odmítnuty;
+// vlákna o cizím klientovi skrytá. Super admin a Albert beze změny. ⚠ NAHRAZUJE „Kontakty vidí všichni se stavy“ (023).
+await blok('U', async () => {
+  const POVOLENE = ['id', 'segment', 'name', 'firma', 'phone', 'email', 'web', 'ma_web', 'obor', 'mesto',
+    'ico_osobni', 'ico_firma', 'dph_osobni', 'dph_firma'];
+  const navic = (r, dalsi = []) => Object.keys(r).filter((k) => !POVOLENE.includes(k) && !['je_muj', 'skryto', 'smi_upravit', ...dalsi].includes(k));
+  const vse = await api.listKontakty(petra, { limit: 200 });
+  const cizi = vse.rows.filter((r) => !r.je_muj);
+  const moje = vse.rows.filter((r) => r.je_muj);
+  over('U1', cizi.length >= 5 && cizi.every((r) => r.skryto === true && navic(r).length === 0 && !('status' in r) && 'name' in r && 'phone' in r),
+    'Volající dostane u cizího kontaktu jen jméno a kontakt (allowlist), žádný stav, poznámku, příznak ani průběh webu',
+    cizi.filter((r) => navic(r).length > 0).map((r) => `${r.id}: ${navic(r).join(',')}`).slice(0, 3).join(' | '));
+  over('U1b', moje.length >= 2 && moje.every((r) => r.skryto === false && typeof r.status === 'string' && 'note' in r && 'updated_at' in r),
+    'svoje klienty Volající vidí celé (stav, poznámka, datum změny)', `${moje.length} svých`);
+  for (const [kdo, tok] of [['super admin', mikulas], ['Albert', albert]]) {
+    const r = await api.listKontakty(tok, { limit: 500 });
+    over('U2', r.rows.every((x) => x.skryto === false && typeof x.status === 'string'), `${kdo} vidí všechny kontakty celé`);
+  }
+  // filtr stavu, známky a čekání jen nad svými
+  for (const fl of [{ status: 'navrh_odeslan' }, { status: 'zajem' }, { rating: 'A' }, { cekani: 'ceka_prvni' }, { cekani: 'ceka_po_odpovedi', kos: 'k_zavolani' }]) {
+    const p = await api.listKontakty(petra, { ...fl, limit: 200 });
+    const s = await api.listKontakty(mikulas, { ...fl, limit: 200 });
+    const mojeId = new Set(moje.map((r) => r.id));
+    over('U3', p.rows.every((r) => r.je_muj === true && mojeId.has(r.id)) && s.rows.some((r) => !mojeId.has(r.id)),
+      `filtr ${JSON.stringify(fl)} vrátí Volajícímu jen jeho klienty (super admin i cizí)`, `${p.rows.map((r) => r.id).join()} / ${s.rows.length}`);
+  }
+  // hledání v poznámce cizího kontaktu (klient 3 je jen Honzův): Volající nic, super admin ano; jméno najde
+  const hp = await api.listKontakty(petra, { search: 'jednoduchý web s fotkami', limit: 50 });
+  const hs = await api.listKontakty(mikulas, { search: 'jednoduchý web s fotkami', limit: 50 });
+  over('U4', hp.rows.length === 0 && hs.rows.some((r) => r.id === 3), 'text poznámky cizího kontaktu Volající nevyhledá (super admin ano)', `${hp.rows.length} / ${hs.rows.length}`);
+  const jm = (await api.listKontakty(albert, { limit: 500 })).rows.find((r) => r.id === 3)?.name ?? '';
+  const pj = await api.listKontakty(petra, { search: jm, limit: 50 });
+  over('U4b', !!jm && pj.rows.some((r) => r.id === 3 && r.skryto === true), 'cizí kontakt Volající podle jména najde (kontakty vidí všechny), jen bez stavu', jm);
+  // pořadí: svoji napřed, cizí jen podle id
+  const prvniCizi = vse.rows.findIndex((r) => !r.je_muj);
+  const ciziId = cizi.map((r) => r.id);
+  over('U5', prvniCizi === moje.length && ciziId.every((id, i) => i === 0 || ciziId[i - 1] < id),
+    'Volající má napřed své klienty, cizí jen podle id (pořadí stav cizího neprozradí)', ciziId.slice(0, 8).join());
+  // příznak a zámek cizího kontaktu Volající nemění, data beze změny; super admin smí
+  const pred3 = (await api.listKontakty(albert, { search: jm, limit: 5 })).rows.find((r) => r.id === 3);
+  await chyba('U6', () => api.setFlag(petra, 3, 'jine', 'podvrh'), /^Tohle není váš klient/, 'Volající nedá příznak cizímu kontaktu');
+  await chyba('U6b', () => api.clearFlag(petra, 92), /^Tohle není váš klient/, 'Volající nezruší příznak cizího kontaktu (92 od automatizace)');
+  await chyba('U6c', () => api.updateKontakt(petra, 3, { clear_lock: true }), /^Tohle není váš klient/, 'Volající neuvolní zámek cizího kontaktu');
+  await chyba('U6d', () => api.updateKontakt(petra, 3, { flag_kind: 'jine', flag_note: 'x' }), /^Tohle není váš klient/, 'Volající nezmění příznak cizího kontaktu přes update_kontakt');
+  const po3 = (await api.listKontakty(albert, { search: jm, limit: 5 })).rows.find((r) => r.id === 3);
+  const po92 = (await api.listFlagged(albert)).find((r) => r.id === 92);
+  over('U6e', po3?.flag_kind === pred3?.flag_kind && po3?.flag_note === pred3?.flag_note && po92?.flag_kind === 'neodpovida', 'odmítnuté úpravy nechají data beze změny');
+  const fs = await api.setFlag(mikulas, 3, 'jine', 'super admin smí');
+  over('U6f', fs.flagged_by === 'Mikuláš', 'super admin dál smí dát příznak i kontaktu, který upravit nesmí (pravidlo 24. 9. 2026)');
+  await api.clearFlag(albert, 3);
+  // karta ve volání: kontakt, kterému Volající ještě nevolal, bez stavu a poznámek, s jeho zámkem
+  const karta = await api.nextContact(petra, 'chata');
+  if (!karta) over('U7', false, 'fronta chat je prázdná, kartu nejde změřit');
+  else {
+    over('U7', karta.je_muj ? karta.skryto === false : karta.skryto === true && navic(karta, ['lock_by', 'lock_at', 'zamceno']).length === 0 && karta.lock_by === 2,
+      'karta ve volání nese u kontaktu, kterému Volající nevolal, jen allowlist a jeho zámek', navic(karta, ['lock_by', 'lock_at', 'zamceno']).join());
+    await api.returnContact(petra, karta.id);
+  }
+  // vlákna: Volající nevidí žádné vlákno o cizím klientovi
+  const mojeVse = new Set((await api.myKontakty(petra, 500, 0)).rows.map((r) => r.id));
+  const vl = await api.listThreads(petra);
+  over('U8', vl.every((x) => x.kontakt_id === null || mojeVse.has(x.kontakt_id)), 'Zprávy: Volající nevidí vlákno o klientovi, který není jeho',
+    vl.filter((x) => x.kontakt_id !== null && !mojeVse.has(x.kontakt_id)).map((x) => x.id).join());
+  const mockSrc = readFileSync(join(ROOT, 'src/api/mock.ts'), 'utf8');
+  over('U8b', /if \(t\.kontakt_id !== null && !moje\.has\(t\.kontakt_id\)\) out\.delete\(t\.id\);/.test(mockSrc), 'mock skrývá vlákna o cizím klientovi jako app_vlakna_viditelna');
+  // stránky: Kontakty, detail a karta ve volání ukazují u cizího kontaktu jen základ
+  const adminSrc = readFileSync(join(ROOT, 'src/pages/AdminPage.tsx'), 'utf8');
+  over('U9', (adminSrc.match(/jenZaklad\(r\) \? <Skryto \/> :/g) ?? []).length === 5, 'Kontakty: stav, známka, kdo volal, čekání a datum změny cizího kontaktu jsou pomlčka');
+  const drawerSrc = readFileSync(join(ROOT, 'src/components/KontaktDrawer.tsx'), 'utf8');
+  over('U9b', /if \(jenZaklad\(kontakt\)\) \{\s*return \(/.test(drawerSrc), 'detail cizího kontaktu jen se základními údaji (bez stavu, poznámek, příznaku, zámku a vláken)');
+  const callSrc = readFileSync(join(ROOT, 'src/pages/CallPage.tsx'), 'utf8');
+  over('U9c', /\{!jenZaklad\(kontakt\) && \(\s*<div className="call-row">\s*<span className="k">status<\/span>/.test(callSrc), 'karta ve volání ukáže stav jen u vlastního klienta');
 });
 
 /* ---------------- O) karta architekta: obrat místo IČO (Albert 3. 10. 2026, APP-8, migrace 037) ---------------- */
@@ -479,13 +562,14 @@ await blok('L', async () => {
     over('L5b', !(await najdi(eva, '11111111')).includes(302), 'IČO ateliéru rovné osobnímu se nevyhledá přes ico_firma (032)');
     const ra = (await api.listKontakty(albert, { segment: 'architekt', limit: 50 })).rows.find((x) => x.id === 302);
     over('L5c', ra?.ico_firma === '11111111' && ra?.ico_osobni === '11111111', 'kdo smí upravit, vidí obě IČO');
-    // úpravy: Eva (admin) smí příznak a zámek, upravit 302 nesmí
-    const f = await api.setFlag(eva, 302, 'jine', 'test L');
+    // úpravy: Mikuláš (super admin) smí příznak a zámek, upravit 302 nesmí (Petra není jeho člověk).
+    // ⚠ NAHRAZUJE Evu (Volající): ta od 20. 10. 2026 příznak ani zámek cizího kontaktu nemění (blok U)
+    const f = await api.setFlag(mikulas, 302, 'jine', 'test L');
     over('L6', f.smi_upravit === false && !maKlic(f, 'ico_osobni') && !maKlic(f, 'ico_firma') && !maKlic(f, 'dph_firma'),
       'set_flag nepošle osobní IČO ani IČO ateliéru rovné osobnímu tomu, kdo nesmí upravit (028, 036)', Object.keys(f).filter((k) => k.startsWith('ico')).join());
-    const c = await api.clearFlag(eva, 302);
+    const c = await api.clearFlag(mikulas, 302);
     over('L6b', !maKlic(c, 'ico_osobni') && !maKlic(c, 'ico_firma'), 'clear_flag taky ne');
-    const u = await api.updateKontakt(eva, 302, { clear_lock: true });
+    const u = await api.updateKontakt(mikulas, 302, { clear_lock: true });
     over('L6c', !maKlic(u, 'ico_osobni') && !maKlic(u, 'ico_firma'), 'update_kontakt (zámek) taky ne');
     const fa = await api.setFlag(albert, 302, 'jine', 'test L');
     over('L6d', fa.ico_osobni === '11111111' && fa.ico_firma === '11111111' && fa.dph_firma === 'neplatce', 'Albert (smí upravit) dostane z úprav všechno');
@@ -493,9 +577,9 @@ await blok('L', async () => {
   } finally {
     await api.updateKontakt(albert, 302, { ico_firma: null, dph_firma: null });
   }
-  const f300 = await api.setFlag(eva, 300, 'jine', 'test L');
-  over('L6e', !maKlic(f300, 'ico_osobni') && f300.ico_firma === '22222222' && f300.dph_firma === 'platce', 'jiné IČO ateliéru zůstává, schová se jen osobní');
-  await api.clearFlag(albert, 300);
+  // ⚠ NAHRAZUJE set_flag Evy u 300 (od 20. 10. 2026 příznak cizího kontaktu Volající nemění): měří se seznam
+  const f300 = (await api.listKontakty(eva, { search: '22222222', segment: 'architekt', limit: 5 })).rows.find((r) => r.id === 300);
+  over('L6e', !!f300 && !maKlic(f300, 'ico_osobni') && f300.ico_firma === '22222222' && f300.dph_firma === 'platce', 'jiné IČO ateliéru zůstává, schová se jen osobní');
   // oznacit_za_sveho (Petra 302 volala): ⚠ NAHRAZENO 3. 10. 2026 (Albert, migrace 037), dřív
   // „vrací řádek celý jako server“; volajícímu teď bez IČO architekta, detail řádek pošle přes bezCizihoIco
   // ⚠ NAHRAZENO migrací 042 (Albert 18. 10. 2026: Volající vidí IČO jako dřív admini): Volající dostane řádek s IČO jako admin.
@@ -542,10 +626,12 @@ await blok('L', async () => {
 await blok('BCD', async () => {
   const c1 = await api.nextContact(petra);
   over('B1', !!c1 && seg(c1) === 'chata', 'nextContact bez segmentu dá chatu (starý bundle)', c1 && `${c1.id} ${c1.segment}`);
+  // stav karty se měří Albertovým seznamem: cizí karta Volajícího stav nenese (od 20. 10. 2026, blok U)
+  const pred1 = (await api.listKontakty(albert, { segment: 'chata', limit: 1000 })).rows.find((r) => r.id === c1.id)?.status;
   const vr = await api.returnContact(petra, c1.id);
   over('C1', vr && vr.ok === true && vr.kontakt_id === c1.id, 'vlastní čistá karta jde vrátit do fronty');
   const po = (await api.listKontakty(albert, { segment: 'chata', limit: 1000 })).rows.find((r) => r.id === c1.id);
-  over('C1b', po && po.lock_by === null && po.lock_at === null && po.status === c1.status, 'po vrácení je kontakt odemčený a stav se nezměnil');
+  over('C1b', po && po.lock_by === null && po.lock_at === null && !!pred1 && po.status === pred1, 'po vrácení je kontakt odemčený a stav se nezměnil');
 
   const a1 = await api.nextContact(petra, 'architekt');
   over('B2', !!a1 && a1.segment === 'architekt' && [300, 301, 302].includes(a1.id), 'nextContact s architekt dá volatelného architekta', a1 && `${a1.id}`);
@@ -567,7 +653,8 @@ await blok('BCD', async () => {
   await chyba('C4', () => api.returnContact(petra, 999999), /Kontakt 999999 neexistuje\./, 'neexistující kontakt');
   await chyba('D1', () => api.resolveCall(honza, { kontakt_id: a1.id, outcome: 'nedovolano' }),
     /Tenhle kontakt teď nemáte přidělený \(zámek patří někomu jinému\)\. Načtěte si dalšího\./, 'výsledek hovoru jen se svým zámkem (migrace 015)');
-  const puvodni = a1.status;
+  // stav z Albertova seznamu: cizí karta Volajícího stav nenese (od 20. 10. 2026, blok U)
+  const puvodni = (await api.listKontakty(albert, { segment: 'architekt', limit: 1000 })).rows.find((r) => r.id === a1.id)?.status;
   await api.updateKontakt(albert, a1.id, { status: 'odmitnuto' });
   await chyba('C5', () => api.returnContact(petra, a1.id), new RegExp(`Kontakt ${a1.id} už není ve frontě volání \\(stav odmitnuto\\)\\. Nic se nevrátilo\\.`), 'kontakt mimo frontu se nevrací');
   await chyba('D2', () => api.resolveCall(petra, { kontakt_id: a1.id, outcome: 'nedovolano' }),

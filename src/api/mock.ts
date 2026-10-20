@@ -676,9 +676,14 @@ function isSystemThread(t: MockThread): boolean {
   return mockScope(t) === 'automatizace' && t.created_by === 'agent';
 }
 
-/** app_vlakna_viditelna: Albert vše; systémová nikdo jiný; super admin navíc klienty bez volajícího. */
+/** app_vlakna_viditelna: Albert vše; systémová nikdo jiný; super admin navíc klienty bez volajícího.
+ *  Migrace 045 (Albert 20. 10. 2026: Volající vidí stav jen u svých): Volající klientské vlákno jen u svého klienta. */
 function visibleThreadIds(u: MockUser): Set<number> {
-  return threadIdsFor(u, visibleIds(u));
+  const out = threadIdsFor(u, visibleIds(u));
+  if (u.id === OWNER_ID || u.role === 'super_admin') return out;
+  const moje = kontaktyOf([u.id]);
+  for (const t of chatThreads) if (t.kontakt_id !== null && !moje.has(t.kontakt_id)) out.delete(t.id);
+  return out;
 }
 
 /** app_vlakna_moje (migrace 027): vlákna, do kterých smí PSÁT a která smí VYŘEŠIT —
@@ -867,17 +872,43 @@ function canEdit(u: MockUser, kid: number): boolean {
   return u.role === 'super_admin' && kontaktBezMajitele(kid);
 }
 
+/**
+ * app_kontakt_klice_cizi (migrace 045, Albert 20. 10. 2026: Volající vidí stav jen u svých klientů): klíče, které
+ * Volající dostane u kontaktu, kterému nevolal (identifikace a kontakt pro hovor). Stejný seznam jako na serveru;
+ * nic o průběhu (stav, známka, ceny, poznámky, příznak, kdo volal, nový web, čekání, data změn).
+ */
+export const KLICE_CIZI = ['id', 'segment', 'name', 'firma', 'phone', 'email', 'web', 'ma_web', 'obor', 'mesto',
+  'ico_osobni', 'ico_firma', 'dph_osobni', 'dph_firma'] as const;
+
 function forViewer(u: MockUser, c: Kontakt): Kontakt {
+  const je_muj = myKontaktIds(u).has(c.id);
+  const { cizi, vidi } = jmenaPro(u);
+  // app_kontakt_ven (migrace 045, Albert 20. 10. 2026: Volající vidí stav jen u svých klientů): cizí kontakt jen
+  // s klíči z allowlistu, skryto true; vlastní zámek (karta, kterou právě volá) zůstává
+  if (cizi.length > 0 && !je_muj) {
+    const zdroj = c as unknown as Record<string, unknown>;
+    const z: Record<string, unknown> = {};
+    for (const key of KLICE_CIZI) if (key in zdroj) z[key] = zdroj[key];
+    z.je_muj = false;
+    z.skryto = true;
+    z.smi_upravit = canEdit(u, c.id);
+    if (c.lock_by !== null && c.lock_by === u.id) {
+      z.lock_by = c.lock_by;
+      z.lock_at = c.lock_at;
+      z.zamceno = true;
+    }
+    return z as unknown as Kontakt;
+  }
   const r: Kontakt = {
     ...c,
     last_caller: maskedName(u, c.last_caller),
-    je_muj: myKontaktIds(u).has(c.id),
+    je_muj,
+    skryto: false,
     smi_upravit: canEdit(u, c.id),
     zamceno: c.lock_by !== null,
   };
   // app_kontakt_ven (migrace 045, Albert 20. 10. 2026): kdo nevidí všechny lidi (Volající), dostane jména
   // kolegů v poznámkách jako „jiný volající“, kdo z kolegů dal příznak taky, a u cizího zámku jen zamceno
-  const { cizi, vidi } = jmenaPro(u);
   if (cizi.length > 0) {
     r.note = poznamkaBezCizich(c.note, cizi, vidi);
     r.flag_note = poznamkaBezCizich(c.flag_note, cizi, vidi);
@@ -1441,7 +1472,8 @@ const mockApiZaklad: Api = {
 
   async listKontakty(token: string, f: ListKontaktyFilters): Promise<ListKontaktyResult> {
     await delay();
-    // Kontakty vidí všichni (migrace 023); filtr podle volajícího jen sebe / své lidi.
+    // Kontakty vidí všichni (migrace 023), ⚠ od 045 (Albert 20. 10. 2026) Volající u cizího kontaktu jen allowlist
+    // (forViewer, KLICE_CIZI), NAHRAZUJE „se stavy“; filtr podle volajícího jen sebe / své lidi.
     const me = auth(token);
     checkSegment(f.segment, true);
     if (f.caller && me.id !== OWNER_ID && !namesOf(visibleIds(me)).includes(f.caller)) {
@@ -1458,8 +1490,17 @@ const mockApiZaklad: Api = {
         (!!c.ico_firma && c.ico_firma !== c.ico_osobni && c.ico_firma.toLowerCase().includes(search)));
     // jména lidí, které přihlášený vidět nesmí: hledání je v poznámkách nenajde, stejná maska jako řádky (migrace 045)
     const { cizi, vidi } = jmenaPro(me);
+    // Volající vidí stav jen u svých klientů (migrace 045, Albert 20. 10. 2026): filtr stavu, známky a čekání
+    // a hledání v poznámce jen nad jeho klienty, cizí kontakty za jeho jen podle id (jako server)
+    const vidiCisla = me.id === OWNER_ID || me.role === 'super_admin';
+    const jenSvoje = !vidiCisla;
+    const moje = myKontaktIds(me);
+    const skryty = (c: Kontakt) => jenSvoje && !moje.has(c.id);
+    const filtrStavu = !!(f.status || f.rating || f.cekani || f.kos);
+    const poznamkaVHledani = (c: Kontakt) => (skryty(c) ? null : poznamkaBezCizich(c.note, cizi, vidi));
     const matches = (c: Kontakt) =>
       (!f.segment || segmentOf(c) === f.segment) &&
+      (!filtrStavu || !skryty(c)) &&
       (!f.status || c.status === f.status) &&
       (!f.caller || c.last_caller === f.caller) &&
       (!f.rating || c.rating === f.rating) &&
@@ -1468,10 +1509,13 @@ const mockApiZaklad: Api = {
       // hledání i ve studiu, městě a IČO (migrace 028), IČO podle icoShoda výš
       (!search ||
         icoShoda(c) ||
-        [c.name, c.phone, c.web, c.email, poznamkaBezCizich(c.note, cizi, vidi), c.firma, c.mesto].some(
+        [c.name, c.phone, c.web, c.email, poznamkaVHledani(c), c.firma, c.mesto].some(
           (v) => v && v.toLowerCase().includes(search)
         ));
     const filtered = kontakty.filter(matches).sort((a, b) => {
+      // Volající: napřed jeho klienti, cizí jen podle id (stav, čekání ani datum změny cizího pořadí neurčují)
+      if (skryty(a) !== skryty(b)) return skryty(a) ? 1 : -1;
+      if (skryty(a)) return a.id - b.id;
       // při filtru čekání: nejdéle čekající nahoře (Albert 2026-09-07)
       if (f.cekani) {
         const sa = cekaniOf(a).since ?? '';
@@ -1488,13 +1532,14 @@ const mockApiZaklad: Api = {
     });
     const offset = Math.max(f.offset ?? 0, 0);
     // Volající nejvýš 200 řádků na stránku (recenze 045, 20. 10. 2026: s velkým limitem by dostal celou databázi)
-    const vidiCisla = me.id === OWNER_ID || me.role === 'super_admin';
     const limit = vidiCisla ? Math.max(f.limit ?? 200, 1) : Math.min(Math.max(f.limit ?? 200, 1), 200);
     return {
       // součty celé databáze jen super admin a Albert (migrace 045); Volající jen „je další stránka?“
       total: vidiCisla ? filtered.length : null,
       dalsi: filtered.length > offset + limit,
       rows: filtered.slice(offset, offset + limit).map((c) => {
+        // cizí kontakt Volajícího bez čekání (je to průběh), jako server (cekani_* nejsou v allowlistu)
+        if (skryty(c)) return forList(me, c);
         const cek = cekaniOf(c);
         return {
           ...forList(me, c),
@@ -1541,7 +1586,12 @@ const mockApiZaklad: Api = {
     await delay();
     const me = authAdmin(token);
     if (!kontakty.some((c) => c.id === id)) fail(`Kontakt id=${id} neexistuje.`);
-    // obsah jen u vlastních klientů; příznak a zámek u každého kontaktu (migrace 024)
+    // Volající u kontaktu, kterému nevolal, nevidí stav, poznámky, příznak ani zámek, takže je ani nemění (migrace
+    // 045, Albert 20. 10. 2026; ⚠ NAHRAZUJE „příznak a zámek u každého kontaktu“ pro Volající)
+    if (me.id !== OWNER_ID && me.role !== 'super_admin' && !myKontaktIds(me).has(id)) {
+      fail('Tohle není váš klient: u kontaktu, kterému jste nevolal/a, nevidíte ani neměníte stav, poznámky, příznak ani zámek. Upraví ho ten, kdo mu volá, jeho super admin nebo Albert.');
+    }
+    // obsah jen u vlastních klientů; příznak a zámek super admin u každého kontaktu (migrace 024, 045)
     const vsude = ['clear_lock', 'flag_kind', 'flag_note'];
     if (patch && Object.keys(patch).some((key) => !vsude.includes(key)) && !canEdit(me, id)) {
       fail('Tohle není váš klient — upravit ho může ten, kdo mu volá, jeho super admin nebo Albert. Příznak a zámek u něj měnit smíte.');
@@ -1655,6 +1705,10 @@ const mockApiZaklad: Api = {
   async setFlag(token: string, id: number, kind: FlagKind, note: string): Promise<Kontakt> {
     await delay();
     const user = authAdmin(token);
+    // příznak cizího kontaktu Volající nevidí, nasadí ho jen u svého klienta (migrace 045, Albert 20. 10. 2026)
+    if (user.id !== OWNER_ID && user.role !== 'super_admin' && !myKontaktIds(user).has(id)) {
+      fail('Tohle není váš klient: příznak u kontaktu, kterému jste nevolal/a, nevidíte ani neměníte. Nastaví ho ten, kdo mu volá, jeho super admin nebo Albert.');
+    }
     const kontakt = kontakty.find((c) => c.id === id);
     if (!kontakt) fail(`Kontakt id=${id} neexistuje.`);
     // migrace 045 (recenze 20. 10. 2026): poznámka příznaku přišla Volajícímu maskovaná; řádky kolegů jen ke čtení
@@ -1672,6 +1726,10 @@ const mockApiZaklad: Api = {
   async clearFlag(token: string, id: number): Promise<Kontakt> {
     await delay();
     const user = authAdmin(token);
+    // příznak cizího kontaktu Volající nevidí, nezruší ho tedy naslepo (migrace 045, Albert 20. 10. 2026)
+    if (user.id !== OWNER_ID && user.role !== 'super_admin' && !myKontaktIds(user).has(id)) {
+      fail('Tohle není váš klient: příznak u kontaktu, kterému jste nevolal/a, nevidíte ani neměníte. Zruší ho ten, kdo mu volá, jeho super admin nebo Albert.');
+    }
     const kontakt = kontakty.find((c) => c.id === id);
     if (!kontakt) fail(`Kontakt id=${id} neexistuje.`);
     kontakt.flag_kind = null;
@@ -2251,6 +2309,7 @@ function sDemoTestem(api: Api): Api {
       segment: segmentOf(c),
       status: c.status,
       lock_by: c.lock_by,
+      last_caller: c.last_caller,
       note: c.note,
       flag_kind: c.flag_kind,
       dph_osobni: c.dph_osobni ?? null,
