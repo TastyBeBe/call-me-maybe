@@ -710,65 +710,122 @@ function threadIdsFor(u: MockUser, ids: number[]): Set<number> {
 const TITUL_PRED = /(^|[^\p{L}\p{N}_])(\p{Lu}|Ing|arch|Akad|akad|MgA|Mgr|BcA|Bc|doc|prof|Dr|PhDr|RNDr|JUDr|MUDr)\. $/u;
 
 /**
+ * app_bez_diakritiky (migrace 045, recenze 20. 10. 2026): text bez české a středoevropské diakritiky znak za znak
+ * (stejná délka, pozice sedí), stejná tabulka jako na serveru. Maska pak pozná i „Mikulas“ a „Matěj“ u „Matej“.
+ */
+const DIAKRITIKA_Z = 'ÁÀÂÄÃÅĄČĆÇĎĐÉÈÊËĚĘÍÌÎÏĹĽŁŇŃÑÓÒÔÖÕŐŔŘŠŚŤÚÙÛÜŮŰÝŸŽŹŻáàâäãåąčćçďđéèêëěęíìîïĺľłňńñóòôöõőŕřšśťúùûüůűýÿžźż';
+const DIAKRITIKA_NA = 'AAAAAAACCCDDEEEEEEIIIILLLNNNOOOOOORRSSTUUUUUUYYZZZaaaaaaacccddeeeeeeiiiilllnnnoooooorrsstuuuuuuyyzzz';
+export function bezDiakritiky(s: string): string {
+  let out = '';
+  for (const ch of s) {
+    const i = DIAKRITIKA_Z.indexOf(ch);
+    out += i >= 0 ? DIAKRITIKA_NA[i] : ch;
+  }
+  return out;
+}
+
+/**
  * app_poznamka_bez_cizich (migrace 045, Albert 19. a 20. 10. 2026: čísla jiných lidí vidí jen super admin,
  * „Hide all of it“): jméno z `cizi` v poznámce nahradí „jiný volající“. V hlavičce „[datum Jméno]“
- * a „[datum Jméno, …]“ vždy, v ostatním textu jako samostatné slovo (velikost písmen nerozhoduje), ale ne jako
- * část jména klienta (za jménem příjmení s velkým písmenem, před ním titul nebo iniciála). Jména z `vlastni`
- * zůstávají; nejdelší jméno první, aby „Adam“ nesáhl do „Adam T“. Server to dělá v řádcích i v hledání
- * (app_kontakt_ven, list_kontakty). ⚠ NAHRAZUJE „jen hlavičky a jen pro hledání; text poznámky zůstává
- * (Albert 25. 9. 2026)“.
+ * a „[datum Jméno, …]“ vždy, v ostatním textu jako samostatné slovo (velikost písmen ani diakritika nerozhoduje,
+ * recenze 20. 10. 2026), ale ne jako část jména klienta (za jménem příjmení s velkým písmenem, před ním titul nebo
+ * iniciála). Jména z `vlastni` zůstávají; nejdelší jméno první, aby „Adam“ nesáhl do „Adam T“. Skloňované tvary
+ * („Honzovi“) maska nepozná. Server to dělá v řádcích, hledání a vláknech (app_kontakt_ven, list_kontakty,
+ * get_thread, list_threads). ⚠ NAHRAZUJE „jen hlavičky a jen pro hledání; text poznámky zůstává (Albert 25. 9. 2026)“.
  */
 export function poznamkaBezCizich(note: string | null, cizi: string[], vlastni: string[] = []): string | null {
   if (note === null || cizi.length === 0) return note;
-  let out = note.replace(/[\uE000\uE001]/g, '');
+  let out = note.replace(/[]/g, '');
   const kusy: string[] = [];
   const jmena = [...new Set([...cizi, ...vlastni].map((x) => x.trim()).filter(Boolean))]
     .sort((a, b) => b.length - a.length || (a < b ? -1 : a > b ? 1 : 0));
   for (const jm of jmena) {
-    if (!out.toLowerCase().includes(jm.toLowerCase())) continue;
-    const doslova = jm.replace(/[.^$*+?()[\]{}|\\]/g, '\\$&');
+    // hledá se v textu bez diakritiky; pozice sedí na původní text (bezDiakritiky mění znak za znak)
+    const bez = bezDiakritiky(out);
+    const jmBez = bezDiakritiky(jm);
+    if (!bez.toLowerCase().includes(jmBez.toLowerCase())) continue;
+    const doslova = jmBez.replace(/[.^$*+?()[\]{}|\\]/g, '\\$&');
     const maskovat = cizi.includes(jm) && !vlastni.includes(jm);
-    out = out.replace(new RegExp(`(?<![\\p{L}\\p{N}_])${doslova}(?![\\p{L}\\p{N}_])`, 'giu'), (kus: string, pos: number, cele: string) => {
-      const pred = cele.slice(0, pos);
-      const za = cele.slice(pos + kus.length);
+    let res = '';
+    let od = 0;
+    for (const m of bez.matchAll(new RegExp(`(?<![\\p{L}\\p{N}_])${doslova}(?![\\p{L}\\p{N}_])`, 'giu'))) {
+      const pos = m.index ?? 0;
+      const delka = m[0].length;
+      const pred = bez.slice(0, pos);
+      const za = bez.slice(pos + delka);
       const hlavicka = /\[\d{4}-\d{2}-\d{2} $/.test(pred);
       const klient = /^ \p{Lu}/u.test(za) || TITUL_PRED.test(pred);
-      kusy.push(maskovat && (hlavicka || !klient) ? JINY : kus);
-      return `\uE000${kusy.length}\uE001`;
-    });
+      kusy.push(maskovat && (hlavicka || !klient) ? JINY : out.slice(pos, pos + delka));
+      res += `${out.slice(od, pos)}${kusy.length}`;
+      od = pos + delka;
+    }
+    out = res + out.slice(od);
   }
-  return out.replace(/\uE000(\d+)\uE001/g, (_m: string, i: string) => kusy[Number(i) - 1]);
+  return out.replace(/(\d+)/g, (_m: string, i: string) => kusy[Number(i) - 1]);
 }
 
+const radkyPoznamky = (s: string | null): string[] => (s === null || s === '' ? [] : s.split('\n'));
+
 /**
- * app_poznamka_zpet (migrace 045): Volající uloží poznámku, kterou dostal maskovanou. Řádky, které nezměnil,
- * se uloží s původními jmény, upravený řádek s hlavičkou „[datum jiný volající…“ dostane jméno z hlavičky
- * nejbližšího dalšího uloženého řádku; jinak by uložení jména kolegů v databázi smazalo.
+ * app_poznamka_zpet (migrace 045, recenze 20. 10. 2026): poznámka, kterou ukládá Volající. Řádky kolegů (maska je
+ * mění, Volající je dostává jako „jiný volající“) jsou jen ke čtení: každý musí v nové poznámce zůstat beze změny
+ * a ve stejném pořadí vůči ostatním řádkům kolegů a uloží se doslova (přiřazení podle pořadí, ne podle textu, takže
+ * se dva stejně maskované řádky dvou kolegů nespletou); jinak chyba „Řádek kolegy upravit ani smazat nejde, připište
+ * nový řádek.“ Nový řádek s hlavičkou „[datum …]“, kde je jméno kolegy nebo „jiný volající“, taky chyba. Vlastní
+ * řádky volně. ⚠ NAHRAZUJE „nezměněné řádky s původními jmény, upravený řádek dostane jméno z hlavičky“.
  */
 export function poznamkaZpet(ulozena: string | null, nova: string | null, cizi: string[], vlastni: string[] = []): string | null {
-  if (nova === null || ulozena === null || cizi.length === 0) return nova;
-  if (poznamkaBezCizich(ulozena, cizi, vlastni) === ulozena) return nova;
-  const st = ulozena.split('\n');
+  if (cizi.length === 0) return nova;
+  const st = radkyPoznamky(ulozena);
+  const nv = radkyPoznamky(nova);
+  const n = st.length;
+  const m = nv.length;
   const maska = st.map((x) => poznamkaBezCizich(x, cizi, vlastni) ?? '');
+  const kol = st.map((x, i) => maska[i] !== x);
+  // vážená nejdelší společná podposloupnost: řádek kolegy váží víc než všechny ostatní shody dohromady
+  const w = n + 1;
+  const dp: number[][] = Array.from({ length: n + 1 }, () => new Array<number>(m + 1).fill(0));
+  for (let i = 1; i <= n; i++) {
+    for (let j = 1; j <= m; j++) {
+      let v = Math.max(dp[i - 1][j], dp[i][j - 1]);
+      if (maska[i - 1] === nv[j - 1]) v = Math.max(v, dp[i - 1][j - 1] + (kol[i - 1] ? w : 1));
+      dp[i][j] = v;
+    }
+  }
+  const par = new Array<number>(m).fill(-1);
+  const hit = new Array<boolean>(n).fill(false);
+  let i = n;
+  let j = m;
+  while (i > 0 && j > 0) {
+    if (maska[i - 1] === nv[j - 1] && dp[i][j] === dp[i - 1][j - 1] + (kol[i - 1] ? w : 1)) {
+      par[j - 1] = i - 1;
+      hit[i - 1] = true;
+      i -= 1;
+      j -= 1;
+    } else if (dp[i - 1][j] >= dp[i][j - 1]) i -= 1;
+    else j -= 1;
+  }
+  for (let k = 0; k < n; k++) {
+    if (kol[k] && !hit[k]) {
+      fail(`Řádek kolegy upravit ani smazat nejde, připište nový řádek. Chybí nebo je změněný či přesunutý řádek „${[...maska[k]].slice(0, 80).join('')}“.`);
+    }
+  }
   const out: string[] = [];
-  let od = 0;
-  for (const radek of nova === '' ? [] : nova.split('\n')) {
-    let j = -1;
-    for (let i = od; i < st.length; i++) if (maska[i] === radek) { j = i; break; }
-    if (j >= 0) { out.push(st[j]); od = j + 1; continue; }
-    let l = radek;
-    const hl = /^\[\d{4}-\d{2}-\d{2} jiný volající[\],]/.exec(radek)?.[0];
-    if (hl) {
-      for (let i = od; i < st.length; i++) {
-        if (maska[i].startsWith(hl)) {
-          l = (/^\[\d{4}-\d{2}-\d{2} [^\],]*[\],]/.exec(st[i])?.[0] ?? hl) + radek.slice(hl.length);
-          od = i + 1;
-          break;
+  for (let k = 0; k < m; k++) {
+    if (par[k] >= 0) {
+      out.push(st[par[k]]);   // uložený řádek doslova (řádek kolegy s původním jménem)
+      continue;
+    }
+    if (!st.some((x, s) => !kol[s] && x === nv[k])) {
+      for (const h of nv[k].matchAll(/\[\d{4}-\d{2}-\d{2} [^\][]*\]?/g)) {
+        if (bezDiakritiky(h[0]).toLowerCase().includes('jiny volajici') || poznamkaBezCizich(h[0], cizi, vlastni) !== h[0]) {
+          fail(`Nový řádek nesmí mít v hlavičce „[datum jméno]“ jméno kolegy ani „jiný volající“, napište ho pod svým jménem: „${[...(poznamkaBezCizich(nv[k], cizi, vlastni) ?? '')].slice(0, 80).join('')}“.`);
         }
       }
     }
-    out.push(l);
+    out.push(nv[k]);          // nový řádek přesně, jak ho Volající napsal
   }
+  if (m === 0) return nova;
   return out.join('\n');
 }
 
@@ -777,6 +834,19 @@ function jmenaPro(u: MockUser): { cizi: string[]; vidi: string[] } {
   const vidi = namesOf(visibleIds(u));
   if (u.id === OWNER_ID) return { cizi: [], vidi };
   return { cizi: users.map((x) => x.display_name).filter((n) => n && !vidi.includes(n)), vidi };
+}
+
+/** app_jmena_kolegu (migrace 045, recenze 20. 10. 2026): jména ostatních Volajících (ne super admin, ne Albert),
+ *  která přihlášený vidět nesmí; pro vlákna. Jména super adminů a agentů ve vláknech zůstávají. */
+function jmenaKolegu(u: MockUser): { kolegove: string[]; vidi: string[] } {
+  const vidi = namesOf(visibleIds(u));
+  if (u.id === OWNER_ID) return { kolegove: [], vidi };
+  return {
+    kolegove: users
+      .filter((x) => x.role !== 'super_admin' && x.id !== OWNER_ID && x.display_name && !vidi.includes(x.display_name))
+      .map((x) => x.display_name),
+    vidi,
+  };
 }
 
 /** app_kontakt_ven: jméno volajícího jen svoje / svých lidí (Albert vše), je_muj. */
@@ -1417,10 +1487,12 @@ const mockApiZaklad: Api = {
       return a.id - b.id;
     });
     const offset = Math.max(f.offset ?? 0, 0);
-    const limit = Math.max(f.limit ?? 200, 1);
+    // Volající nejvýš 200 řádků na stránku (recenze 045, 20. 10. 2026: s velkým limitem by dostal celou databázi)
+    const vidiCisla = me.id === OWNER_ID || me.role === 'super_admin';
+    const limit = vidiCisla ? Math.max(f.limit ?? 200, 1) : Math.min(Math.max(f.limit ?? 200, 1), 200);
     return {
       // součty celé databáze jen super admin a Albert (migrace 045); Volající jen „je další stránka?“
-      total: me.id === OWNER_ID || me.role === 'super_admin' ? filtered.length : null,
+      total: vidiCisla ? filtered.length : null,
       dalsi: filtered.length > offset + limit,
       rows: filtered.slice(offset, offset + limit).map((c) => {
         const cek = cekaniOf(c);
@@ -1527,11 +1599,19 @@ const mockApiZaklad: Api = {
       }
     }
     const target = kontakt as unknown as Record<string, unknown>;
-    // migrace 045: poznámku a poznámku příznaku dostal Volající maskovanou, nezměněné řádky s původními jmény
+    // migrace 045 (recenze 20. 10. 2026): poznámku a poznámku příznaku dostal Volající maskovanou; řádky kolegů jsou
+    // jen ke čtení (poznamkaZpet je uloží doslova, jinak chyba). Spočítá se napřed, aby chyba nic nezměnila.
     const { cizi, vidi } = jmenaPro(me);
+    const poznamky: Record<string, string | null> = {};
+    for (const key of ['note', 'flag_note']) {
+      if (key in patch && cizi.length > 0) {
+        const value = patch[key];
+        poznamky[key] = poznamkaZpet(target[key] as string | null, value === null || value === undefined ? null : String(value), cizi, vidi);
+      }
+    }
     for (const [key, value] of Object.entries(patch)) {
-      if ((key === 'note' || key === 'flag_note') && cizi.length > 0 && value !== null && value !== undefined) {
-        target[key] = poznamkaZpet(target[key] as string | null, String(value), cizi, vidi);
+      if (key in poznamky) {
+        target[key] = poznamky[key];
       } else if (key in archNove) {
         target[key] = archNove[key];
       } else if (key === 'clear_lock') {
@@ -1577,10 +1657,12 @@ const mockApiZaklad: Api = {
     const user = authAdmin(token);
     const kontakt = kontakty.find((c) => c.id === id);
     if (!kontakt) fail(`Kontakt id=${id} neexistuje.`);
-    kontakt.flag_kind = kind;
-    // migrace 045: poznámka příznaku přišla Volajícímu maskovaná, nezměněné řádky s původními jmény
+    // migrace 045 (recenze 20. 10. 2026): poznámka příznaku přišla Volajícímu maskovaná; řádky kolegů jen ke čtení
+    // (poznamkaZpet, napřed, aby chyba nic nezměnila)
     const { cizi, vidi } = jmenaPro(user);
-    kontakt.flag_note = ((cizi.length > 0 ? poznamkaZpet(kontakt.flag_note, note, cizi, vidi) : note) ?? '').trim() || null;
+    const flagNote = ((cizi.length > 0 ? poznamkaZpet(kontakt.flag_note, note, cizi, vidi) : note) ?? '').trim() || null;
+    kontakt.flag_kind = kind;
+    kontakt.flag_note = flagNote;
     kontakt.flagged_at = now();
     kontakt.flagged_by = user.display_name;
     kontakt.updated_at = now();
@@ -1778,6 +1860,9 @@ const mockApiZaklad: Api = {
       fail(`Neplatný scope: ${scope}. Povolené: automatizace, klient.`);
     }
     mayPick(user, userId, 'Zprávy');
+    // migrace 045 (recenze 20. 10. 2026): jméno jiného Volajícího „jiný volající“ (created_by, předmět, náhled)
+    const { kolegove, vidi } = jmenaKolegu(user);
+    const bezKolegu = (s: string) => poznamkaBezCizich(s, kolegove, vidi) ?? s;
     const visible = visibleThreadIds(user);
     const jeho = userId != null ? threadsOf([userId]) : null;
     const rows = chatThreads
@@ -1797,15 +1882,15 @@ const mockApiZaklad: Api = {
           id: t.id,
           kontakt_id: t.kontakt_id,
           kontakt_name: k?.name ?? null,
-          subject: t.subject,
+          subject: bezKolegu(t.subject),
           status: t.status,
           scope: mockScope(t),
           alert_key: t.alert_key ?? null,
-          created_by: t.created_by,
+          created_by: bezKolegu(t.created_by),
           last_message_at: t.last_message_at,
           created_at: t.created_at,
           majitel: maskedName(user, k?.last_caller ?? null),
-          last_message_preview: last ? last.body.slice(0, 140) : null,
+          last_message_preview: last ? [...bezKolegu(last.body)].slice(0, 140).join('') : null,
           last_sender_type: last ? last.sender_type : null,
           message_count: msgs.length,
           same_alert_open:
@@ -1834,15 +1919,19 @@ const mockApiZaklad: Api = {
     if (!t) fail(`Vlákno id=${threadId} neexistuje.`);
     if (!visibleThreadIds(user).has(t.id)) fail('Tohle vlákno patří někomu jinému.');
     const k = kontakty.find((c) => c.id === t.kontakt_id);
+    // migrace 045 (recenze 20. 10. 2026): jméno jiného Volajícího „jiný volající“ (created_by, předmět, odesílatel,
+    // text); super admini, Albert a agenti beze změny
+    const { kolegove, vidi } = jmenaKolegu(user);
+    const bezKolegu = (s: string) => poznamkaBezCizich(s, kolegove, vidi) ?? s;
     const thread: ChatThreadInfo = {
       id: t.id,
       kontakt_id: t.kontakt_id,
       kontakt_name: k?.name ?? null,
-      subject: t.subject,
+      subject: bezKolegu(t.subject),
       status: t.status,
       scope: mockScope(t),
       alert_key: t.alert_key ?? null,
-      created_by: t.created_by,
+      created_by: bezKolegu(t.created_by),
       last_message_at: t.last_message_at,
       created_at: t.created_at,
       majitel: maskedName(user, k?.last_caller ?? null),
@@ -1853,7 +1942,7 @@ const mockApiZaklad: Api = {
       .sort(
         (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime() || a.id - b.id
       )
-      .map((m) => ({ ...m, pravidlo_stav: m.pravidlo_stav ?? null }));
+      .map((m) => ({ ...m, sender_name: bezKolegu(m.sender_name), body: bezKolegu(m.body), pravidlo_stav: m.pravidlo_stav ?? null }));
     return { thread, messages: messagesAsc };
   },
 

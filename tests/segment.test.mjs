@@ -178,8 +178,19 @@ await blok('S', async () => {
     'maska nesáhne na jméno klienta (titul, iniciála, příjmení za jménem), jinde jméno kolegy maskuje');
   over('S6d', poznamkaBezCizich('[2026-10-01 Adam] já, [2026-10-02 Adam T] kolega', ['Adam T'], ['Adam']) === '[2026-10-01 Adam] já, [2026-10-02 jiný volající] kolega',
     'vlastní jméno zůstane, delší jméno kolegy se maskuje celé');
-  over('S6e', poznamkaZpet('[2026-10-01 Eda] a\n[2026-10-02 Mikuláš] b', '[2026-10-02 jiný volající] b', ['Eda', 'Mikuláš'], ['Kuba']) === '[2026-10-02 Mikuláš] b',
-    'poznamkaZpet po smazání řádku nepřiřadí jméno jinému řádku (jako app_poznamka_zpet)');
+  over('S6i', poznamkaBezCizich('[2026-10-01 Eda Novák] volal; Eda Novák je klient', ['Eda']) === '[2026-10-01 jiný volající Novák] volal; Eda Novák je klient',
+    'v hlavičce „[datum Jméno …]“ maska jméno bere vždy, mimo ni je „Eda Novák“ jméno klienta (jako 45a9d)');
+  // ⚠ NAHRAZUJE „po smazání řádku nepřiřadí jméno jinému řádku“ (recenze 045, 20. 10. 2026): smazat řádek kolegy nejde
+  await chyba('S6e', async () => poznamkaZpet('[2026-10-01 Eda] a\n[2026-10-02 Mikuláš] b', '[2026-10-02 jiný volající] b', ['Eda', 'Mikuláš'], ['Kuba']),
+    /^Řádek kolegy upravit ani smazat nejde/, 'poznamkaZpet nedovolí smazat řádek kolegy (jako app_poznamka_zpet)');
+  await chyba('S6f', async () => poznamkaZpet('[2026-10-04 Eda] nedovoláno\n[2026-10-04 Mikuláš] nedovoláno', '[2026-10-04 jiný volající] nedovoláno', ['Eda', 'Mikuláš'], []),
+    /^Řádek kolegy upravit ani smazat nejde/, 'dva stejně maskované řádky dvou kolegů: smazat jeden nejde (nespletou se)');
+  over('S6g', poznamkaZpet('[2026-10-04 Eda] nedovoláno\n[2026-10-04 Mikuláš] nedovoláno', '[2026-10-04 jiný volající] nedovoláno\n[2026-10-04 jiný volající] nedovoláno\n[2026-10-05 Kuba] já', ['Eda', 'Mikuláš'], ['Kuba'])
+    === '[2026-10-04 Eda] nedovoláno\n[2026-10-04 Mikuláš] nedovoláno\n[2026-10-05 Kuba] já', 'řádky kolegů se uloží doslova podle pořadí, nový řádek přesně');
+  // jména bez diakritiky (recenze 045): „Mikulas“ je Mikuláš, „Matěj“ je Matej; celé slovo a jméno klienta platí dál
+  over('S6h', poznamkaBezCizich('[2026-10-01 Mikulas] x, mikulas volal, MIKULÁŠ taky; Matěj ok; Mikulasek; Mikulas Medlík', ['Mikuláš', 'Matej'])
+    === '[2026-10-01 jiný volající] x, jiný volající volal, jiný volající taky; jiný volající ok; Mikulasek; Mikulas Medlík',
+    'maska pozná jméno kolegy bez diakritiky i s jinou diakritikou (jako app_poznamka_bez_cizich)');
   // součty celé databáze: Volající total null při každém filtru, dalsi sedí; super admin a Albert total mají
   for (const f of [{ status: 'zaplaceno', limit: 1 }, { limit: 1 }, { segment: 'architekt', limit: 1 }, { caller: 'Petra', limit: 1 }, { cekani: 'ceka_prvni', limit: 1 }]) {
     const r = await api.listKontakty(petra, f);
@@ -213,7 +224,7 @@ await blok('S', async () => {
   const karta = await api.nextContact(honza, 'chata');
   if (!karta) over('S10', false, 'fronta chat je prázdná, zámek nejde změřit');
   else {
-    const vsechnyP = await api.listKontakty(petra, { limit: 500 });
+    const vsechnyP = await api.listKontakty(petra, { search: karta.name, limit: 50 });
     const vsechnyS = await api.listKontakty(mikulas, { limit: 500 });
     const kp = vsechnyP.rows.find((r) => r.id === karta.id);
     const ks = vsechnyS.rows.find((r) => r.id === karta.id);
@@ -230,6 +241,55 @@ await blok('S', async () => {
   over('S11b', ulozeno === `${puvodni7}\n[2026-10-20 Petra] doplněno` && !/Albert/.test(vraceno.note ?? ''),
     'uložení maskované poznámky Volajícím jména kolegů v datech nesmaže a vrácený řádek je dál maskovaný', ulozeno ?? '');
   await api.updateKontakt(albert, 7, { note: puvodni7 });
+  // řádky kolegů jsou Volajícímu jen ke čtení (recenze 045, 20. 10. 2026): klient 2 je Petřin i Honzův (oba volali)
+  const puvodni2 = (await api.listKontakty(albert, { search: 'Roubenka U Lesa', limit: 5 })).rows.find((r) => r.id === 2)?.note ?? null;
+  const maska2 = (await api.myKontakty(petra, 200, 0)).rows.find((r) => r.id === 2)?.note ?? '';
+  over('S12', maska2 === '[2026-08-20 Petra] Nebrali telefon, zkusit odpoledne.\n[2026-08-29 jiný volající] Zase nebrali.', 'Volající má u klienta 2 řádek kolegy maskovaný (jinak by S12 nic neměřil)', maska2);
+  const [vlastni2, kolegy2] = maska2.split('\n');
+  for (const [id, nova, vzor, co] of [
+    ['S12b', `${vlastni2}\n${kolegy2} Prý v pátek.`, /^Řádek kolegy upravit ani smazat nejde/, 'upravený text v řádku kolegy'],
+    ['S12c', vlastni2, /^Řádek kolegy upravit ani smazat nejde/, 'smazaný řádek kolegy'],
+    ['S12d', `${vlastni2}\n${kolegy2.replace('2026-08-29', '2026-08-30')}`, /^Řádek kolegy upravit ani smazat nejde/, 'změněné datum v hlavičce řádku kolegy'],
+    ['S12e', null, /^Řádek kolegy upravit ani smazat nejde/, 'smazaná celá poznámka'],
+    ['S12f', `${vlastni2}\n[2026-08-29 jiný volající] podvrh\n${kolegy2}`, /^Nový řádek nesmí mít v hlavičce/, 'podvržený řádek „[datum jiný volající]“ před řádkem kolegy'],
+    ['S12g', `${maska2}\n[2026-10-20 honza] podvrh`, /^Nový řádek nesmí mít v hlavičce/, 'nový řádek se jménem kolegy v hlavičce'],
+    ['S12h', `${maska2}\n[2026-10-20 Mikulas] podvrh`, /^Nový řádek nesmí mít v hlavičce/, 'nový řádek se jménem kolegy bez diakritiky v hlavičce'],
+  ]) {
+    await chyba(id, () => api.updateKontakt(petra, 2, { note: nova }), vzor, `Volající neuloží: ${co}`);
+    const po2 = (await api.listKontakty(albert, { search: 'Roubenka U Lesa', limit: 5 })).rows.find((r) => r.id === 2)?.note ?? null;
+    over(`${id}x`, po2 === puvodni2, `odmítnuté uložení (${co}) nechá data beze změny`, po2 ?? '');
+  }
+  // co smí: vlastní řádek přesunout pod řádek kolegy a připsat nový; řádek kolegy se uloží doslova
+  await api.updateKontakt(petra, 2, { note: `${kolegy2}\n${vlastni2}\n[2026-10-20 Petra] nová` });
+  const presunuto2 = (await api.listKontakty(albert, { search: 'Roubenka U Lesa', limit: 5 })).rows.find((r) => r.id === 2)?.note ?? null;
+  over('S12i', presunuto2 === '[2026-08-29 Honza] Zase nebrali.\n[2026-08-20 Petra] Nebrali telefon, zkusit odpoledne.\n[2026-10-20 Petra] nová',
+    'Volající smí přesunout a připsat vlastní řádky, řádek kolegy zůstane doslova se jménem', presunuto2 ?? '');
+  await api.updateKontakt(albert, 2, { note: puvodni2 });
+  // poznámka příznaku stejně: Honza označí svého klienta 2, Petra jeho řádek upravit nesmí
+  await api.setFlag(honza, 2, 'jine', 'Honza ověří e-mail');
+  await chyba('S12j', () => api.setFlag(petra, 2, 'jine', 'jiný volající ověří e-mail zítra'), /^Řádek kolegy upravit ani smazat nejde/, 'Volající neupraví řádek kolegy v poznámce příznaku');
+  const priz2 = (await api.listKontakty(albert, { search: 'Roubenka U Lesa', limit: 5 })).rows.find((r) => r.id === 2);
+  over('S12k', priz2?.flag_note === 'Honza ověří e-mail' && priz2?.flagged_by === 'Honza', 'odmítnutý příznak nechá poznámku i to, kdo ho dal', `${priz2?.flag_note} / ${priz2?.flagged_by}`);
+  await api.clearFlag(albert, 2);
+  // strop stránky (recenze 045): Volající nejvýš 200 řádků, super admin bez stropu (mock má méně řádků, měří se i kód)
+  const velkaP = await api.listKontakty(petra, { limit: 100000 });
+  const velkaS = await api.listKontakty(mikulas, { limit: 100000 });
+  over('S13', velkaP.rows.length <= 200 && velkaS.rows.length === velkaS.total
+    && /const limit = vidiCisla \? Math\.max\(f\.limit \?\? 200, 1\) : Math\.min\(Math\.max\(f\.limit \?\? 200, 1\), 200\);/.test(readFileSync(join(ROOT, 'src/api/mock.ts'), 'utf8')),
+    'Volající dostane nejvýš 200 řádků na stránku (jako list_kontakty), super admin všechny', `${velkaP.rows.length} / ${velkaS.rows.length}`);
+  // vlákna (recenze 045): jméno jiného Volajícího „jiný volající“, super admin a agent beze změny
+  const novy = await api.createThread(honza, 'Sleva, píše Honza', 'Honza: klient chce slevu, honza to ví', 2);
+  await api.postThreadMessage(mikulas, novy.thread_id, 'Mikuláš: sleva ne', false);
+  const tp = (await api.listThreads(petra)).find((x) => x.id === novy.thread_id);
+  over('S14', tp?.created_by === 'jiný volající' && tp?.subject === 'Sleva, píše jiný volající' && !/honza/i.test(JSON.stringify(tp ?? {})),
+    'Zprávy: Volající nevidí jméno kolegy u vlákna (kdo založil, předmět, náhled)', JSON.stringify(tp ?? {}).slice(0, 200));
+  const dp = await api.getThread(petra, novy.thread_id);
+  over('S14b', dp.thread.created_by === 'jiný volající' && dp.messages[0]?.sender_name === 'jiný volající'
+    && dp.messages[0]?.body === 'jiný volající: klient chce slevu, jiný volající to ví' && dp.messages[1]?.sender_name === 'Mikuláš'
+    && dp.messages[1]?.body === 'Mikuláš: sleva ne' && !/honza/i.test(JSON.stringify(dp)),
+    'vlákno: kolega Volající „jiný volající“ (odesílatel i text), super admin beze změny', JSON.stringify(dp.messages).slice(0, 200));
+  const ds = await api.getThread(mikulas, novy.thread_id);
+  over('S14c', ds.thread.created_by === 'Honza' && ds.messages[0]?.sender_name === 'Honza', 'super admin vidí ve vlákně jména beze změny', ds.thread.created_by);
   // stránky: kdo volá allStats a topSeller, kdo vidí trychtýř, počty Kontaktů a dlaždici #1
   const stats = readFileSync(join(ROOT, 'src/pages/StatsPage.tsx'), 'utf8');
   over('S7', /\{isSuper && <KlientiFunnel/.test(stats) && !/isAdmin(Role)?\b[^\n]*<KlientiFunnel/.test(stats),

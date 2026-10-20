@@ -745,6 +745,23 @@ for (const [kdo, superAdmin] of [['petra', false], ['mikulas', true]]) {
   const poznamka = [...detail, ...hodnoty, await page.evaluate(() => document.body.innerText)].join('\n');
   over('S4', superAdmin ? /\[2026-08-29 Honza\] Zase nebrali/.test(poznamka) : /\[2026-08-29 jiný volající\] Zase nebrali/.test(poznamka) && !/\[2026-08-29 Honza\]/.test(poznamka),
     `${kdo}: v detailu kontaktu ${superAdmin ? 'je' : 'není'} jméno kolegy v poznámce`, poznamka.match(/\[2026-08-29 [^\]]*\]/)?.[0] ?? 'poznámka nenalezena');
+  // řádky kolegů jsou Volajícímu jen ke čtení (recenze 045, 20. 10. 2026): u poznámky vidí nápovědu, a když řádek
+  // kolegy upraví, uložení se odmítne a detail chybu ukáže; data zůstanou; super admin nápovědu nemá
+  const napoveda = await page.locator('.radky-kolegu').count();
+  if (superAdmin) over('S6', napoveda === 0, 'mikulas: u poznámky není nápověda o řádcích kolegů (jména vidí)', `${napoveda}`);
+  else {
+    const pole = page.locator('textarea[rows="7"]').first();
+    const puvodni = await pole.inputValue();
+    const predUlozenim = (await volani(page)).length;
+    await pole.fill(puvodni.replace('Zase nebrali.', 'Zase nebrali!'));
+    await page.getByRole('button', { name: 'Uložit změny' }).click();
+    await klid(page, 600);
+    const ulozeni = (await volani(page)).slice(predUlozenim).filter((v) => v.fn === 'updateKontakt');
+    const chyba = await page.locator('.error-box').allInnerTexts();
+    over('S6', napoveda === 1 && ulozeni.length === 1 && ulozeni[0].ok === false
+      && chyba.some((c) => /^Řádek kolegy upravit ani smazat nejde, připište nový řádek\./.test(c)),
+      'petra: nápověda u poznámky, upravený řádek kolegy server odmítne a detail chybu ukáže', `${napoveda} / ${chyba.join(' | ').slice(0, 120)}`);
+  }
   // Prokchop: top_prodejce (žebříček) jen za super admina
   const top = (await volani(page)).filter((v) => v.fn === 'topSeller').length;
   if (!superAdmin) over('S5', top === 0, 'petra: Prokchop se Volajícího na „#1 prodejce“ (top_prodejce) neptá', `${top} volání`);

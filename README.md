@@ -113,14 +113,23 @@ počty hovorů, žebříček ani jiné statistiky kolegů; 20. 10. 2026 „Hide 
 `../db/tests/test_045_statistiky_jen_super_admin.sql`, celé pravidlo `../docs/ROLE-A-VIDITELNOST.md`).
 Server: `all_stats`, `rozvrh_prehled` a `top_prodejce` („#1 prodejce“) jen super admin, `my_stats` jen vlastní,
 výběr jiného člověka (`p_user_id`, `p_caller`) jen super admin; Volajícímu jména kolegů v poznámce a poznámce
-příznaku „jiný volající“ (hlavička „[datum Jméno]“ i text, ne jméno klienta s titulem nebo příjmením), kdo z kolegů
-dal příznak taky, u cizího zámku jen `zamceno` (bez `lock_by`), hledání podle jména kolegy nic nenajde a `total`
-z `list_kontakty` (součty celé databáze) je `null`, stránkuje se podle `dalsi`. Uložení maskované poznámky jména
-kolegů v databázi nezničí (`app_poznamka_zpet`). Appka: Kontakty Volajícímu bez počtů u stavů a košů a bez celkového
-počtu, Statistiky bez trychtýře „Klienti podle stavu“ a dlaždice „jako #1 prodejce“, Prokchop se na #1 neptá a swagger
-brýle nenabízí, detail u cizího zámku jen „Kontakt je zamčený“; `allStats` a `topSeller` volá jen super admin;
-demo mock dělá totéž (`poznamkaBezCizich`, `poznamkaZpet`); `npm test` blok S a e2e S. ⚠ NAHRAZUJE „text poznámek
-se jmény kolegů zůstává (Albert 25. 9. 2026), stejně jako `lock_by`“ a „`top_prodejce` jen `{je_prvni}` pro každého“.
+příznaku „jiný volající“ (hlavička „[datum Jméno]“ i text, ne jméno klienta s titulem nebo příjmením; velikost
+písmen ani diakritika nerozhoduje, „Mikulas“ je Mikuláš), kdo z kolegů dal příznak taky, u cizího zámku jen `zamceno`
+(bez `lock_by`), hledání podle jména kolegy nic nenajde a `total` z `list_kontakty` (součty celé databáze) je `null`,
+stránkuje se podle `dalsi`, nejvýš 200 řádků na stránku (appka chce 50). Ve Zprávách (`get_thread`, `list_threads`)
+jméno jiného Volajícího „jiný volající“ (kdo založil, předmět, odesílatel, text, náhled); jména super adminů, Alberta
+a agentů zůstávají. **Řádky kolegů v poznámce a poznámce příznaku jsou Volajícímu jen ke čtení** (recenze 20. 10.
+2026): server je uloží doslova, a když některý chybí, je změněný nebo přesunutý, uložení odmítne („Řádek kolegy
+upravit ani smazat nejde, připište nový řádek.“); nový řádek s hlavičkou „[datum …]“ se jménem kolegy nebo
+„jiný volající“ taky („Nový řádek nesmí mít v hlavičce …“). Detail chybu ukáže v rámečku chyby a pod polem
+poznámky i poznámky příznaku Volajícímu napíše nápovědu, když v nich řádky kolegů jsou (`maRadkyKolegu`).
+Appka: Kontakty Volajícímu bez počtů u stavů a košů a bez celkového počtu, Statistiky bez trychtýře „Klienti podle
+stavu“ a dlaždice „jako #1 prodejce“, Prokchop se na #1 neptá a swagger brýle nenabízí, detail u cizího zámku jen
+„Kontakt je zamčený“; `allStats` a `topSeller` volá jen super admin; demo mock dělá totéž (`poznamkaBezCizich`,
+`bezDiakritiky`, `poznamkaZpet`, strop 200, `jmenaKolegu` ve vláknech); `npm test` blok S a e2e S. ⚠ NAHRAZUJE
+„text poznámek se jmény kolegů zůstává (Albert 25. 9. 2026), stejně jako `lock_by`“, „`top_prodejce` jen
+`{je_prvni}` pro každého“ a „uložení maskované poznámky vrátí jména do nezměněných i upravených řádků“ (recenze
+20. 10. 2026: upravený nebo přesunutý řádek kolegy jméno ztratil nebo ho dostal jiný řádek).
 
 Od migrace 024/025 (Albert 2026-09-24 večer): kontakt **upravuje** jen ten, komu patří,
 jeho super admin a Albert (server posílá u každého řádku `smi_upravit`; příznak a zámek

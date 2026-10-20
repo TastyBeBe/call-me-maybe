@@ -19,6 +19,7 @@ import {
 } from '../api';
 import { audio } from '../audio';
 import { useSession } from '../auth';
+import { isSuperAdmin } from '../roles';
 import { bezCizihoIco, icoVidi, segmentOf } from '../segment';
 import {
   ALL_FLAGS,
@@ -48,6 +49,17 @@ import {
   SendIcon,
   XIcon,
 } from '../icons';
+
+/**
+ * Migrace 045, recenze 20. 10. 2026: Volající dostává řádky kolegů v poznámce jako „jiný volající“ a jsou pro něj
+ * jen ke čtení; server uložení se změněným, smazaným nebo přesunutým řádkem kolegy odmítne (chyba se ukáže
+ * v ErrorBox). Nápověda pod polem, ať to ví dřív, než uloží. Super admin a Albert jména vidí, nápovědu nedostanou.
+ */
+export const RADKY_KOLEGU_NAPOVEDA =
+  'Řádky s „jiný volající“ psali kolegové: upravit, přesunout ani smazat je nejde, připište nový řádek.';
+export function maRadkyKolegu(text: string | null | undefined, role: string | null | undefined): boolean {
+  return !isSuperAdmin(role) && /jiný volající/i.test(text ?? '');
+}
 
 /* ---------- červený příznak (migrace 005) ---------- */
 
@@ -178,6 +190,9 @@ function FlagPanel({
               onChange={(e) => setNote(e.target.value)}
               placeholder="Napiš konkrétně, co u klienta chybí nebo není ověřené…"
             />
+            {maRadkyKolegu(kontakt.flag_note, session.role) && (
+              <p className="muted radky-kolegu" style={{ fontSize: 13.5, margin: '6px 0 0' }}>{RADKY_KOLEGU_NAPOVEDA}</p>
+            )}
           </div>
           <ErrorBox>{error}</ErrorBox>
           <div className="flag-actions">
@@ -617,6 +632,9 @@ export default function KontaktDrawer({
             <div className="field">
               <label>Poznámky</label>
               <textarea rows={7} value={note} onChange={(e) => setNote(e.target.value)} />
+              {maRadkyKolegu(kontakt.note, session.role) && (
+                <p className="muted radky-kolegu" style={{ fontSize: 13.5, margin: '6px 0 0' }}>{RADKY_KOLEGU_NAPOVEDA}</p>
+              )}
             </div>
           </>
         )}
