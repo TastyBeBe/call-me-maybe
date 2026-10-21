@@ -300,3 +300,16 @@ Workflow `.github/workflows/deploy.yml` při pushi na `main`:
 3. nasadí přes `actions/deploy-pages`.
 
 V nastavení repozitáře zapni **Settings → Pages → Source: GitHub Actions**.
+
+### Otevřená appka se aktualizuje sama (Albert 21. 10. 2026)
+
+Appka otevřená v prohlížeči (záložka, okno nainstalované appky, obnovená relace) dřív běžela ve staré verzi,
+dokud ji člověk sám nenačetl znovu: 21. 10. ráno tak na jednom počítači pořád ukazovala dole ve volání box
+s radami k hovoru, který je z nasazené verze pryč od 19. 10. Od 21. 10. si běžící appka (`src/aktualizace.ts`, spouští ji
+`src/main.tsx`) každých 5 minut, při návratu na záložku a při zaměření okna stáhne `index.html` bez cache
+a porovná jméno balíčku `assets/index-*.js` s tím, ze kterého běží. Když se liší, stránku znovu načte, ale
+nikdy uprostřed psaní: dokud je kurzor v políčku, je vyplněné textové políčko nebo otevřené potvrzovací okno,
+ukáže jen lištu „Je tu nová verze appky“ s tlačítkem „Načíst teď“ a zkusí to znovu za 15 s. Přihlášení, stránka
+i nastavení zůstanou. Jen v produkčním sestavení. Test `npm test` (`tests/aktualizace.test.mjs`).
+Pravidla viditelnosti tím nevznikají ani neslábnou: vynucuje je server, stará kopie appky od něj cizí čísla
+nedostane; aktualizace jen zajistí, že zmizí i to, co bylo jen v kódu stránky.

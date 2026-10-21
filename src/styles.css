@@ -2127,3 +2127,26 @@ table.kontakty tr:last-child td {
   .rozvrh-uprava-den .rozvrh-den-jmeno { grid-column: 1 / -1; }
   .rozvrh-alert-titulek { font-size: 19px; }
 }
+
+/* ---------- nová verze appky (src/aktualizace.ts, Albert 21. 10. 2026) ----------
+   Lišta jen když se nová verze nemůže načíst hned, protože člověk zrovna něco píše. */
+
+.nova-verze {
+  position: fixed;
+  left: 50%;
+  bottom: 18px;
+  transform: translateX(-50%);
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  max-width: calc(100vw - 32px);
+  padding: 10px 14px 10px 18px;
+  background: var(--yellow);
+  color: var(--ink);
+  border: var(--border);
+  border-radius: 18px;
+  box-shadow: var(--shadow-hard-sm);
+  font-weight: 600;
+  font-size: 14px;
+}
