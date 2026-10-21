@@ -21,7 +21,7 @@ import {
   cenaText,
   errMsg,
   formatCastka,
-  formatDate,
+  formatDatumPraha,
   formatEur,
   formatKc,
 } from '../ui';
@@ -266,7 +266,7 @@ function Vydelano({ v, ja, jmeno, jaSuper }: { v: Vydelek; ja: boolean; jmeno: s
         <ul className="vydelek-prodeje">
           {v.prodeje.map((p) => (
             <li key={p.kontakt_id} className={p.tento_tyden ? 'tento-tyden' : ''}>
-              <span className="vydelek-datum">{formatDate(p.prodano_at)}</span>
+              <span className="vydelek-datum">{formatDatumPraha(p.prodano_at)}</span>
               <span className="vydelek-jmeno">{p.jmeno}</span>
               <span className="vydelek-cena" title={p.zdroj === 'sleva' ? 'Cena po nabídce poloviční ceny (sleva)' : 'Cena webu'}>
                 {cenaText(p.cena)?.text ?? p.cena ?? '—'}

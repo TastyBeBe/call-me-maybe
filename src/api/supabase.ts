@@ -368,8 +368,22 @@ export const supabaseApi: Api = {
 
   /* ---- kalendář hovorů a výdělek (migrace 050, Albert 21. 10. 2026) ---- */
 
-  async zavolatSeznam(token: string, userId: number | null = null, vsichni = false): Promise<ZavolatSeznam> {
-    return rpc<ZavolatSeznam>('zavolat_seznam', { p_token: token, p_user_id: userId, p_vsichni: vsichni });
+  async zavolatSeznam(
+    token: string,
+    userId: number | null = null,
+    vsichni = false,
+    jenCekajici = false
+  ): Promise<ZavolatSeznam> {
+    return rpc<ZavolatSeznam>('zavolat_seznam', {
+      p_token: token,
+      p_user_id: userId,
+      p_vsichni: vsichni,
+      p_jen_cekajici: jenCekajici,
+    });
+  },
+
+  async zavolatKontaktu(token: string, kontaktId: number): Promise<ZavolatPolozka | null> {
+    return rpc<ZavolatPolozka | null>('zavolat_kontaktu', { p_token: token, p_kontakt_id: kontaktId });
   },
 
   async zavolatNaplanovat(

@@ -5,6 +5,9 @@
 // jen ten, kdo má volat: karta ve volání přes zavolat_vzit), číslo k vytočení, Hotovo (klient mimo frontu), Přesunout
 // a Zrušit (s potvrzením). Kontakt jde ven stejnou maskou jako v seznamech: Volající u kontaktu, který mu naplánoval
 // super admin a který není jeho, vidí jen jméno a kontakt (detail se otevře ve variantě „skryto“).
+// Po recenzi 21. 10. 2026: celý seznam se načte při otevření a po každé změně (událost cmm:zavolat-changed); druhý
+// minutový dotaz stránka nemá: čas („před 2 h“) bere z hodin poskytovatele připomínek (src/zavolat.tsx) a vlastní
+// kalendář načte znovu, když se při jeho minutové obnově změní čekající hovory (podpis).
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
@@ -17,6 +20,7 @@ import ZavolatModal from '../components/ZavolatModal';
 import { CalendarIcon } from '../icons';
 import { prahaDen } from '../praha';
 import { isAdminRole, isSuperAdmin, roleLabel } from '../roles';
+import { useZavolat } from '../zavolat';
 import {
   ConfirmModal,
   ErrorBox,
@@ -31,7 +35,6 @@ import {
   kontaktJmeno,
 } from '../ui';
 
-const OBNOVA_MS = 60 * 1000;
 /** Volba filtru super admina: „ja“, id člověka, nebo „vsichni“. */
 type Kdo = 'ja' | 'vsichni' | number;
 
@@ -128,7 +131,10 @@ export default function KalendarPage() {
   const [data, setData] = useState<ZavolatSeznam | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [ted, setTed] = useState(() => Date.now());
+  const zavolat = useZavolat();
+  // hodiny poskytovatele připomínek (každých 15 s); do prvního tiku čas načtení
+  const [nacteno, setNacteno] = useState(() => Date.now());
+  const ted = Math.max(zavolat.ted, nacteno);
   const [busy, setBusy] = useState(false);
   const [akceChyba, setAkceChyba] = useState('');
   const [hotoveOtevrene, setHotoveOtevrene] = useState(false);
@@ -152,7 +158,7 @@ export default function KalendarPage() {
         );
         if (muj !== posledni.current) return;
         setData(s);
-        setTed(Date.now());
+        setNacteno(Date.now());
         setError('');
       } catch (e) {
         if (muj !== posledni.current) return;
@@ -166,14 +172,22 @@ export default function KalendarPage() {
 
   useEffect(() => {
     void nacti();
-    const timer = window.setInterval(() => void nacti(true), OBNOVA_MS);
     const zmena = () => void nacti(true);
     window.addEventListener('cmm:zavolat-changed', zmena);
     return () => {
-      window.clearInterval(timer);
       window.removeEventListener('cmm:zavolat-changed', zmena);
     };
   }, [nacti]);
+
+  // vlastní kalendář: minutová obnova poskytovatele našla jiné čekající hovory (jiné zařízení, super admin) → načíst
+  const podpisPred = useRef(zavolat.podpis);
+  useEffect(() => {
+    if (zavolat.podpis === podpisPred.current) return;
+    podpisPred.current = zavolat.podpis;
+    // změna, kterou udělala tahle stránka, už je načtená (událost cmm:zavolat-changed): neptat se podruhé
+    if (kdo === 'ja' && Date.now() - nacteno > 3000) void nacti(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [zavolat.podpis, kdo, nacti]);
 
   const akce = async (fn: () => Promise<unknown>) => {
     setBusy(true);

@@ -11,11 +11,10 @@
 // má jen jméno a kontakt; detail mu ukáže jen ty a nápovědu, žádný stav, poznámky, příznak, zámek ani vlákna.
 // NAHRAZUJE „u cizího kontaktu jen příznak a uvolnění zámku“ pro Volající (příznak a zámek cizího mění jen super admin).
 // Migrace 050 (Albert 21. 10. 2026: „they should be able to plan a call for any client, Moji klienti or Kontakty“):
-// v obou variantách tlačítko „Naplánovat hovor“ (sdílené okno ZavolatModal). Jestli smí, rozhodne server: Volající
-// svému klientovi nebo kontaktu ve frontě, kterému nikdo nevolal (ten se mu tím rezervuje), super admin komukoli
-// a vybere, kdo zavolá. U cizího kontaktu appka nezná stav, proto tlačítko nabídne a případnou hlášku serveru ukáže.
+// tlačítko „Naplánovat hovor“ / „Přesunout hovor“ (sdílené okno ZavolatModal). Po recenzi 21. 10. 2026 Volající jen
+// u svého klienta (cizímu kontaktu, ani volnému z fronty, hovor naplánovat nesmí), super admin komukoli a vybere, kdo zavolá.
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   getApi,
   type ChatMessage,
@@ -51,7 +50,6 @@ import {
   formatRelativne,
   pravidloPopisek,
 } from '../ui';
-import { useZavolat } from '../zavolat';
 import { usePeople } from './PersonPicker';
 import ZavolatModal from './ZavolatModal';
 import {
@@ -451,7 +449,11 @@ function ArchitektUdaje({ kontakt, icoVidi: vidi }: { kontakt: Kontakt; icoVidi:
 
 /* ---------- naplánovat hovor (migrace 050, Albert 21. 10. 2026) ---------- */
 
-/** Okno „Naplánovat hovor“; lidi pro výběr „Kdo zavolá“ (all_stats) se načtou, jen když ho otevře super admin. */
+/**
+ * Okno „Naplánovat hovor“, a když kontakt čekající hovor má, „Přesunout hovor“ (zavolat_presunout, po recenzi 21. 10. 2026):
+ * předvybraný ten, kdo hovor má, předvyplněná poznámka; super admin smí vybrat jiného. Lidi pro výběr „Kdo zavolá“
+ * (all_stats) se načtou, jen když okno otevře super admin.
+ */
 function NaplanovatOkno({
   kontakt,
   hovor,
@@ -459,15 +461,16 @@ function NaplanovatOkno({
   onHotovo,
 }: {
   kontakt: Kontakt;
-  /** vlastní čekající hovor kontaktu: okno ho přesune (zavolat_naplanovat čekající hovor kontaktu přesune) */
+  /** čekající hovor kontaktu (zavolat_kontaktu): okno ho přesune */
   hovor: ZavolatPolozka | null;
   onZavrit: () => void;
   onHotovo: (veta: string) => void;
 }) {
   const session = useSession();
+  const jaSuper = isSuperAdmin(session.role);
   const people = usePeople(); // Volajícímu prázdné (usePeople volá all_stats jen za super admina)
   const lide = people
-    .filter((p) => p.active)
+    .filter((p) => p.active || p.user_id === hovor?.user_id)
     .map((p) => ({ user_id: p.user_id, display_name: p.display_name, popis: p.user_id === session.user_id ? '' : roleLabel(p.role) }));
   // výchozí „Kdo zavolá“: u přesunu ten, kdo hovor má; jinak ten, kdo kontaktu volá (super admin jméno vidí), jinak přihlášený
   const volajici = people.find((p) => p.display_name === kontakt.last_caller)?.user_id ?? null;
@@ -475,38 +478,62 @@ function NaplanovatOkno({
     <ZavolatModal
       titulek={hovor ? 'Přesunout hovor' : 'Naplánovat hovor'}
       komu={kontaktJmeno(kontakt)}
-      uvod={<p style={{ margin: 0 }}>Hovor se objeví v kalendáři a v den hovoru ti appka připomene, komu a kdy zavolat.</p>}
+      uvod={<p style={{ margin: 0 }}>Hovor se objeví v kalendáři a v den hovoru appka připomene, komu a kdy zavolat.</p>}
       vychoziKdy={hovor?.kdy ?? null}
       vychoziPoznamka={hovor?.poznamka ?? null}
-      lide={isSuperAdmin(session.role) ? lide : []}
+      lide={jaSuper ? lide : []}
       vychoziKdo={hovor ? hovor.user_id : volajici}
       jaId={session.user_id}
       potvrdit={hovor ? 'Přesunout' : 'Naplánovat'}
       onZavrit={onZavrit}
       onUlozit={async (v) => {
-        const z = await getApi().zavolatNaplanovat(session.token, kontakt.id, v.kdy, v.poznamka, v.userId);
+        const z = hovor
+          ? await getApi().zavolatPresunout(session.token, hovor.id, v.kdy, v.poznamka, jaSuper ? v.userId ?? session.user_id : null)
+          : await getApi().zavolatNaplanovat(session.token, kontakt.id, v.kdy, v.poznamka, v.userId);
         audio.play('success');
-        onHotovo(`Hovor je naplánovaný: ${z.muj ? 'zavoláš' : `zavolá ${z.volajici ?? ''}`} ${formatKdyVeta(z.kdy)}.`);
+        onHotovo(`Hovor je ${hovor ? 'přesunutý' : 'naplánovaný'}: ${z.muj ? 'zavoláš' : `zavolá ${z.volajici ?? ''}`} ${formatKdyVeta(z.kdy)}.`);
       }}
     />
   );
 }
 
-/** Blok v detailu: vlastní čekající hovor kontaktu (když ho kalendář zná) a tlačítko Naplánovat hovor. */
+/**
+ * Blok v detailu: čekající hovor kontaktu (zavolat_kontaktu při otevření: kdy, kdo, poznámka) a tlačítko Naplánovat
+ * nebo Přesunout hovor. Po recenzi 21. 10. 2026 (⚠ NAHRAZUJE „v obou variantách, rozhodne server“): Volající jen u svého
+ * klienta (server mu cizí kontakt naplánovat nedovolí, kontakt z fronty přeplánuje při hovoru); super admin u každého.
+ * Server bez migrace 050 RPC nezná: blok pak hovor jen neukáže.
+ */
 function ZavolatBlok({ kontakt }: { kontakt: Kontakt }) {
-  const { hovorKontaktu } = useZavolat();
+  const session = useSession();
+  const smi = isSuperAdmin(session.role) || kontakt.je_muj === true;
+  const [hovor, setHovor] = useState<ZavolatPolozka | null>(null);
   const [otevreno, setOtevreno] = useState(false);
   const [hotovo, setHotovo] = useState('');
-  const hovor = hovorKontaktu(kontakt.id);
+  const posledni = useRef(0);
+  const nacti = useCallback(() => {
+    const muj = ++posledni.current;
+    getApi()
+      .zavolatKontaktu(session.token, kontakt.id)
+      .then((z) => {
+        if (muj === posledni.current) setHovor(z);
+      })
+      .catch(() => {
+        if (muj === posledni.current) setHovor(null);
+      });
+  }, [session.token, kontakt.id]);
   useEffect(() => {
     setOtevreno(false);
     setHotovo('');
-  }, [kontakt.id]);
+    setHovor(null);
+    if (smi) nacti();
+  }, [smi, nacti]);
+  if (!smi) return null;
   return (
     <div className="zavolat-blok">
       {hovor && (
         <p className="zavolat-blok-hovor">
-          <AlarmIcon size={15} /> Máš naplánovaný hovor {formatKdyVeta(hovor.kdy)} ({formatRelativne(hovor.kdy)})
+          <AlarmIcon size={15} /> Naplánovaný hovor {formatKdyVeta(hovor.kdy)} ({formatRelativne(hovor.kdy)}) · volá{' '}
+          {hovor.muj ? 'ty' : hovor.volajici ?? '—'}
           {hovor.poznamka ? ` · ${hovor.poznamka}` : ''}
         </p>
       )}
@@ -522,6 +549,7 @@ function ZavolatBlok({ kontakt }: { kontakt: Kontakt }) {
           onHotovo={(veta) => {
             setOtevreno(false);
             setHotovo(veta);
+            nacti();
           }}
         />
       )}

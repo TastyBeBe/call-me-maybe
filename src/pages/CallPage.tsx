@@ -21,8 +21,9 @@ import {
   jenZaklad,
   kontaktJmeno,
   obratArchitekta,
+  useOkno,
 } from '../ui';
-import ZavolatModal from '../components/ZavolatModal';
+import ZavolatModal, { PREPLANOVAT_NEJDRIV_MIN } from '../components/ZavolatModal';
 import {
   AlarmIcon,
   ArrowDownIcon,
@@ -60,6 +61,9 @@ function NerelevantniModal({
   const [vybrane, setVybrane] = useState<string[]>([]);
   const [text, setText] = useState(vychozi);
   const [chyba, setChyba] = useState('');
+  // klávesnice: fokus na první důvod, Escape zavře, Tab zůstává v okně (po recenzi 21. 10. 2026)
+  const okno = useRef<HTMLDivElement>(null);
+  useOkno(okno, onZpet, busy);
   const duvod = [...DUVODY_NERELEVANTNI.filter((d) => vybrane.includes(d)), text.trim()].filter(Boolean).join(' · ');
   const potvrdit = async () => {
     if (!duvod) return;
@@ -68,7 +72,7 @@ function NerelevantniModal({
   };
   return (
     <div className="scrim" onClick={() => !busy && onZpet()}>
-      <div className="modal card nerelevantni-modal" role="dialog" aria-modal="true" aria-labelledby="nerelevantni-titulek"
+      <div ref={okno} className="modal card nerelevantni-modal" role="dialog" aria-modal="true" aria-labelledby="nerelevantni-titulek"
         onClick={(e) => e.stopPropagation()}>
         <h3 className="modal-title" id="nerelevantni-titulek">Kontakt není relevantní?</h3>
         <div className="modal-body">
@@ -78,11 +82,12 @@ function NerelevantniModal({
           </p>
           <p className="nerelevantni-otazka">Proč? (povinné)</p>
           <div className="zavolat-volby" role="group" aria-label="Rychlý důvod">
-            {DUVODY_NERELEVANTNI.map((d) => {
+            {DUVODY_NERELEVANTNI.map((d, i) => {
               const ano = vybrane.includes(d);
               return (
                 <button
                   key={d}
+                  data-autofocus={i === 0 ? true : undefined}
                   type="button"
                   className={`pill-btn sm zavolat-volba${ano ? ' active' : ''}`}
                   aria-pressed={ano}
@@ -156,8 +161,10 @@ export default function CallPage() {
   const [vytoceno, setVytoceno] = useState(false);
 
   // Migrace 050 (Albert 21. 10. 2026): `zavolatId` = „Zavolat teď“ u naplánovaného hovoru (z kalendáře, z upozornění):
-  // karta přijde přes zavolat_vzit místo next_contact a projde stejnou kontrolou pozdních odpovědí (reqId). Segment
-  // jde za kartou. Závislosti zůstávají [session.token, session.user_id] (kontrola 75, npm test blok K).
+  // karta přijde přes zavolat_vzit místo next_contact a projde stejnou kontrolou pozdních odpovědí (reqId). Zvolený
+  // segment se NEMĚNÍ (po recenzi 21. 10. 2026, ⚠ NAHRAZUJE „segment jde za kartou“): karta z jiného segmentu má žlutou
+  // cedulku „Po tomhle hovoru dostaneš …“ jako rozdělaná karta po přepnutí. Závislosti zůstávají [session.token,
+  // session.user_id] (kontrola 75, npm test blok K).
   const loadNext = useCallback(async (hlaska = '', zavolatId: number | null = null) => {
     const my = ++reqId.current;
     const seg = segmentRef.current;
@@ -184,12 +191,10 @@ export default function CallPage() {
     setNote('');
     setVytoceno(false);
     let next: Kontakt | null = null;
-    let hovor = false;
     try {
       if (zavolatId !== null) {
         try {
           next = await getApi().zavolatVzit(session.token, zavolatId);
-          hovor = true;
         } catch (e) {
           if (my !== reqId.current) return;
           // hovor už je vyřízený, klient není ve frontě nebo ho volá kolega: hláška a další karta jako obvykle
@@ -210,14 +215,6 @@ export default function CallPage() {
         return;
       }
       shownId.current = next ? next.id : null;
-      if (next && hovor && segmentOf(next) !== segmentRef.current) {
-        // naplánovaný architekt při zvolených chatách (nebo naopak): přepínač ukáže segment karty a další karta po hovoru
-        // přijde z něj, jinak by svítila cedulka „Po tomhle hovoru dostaneš …“ (Albert 21. 10. 2026: segment jde za kartou)
-        const s = segmentOf(next);
-        segmentRef.current = s;
-        setSegment(s);
-        saveCallSegment(s);
-      }
       if (!next) {
         setKontakt(null);
         setEmpty(true);
@@ -767,8 +764,13 @@ export default function CallPage() {
               zůstane ve frontě a v ten čas ti ho appka připomene a dá ve volání jako prvního.
             </p>
           }
-          vychoziKdy={kontakt.zavolat?.kdy && new Date(kontakt.zavolat.kdy).getTime() > Date.now() ? kontakt.zavolat.kdy : null}
+          vychoziKdy={
+            kontakt.zavolat?.kdy && new Date(kontakt.zavolat.kdy).getTime() >= Date.now() + PREPLANOVAT_NEJDRIV_MIN * 60 * 1000
+              ? kontakt.zavolat.kdy
+              : null
+          }
           vychoziPoznamka={note}
+          nejdrivMinut={PREPLANOVAT_NEJDRIV_MIN}
           poznamkaMax={2000}
           poznamkaPopisek="Poznámka k hovoru (nepovinná)"
           poznamkaNapoveda="uloží se k hovoru, v kalendáři prvních 500 znaků"

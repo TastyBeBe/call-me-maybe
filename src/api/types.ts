@@ -657,8 +657,16 @@ export interface Api {
   /** Jen super admin: plnění rozvrhu všech Volajících, kdo je pozadu, je první. */
   prehledRozvrhu(token: string): Promise<RozvrhPrehledRadek[]>;
   /* ---- kalendář hovorů a výdělek (migrace 050, Albert 21. 10. 2026) ---- */
-  /** Kalendář: svůj každý; super admin kohokoli (userId) nebo všech (vsichni). */
-  zavolatSeznam(token: string, userId?: number | null, vsichni?: boolean): Promise<ZavolatSeznam>;
+  /**
+   * Kalendář: svůj každý; super admin kohokoli (userId) nebo všech (vsichni). `jenCekajici` (p_jen_cekajici, po recenzi
+   * 21. 10. 2026): jen čekající hovory, bez uzavřených za 14 dní (připomínky a odznak to víc nepotřebují).
+   */
+  zavolatSeznam(token: string, userId?: number | null, vsichni?: boolean, jenCekajici?: boolean): Promise<ZavolatSeznam>;
+  /**
+   * Čekající hovor kontaktu (po recenzi 21. 10. 2026): Volající jen svůj hovor, super admin kterýkoli; jinak null.
+   * Detail kontaktu podle něj ukáže, kdy a kdo volá, a okno otevře jako Přesunout.
+   */
+  zavolatKontaktu(token: string, kontaktId: number): Promise<ZavolatPolozka | null>;
   /** Naplánuje hovor (kdy = ISO). Volající sám sobě; super admin vybere, kdo zavolá (userId). Čekající hovor kontaktu přesune. */
   zavolatNaplanovat(
     token: string,

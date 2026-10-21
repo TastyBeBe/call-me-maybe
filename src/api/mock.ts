@@ -1639,27 +1639,18 @@ function zavolatPoznamka(p: string | null | undefined): string | null {
   return v;
 }
 
-/** Strop rezervací volných kontaktů naplánovaným hovorem na jednoho Volajícího (zavolat_naplanovat, recenze 21. 10. 2026). */
-const ZAVOLAT_STROP_REZERVACI = 30;
-
-/**
- * Jen pro tests/volani.test.mjs (strop 30 rezervací potřebuje víc volných kontaktů, než má demo): přidá `n` chat ve
- * frontě bez volajícího a vrátí jejich id. Appka ani DEMO ji nevolají; RPC na zakládání kontaktů server nemá.
- */
-export function testPridejVolneChaty(n: number): number[] {
-  const ids: number[] = [];
-  for (let i = 0; i < n; i++) {
-    const id = nextKontaktId++;
-    kontakty.push(k({ id, name: `Testovací chata ${id}`, phone: `+420 731 100 ${String(id).padStart(3, '0')}`, ma_web: 'ne' }));
-    ids.push(id);
-  }
-  return ids;
-}
-
 /** Čekající hovor kontaktu (unikátní index zavolat_jeden_cekajici). */
 function cekajiciHovor(kid: number): MockZavolat | undefined {
   return zavolatRadky.find((z) => z.kontakt_id === kid && z.stav === 'ceka');
 }
+
+/** Má hovor volat aktivní člověk? Hovor deaktivovaného nikoho neblokuje a další naplánování ho nahradí (recenze 21. 10. 2026). */
+function drziAktivni(z: MockZavolat): boolean {
+  return users.some((u) => u.id === z.user_id && u.active);
+}
+
+/** Text u hovoru neaktivního člověka, který naplánování nebo přeplánování nahradilo. */
+const NEAKTIVNI = 'člověk, který měl volat, už není aktivní';
 
 /** app_zavolat_karta: {id, kdy, poznamka} čekajícího hovoru kontaktu pro toho, kdo ho má volat, jinak null. */
 function zavolatKarta(uid: number, kid: number): ZavolatKarta | null {
@@ -1761,8 +1752,8 @@ function cenaZeSlevyText(detail: string): string {
 const PROVIZE_PROCENT = 30;
 
 /**
- * app_vydelek: výdělek člověka. Prodej a přiřazení přesně jako „prodáno“ v my_stats (statsFor): kontakt ve stavu prodeje,
- * u kterého má člověk v call_log zájem. Cena = částka ze slevy (sleva_odeslana PŘED prodejem), jinak cena webu; hosting
+ * app_vydelek: výdělek člověka. Kontakt ve stavu prodeje, u kterého má člověk v call_log POSLEDNÍ zájem (po recenzi
+ * 21. 10. 2026; my_stats „prodáno“ počítá každého, kdo zájem zapsal). Cena = částka ze slevy (sleva_odeslana PŘED prodejem), jinak cena webu; hosting
  * nikdy. 30 % v Kč na celé koruny, v € na haléře (centy). Tento týden = po až ne v Praze podle data prodeje.
  */
 function vydelekPro(uid: number): Vydelek {
@@ -1770,9 +1761,15 @@ function vydelekPro(uid: number): Vydelek {
   const od = posunDen(dnes, -(isoDen(dnes) - 1));
   const doDne = posunDen(od, 6);
   const radky: (VydelekProdej & { razeni: number })[] = kontakty
-    .filter(
-      (c) => PRODANO_STAVY.includes(c.status) && callLog.some((l) => l.kontakt_id === c.id && l.user_id === uid && l.outcome === 'zajem')
-    )
+    // po recenzi 21. 10. 2026: prodej patří jen tomu, kdo kontaktu zapsal POSLEDNÍ zájem (jeden web = jedna provize).
+    // ⚠ NAHRAZUJE „každému, kdo má u kontaktu zájem“ (my_stats „prodáno“ zůstává beze změny)
+    .filter((c) => {
+      if (!PRODANO_STAVY.includes(c.status)) return false;
+      const posledni = callLog
+        .filter((l) => l.kontakt_id === c.id && l.outcome === 'zajem')
+        .sort((a, b) => b.created_at.localeCompare(a.created_at) || b.id - a.id)[0];
+      return posledni?.user_id === uid;
+    })
     .map((c) => {
       const prodanoAt = kontaktProdej.get(c.id)?.prodano_at ?? c.updated_at;
       const sleva = (slevy.get(c.id) ?? [])
@@ -1843,8 +1840,9 @@ function vydelekPro(uid: number): Vydelek {
   pridej({ kontakt_id: 10, user_id: 2, kdy: kolem(-2 * 3600000), poznamka: 'Byl v práci, ať zavoláme odpoledne.' });
   pridej({ kontakt_id: 9, user_id: 2, kdy: kolem(2 * 3600000), vytvoril_id: 1, created_at: hoursAgo(3),
     poznamka: 'Domluvit platbu faktury, chce to probrat po telefonu.' });
+  // volný kontakt z fronty, který Petře dal Albert (super admin): tím se jí rezervoval
   pridej({ kontakt_id: 12, user_id: 2, kdy: vPraze(zitra, '10:00'), poznamka: 'Majitel bere telefon jen dopoledne.',
-    rezervace: true, puvodni_last_caller: null, created_at: hoursAgo(5) });
+    rezervace: true, puvodni_last_caller: null, vytvoril_id: 1, created_at: hoursAgo(5) });
   pridej({ kontakt_id: 11, user_id: 3, kdy: vPraze(zitra, '15:30'), poznamka: 'Chce zavolat zítra po třetí.' });
   pridej({ kontakt_id: 4, user_id: 2, kdy: daysAgo(3), stav: 'hotovo', vysledek: 'hovor: odmitnuto', created_at: daysAgo(5),
     uzavreno_at: daysAgo(3) });
@@ -2014,6 +2012,10 @@ const mockApiZaklad: Api = {
     }
     // migrace 050: přeplánovaný hovor potřebuje čas (od teď do roka, app_zavolat_over_kdy)
     const kdy = outcome === 'preplanovano' ? overKdy(args.kdy) : null;
+    // po recenzi 21. 10. 2026: přeplánovat nejdřív za 15 minut (kdo chce mluvit hned, s tím se hovor dokončí teď)
+    if (kdy !== null && new Date(kdy).getTime() < Date.now() + 15 * 60 * 1000) {
+      fail('Přeplánovat jde nejdřív za 15 minut. Když chce člověk mluvit hned, dokončete hovor teď.');
+    }
     // Migrace 046 (dvě recenze 045, 20. 10. 2026): poznámka z hovoru je v poznámce kontaktu jeden řádek s hlavičkou
     // „[datum Jméno]“. ⚠ NAHRAZUJE víceřádkový zápis (migrace 029): řádky pod hlavičkou nenesly jméno a kolega je mohl
     // upravit nebo smazat. Konce řádků (i Unicode) jako mezera, strop 2 000 znaků, Volající v ní hlavičku s datem
@@ -2090,9 +2092,10 @@ const mockApiZaklad: Api = {
         z.zmeneno_at = now();
       } else {
         if (z) {
+          // neutrální text (po recenzi 21. 10. 2026): kdo hovor převzal, se u cizího hovoru neříká
           z.stav = 'zruseno';
           z.uzavreno_at = now();
-          z.vysledek = 'hovor převzal a přeplánoval jiný volající';
+          z.vysledek = drziAktivni(z) ? 'přeplánováno při jiném hovoru' : NEAKTIVNI;
         }
         zavolatRadky.push({
           id: nextZavolatId++, kontakt_id: kontakt.id, user_id: user.id, kdy: kdy!, poznamka: pozn, stav: 'ceka', vysledek: null,
@@ -2100,11 +2103,12 @@ const mockApiZaklad: Api = {
           uzavreno_at: null,
         });
       }
-    } else if (z && (z.user_id === user.id || !VE_FRONTE(novyStav))) {
+    } else if (z && (z.user_id === user.id || !VE_FRONTE(novyStav) || !drziAktivni(z))) {
+      // cizí hovor se zruší, když kontakt opustil frontu nebo když ho drží deaktivovaný člověk (recenze 21. 10. 2026)
       const muj = z.user_id === user.id;
       z.stav = muj ? 'hotovo' : 'zruseno';
       z.uzavreno_at = now();
-      z.vysledek = muj ? `hovor: ${outcome}` : 'kontakt už není ve frontě volání (hovor jiného volajícího)';
+      z.vysledek = muj ? `hovor: ${outcome}` : !drziAktivni(z) ? NEAKTIVNI : 'kontakt už není ve frontě volání';
     }
     return { ok: true, kontakt_id: kontakt.id, status: kontakt.status };
   },
@@ -3033,7 +3037,12 @@ const mockApiZaklad: Api = {
 
   /* ---- kalendář hovorů a výdělek (migrace 050, Albert 21. 10. 2026): stejná pravidla a hlášky jako server ---- */
 
-  async zavolatSeznam(token: string, userId: number | null = null, vsichni = false): Promise<ZavolatSeznam> {
+  async zavolatSeznam(
+    token: string,
+    userId: number | null = null,
+    vsichni = false,
+    jenCekajici = false
+  ): Promise<ZavolatSeznam> {
     await delay(120);
     const me = auth(token);
     // každý volající vidí svůj kalendář; super admini kohokoli a všech (jako Rozvrh, 042); práva napřed
@@ -3044,7 +3053,8 @@ const mockApiZaklad: Api = {
     const kdo = userId ?? me.id;
     const hranice = Date.now() - 14 * 86400000;
     const polozky = zavolatRadky
-      .filter((z) => (vse || z.user_id === kdo) && (z.stav === 'ceka' || (z.uzavreno_at !== null && new Date(z.uzavreno_at).getTime() > hranice)))
+      .filter((z) => (vse || z.user_id === kdo)
+        && (z.stav === 'ceka' || (jenCekajici !== true && z.uzavreno_at !== null && new Date(z.uzavreno_at).getTime() > hranice)))
       .map((z) => ({ z, uzavreny: z.stav !== 'ceka', razeni: z.stav === 'ceka' ? new Date(z.kdy).getTime() : -new Date(z.uzavreno_at!).getTime() }))
       .sort((a, b) => Number(a.uzavreny) - Number(b.uzavreny) || a.razeni - b.razeni || a.z.id - b.z.id)
       .slice(0, 500)
@@ -3075,20 +3085,24 @@ const mockApiZaklad: Api = {
     const pozn = zavolatPoznamka(poznamka);
     const c = kontakty.find((x) => x.id === kontaktId);
     if (!c) fail(`Kontakt id=${kontaktId} neexistuje.`);
-    // kontakt bez volajícího ve frontě: kdo ho naplánuje, tomu se rezervuje (last_caller), jako oznacit_za_sveho
-    const volny = VE_FRONTE(c.status) && kontaktBezMajitele(c.id);
-    // Volající jen svému klientovi nebo takovému volnému kontaktu; jedna hláška pro všechno ostatní (cizí klient,
-    // kontakt mimo frontu): podle ní nepozná, jestli cizímu kontaktu někdo volal, ani jak je daleko (045, 048)
-    if (me.role !== 'super_admin' && !(volny || kontaktyOf([me.id]).has(c.id))) {
-      fail('Naplánovat hovor můžete jen svému klientovi nebo kontaktu ve frontě volání, kterému ještě nikdo nevolal.');
-    }
-    // strop rezervací (recenze 21. 10. 2026): Volající si naplánováním volných kontaktů nevezme z fronty víc než 30
-    // najednou (rezervovaný kontakt nikdo jiný nedostane); vlastní klienty a super admina strop nehlídá
-    if (me.role !== 'super_admin' && volny
-        && zavolatRadky.filter((x) => x.user_id === me.id && x.stav === 'ceka' && x.rezervace).length >= ZAVOLAT_STROP_REZERVACI) {
-      fail(`Volných kontaktů máte naplánovaným hovorem rezervovaných už ${ZAVOLAT_STROP_REZERVACI} (víc najednou nejde). Nejdřív jim zavolejte, nebo některý hovor zrušte.`);
+    // Po recenzi 21. 10. 2026: Volající jen svému klientovi (kontaktu, kterému volal); kontakt z fronty přeplánuje při
+    // hovoru. Jedna hláška pro všechno ostatní (cizí klient, kontakt mimo frontu, volný kontakt): podle ní nepozná, jestli
+    // cizímu kontaktu někdo volal, ani jak je daleko (045, 048). ⚠ NAHRAZUJE „i kontaktu ve frontě, kterému nikdo
+    // nevolal“ (rezervace naplánováním) a strop 30 rezervací. Volný kontakt rezervuje jen super admin, když ho někomu dá.
+    if (me.role !== 'super_admin' && !kontaktyOf([me.id]).has(c.id)) {
+      fail('Naplánovat hovor můžete jen svému klientovi (kontaktu, kterému jste volal/a). Kontakt z fronty naplánujete při hovoru tlačítkem Přeplánovat.');
     }
     let z = cekajiciHovor(c.id);
+    // čekající hovor neaktivního člověka: zruší se a vznikne nový (nikdo ho už nevolá, Volající ho přesunout nesmí)
+    if (z && !drziAktivni(z)) {
+      vratRezervaci(z);
+      z.stav = 'zruseno';
+      z.uzavreno_at = now();
+      z.vysledek = NEAKTIVNI;
+      z.zmenil_id = me.id;
+      z.zmeneno_at = now();
+      z = undefined;
+    }
     if (z && z.user_id !== me.id && me.role !== 'super_admin') {
       fail('Tenhle kontakt už má naplánovaný hovor u jiného člověka. Přesunout ho může on nebo super admin.');
     }
@@ -3100,7 +3114,8 @@ const mockApiZaklad: Api = {
       }
       z.user_id = cil.id;
       z.kdy = kdyIso;
-      z.poznamka = pozn;
+      // po recenzi 21. 10. 2026: bez nové poznámky zůstane stará (coalesce)
+      z.poznamka = pozn ?? z.poznamka;
       z.zmenil_id = me.id;
       z.zmeneno_at = now();
     } else {
@@ -3111,8 +3126,9 @@ const mockApiZaklad: Api = {
       };
       zavolatRadky.push(z);
     }
-    // rezervace volného kontaktu (znovu změřeno po přesunu: vrácená rezervace kontakt zase uvolní)
-    if (VE_FRONTE(c.status) && kontaktBezMajitele(c.id)) {
+    // rezervace: kontakt ve frontě bez volajícího, kterému super admin naplánoval hovor (Volající sem s volným kontaktem
+    // nedojde), dostane last_caller toho, kdo má volat (znovu změřeno po přesunu: vrácená rezervace kontakt zase uvolní)
+    if (me.role === 'super_admin' && VE_FRONTE(c.status) && kontaktBezMajitele(c.id)) {
       z.rezervace = true;
       z.puvodni_last_caller = c.last_caller;
       c.last_caller = cil.display_name;
@@ -3217,10 +3233,22 @@ const mockApiZaklad: Api = {
     if (c.lock_by !== null && c.lock_by !== me.id && c.lock_at !== null && new Date(c.lock_at).getTime() > Date.now() - 2 * 3600 * 1000) {
       fail('Kontakt teď volá někdo jiný. Zkuste to za chvíli.');
     }
+    // vlastní platný zámek zůstává i s časem (po recenzi 21. 10. 2026): 30 minut na vrácení a 2 h zámku běží od vzetí
+    // karty, „Zavolat teď“ je neposouvá (jako průchod 0 v next_contact)
+    const vlastniPlatny = c.lock_by === me.id && c.lock_at !== null && new Date(c.lock_at).getTime() > Date.now() - 2 * 3600 * 1000;
     c.lock_by = me.id;
-    c.lock_at = now();
+    if (!vlastniPlatny) c.lock_at = now();
     c.updated_at = now();
     return kartaSHovorem(me, c);
+  },
+
+  async zavolatKontaktu(token: string, kontaktId: number): Promise<ZavolatPolozka | null> {
+    await delay(80);
+    const me = auth(token);
+    // čekající hovor kontaktu: Volající jen svůj (o cizím se nedozví ani to, že existuje), super admin kterýkoli
+    const z = cekajiciHovor(kontaktId);
+    if (!z || (z.user_id !== me.id && me.role !== 'super_admin')) return null;
+    return zavolatVen(me, z);
   },
 
   async statistikyVolani(token: string, userId: number | null = null): Promise<StatistikyVolani> {

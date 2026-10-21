@@ -42,7 +42,7 @@ let bundle;
   const out = await build({
     stdin: {
       contents: [
-        "export { mockApi, cenaCist, testPridejVolneChaty } from './src/api/mock.ts';",
+        "export { mockApi, cenaCist } from './src/api/mock.ts';",
         "export { supabaseApi } from './src/api/supabase.ts';",
         "export * as uiModul from './src/ui.tsx';",
         "export * as prahaModul from './src/praha.ts';",
@@ -69,7 +69,7 @@ let bundle;
   bundle = createRequire(import.meta.url)(f);
   rmSync(dir, { recursive: true, force: true });
 }
-const { mockApi: api, cenaCist, testPridejVolneChaty, supabaseApi, uiModul: U, prahaModul: P, zavolatModul: Z, oknoModul: O } = bundle;
+const { mockApi: api, cenaCist, supabaseApi, uiModul: U, prahaModul: P, zavolatModul: Z, oknoModul: O } = bundle;
 
 let pocet = 0;
 let chyby = 0;
@@ -199,6 +199,23 @@ await blok('V', async () => {
   h = (await api.statistikyVolani(honza)).vydelek;
   over('V11c', h.prodeje.find((x) => x.kontakt_id === 5)?.prodano_at === s5?.prodano_at, 'nový vstup do prodeje datum prodeje nemění (první vstup platí)');
   await api.updateKontakt(albert, 5, { status: 'navrh_odeslan', cena_web: '5900' });
+  // po recenzi 21. 10. 2026: prodej patří jen tomu, kdo zapsal POSLEDNÍ zájem (Honza zájem, pak Petra zájem → jen Petra)
+  // kontakt 1 (volný): super admin ho dá Honzovi, Honza ho vezme „Zavolat teď“ a zapíše zájem; pak totéž Petra
+  const x = 1;
+  const zhx = await api.zavolatNaplanovat(mikulas, x, za(60 * MIN), null, 3);
+  const kh = await api.zavolatVzit(honza, zhx.id);
+  await api.resolveCall(honza, { kontakt_id: kh.id, outcome: 'zajem', cena_web: '8000', cena_hosting: '1000/rok', rating: 'A' });
+  await api.updateKontakt(albert, x, { status: 'nedovolano' });
+  const zpx = await api.zavolatNaplanovat(mikulas, x, za(60 * MIN), null, 2);
+  const kp = await api.zavolatVzit(petra, zpx.id);
+  await api.resolveCall(petra, { kontakt_id: kp.id, outcome: 'zajem', cena_web: '8000', cena_hosting: '1000/rok', rating: 'A' });
+  await api.updateKontakt(albert, x, { status: 'schvaleno' });
+  const vpx = (await api.statistikyVolani(petra)).vydelek;
+  const vhx = (await api.statistikyVolani(honza)).vydelek;
+  over('V13', zhx.user_id === 3 && kh?.id === x && kp?.id === x && vpx.prodeje.some((r) => r.kontakt_id === x && r.provize === 2400)
+    && !vhx.prodeje.some((r) => r.kontakt_id === x) && (await api.myStats(honza)).sold === vhx.prodano + 1,
+    'prodej s dvěma zájmy připadne jen poslednímu (Petra), my_stats „prodáno“ ho dál počítá oběma', JSON.stringify({ p: vpx.prodano, h: vhx.prodano }));
+  await api.updateKontakt(albert, x, { status: 'odmitnuto' }); // ven z prodeje i z fronty (nepletl by další bloky)
   h = (await api.statistikyVolani(honza)).vydelek;
   over('V12', h.celkem_kc === 1050 && h.prodano === 2 && !h.prodeje.some((x) => /hosting|190/.test(String(x.cena))), 'po návratu stavu zpět; hosting se nikde nepočítá');
 });
@@ -248,6 +265,13 @@ await blok('M', async () => {
   over('M14', O.chybaCasu(null, ted) === 'Vyberte den a čas, kdy zavolat.' && O.chybaCasu(new Date(ted - 11 * MIN).toISOString(), ted) === 'Ten čas už je pryč. Vyberte den a čas, který teprve přijde.'
     && O.chybaCasu(new Date(ted - 9 * MIN).toISOString(), ted) === null && O.chybaCasu(new Date(ted + 367 * 86400000).toISOString(), ted) === 'Hovor jde naplánovat nejvýš rok dopředu.',
     'okno hlídá čas stejnými hláškami jako server (10 minut zpět, nejvýš rok)');
+  const H15 = 'Přeplánovat jde nejdřív za 15 minut. Když chce člověk mluvit hned, dokončete hovor teď.';
+  over('M15', O.HLASKA_15_MINUT === H15 && O.chybaCasu(new Date(ted + 10 * MIN).toISOString(), ted, 15) === H15
+    && O.chybaCasu(new Date(ted + 15 * MIN).toISOString(), ted, 15) === null && O.chybaCasu(new Date(ted + 10 * MIN).toISOString(), ted) === null,
+    'Přeplánovat: okno chce aspoň 15 minut dopředu (stejná hláška jako resolve_call), kalendář ne');
+  const pozde = Date.parse('2026-10-21T15:50:00Z'); // 17:50 v Praze
+  over('M16', O.rychleVolby(pozde, 15).every((v) => v.popis !== 'Dnes 18:00') && O.rychleVolby(pozde).some((v) => v.popis === 'Dnes 18:00')
+    && O.rychleVolby(pozde, 15).some((v) => v.popis === 'Za hodinu'), 'u Přeplánovat se nenabídne volba dřív než za 15 minut (v 17:50 „Dnes 18:00“ ne)');
 });
 
 /* ---------------- Z) připomínky (src/zavolat.tsx): dnešní a po termínu, okno −5 až +30 minut, každý hovor jednou ---------------- */
@@ -261,12 +285,17 @@ await blok('Z', async () => {
   const dnes = Z.dnesAPoTerminu(s).map((x) => x.id);
   over('Z1', JSON.stringify(dnes) === '[2,7,4,1]', 'odznak a lišta: vlastní čekající na dnešek a po termínu, nejstarší první', JSON.stringify(dnes));
   over('Z2', Z.kUpozorneni(s, t0, new Set())?.id === 4, 'upozornění na hovor za 4 minuty (okno 5 minut před)');
-  over('Z3', Z.kUpozorneni(s, t0, new Set([4])) === null, 'hovor, na který už appka upozornila, znovu ne; 31 minut po termínu ani cizí ne');
-  over('Z4', Z.kUpozorneni(s, t0 - 2 * MIN, new Set([7])) === null && Z.kUpozorneni(s, t0 - MIN, new Set([7]))?.id === 4, 'okno začíná 5 minut před časem hovoru');
-  over('Z5', Z.kUpozorneni(s, t0 + 3 * 60 * MIN + 29 * MIN, new Set([4]))?.id === 1 && Z.kUpozorneni(s, t0 + 3 * 60 * MIN + 31 * MIN, new Set([4])) === null,
+  const kl = (id) => Z.klicPripominky(s.polozky.find((x) => x.id === id));
+  over('Z3', Z.kUpozorneni(s, t0, new Set([kl(4)])) === null, 'hovor, na který už appka upozornila, znovu ne; 31 minut po termínu ani cizí ne');
+  over('Z4', Z.kUpozorneni(s, t0 - 2 * MIN, new Set([kl(7)])) === null && Z.kUpozorneni(s, t0 - MIN, new Set([kl(7)]))?.id === 4, 'okno začíná 5 minut před časem hovoru');
+  over('Z5', Z.kUpozorneni(s, t0 + 3 * 60 * MIN + 29 * MIN, new Set([kl(4)]))?.id === 1 && Z.kUpozorneni(s, t0 + 3 * 60 * MIN + 31 * MIN, new Set([kl(4)])) === null,
     'okno končí 30 minut po čase hovoru');
   over('Z6', Z.PRIPOMINKA_PRED_MS === 5 * MIN && Z.PRIPOMINKA_PO_MS === 30 * MIN && Z.LS_PRIPOMENUTO === 'volacka_zavolat_pripomenuto_', 'okno −5 až +30 minut, paměť v localStorage na člověka');
   over('Z7', Z.dnesAPoTerminu(null).length === 0 && Z.kUpozorneni(null, t0, new Set()) === null, 'bez kalendáře (server bez migrace 050) nic');
+  // po recenzi 21. 10. 2026: paměť je „id|kdy“, přesunutý hovor (stejné id, jiný čas) připomene znovu
+  const presunuty = { ...s, polozky: s.polozky.map((x) => (x.id === 4 ? { ...x, kdy: new Date(t0 + 2 * MIN).toISOString() } : x)) };
+  over('Z8', Z.klicPripominky({ id: 4, kdy: '2026-10-21T10:04:00Z' }) === '4|2026-10-21T10:04:00.000Z' && Z.kUpozorneni(presunuty, t0, new Set([kl(4)]))?.id === 4,
+    'přesunutý hovor (nový čas) připomene znovu');
 });
 
 /* ---------------- K) kalendář: seznam, práva a maska kontaktu (zavolat_*) ---------------- */
@@ -288,8 +317,8 @@ await blok('K', async () => {
     'položka kalendáře má klíče jako app_zavolat_ven', Object.keys(z10).sort().join());
   over('K4c', z10.kontakt.skryto === false && z10.kontakt.status === 'nedovolano' && z10.kontakt.smi_upravit === true && !('cekani_kind' in z10.kontakt),
     'kontakt vlastního klienta je celý (maska ze seznamů)');
-  const h = await seznam(honza);
-  over('K5', h.length === 1 && h[0].kontakt_id === 11 && h[0].user_id === 3, 'Honza vidí jen svůj hovor', JSON.stringify(h.map((z) => z.kontakt_id)));
+  const h = (await seznam(honza)).filter((z) => z.stav === 'ceka');
+  over('K5', h.length === 1 && h[0].kontakt_id === 11 && h[0].user_id === 3, 'Honza vidí jen svůj čekající hovor', JSON.stringify(h.map((z) => z.kontakt_id)));
   const vse = await seznam(mikulas, null, true);
   over('K6', vse.filter((z) => z.stav === 'ceka').length === 4 && vse.some((z) => z.volajici === 'Honza') && vse.some((z) => z.volajici === 'Petra'),
     'super admin vidí kalendář všech', `${vse.length}`);
@@ -319,7 +348,8 @@ await blok('K', async () => {
   const kdy = za(2 * 60 * MIN);
   await chyba('K11', () => api.zavolatNaplanovat(petra, 6, kdy, null, 3), presne('Hovor za jiného člověka plánuje jen super admin.'), 'Volající neplánuje za kolegu');
   await chyba('K11b', () => api.zavolatNaplanovat(petra, 999999, kdy, null, 9999), presne('Hovor za jiného člověka plánuje jen super admin.'), 'práva napřed (nepozná, které id existuje)');
-  const JEN_SVUJ = presne('Naplánovat hovor můžete jen svému klientovi nebo kontaktu ve frontě volání, kterému ještě nikdo nevolal.');
+  // po recenzi 21. 10. 2026: Volající jen svému klientovi (⚠ NAHRAZUJE „i kontaktu ve frontě, kterému nikdo nevolal“)
+  const JEN_SVUJ = presne('Naplánovat hovor můžete jen svému klientovi (kontaktu, kterému jste volal/a). Kontakt z fronty naplánujete při hovoru tlačítkem Přeplánovat.');
   await chyba('K12', () => api.zavolatNaplanovat(petra, 3, kdy, null), JEN_SVUJ, 'cizí klient mimo frontu: jedna hláška');
   await chyba('K12b', () => api.zavolatNaplanovat(petra, 8, kdy, null), JEN_SVUJ, 'cizí kontakt ve frontě (volal mu kolega): stejná hláška');
   await chyba('K12c', () => api.zavolatNaplanovat(petra, 303, kdy, null), JEN_SVUJ, 'cizí architekt: stejná hláška');
@@ -331,14 +361,16 @@ await blok('K', async () => {
   await chyba('K13d', () => api.zavolatNaplanovat(petra, 6, kdy, 'x'.repeat(501)), presne('Poznámka k naplánovanému hovoru může mít nejvýš 500 znaků.'), 'poznámka nad 500 znaků');
   over('K13e', (await radek(6))?.last_caller === null && !(await cekajici(petra, 6)), 'odmítnuté plánování nic nezměnilo');
 
-  // volný kontakt ve frontě: naplánováním se Petře rezervuje (last_caller), zrušení rezervaci vrátí
-  const z6 = await api.zavolatNaplanovat(petra, 6, za(-5 * MIN), `  zavolat${String.fromCharCode(7)} po obědě  `);
+  // volný kontakt ve frontě: Volající ho sám nenaplánuje (přeplánuje ho při hovoru); super admin ho dá Petře a tím se jí
+  // rezervuje (last_caller), zrušení rezervaci vrátí
+  await chyba('K14a', () => api.zavolatNaplanovat(petra, 6, kdy, null), JEN_SVUJ, 'volný kontakt z fronty Volající nenaplánuje (žádné rezervace naplánováním)');
+  const z6 = await api.zavolatNaplanovat(mikulas, 6, za(-5 * MIN), `  zavolat${String.fromCharCode(7)} po obědě  `, 2);
   over('K14', z6.poznamka === 'zavolat po obědě' && (await radek(6))?.last_caller === 'Petra' && (await api.myKontakty(petra, 500, 0)).rows.some((r) => r.id === 6),
-    'volný kontakt: naplánování ho Petře rezervuje (je v Moji klienti), poznámka bez řídicích znaků; 5 minut zpět projde', JSON.stringify(z6.poznamka));
+    'super admin dá volný kontakt Petře: rezervuje se jí (je v Moji klienti), poznámka bez řídicích znaků; 5 minut zpět projde', JSON.stringify(z6.poznamka));
   await chyba('K14b', () => api.zavolatNaplanovat(honza, 6, kdy, null), JEN_SVUJ, 'rezervovaný kontakt už kolega naplánovat nemůže');
   const z6b = await api.zavolatNaplanovat(petra, 6, za(4 * 60 * MIN), '   ');
-  over('K14c', z6b.id === z6.id && z6b.poznamka === null && (await seznam(petra)).filter((z) => z.kontakt_id === 6 && z.stav === 'ceka').length === 1,
-    'další naplánování čekající hovor přesune (jeden na kontakt), prázdná poznámka = null');
+  over('K14c', z6b.id === z6.id && z6b.poznamka === 'zavolat po obědě' && (await seznam(petra)).filter((z) => z.kontakt_id === 6 && z.stav === 'ceka').length === 1,
+    'Petra svůj (rezervovaný) hovor přesune znovu naplánováním (jeden na kontakt); bez nové poznámky zůstane stará');
   // super admin ho dá Honzovi: rezervace se vrátí a kontakt se rezervuje Honzovi
   const z6h = await api.zavolatNaplanovat(mikulas, 6, za(4 * 60 * MIN), null, 3);
   over('K15', z6h.id === z6.id && z6h.user_id === 3 && (await radek(6))?.last_caller === 'Honza' && !(await cekajici(petra, 6)),
@@ -400,7 +432,23 @@ await blok('K', async () => {
   const k10 = await api.zavolatVzit(petra, z10.id);
   over('K24', k10.id === 10 && k10.lock_by === 2 && k10.zavolat?.id === z10.id && k10.zavolat.poznamka === 'Byl v práci, ať zavoláme odpoledne.'
     && Object.keys(k10.zavolat).sort().join() === 'id,kdy,poznamka', '„Zavolat teď“ zamkne kontakt Petře a vrátí kartu s klíčem zavolat', JSON.stringify(k10.zavolat));
+  // po recenzi 21. 10. 2026: vlastní platný zámek si čas nechá (30 minut na vrácení a 2 h zámku běží od vzetí karty)
+  const zamekPred = (await radek(10))?.lock_at;
+  await new Promise((r) => puvodniTimeout(r, 15));
+  const k10b = await api.zavolatVzit(petra, z10.id);
+  over('K24b', k10b.id === 10 && !!zamekPred && (await radek(10))?.lock_at === zamekPred, '„Zavolat teď“ u vlastní zamčené karty zámek neposune', `${zamekPred} → ${(await radek(10))?.lock_at}`);
   await api.returnContact(petra, 10);
+  // čekající hovor kontaktu (zavolat_kontaktu): Volající jen svůj, super admin kterýkoli, jinak null
+  const zk12 = await api.zavolatKontaktu(petra, 12);
+  const zk11p = await api.zavolatKontaktu(petra, 11);
+  const zk11m = await api.zavolatKontaktu(mikulas, 11);
+  const zk1 = await api.zavolatKontaktu(mikulas, 1);
+  over('K26', zk12?.id === z12.id && zk12.muj && zk11p === null && zk11m?.volajici === 'Honza' && zk11m.muj === false && zk1 === null,
+    'zavolat_kontaktu: Petra svůj hovor, cizí ne (null); super admin i Honzův; bez hovoru null', JSON.stringify({ a: zk12?.id, b: zk11p, c: zk11m?.volajici, d: zk1 }));
+  // jen čekající (p_jen_cekajici): připomínky nepotřebují uzavřené hovory
+  const jen = (await api.zavolatSeznam(petra, null, false, true)).polozky;
+  over('K27', jen.length > 0 && jen.every((z) => z.stav === 'ceka') && (await seznam(petra)).some((z) => z.stav !== 'ceka'),
+    'zavolat_seznam s p_jen_cekajici vrátí jen čekající hovory');
   // hotovo u klienta mimo frontu
   const h9 = await api.zavolatHotovo(petra, z9.id, null);
   const z9po = (await seznam(petra)).find((z) => z.id === z9.id);
@@ -464,6 +512,8 @@ await blok('P', async () => {
   await chyba('P1', () => api.resolveCall(petra, { kontakt_id: a.id, outcome: 'preplanovano' }), presne('Vyberte den a čas, kdy zavolat.'), 'přeplánovat bez času');
   await chyba('P1b', () => api.resolveCall(petra, { kontakt_id: a.id, outcome: 'preplanovano', kdy: za(-30 * MIN) }),
     presne('Ten čas už je pryč. Vyberte den a čas, který teprve přijde.'), 'přeplánovat do minulosti');
+  await chyba('P1d', () => api.resolveCall(petra, { kontakt_id: a.id, outcome: 'preplanovano', kdy: za(10 * MIN) }),
+    presne('Přeplánovat jde nejdřív za 15 minut. Když chce člověk mluvit hned, dokončete hovor teď.'), 'přeplánovat dřív než za 15 minut');
   await chyba('P1c', () => api.resolveCall(petra, { kontakt_id: a.id, outcome: 'preplanovano', kdy: za(400 * 86400000) }),
     presne('Hovor jde naplánovat nejvýš rok dopředu.'), 'přeplánovat víc než rok dopředu');
   const kdy1 = za(24 * 60 * MIN);
@@ -519,17 +569,19 @@ await blok('P', async () => {
   await api.zavolatPresunout(mikulas, zb.id, za(60 * MIN), null, 3);
   await api.resolveCall(petra, { kontakt_id: b, outcome: 'odmitnuto' });
   const zbPo = (await seznam(mikulas, 3)).find((x) => x.id === zb.id);
-  over('P10', zbPo?.stav === 'zruseno' && zbPo.vysledek === 'kontakt už není ve frontě volání (hovor jiného volajícího)', 'kontakt opustil frontu: cizí hovor se zruší', JSON.stringify(zbPo?.vysledek));
+  over('P10', zbPo?.stav === 'zruseno' && zbPo.vysledek === 'kontakt už není ve frontě volání', 'kontakt opustil frontu: cizí hovor se zruší', JSON.stringify(zbPo?.vysledek));
   // přeplánování kontaktu s cizím hovorem: ten se zruší a vznikne vlastní
-  const c2 = [1, 2, 6, 8].find((x) => x !== a.id);
+  const veFronte = async (id) => ['nekontaktovano', 'nedovolano'].includes((await radek(id))?.status);
+  let c2 = null;
+  for (const id of [2, 8, 6, 1]) if (id !== a.id && !c2 && (await veFronte(id)) && !(await cekajici(mikulas, id, null, true))) c2 = id;
   const zc = await api.zavolatNaplanovat(mikulas, c2, za(-5 * MIN), null, 2);
   const kc = await api.nextContact(petra, 'chata');
   await api.zavolatPresunout(mikulas, zc.id, za(60 * MIN), null, 3);
   await api.resolveCall(petra, { kontakt_id: kc.id, outcome: 'preplanovano', kdy: za(90 * MIN), note: 'převzala jsem' });
   const zcPo = (await seznam(mikulas, 3)).find((x) => x.id === zc.id);
   const nova = await cekajici(petra, c2);
-  over('P11', kc.id === c2 && zcPo?.stav === 'zruseno' && zcPo.vysledek === 'hovor převzal a přeplánoval jiný volající' && nova && nova.id !== zc.id && nova.poznamka === 'převzala jsem',
-    'přeplánování převezme cizí hovor: ten se zruší, vznikne vlastní', JSON.stringify({ z: zcPo?.vysledek, n: nova?.id }));
+  over('P11', kc.id === c2 && zcPo?.stav === 'zruseno' && zcPo.vysledek === 'přeplánováno při jiném hovoru' && nova && nova.id !== zc.id && nova.poznamka === 'převzala jsem',
+    'přeplánování převezme cizí hovor: ten se zruší s neutrálním textem, vznikne vlastní', JSON.stringify({ z: zcPo?.vysledek, n: nova?.id }));
 
   // supabase.ts: p_kdy jen u přeplánovaného hovoru (starý server ho nezná), nová RPC s názvy parametrů jako SQL
   odeslano.length = 0;
@@ -540,6 +592,7 @@ await blok('P', async () => {
     && odeslano.every((o) => /\/rpc\/resolve_call$/.test(o.url)), 'resolve_call posílá p_kdy jen u preplanovano', JSON.stringify(odeslano.map((o) => Object.keys(o.body))));
   odeslano.length = 0;
   await supabaseApi.zavolatSeznam('tok', 3, true);
+  await supabaseApi.zavolatKontaktu('tok', 7);
   await supabaseApi.zavolatNaplanovat('tok', 7, '2026-10-23T13:00:00.000Z', 'pozn', 2);
   await supabaseApi.zavolatPresunout('tok', 9, '2026-10-23T13:00:00.000Z', null, null);
   await supabaseApi.zavolatZrusit('tok', 9);
@@ -547,57 +600,64 @@ await blok('P', async () => {
   await supabaseApi.zavolatVzit('tok', 9);
   await supabaseApi.statistikyVolani('tok', 2);
   const tvar = odeslano.map((o) => `${o.url.split('/rpc/')[1]}(${Object.keys(o.body).join(',')})`).join(' ');
-  over('P13', tvar === 'zavolat_seznam(p_token,p_user_id,p_vsichni) zavolat_naplanovat(p_token,p_kontakt_id,p_kdy,p_poznamka,p_user_id) '
+  over('P13', tvar === 'zavolat_seznam(p_token,p_user_id,p_vsichni,p_jen_cekajici) zavolat_kontaktu(p_token,p_kontakt_id) zavolat_naplanovat(p_token,p_kontakt_id,p_kdy,p_poznamka,p_user_id) '
     + 'zavolat_presunout(p_token,p_id,p_kdy,p_poznamka,p_user_id) zavolat_zrusit(p_token,p_id) zavolat_hotovo(p_token,p_id,p_vysledek) '
     + 'zavolat_vzit(p_token,p_id) statistiky_volani(p_token,p_user_id)', 'appka volá RPC 050 s parametry jako migrace', tvar);
 });
 
-/* ---------------- R) recenze 21. 10. 2026: strop 30 rezervací, hovory neaktivního člověka frontu neblokují ---------------- */
+/* ---------------- R) recenze 21. 10. 2026: hovory neaktivního člověka, jen vlastní klienti ---------------- */
 await blok('R', async () => {
-  const STROP = presne('Volných kontaktů máte naplánovaným hovorem rezervovaných už 30 (víc najednou nejde). Nejdřív jim zavolejte, nebo některý hovor zrušte.');
-  // Petřiny hovory z dřívějších bloků (i rezervace kontaktu 12) napřed zrušit: strop počítá všechny její čekající rezervace
-  for (const z of (await seznam(petra)).filter((x) => x.stav === 'ceka')) await api.zavolatZrusit(petra, z.id);
-  const volne = testPridejVolneChaty(33);
   const kdy = za(26 * 60 * MIN);
-  const moje = [];
-  for (const id of volne.slice(0, 30)) moje.push(await api.zavolatNaplanovat(petra, id, kdy, null));
-  over('R1', moje.length === 30 && (await radek(volne[29]))?.last_caller === 'Petra', 'Volající si rezervuje 30 volných kontaktů');
-  await chyba('R2', () => api.zavolatNaplanovat(petra, volne[30], kdy, null), STROP, 'třicátý první volný kontakt: strop');
-  over('R2b', (await radek(volne[30]))?.last_caller === null && !(await cekajici(petra, volne[30])), 'odmítnutá rezervace nic nezměnila');
-  await chyba('R3', () => api.zavolatNaplanovat(petra, 3, kdy, null),
-    presne('Naplánovat hovor můžete jen svému klientovi nebo kontaktu ve frontě volání, kterému ještě nikdo nevolal.'), 'práva napřed, pak strop');
-  const vlastni = await api.zavolatNaplanovat(petra, 7, kdy, 'vlastní klient');
-  over('R4', vlastni.kontakt_id === 7 && vlastni.muj, 'vlastní klient strop nemá');
-  await api.zavolatZrusit(petra, vlastni.id);
-  const sa = await api.zavolatNaplanovat(mikulas, volne[30], kdy, null, 2);
-  over('R5', sa.user_id === 2 && (await radek(volne[30]))?.last_caller === 'Petra', 'super admin strop nemá (naplánuje Petře i třicátou první rezervaci)');
-  await api.zavolatZrusit(petra, moje[0].id);
-  await chyba('R6', () => api.zavolatNaplanovat(petra, volne[31], kdy, null), STROP, 'počítají se čekající rezervace (31 − 1 = 30 je pořád strop)');
-  await api.zavolatZrusit(petra, moje[1].id);
-  const znovu = await api.zavolatNaplanovat(petra, volne[31], kdy, null);
-  over('R7', znovu.kontakt_id === volne[31] && (await radek(volne[31]))?.last_caller === 'Petra', 'po zrušení hovorů pod strop jde rezervovat znovu');
-  for (const z of (await seznam(petra)).filter((x) => x.stav === 'ceka' && volne.includes(x.kontakt_id))) await api.zavolatZrusit(petra, z.id);
-  over('R8', (await api.myKontakty(petra, 2000, 0)).rows.filter((r) => volne.includes(r.id)).length === 0,
-    'zrušení vrátí všechny rezervace (kontakty zase nikomu nepatří)');
-  for (const id of volne) await api.updateKontakt(albert, id, { status: 'odmitnuto' }); // ať nepletou další bloky
-
+  const NEAKTIVNI = 'člověk, který měl volat, už není aktivní';
   // hovory neaktivního člověka: průchody 1 a 2 je nepočítají (průchod 0b beze změny)
   const u = await api.createUser(albert, 'docasny050', 'heslo-050', 'Dočasný Test', 'admin', 1);
-  const ted = [];
+  const jeho = {};
   for (const id of [300, 301, 302]) {
     const st = (await radek(id))?.status;
-    if (st === 'nekontaktovano' || st === 'nedovolano') ted.push((await api.zavolatNaplanovat(mikulas, id, kdy, null, u.user_id)).id);
+    if (st === 'nekontaktovano' || st === 'nedovolano') jeho[id] = (await api.zavolatNaplanovat(mikulas, id, kdy, null, u.user_id)).id;
   }
   const a1 = await api.nextContact(honza, 'architekt');
-  over('R9', ted.length >= 1 && a1 === null, 'architekti s čekajícím hovorem aktivního člověka se nikomu nenabídnou', a1 && `${a1.id}`);
+  over('R1', Object.keys(jeho).length === 3 && a1 === null, 'architekti s čekajícím hovorem aktivního člověka se nikomu nenabídnou', a1 && `${a1.id}`);
   await api.updateUser(albert, u.user_id, { active: false });
   const a2 = await api.nextContact(honza, 'architekt');
-  over('R10', !!a2 && [300, 301, 302].includes(a2.id), 'po deaktivaci jeho hovory kontakty neblokují', a2 && `${a2.id}`);
+  over('R2', !!a2 && [300, 301, 302].includes(a2.id), 'po deaktivaci jeho hovory kontakty neblokují', a2 && `${a2.id}`);
   if (a2) await api.returnContact(honza, a2.id);
   const vse = await seznam(mikulas, null, true);
-  over('R11', ted.every((id) => vse.some((z) => z.id === id && z.stav === 'ceka' && z.volajici === 'Dočasný Test')),
+  over('R3', Object.values(jeho).every((id) => vse.some((z) => z.id === id && z.stav === 'ceka' && z.volajici === 'Dočasný Test')),
     'hovory neaktivního člověka super admin dál vidí ve „Všichni volající“ (přeřadí nebo zruší)');
-  for (const id of ted) await api.zavolatZrusit(mikulas, id);
+  // naplánování kontaktu, jehož hovor drží neaktivní člověk: starý se zruší, vznikne nový (302 je Petřin klient)
+  const n302 = await api.zavolatNaplanovat(petra, 302, kdy, 'převzato');
+  const s302 = (await seznam(mikulas, null, true)).find((z) => z.id === jeho[302]);
+  over('R4', n302.id !== jeho[302] && n302.user_id === 2 && s302?.stav === 'zruseno' && s302.vysledek === NEAKTIVNI,
+    'hovor neaktivního člověka naplánování nahradí (zruší se s vysvětlením, vznikne nový)', JSON.stringify(s302?.vysledek));
+  // přeplánování ve volání: totéž (Petře přijde 300 nebo 301, hovor neaktivního je neblokuje)
+  const ka = await api.nextContact(petra, 'architekt');
+  over('R5', !!ka && [300, 301].includes(ka.id), 'Petra dostane architekta s hovorem neaktivního člověka', ka && `${ka.id}`);
+  if (ka) {
+    await api.resolveCall(petra, { kontakt_id: ka.id, outcome: 'preplanovano', kdy, note: 'zítra' });
+    const sk = (await seznam(mikulas, null, true)).find((z) => z.id === jeho[ka.id]);
+    over('R6', sk?.stav === 'zruseno' && sk.vysledek === NEAKTIVNI && (await cekajici(petra, ka.id))?.user_id === 2,
+      'přeplánování nahradí hovor neaktivního člověka stejným vysvětlením', JSON.stringify(sk?.vysledek));
+  }
+  // zbylý kontakt (rezervovaný neaktivnímu): Volající ho nenaplánuje, super admin ho dá Petře a rezervace jde s ním
+  const zbyl = [300, 301].find((id) => id !== ka?.id);
+  await chyba('R7', () => api.zavolatNaplanovat(petra, zbyl, kdy, null),
+    presne('Naplánovat hovor můžete jen svému klientovi (kontaktu, kterému jste volal/a). Kontakt z fronty naplánujete při hovoru tlačítkem Přeplánovat.'),
+    'kontakt, který není Petřin (ani volný z fronty), Petra nenaplánuje');
+  const nz = await api.zavolatNaplanovat(mikulas, zbyl, kdy, null, 2);
+  const sz = (await seznam(mikulas, null, true)).find((z) => z.id === jeho[zbyl]);
+  over('R8', nz.id !== jeho[zbyl] && sz?.vysledek === NEAKTIVNI && (await radek(zbyl))?.last_caller === 'Petra',
+    'super admin naplánuje kontakt s hovorem neaktivního: starý se zruší, rezervace přejde na Petru', `${(await radek(zbyl))?.last_caller}`);
+  // jiný výsledek hovoru (nedovoláno, kontakt zůstává ve frontě) hovor neaktivního člověka taky zruší
+  const u2 = await api.createUser(albert, 'docasny050b', 'heslo-050', 'Dočasný Druhý', 'admin', 1);
+  const zu2 = await api.zavolatNaplanovat(mikulas, zbyl, kdy, null, u2.user_id);
+  await api.updateUser(albert, u2.user_id, { active: false });
+  const kz = await api.nextContact(petra, 'architekt');
+  if (kz) await api.resolveCall(petra, { kontakt_id: kz.id, outcome: 'nedovolano' });
+  const su2 = (await seznam(mikulas, null, true)).find((z) => z.id === zu2.id);
+  over('R9', kz?.id === zbyl && su2?.stav === 'zruseno' && su2.vysledek === NEAKTIVNI,
+    'nedovoláno zruší hovor deaktivovaného člověka, i když kontakt zůstává ve frontě', JSON.stringify({ k: kz?.id, v: su2?.vysledek }));
+  for (const z of (await seznam(petra)).filter((x) => x.stav === 'ceka' && [300, 301, 302].includes(x.kontakt_id))) await api.zavolatZrusit(petra, z.id);
 });
 
 /* ---------------- S) zapojení: test v npm test, stránka v appce, Zapsat Nedovoláno zůstává ---------------- */
@@ -608,6 +668,13 @@ await blok('S', async () => {
   over('S2', /path="\/kalendar"/.test(app) && /<ZavolatProvider>/.test(app) && /to="\/kalendar"/.test(app), 'appka má záložku kalendář, stránku /kalendar a připomínky');
   const call = readFileSync(join(ROOT, 'src/pages/CallPage.tsx'), 'utf8');
   over('S3', call.includes('confirmLabel="Zapsat Nedovoláno"') && /\.zavolatVzit\(/.test(call), 've volání zůstává Zapsat Nedovoláno (kontrola 102) a karta z kalendáře jde přes zavolat_vzit');
+  // po recenzi 21. 10. 2026: karta z kalendáře zvolený segment nemění (žlutá cedulka), kalendář nemá druhý minutový dotaz
+  const telo = call.slice(call.indexOf('const loadNext = useCallback('), call.indexOf('}, [session.token, session.user_id]);'));
+  over('S4', telo.length > 100 && !/setSegment\(|saveCallSegment\(/.test(telo) && !/setInterval/.test(readFileSync(join(ROOT, 'src/pages/KalendarPage.tsx'), 'utf8')),
+    'karta z kalendáře segment tiše nepřepne; stránka Kalendář se neptá serveru každou minutu sama');
+  const drawer = readFileSync(join(ROOT, 'src/components/KontaktDrawer.tsx'), 'utf8');
+  over('S5', /const smi = isSuperAdmin\(session\.role\) \|\| kontakt\.je_muj === true;/.test(drawer) && /if \(!smi\) return null;/.test(drawer),
+    'detail: Naplánovat hovor Volající jen u svého klienta');
 });
 
 if (chyby === 0) {

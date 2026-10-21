@@ -100,26 +100,36 @@ v den hovoru a ve statistikách kolik volající vydělal celkem a tento týden 
 - **Volání**: pod třemi hlavními tlačítky menší **Nerelevantní** (okno s povinným důvodem: rychlé „starší člověk“,
   „není majitel“, „objekt neexistuje / nepronajímá“ nebo vlastní text; kontakt se už nevolá ani nepíše a do konverze se
   nepočítá) a **Přeplánovat** (výběr času: Za hodinu, Dnes 18:00, Zítra 9:00, Zítra 14:00, Za týden nebo den a čas;
-  věta „Zavoláš zítra v 9:00 (za 11 h).“; poznámka z karty se přenese; `resolve_call` s `p_kdy`, kontakt zůstane ve
-  frontě a ve zvolený čas přijde tomu, kdo ho přeplánoval, jako první karta). Karta z kalendáře má nahoře cedulku
-  „Naplánovaný hovor …“. `#/call?zavolat=<id>` vezme kartu přes `zavolat_vzit` (stejná kontrola pozdních odpovědí jako
-  `next_contact`, závislosti `loadNext` beze změny, kontrola 75), segment jde za kartou a parametr z adresy hned zmizí;
-  rozdělanou kartu nejdřív potvrdí. „Zapsat Nedovoláno“ v okně přepnutí zůstává (kontrola 102).
+  věta „Zavoláš zítra v 9:00 (za 11 h).“; poznámka z karty se přenese; `resolve_call` s `p_kdy` nejdřív za 15 minut,
+  okno to hlídá stejnou hláškou a dřívější rychlé volby nenabídne; kontakt zůstane ve frontě a ve zvolený čas přijde
+  tomu, kdo ho přeplánoval, jako první karta). Karta z kalendáře má nahoře cedulku „Naplánovaný hovor …“.
+  `#/call?zavolat=<id>` vezme kartu přes `zavolat_vzit` (stejná kontrola pozdních odpovědí jako `next_contact`,
+  závislosti `loadNext` beze změny, kontrola 75) a parametr z adresy hned zmizí; rozdělanou kartu nejdřív potvrdí.
+  Zvolený segment se nemění (po recenzi 21. 10. 2026, ⚠ NAHRAZUJE „segment jde za kartou“): karta z jiného segmentu má
+  žlutou cedulku „Po tomhle hovoru dostaneš …“. „Zapsat Nedovoláno“ v okně přepnutí zůstává (kontrola 102). Okna
+  Nerelevantní a Přeplánovat jdou z klávesnice (fokus v okně, Escape zavře, fokus se vrátí).
 - **Kalendář** (`#/kalendar`, záložka „kalendář“ s odznakem = vlastní hovory na dnešek a po termínu, dlaždice na Domů):
   Po termínu, Dnes, Nadcházející po dnech, Hotové a zrušené za 14 dní (sbalené). U hovoru Zavolat teď (kontakt ve frontě
   a jen ten, kdo má volat), číslo k vytočení, Hotovo (jen klient mimo frontu; server klienta ve frontě odmítne), Přesunout
   a Zrušit s potvrzením. Volající vidí jen svůj (server cizí odmítne), super admin si vybere sebe, kohokoli nebo
   „Všichni volající“ a při přesunu vybere, kdo zavolá. Hovor jde naplánovat i v detailu kontaktu (Moji klienti, Kontakty:
-  „Naplánovat hovor“, u cizího kontaktu Volajícího taky; jestli smí, rozhodne server). Okno času je sdílené
-  (`src/components/ZavolatModal.tsx`), čas je vždy pražský jako na serveru (`src/praha.ts`).
-- **Připomínky** (`src/zavolat.tsx`): každou minutu a hned po každé změně si appka načte vlastní kalendář; lišta na Domů
-  „Dnes máš zavolat …“ s časy a upozornění v rohu (`role="status"`) 5 minut před až 30 minut po čase hovoru, se zvukem
-  podle nastavení zvuků, s tlačítky Zavolat teď a Později; každý hovor jen jednou (id v `localStorage`
-  `volacka_zavolat_pripomenuto_<user_id>`). Server bez migrace 050: nic se neukáže, chyba ne.
+  „Naplánovat hovor“). Po recenzi 21. 10. 2026 (⚠ NAHRAZUJE „u cizího kontaktu Volajícího taky, rozhodne server“):
+  Volající jen u svého klienta (kontakt z fronty přeplánuje při hovoru; podle naplánování volného kontaktu by zjistil,
+  jestli mu někdo z firmy volal), super admin u každého a volný kontakt z fronty tím tomu člověku rezervuje. Detail při
+  otevření načte čekající hovor (`zavolat_kontaktu`: kdy, kdo, poznámka) a okno ho přesune (předvybraný ten, kdo ho má,
+  předvyplněná poznámka). Hovor deaktivovaného člověka nic neblokuje a další naplánování ho nahradí. Okno času je
+  sdílené (`src/components/ZavolatModal.tsx`), čas je vždy pražský jako na serveru (`src/praha.ts`).
+- **Připomínky** (`src/zavolat.tsx`): každou minutu a hned po každé změně si appka načte vlastní čekající hovory
+  (`p_jen_cekajici`); lišta na Domů „Dnes máš zavolat …“ s časy a upozornění v rohu (`role="status"`) 5 minut před až
+  30 minut po čase hovoru, se zvukem podle nastavení zvuků, s tlačítky Zavolat teď a Později; každý hovor v jednom čase
+  jen jednou („id|kdy“ v `localStorage` `volacka_zavolat_pripomenuto_<user_id>`, přesunutý hovor připomene znovu).
+  Stránka Kalendář druhý minutový dotaz nemá (načte se při otevření, po změně a když se čekající hovory při obnově
+  připomínek změní). Server bez migrace 050: nic se neukáže, chyba ne.
 - **Statistiky**: karty Nerelevantní a Přeplánováno a oddíl **Vyděláno** (`statistiky_volani`): celkem, tento týden
   (po až ne v Praze) v Kč, eura zvlášť, „30 % z ceny webu, hosting se nepočítá“, upozornění na prodeje, u kterých cena
-  nejde přečíst (rozpětí, „po domluvě“), a seznam prodaných webů s cenou (po nabídce poloviční ceny částka ze slevy)
-  a provizí. Super admin vybere člověka (posílá `p_user_id`). Vysvětlivka: dovoláno = odmítli + zájem (nerelevantní ani
+  nejde přečíst (rozpětí, „po domluvě“), a seznam prodaných webů (datum v Praze) s cenou (po nabídce poloviční ceny
+  částka ze slevy, jak ji agent zapsal) a provizí. Každý prodej patří jen tomu, kdo zapsal poslední zájem (recenze
+  21. 10. 2026; my_stats „prodáno“ se nemění). Super admin vybere člověka (posílá `p_user_id`). Vysvětlivka: dovoláno = odmítli + zájem (nerelevantní ani
   přeplánované se nepočítají). Rozvrh: hovor je každý zapsaný výsledek, i nerelevantní a přeplánovaný.
 - **Soukromí** (`../docs/ROLE-A-VIDITELNOST.md`): kalendář i výdělek Volající jen svůj; kontakt v kalendáři jde stejnou
   maskou jako v seznamech (cizí klient Volajícího jen jméno a kontakt se `skryto`), kdo hovor naplánoval, je u jiného
@@ -127,16 +137,16 @@ v den hovoru a ve statistikách kolik volající vydělal celkem a tento týden 
 - **Starý server** (bez 050): `p_kdy` se posílá jen u přeplánovaného hovoru, takže ostatní výsledky hovoru fungují dál;
   kalendář, připomínky a výdělek se tiše neukážou.
 - **Demo**: Petra má hovor po termínu (karta 10, ve volání přijde první), hovor u klienta mimo frontu (9, Hotovo),
-  rezervovaný kontakt na zítra (12) a jeden hotový; Honza hovor na zítra (11). Petra prodala dřív Penzion Šumava
+  kontakt z fronty, který jí na zítra naplánoval Albert (12, rezervovaný) a jeden hotový; Honza hovor na zítra (11). Petra prodala dřív Penzion Šumava
   (4 900 Kč → 1 470 Kč) a tento týden Chalupu Na Vršku (7 000 Kč → 2 100 Kč) a má jeden nerelevantní kontakt (13);
   Honza prodal web s cenou „6000-7000 Kč po domluvě“ (nejde přečíst) a jeden po slevě (3 500 Kč místo 7 000 Kč →
   1 050 Kč); Eva web za 250 eur (75 €). Mock zrcadlí server včetně hlášek (`resolve_call`, `next_contact` průchod 0b,
   `zavolat_*`, `statistiky_volani`, `app_cena_cist` jako `cenaCist`, trigger data prodeje).
 - **Testy**: `npm test` blok volání (`tests/volani.test.mjs`: V výdělek a tabulka vzorků ceny shodná s test_050 mezi
   řádky „vzorky ceny: začátek/konec“, kontrola 204; M formátování; Z připomínky; K kalendář, práva a maska; N
-  nerelevantní; P přeplánovat a co appka posílá serveru; S zapojení) a `npm run test:e2e` bloky C (Moji klienti 1280
-  a 390 px), N, P, K (Petra a Mikuláš, 1280 a 390 px), H (odznak a lišta na Domů), T (detail kontaktu a upozornění)
-  a E (výdělek, super admin vybírá člověka, 390 px).
+  nerelevantní; P přeplánovat a co appka posílá serveru; R hovory deaktivovaného člověka; S zapojení) a `npm run test:e2e`
+  bloky C (Moji klienti 1280 a 390 px), N, P, K (Petra a Mikuláš, 1280 a 390 px), K seg (segment se nepřepne potichu),
+  H (odznak a lišta na Domů), T (detail kontaktu a upozornění) a E (výdělek, super admin vybírá člověka, 390 px).
 
 ## Účty a přihlášení (produkce)
 

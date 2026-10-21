@@ -1,12 +1,15 @@
 // PŘIPOMÍNKY NAPLÁNOVANÝCH HOVORŮ (migrace 050, Albert 21. 10. 2026: „a calendar of people to call … in the day
 // of the call, there should be a reminder“). Jeden poskytovatel pro celou appku:
 //  - každou minutu (a hned po každé změně: výsledek hovoru, naplánování, přesun, zrušení, hotovo; událost
-//    `cmm:zavolat-changed` z src/api/index.ts) si načte SVŮJ kalendář (zavolat_seznam bez p_user_id, i super admin
-//    jen svůj: připomínka je pro toho, kdo má volat);
+//    `cmm:zavolat-changed` z src/api/index.ts) si načte SVÉ čekající hovory (zavolat_seznam bez p_user_id
+//    s p_jen_cekajici, i super admin jen svoje: připomínka je pro toho, kdo má volat);
 //  - z něj počítá odznak u záložky „kalendář“ a lištu na Domů (dnešní a po termínu);
 //  - když se blíží čas vlastního čekajícího hovoru (5 minut před až 30 minut po), ukáže v rohu upozornění se zvukem
-//    (audio.play, takže platí vypínač zvuků v appce) a tlačítky „Zavolat teď“ a „Později“. Každý hovor jen jednou:
-//    ukázaná id si pamatuje localStorage pro toho člověka (s try/catch: soukromé okno, zakázané úložiště).
+//    (audio.play, takže platí vypínač zvuků v appce) a tlačítky „Zavolat teď“ a „Později“. Každý hovor jen jednou
+//    na jeden čas: ukázané „id|kdy“ si pamatuje localStorage pro toho člověka (s try/catch: soukromé okno, zakázané
+//    úložiště); přesunutý nebo přeplánovaný hovor připomene znovu (po recenzi 21. 10. 2026, ⚠ NAHRAZUJE „jen id“).
+//  - stránka Kalendář druhý minutový dotaz nemá: obnoví se po změně a když se podpis čekajících hovorů z téhle
+//    obnovy změní (po recenzi 21. 10. 2026).
 // Server bez migrace 050 RPC nezná: chyba se tu nikdy neukazuje, nic se nezobrazí (jako RozvrhPripominka na Domů).
 
 import {
@@ -31,8 +34,13 @@ const KONTROLA_MS = 15 * 1000;
 /** Okno upozornění: 5 minut před časem hovoru až 30 minut po něm. */
 export const PRIPOMINKA_PRED_MS = 5 * 60 * 1000;
 export const PRIPOMINKA_PO_MS = 30 * 60 * 1000;
-/** Klíč localStorage s id hovorů, na které appka už upozornila (+ user_id). */
+/** Klíč localStorage s hovory („id|kdy“), na které appka už upozornila (+ user_id). */
 export const LS_PRIPOMENUTO = 'volacka_zavolat_pripomenuto_';
+
+/** Jeden hovor v jednom čase: přesunutý hovor má nový klíč, takže připomene znovu. */
+export function klicPripominky(z: { id: number; kdy: string }): string {
+  return `${z.id}|${new Date(z.kdy).toISOString()}`;
+}
 
 /** Vlastní čekající hovory na dnešek (i ty, jejichž čas už minul) a po termínu z dřívějška, nejstarší první. */
 export function dnesAPoTerminu(seznam: ZavolatSeznam | null): ZavolatPolozka[] {
@@ -43,12 +51,12 @@ export function dnesAPoTerminu(seznam: ZavolatSeznam | null): ZavolatPolozka[] {
 }
 
 /** První vlastní čekající hovor v okně upozornění, na který appka ještě neupozornila. */
-export function kUpozorneni(seznam: ZavolatSeznam | null, ted: number, uz: Set<number>): ZavolatPolozka | null {
+export function kUpozorneni(seznam: ZavolatSeznam | null, ted: number, uz: Set<string>): ZavolatPolozka | null {
   if (!seznam) return null;
   return (
     seznam.polozky
       .filter((z) => {
-        if (z.stav !== 'ceka' || !z.muj || uz.has(z.id)) return false;
+        if (z.stav !== 'ceka' || !z.muj || uz.has(klicPripominky(z))) return false;
         const t = new Date(z.kdy).getTime();
         return t - PRIPOMINKA_PRED_MS <= ted && ted <= t + PRIPOMINKA_PO_MS;
       })
@@ -56,17 +64,17 @@ export function kUpozorneni(seznam: ZavolatSeznam | null, ted: number, uz: Set<n
   );
 }
 
-function nactiPripomenuto(uid: number): Set<number> {
+function nactiPripomenuto(uid: number): Set<string> {
   try {
     const raw = localStorage.getItem(LS_PRIPOMENUTO + uid);
     const arr = raw ? (JSON.parse(raw) as unknown) : [];
-    return new Set(Array.isArray(arr) ? arr.filter((x): x is number => typeof x === 'number') : []);
+    return new Set(Array.isArray(arr) ? arr.filter((x): x is string => typeof x === 'string') : []);
   } catch {
     return new Set();
   }
 }
 
-function ulozPripomenuto(uid: number, ids: Set<number>): void {
+function ulozPripomenuto(uid: number, ids: Set<string>): void {
   try {
     // posledních 200 stačí: starší hovory už v okně upozornění nikdy nebudou
     localStorage.setItem(LS_PRIPOMENUTO + uid, JSON.stringify([...ids].slice(-200)));
@@ -81,15 +89,18 @@ interface ZavolatCtx {
   obnovit: () => void;
   /** dnešní a po termínu (odznak, lišta na Domů) */
   dnes: ZavolatPolozka[];
-  /** vlastní čekající hovor kontaktu (detail kontaktu), jinak null */
-  hovorKontaktu: (kontaktId: number) => ZavolatPolozka | null;
+  /** hodiny poskytovatele (každých 15 s): relativní časy v kalendáři bez vlastního intervalu */
+  ted: number;
+  /** podpis vlastních čekajících hovorů („id:kdy“): když se při obnově změní, kalendář se načte znovu */
+  podpis: string;
 }
 
 const Ctx = createContext<ZavolatCtx>({
   seznam: null,
   obnovit: () => {},
   dnes: [],
-  hovorKontaktu: () => null,
+  ted: 0,
+  podpis: '',
 });
 
 export function useZavolat(): ZavolatCtx {
@@ -104,14 +115,14 @@ export function ZavolatProvider({ children }: { children: ReactNode }) {
   const [seznam, setSeznam] = useState<ZavolatSeznam | null>(null);
   const [ted, setTed] = useState(() => Date.now());
   const [upozorneni, setUpozorneni] = useState<ZavolatPolozka | null>(null);
-  const pripomenuto = useRef<Set<number>>(new Set());
+  const pripomenuto = useRef<Set<string>>(new Set());
   const posledni = useRef(0);
 
   const obnovit = useCallback(() => {
     if (!token) return;
     const muj = ++posledni.current;
     getApi()
-      .zavolatSeznam(token)
+      .zavolatSeznam(token, null, false, true)
       .then((s) => {
         if (muj !== posledni.current) return; // mezitím přišla novější odpověď (nebo odhlášení)
         setSeznam(s);
@@ -150,7 +161,7 @@ export function ZavolatProvider({ children }: { children: ReactNode }) {
     if (upozorneni || uid === null) return;
     const z = kUpozorneni(seznam, ted, pripomenuto.current);
     if (!z) return;
-    pripomenuto.current.add(z.id);
+    pripomenuto.current.add(klicPripominky(z));
     ulozPripomenuto(uid, pripomenuto.current);
     setUpozorneni(z);
     audio.play('send');
@@ -164,11 +175,11 @@ export function ZavolatProvider({ children }: { children: ReactNode }) {
   }, [seznam, upozorneni]);
 
   const dnes = useMemo(() => dnesAPoTerminu(seznam), [seznam]);
-  const hovorKontaktu = useCallback(
-    (kontaktId: number) => seznam?.polozky.find((z) => z.stav === 'ceka' && z.muj && z.kontakt_id === kontaktId) ?? null,
+  const podpis = useMemo(
+    () => (seznam ? seznam.polozky.filter((z) => z.stav === 'ceka').map((z) => `${z.id}:${z.kdy}`).sort().join(',') : ''),
     [seznam]
   );
-  const value = useMemo(() => ({ seznam, obnovit, dnes, hovorKontaktu }), [seznam, obnovit, dnes, hovorKontaktu]);
+  const value = useMemo(() => ({ seznam, obnovit, dnes, ted, podpis }), [seznam, obnovit, dnes, ted, podpis]);
 
   const zavolatTed = () => {
     const z = upozorneni;

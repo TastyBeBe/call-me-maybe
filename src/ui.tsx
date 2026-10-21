@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { useEffect, useRef, type ReactNode, type RefObject } from 'react';
 import type {
   CekaniKind,
   CekaniKos,
@@ -553,6 +553,13 @@ export function formatKdy(iso: string | null | undefined): string {
   return `${DNY_KRATCE[isoDen(datum) - 1]} ${denMesic(datum)} v ${formatCas(iso)}`;
 }
 
+/** Datum v Praze „21. 10. 2026“ (výdělek: den prodeje jako server, i když je telefon v jiném pásmu). */
+export function formatDatumPraha(iso: string | null | undefined): string {
+  if (!iso || Number.isNaN(new Date(iso).getTime())) return '—';
+  const [y, m, d] = prahaDen(iso).split('-').map(Number);
+  return `${d}. ${m}. ${y}`;
+}
+
 /** Nadpis dne v kalendáři: „pátek 24. 10.“ (YYYY-MM-DD). */
 export function formatDenNadpis(datum: string): string {
   return `${DNY_NAZEV[isoDen(datum) - 1]} ${denMesic(datum)}`;
@@ -581,4 +588,47 @@ export function formatRelativne(iso: string, ted: number = Date.now()): string {
   const dny = Math.round(abs / 86400000);
   if (za) return `za ${dny} ${dny === 1 ? 'den' : dny <= 4 ? 'dny' : 'dní'}`;
   return `před ${dny} ${dny === 1 ? 'dnem' : 'dny'}`;
+}
+
+/**
+ * Okno (dialog) z klávesnice (po recenzi 21. 10. 2026, okna Přeplánovat, Naplánovat hovor a Nerelevantní): při otevření
+ * fokus na první volbu (`data-autofocus`, jinak první ovládací prvek), Tab a Shift+Tab zůstávají v okně, Escape okno
+ * zavře (ne během ukládání) a po zavření se fokus vrátí tam, odkud se okno otevřelo (když ten prvek pořád je).
+ */
+export function useOkno(ref: RefObject<HTMLElement>, zavrit: () => void, busy: boolean): void {
+  const zavritRef = useRef(zavrit);
+  zavritRef.current = zavrit;
+  const busyRef = useRef(busy);
+  busyRef.current = busy;
+  useEffect(() => {
+    const predtim = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const PRVKY = 'button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), a[href]';
+    const prvni = ref.current?.querySelector<HTMLElement>('[data-autofocus]:not([disabled])') ?? ref.current?.querySelector<HTMLElement>(PRVKY);
+    prvni?.focus();
+    const klavesa = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        if (!busyRef.current) zavritRef.current();
+        return;
+      }
+      if (e.key !== 'Tab' || !ref.current) return;
+      const vse = Array.from(ref.current.querySelectorAll<HTMLElement>(PRVKY));
+      if (vse.length === 0) return;
+      const i = vse.indexOf(document.activeElement as HTMLElement);
+      if (e.shiftKey && (i <= 0)) {
+        e.preventDefault();
+        vse[vse.length - 1].focus();
+      } else if (!e.shiftKey && (i === -1 || i === vse.length - 1)) {
+        e.preventDefault();
+        vse[0].focus();
+      }
+    };
+    document.addEventListener('keydown', klavesa);
+    return () => {
+      document.removeEventListener('keydown', klavesa);
+      if (predtim && document.contains(predtim)) predtim.focus();
+    };
+    // jen při otevření a zavření okna
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 }
