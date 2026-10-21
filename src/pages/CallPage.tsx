@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { getApi, type Kontakt, type Rating, type Segment } from '../api';
+import { useSearchParams } from 'react-router-dom';
+import { getApi, type Kontakt, type Rating, type Segment, type VysledekHovoru } from '../api';
 import { audio } from '../audio';
 import { useSession } from '../auth';
 import { loadCallSegment, saveCallSegment, segmentOf } from '../segment';
@@ -15,10 +16,15 @@ import {
   Spinner,
   StatusBadge,
   errMsg,
+  formatKdyVeta,
+  formatRelativne,
   jenZaklad,
+  kontaktJmeno,
   obratArchitekta,
 } from '../ui';
+import ZavolatModal from '../components/ZavolatModal';
 import {
+  AlarmIcon,
   ArrowDownIcon,
   CheckIcon,
   CompassIcon,
@@ -29,7 +35,91 @@ import {
   ThumbsDownIcon,
 } from '../icons';
 
-type Modal = null | 'odmitnout' | 'prepnout';
+// migrace 050 (Albert 21. 10. 2026): i nerelevantní (potvrzení s důvodem), přeplánovat (výběr času) a vzít naplánovaný
+// hovor, když je na obrazovce rozdělaná karta
+type Modal = null | 'odmitnout' | 'prepnout' | 'nerelevantni' | 'preplanovat' | 'zavolat';
+
+/** Rychlé důvody pro Nerelevantní (Albert 21. 10. 2026: „for example, elderly people“). */
+export const DUVODY_NERELEVANTNI = ['starší člověk', 'není majitel', 'objekt neexistuje / nepronajímá'];
+
+/**
+ * Potvrzení „Nerelevantní“ (migrace 050): důvod je povinný (server bez něj výsledek odmítne; super admin pak vidí, proč
+ * se kontakt do konverze nezapočítal). Rychlé důvody jedním klepnutím, vlastní text, předvyplněná poznámka z karty.
+ */
+function NerelevantniModal({
+  vychozi,
+  busy,
+  onPotvrdit,
+  onZpet,
+}: {
+  vychozi: string;
+  busy: boolean;
+  onPotvrdit: (duvod: string) => Promise<string | null>;
+  onZpet: () => void;
+}) {
+  const [vybrane, setVybrane] = useState<string[]>([]);
+  const [text, setText] = useState(vychozi);
+  const [chyba, setChyba] = useState('');
+  const duvod = [...DUVODY_NERELEVANTNI.filter((d) => vybrane.includes(d)), text.trim()].filter(Boolean).join(' · ');
+  const potvrdit = async () => {
+    if (!duvod) return;
+    setChyba('');
+    setChyba((await onPotvrdit(duvod)) ?? '');
+  };
+  return (
+    <div className="scrim" onClick={() => !busy && onZpet()}>
+      <div className="modal card nerelevantni-modal" role="dialog" aria-modal="true" aria-labelledby="nerelevantni-titulek"
+        onClick={(e) => e.stopPropagation()}>
+        <h3 className="modal-title" id="nerelevantni-titulek">Kontakt není relevantní?</h3>
+        <div className="modal-body">
+          <p style={{ marginTop: 0 }}>
+            Kontakt se označí jako <b>nerelevantní</b>: už mu nikdo nezavolá a automatizace mu nic nenapíše. Do statistik
+            se <b>nepočítá jako odmítnutí</b>, konverze tím neklesne.
+          </p>
+          <p className="nerelevantni-otazka">Proč? (povinné)</p>
+          <div className="zavolat-volby" role="group" aria-label="Rychlý důvod">
+            {DUVODY_NERELEVANTNI.map((d) => {
+              const ano = vybrane.includes(d);
+              return (
+                <button
+                  key={d}
+                  type="button"
+                  className={`pill-btn sm zavolat-volba${ano ? ' active' : ''}`}
+                  aria-pressed={ano}
+                  disabled={busy}
+                  onClick={() => setVybrane((xs) => (ano ? xs.filter((x) => x !== d) : [...xs, d]))}
+                >
+                  {d}
+                </button>
+              );
+            })}
+          </div>
+          <div className="field" style={{ marginTop: 10, marginBottom: 0 }}>
+            <label htmlFor="nerelevantni-text">Jiný důvod nebo podrobnosti</label>
+            <textarea
+              id="nerelevantni-text"
+              rows={2}
+              value={text}
+              disabled={busy}
+              placeholder="Třeba: chalupu prodává, web nechce."
+              onChange={(e) => setText(e.target.value)}
+            />
+          </div>
+          {!duvod && <p className="muted" style={{ fontSize: 13, margin: '6px 0 0' }}>Vyber nebo napiš důvod.</p>}
+          <ErrorBox>{chyba}</ErrorBox>
+        </div>
+        <div className="modal-actions">
+          <button type="button" className="pill-btn" onClick={onZpet} disabled={busy}>
+            Zpět
+          </button>
+          <button type="button" className="pill-btn dark" onClick={() => void potvrdit()} disabled={busy || !duvod}>
+            {busy ? 'Ukládám…' : 'Ano, nerelevantní'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 /** Hláška, když se čistou kartu nepodaří vrátit do fronty (docs/ARCHITEKTI.md 9.2). */
 const NEVRACENO = 'Kontakt se nepodařilo vrátit do fronty. Zámek sám vyprší do 2 hodin.';
@@ -65,7 +155,10 @@ export default function CallPage() {
   // a „Přepnout hned“ nabídne zapsat Nedovoláno (audit APP-3).
   const [vytoceno, setVytoceno] = useState(false);
 
-  const loadNext = useCallback(async (hlaska = '') => {
+  // Migrace 050 (Albert 21. 10. 2026): `zavolatId` = „Zavolat teď“ u naplánovaného hovoru (z kalendáře, z upozornění):
+  // karta přijde přes zavolat_vzit místo next_contact a projde stejnou kontrolou pozdních odpovědí (reqId). Segment
+  // jde za kartou. Závislosti zůstávají [session.token, session.user_id] (kontrola 75, npm test blok K).
+  const loadNext = useCallback(async (hlaska = '', zavolatId: number | null = null) => {
     const my = ++reqId.current;
     const seg = segmentRef.current;
     /** Vrátí do fronty karty, které přišly pozdě (po přepnutí). Tu zobrazenou nikdy. */
@@ -91,8 +184,21 @@ export default function CallPage() {
     setNote('');
     setVytoceno(false);
     let next: Kontakt | null = null;
+    let hovor = false;
     try {
-      next = await getApi().nextContact(session.token, seg);
+      if (zavolatId !== null) {
+        try {
+          next = await getApi().zavolatVzit(session.token, zavolatId);
+          hovor = true;
+        } catch (e) {
+          if (my !== reqId.current) return;
+          // hovor už je vyřízený, klient není ve frontě nebo ho volá kolega: hláška a další karta jako obvykle
+          hlaska = [hlaska, `Naplánovaný hovor teď nejde otevřít: ${errMsg(e)}`].filter(Boolean).join(' ');
+          next = await getApi().nextContact(session.token, seg);
+        }
+      } else {
+        next = await getApi().nextContact(session.token, seg);
+      }
       if (my !== reqId.current) {
         // Mezitím se přepnulo (nebo načetlo znovu): odpověď zahodit a zámek vrátit. Když
         // novější požadavek ještě běží, počká se na něj: ve stejném segmentu by mohl dostat
@@ -104,6 +210,14 @@ export default function CallPage() {
         return;
       }
       shownId.current = next ? next.id : null;
+      if (next && hovor && segmentOf(next) !== segmentRef.current) {
+        // naplánovaný architekt při zvolených chatách (nebo naopak): přepínač ukáže segment karty a další karta po hovoru
+        // přijde z něj, jinak by svítila cedulka „Po tomhle hovoru dostaneš …“ (Albert 21. 10. 2026: segment jde za kartou)
+        const s = segmentOf(next);
+        segmentRef.current = s;
+        setSegment(s);
+        saveCallSegment(s);
+      }
       if (!next) {
         setKontakt(null);
         setEmpty(true);
@@ -135,9 +249,34 @@ export default function CallPage() {
     }
   }, [session.token, session.user_id]);
 
+  // `/call?zavolat=<id>` (migrace 050): naplánovaný hovor z kalendáře nebo z upozornění. Parametr se z adresy hned
+  // odebere (reload ani Zpět hovor znovu nevezmou). Bez parametru první karta jako dřív.
+  const [params, setParams] = useSearchParams();
+  const zavolatParam = params.get('zavolat');
+  const zavolatId = zavolatParam !== null && /^\d+$/.test(zavolatParam) ? Number(zavolatParam) : null;
+  const nactenoPro = useRef<typeof loadNext | null>(null);
+  const [cekaHovor, setCekaHovor] = useState<number | null>(null);
+
   useEffect(() => {
-    void loadNext();
-  }, [loadNext]);
+    if (zavolatParam !== null) {
+      setParams(
+        (p) => {
+          const n = new URLSearchParams(p);
+          n.delete('zavolat');
+          return n;
+        },
+        { replace: true }
+      );
+    }
+    if (nactenoPro.current !== loadNext) {
+      nactenoPro.current = loadNext;
+      void loadNext('', zavolatId);
+      return;
+    }
+    if (zavolatId !== null) vzitHovor(zavolatId);
+    // vzitHovor čte aktuální kartu z tohohle vykreslení; efekt běží jen při novém parametru
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loadNext, zavolatId]);
 
   // Karta je rozdělaná, když je otevřený formulář zájmu, je napsaná poznámka nebo volající
   // klikl na číslo (9.2, audit APP-3). Vytočenou kartu server do 30 minut vrátit pustí,
@@ -180,30 +319,72 @@ export default function CallPage() {
 
   const hlavicka = <SegmentSwitch value={segment} onChange={zvolitSegment} disabled={busy} />;
 
-  const resolve = async (outcome: 'nedovolano' | 'odmitnuto' | 'zajem') => {
-    if (!kontakt) return;
+  /**
+   * Naplánovaný hovor, když je už karta na obrazovce (upozornění nebo kalendář ve stejné záložce). Tentýž hovor nic
+   * nedělá; čistou kartu vrátí do fronty a vezme hovor; rozdělanou (poznámka, zájem, vytočené číslo) nejdřív potvrdí.
+   */
+  const vzitHovor = (id: number) => {
+    if (kontakt && !loading && kontakt.zavolat?.id === id) return;
+    if (kontakt && !loading && rozdelano) {
+      setCekaHovor(id);
+      setModal('zavolat');
+      return;
+    }
+    void prepnoutNaHovor(id, !loading && kontakt ? kontakt.id : null);
+  };
+
+  const prepnoutNaHovor = async (id: number, vratit: number | null) => {
     setBusy(true);
-    setError('');
+    try {
+      if (vratit !== null) {
+        try {
+          await getApi().returnContact(session.token, vratit);
+        } catch {
+          // zámek sám vyprší do 2 hodin
+        }
+      }
+    } finally {
+      setBusy(false);
+    }
+    await loadNext('', id);
+  };
+
+  /**
+   * Zápis výsledku hovoru. `extra` (migrace 050): poznámka z okna (nerelevantní, přeplánovat) a čas přeplánovaného hovoru.
+   * `vOkne`: chyba se vrátí oknu (ukáže ji samo a zůstane otevřené), stránka ji neopakuje.
+   */
+  const resolve = async (
+    outcome: VysledekHovoru,
+    extra: { note?: string; kdy?: string } = {},
+    vOkne = false
+  ): Promise<string | null> => {
+    if (!kontakt) return null;
+    setBusy(true);
+    if (!vOkne) setError('');
     try {
       await getApi().resolveCall(session.token, {
         kontakt_id: kontakt.id,
         outcome,
         cena_web: outcome === 'zajem' ? cenaWeb : null,
         cena_hosting: outcome === 'zajem' ? cenaHosting : null,
-        note: note.trim() || null,
+        note: (extra.note ?? note).trim() || null,
         rating: outcome === 'zajem' ? rating || null : null,
         email: outcome === 'zajem' ? email.trim() || null : null,
+        ...(outcome === 'preplanovano' ? { kdy: extra.kdy ?? null } : {}),
       });
       audio.play('success');
       await loadNext();
+      return null;
     } catch (e) {
       const msg = errMsg(e);
+      audio.play('error');
+      if (vOkne) return msg;
       if (/zamk|zámek|lock|relace/i.test(msg)) {
         setWarning(msg);
       } else {
         setError(msg);
       }
-      audio.play('error');
+      return msg;
     } finally {
       setBusy(false);
     }
@@ -321,6 +502,17 @@ export default function CallPage() {
         </h2>
         {architekt && kontakt.name && kontakt.firma && <p className="call-sub">{kontakt.firma}</p>}
 
+        {/* Migrace 050 (Albert 21. 10. 2026): karta z kalendáře (přeplánovaný nebo naplánovaný hovor, jehož čas nastal) */}
+        {kontakt.zavolat && (
+          <div className="zavolat-banner" role="note">
+            <AlarmIcon size={18} />
+            <span>
+              <strong>Naplánovaný hovor</strong> {formatKdyVeta(kontakt.zavolat.kdy)} ({formatRelativne(kontakt.zavolat.kdy)})
+              {kontakt.zavolat.poznamka && <span className="zavolat-banner-pozn"> · {kontakt.zavolat.poznamka}</span>}
+            </span>
+          </div>
+        )}
+
         {kontakt.flag_kind && (
           <div className="call-flag">
             <div className="call-flag-head">
@@ -426,6 +618,16 @@ export default function CallPage() {
             <button className="pill-btn go" disabled={busy} onClick={() => setShowZajem(true)}>
               <StarIcon size={18} /> Mají zájem
             </button>
+            {/* Migrace 050 (Albert 21. 10. 2026): méně častá dvě tlačítka v řadě pod hlavními, menší. Nerelevantní =
+                konečný stav mimo konverzi (jen s důvodem), Přeplánovat = člověk chce zavolat jindy (výběr času). */}
+            <div className="outcome-dalsi">
+              <button className="pill-btn nerelevantni-btn" disabled={busy} onClick={() => setModal('nerelevantni')}>
+                Nerelevantní
+              </button>
+              <button className="pill-btn tag preplanovat-btn" disabled={busy} onClick={() => setModal('preplanovat')}>
+                <AlarmIcon size={16} /> Přeplánovat
+              </button>
+            </div>
           </div>
         )}
 
@@ -543,6 +745,64 @@ export default function CallPage() {
           }}
         >
           Kontakt se označí jako <b>odmítnuto</b> a už mu nikdy nebudeme volat.
+        </ConfirmModal>
+      )}
+
+      {modal === 'nerelevantni' && (
+        <NerelevantniModal
+          vychozi={note}
+          busy={busy}
+          onZpet={() => setModal(null)}
+          onPotvrdit={(duvod) => resolve('nerelevantni', { note: duvod }, true)}
+        />
+      )}
+
+      {modal === 'preplanovat' && (
+        <ZavolatModal
+          titulek="Přeplánovat hovor"
+          komu={kontaktJmeno(kontakt)}
+          uvod={
+            <p style={{ margin: 0 }}>
+              Člověk chce, ať zavoláš jindy? Vyber kdy. Hovor se zapíše (do Rozvrhu se počítá, do konverze ne), kontakt
+              zůstane ve frontě a v ten čas ti ho appka připomene a dá ve volání jako prvního.
+            </p>
+          }
+          vychoziKdy={kontakt.zavolat?.kdy && new Date(kontakt.zavolat.kdy).getTime() > Date.now() ? kontakt.zavolat.kdy : null}
+          vychoziPoznamka={note}
+          poznamkaMax={2000}
+          poznamkaPopisek="Poznámka k hovoru (nepovinná)"
+          poznamkaNapoveda="uloží se k hovoru, v kalendáři prvních 500 znaků"
+          jaId={session.user_id}
+          potvrdit="Přeplánovat a další"
+          onZavrit={() => setModal(null)}
+          onUlozit={async (v) => {
+            const chyba = await resolve('preplanovano', { note: v.poznamka ?? '', kdy: v.kdy }, true);
+            if (chyba) throw new Error(chyba);
+          }}
+        />
+      )}
+
+      {modal === 'zavolat' && cekaHovor !== null && (
+        <ConfirmModal
+          title="Vzít naplánovaný hovor?"
+          confirmLabel="Vzít naplánovaný hovor"
+          cancelLabel="Dokončím hovor"
+          confirmClass="hot"
+          busy={busy}
+          onCancel={() => {
+            setModal(null);
+            setCekaHovor(null);
+          }}
+          onConfirm={() => {
+            const id = cekaHovor;
+            setModal(null);
+            setCekaHovor(null);
+            void loadNext('', id);
+          }}
+        >
+          Tenhle kontakt máš rozdělaný (poznámka, zájem nebo vytočené číslo). Nejlepší je napřed zapsat výsledek hovoru.
+          Když vezmeš naplánovaný hovor hned, poznámka se neuloží a tenhle kontakt ti zůstane zamčený (zámek sám vyprší
+          do 2 hodin).
         </ConfirmModal>
       )}
 

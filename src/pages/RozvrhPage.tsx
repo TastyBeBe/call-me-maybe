@@ -419,7 +419,9 @@ export default function RozvrhPage() {
             })}
           </div>
           <p className="muted" style={{ marginTop: 12 }}>
-            Hovor je každý zapsaný výsledek ve volání (nedovoláno, odmítnuto, zájem). Cíl je {r.hovoru_za_hodinu} hovorů
+            {/* migrace 050 (Albert 21. 10. 2026): i nerelevantní a přeplánovaný hovor je práce volajícího, do Rozvrhu se
+                počítá (app_rozvrh_stav bere každý řádek call_log). ⚠ NAHRAZUJE výčet jen tří výsledků. */}
+            Hovor je každý zapsaný výsledek ve volání (nedovoláno, odmítnuto, zájem, nerelevantní, přeplánováno). Cíl je {r.hovoru_za_hodinu} hovorů
             za hodinu volání. Týden se v pondělí přetočí sám a rozvrh platí dál.
           </p>
         </>

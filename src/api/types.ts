@@ -28,7 +28,12 @@ export type KontaktStatus =
   | 'domena_pripojena'
   | 'hotovo'
   | 'pozastaveno'
-  | 'eskalace';
+  | 'eskalace'
+  /**
+   * Migrace 050 (Albert 21. 10. 2026): volající zjistil, že kontakt není relevantní (starší člověk, není majitel,
+   * objekt neexistuje). Konečný stav jako odmitnuto (nevolá se, nepíše se), do statistik se nepočítá jako odmítnutí.
+   */
+  | 'nerelevantni';
 
 export type Rating = 'A' | 'B' | 'C';
 
@@ -141,6 +146,11 @@ export interface Kontakt {
   dph_osobni?: DphStav | null;
   dph_firma?: DphStav | null;
   // ⚠ Zdroj telefonu („odkud máme číslo“) v appce není (Albert 19. 10. 2026, migrace 043; NAHRAZUJE [ALBERT 10]). Server ho od 043 neposílá.
+  /**
+   * Migrace 050 (Albert 21. 10. 2026, „call me at this time“): karta ve volání (next_contact, zavolat_vzit) nese
+   * čekající naplánovaný hovor přihlášeného k tomuhle kontaktu, jinak null. Seznamy klíč neposílají (undefined).
+   */
+  zavolat?: ZavolatKarta | null;
   created_at: string;
   updated_at: string;
 }
@@ -247,14 +257,22 @@ export interface ListKontaktyResult {
   dalsi?: boolean;
 }
 
+/**
+ * Výsledek hovoru. Migrace 050 (Albert 21. 10. 2026): i `nerelevantni` (kontakt není relevantní, jen s poznámkou proč,
+ * mimo konverzi) a `preplanovano` (člověk chce zavolat jindy: `kdy`, kontakt zůstává ve frontě a drží ho kalendář).
+ */
+export type VysledekHovoru = 'nedovolano' | 'odmitnuto' | 'zajem' | 'nerelevantni' | 'preplanovano';
+
 export interface ResolveCallArgs {
   kontakt_id: number;
-  outcome: 'nedovolano' | 'odmitnuto' | 'zajem';
+  outcome: VysledekHovoru;
   cena_web?: string | null;
   cena_hosting?: string | null;
   note?: string | null;
   rating?: string | null;
   email?: string | null;
+  /** jen u `preplanovano`: kdy zavolat znovu (ISO); appka ho jinak serveru neposílá (starý server p_kdy nezná) */
+  kdy?: string | null;
 }
 
 export interface ListKontaktyFilters {
@@ -430,6 +448,95 @@ export interface RozvrhDenVstup {
   od: string | null;
 }
 
+/* ---- kalendář hovorů a výdělek (migrace 050, Albert 21. 10. 2026) ---- */
+
+/** Čekající naplánovaný hovor přihlášeného na kartě ve volání (klíč `zavolat`). */
+export interface ZavolatKarta {
+  id: number;
+  kdy: string;
+  poznamka: string | null;
+}
+
+export type ZavolatStav = 'ceka' | 'hotovo' | 'zruseno';
+
+/**
+ * Řádek kalendáře hovorů (app_zavolat_ven). `kontakt` je řádek stejnou maskou jako v seznamech: Volající u kontaktu,
+ * který není jeho (naplánoval mu ho super admin), dostane jen allowlist se `skryto: true`. `vytvoril` jiného Volajícího
+ * je „jiný volající“ (045).
+ */
+export interface ZavolatPolozka {
+  id: number;
+  kontakt_id: number;
+  /** kdo má volat */
+  user_id: number;
+  volajici: string | null;
+  kdy: string;
+  poznamka: string | null;
+  stav: ZavolatStav;
+  vysledek: string | null;
+  created_at: string;
+  zmeneno_at: string | null;
+  uzavreno_at: string | null;
+  /** kdo hovor naplánoval */
+  vytvoril: string | null;
+  /** volá ho přihlášený */
+  muj: boolean;
+  /** smí ho přihlášený přesunout, zrušit nebo označit hotový (čekající a jeho, nebo super admin) */
+  smi_upravit: boolean;
+  /** kontakt je ve frontě volání (nekontaktovano, nedovolano): „Zavolat teď“ otevře kartu ve volání */
+  ve_fronte: boolean;
+  kontakt: Kontakt;
+}
+
+/** zavolat_seznam: čekající (nejstarší první, i po termínu) a uzavřené za 14 dní (nejnovější první). */
+export interface ZavolatSeznam {
+  /** dnešní den v Praze YYYY-MM-DD */
+  dnes: string;
+  /** čas serveru */
+  ted: string;
+  polozky: ZavolatPolozka[];
+}
+
+/** Jeden prodaný web ve výdělku (app_vydelek). */
+export interface VydelekProdej {
+  kontakt_id: number;
+  jmeno: string;
+  segment: Segment;
+  prodano_at: string;
+  /** text ceny, ze kterého se počítalo (cena webu, nebo částka ze slevy) */
+  cena: string | null;
+  zdroj: 'cena_web' | 'sleva';
+  /** přečtená částka; null = cena nejde přečíst přesně (do součtu se nepočítá) */
+  castka: number | null;
+  mena: 'kc' | 'eur' | null;
+  provize: number | null;
+  tento_tyden: boolean;
+}
+
+/** Výdělek: 30 % z ceny každého prodaného webu (ne z hostingu), celkem a v tomto týdnu (po až ne, Praha). */
+export interface Vydelek {
+  sazba_procent: number;
+  tyden_od: string;
+  tyden_do: string;
+  prodano: number;
+  celkem_kc: number;
+  tyden_kc: number;
+  celkem_eur: number;
+  tyden_eur: number;
+  /** prodeje, u kterých cena nejde přečíst */
+  nejasne: number;
+  nejasne_tyden: number;
+  prodeje: VydelekProdej[];
+}
+
+/** statistiky_volani: počty hovorů nerelevantni a preplanovano a výdělek. Svoje každý, cizí jen super admin. */
+export interface StatistikyVolani {
+  user_id: number;
+  nerelevantni: number;
+  preplanovano: number;
+  vydelek: Vydelek;
+}
+
 /** Jednotné API rozhraní — implementuje ho reálný Supabase klient i demo mock. */
 export interface Api {
   login(username: string, password: string): Promise<Session>;
@@ -549,4 +656,30 @@ export interface Api {
   poznamkaRozvrhu(token: string, den: string, text: string): Promise<Rozvrh>;
   /** Jen super admin: plnění rozvrhu všech Volajících, kdo je pozadu, je první. */
   prehledRozvrhu(token: string): Promise<RozvrhPrehledRadek[]>;
+  /* ---- kalendář hovorů a výdělek (migrace 050, Albert 21. 10. 2026) ---- */
+  /** Kalendář: svůj každý; super admin kohokoli (userId) nebo všech (vsichni). */
+  zavolatSeznam(token: string, userId?: number | null, vsichni?: boolean): Promise<ZavolatSeznam>;
+  /** Naplánuje hovor (kdy = ISO). Volající sám sobě; super admin vybere, kdo zavolá (userId). Čekající hovor kontaktu přesune. */
+  zavolatNaplanovat(
+    token: string,
+    kontaktId: number,
+    kdy: string,
+    poznamka: string | null,
+    userId?: number | null
+  ): Promise<ZavolatPolozka>;
+  /** Přesune čekající hovor (poznámka se přepíše, null ji smaže); jinému člověku jen super admin. */
+  zavolatPresunout(
+    token: string,
+    id: number,
+    kdy: string,
+    poznamka: string | null,
+    userId?: number | null
+  ): Promise<ZavolatPolozka>;
+  zavolatZrusit(token: string, id: number): Promise<{ ok: boolean; id: number }>;
+  /** Hotovo u klienta mimo frontu (zavolal mu sám); ve frontě se hovor uzavírá výsledkem hovoru. */
+  zavolatHotovo(token: string, id: number, vysledek?: string | null): Promise<{ ok: boolean; id: number }>;
+  /** „Zavolat teď“: zamkne kontakt ve frontě pro toho, kdo má volat, a vrátí kartu jako next_contact. */
+  zavolatVzit(token: string, id: number): Promise<Kontakt>;
+  /** Nerelevantní, přeplánované a výdělek: svoje každý, cizí (userId) jen super admin. */
+  statistikyVolani(token: string, userId?: number | null): Promise<StatistikyVolani>;
 }

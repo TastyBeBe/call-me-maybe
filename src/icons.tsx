@@ -49,6 +49,18 @@ export function CalendarIcon(props: IconProps) {
   );
 }
 
+/** Budík (kalendář hovorů, migrace 050): komu kdy zavolat. */
+export function AlarmIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <circle cx="12" cy="13" r="8" />
+      <path d="M12 9v4l2 2" />
+      <path d="M5 3 2 6" />
+      <path d="m22 6-3-3" />
+    </Icon>
+  );
+}
+
 export function PhoneOffIcon(props: IconProps) {
   return (
     <Icon {...props}>

@@ -899,6 +899,347 @@ for (const [kdo, superAdmin] of [['petra', false], ['mikulas', true]]) {
   await ctx.close();
 }
 
+/* ============ Volání 050 (Albert 21. 10. 2026): Moji klienti, nerelevantní, přeplánovat, kalendář, připomínky, výdělek ============ */
+// Bloky C, N, P, K, H, T, E. Každý blok běží ve vlastní stránce (vlastní mock v paměti) a nečekaná chyba (chybějící
+// tlačítko na staré appce) je FAIL bloku, ne pád celé zkoušky. Čas a dny počítá v Praze jako server a appka.
+const PRAHA_DEN_E2E = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Prague', year: 'numeric', month: '2-digit', day: '2-digit' });
+const PRAHA_CAS_E2E = new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/Prague', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
+const denP = (x) => PRAHA_DEN_E2E.format(new Date(x));
+const casP = (x) => PRAHA_CAS_E2E.format(new Date(x));
+const plus1 = (d) => { const [y, m, dd] = d.split('-').map(Number); return new Date(Date.UTC(y, m - 1, dd + 1)).toISOString().slice(0, 10); };
+const txt = (s) => String(s ?? '').replace(/\s+/g, ' ').trim();
+const KRATKE = { timeout: 4000 };
+async function blok050(id, fn) {
+  try {
+    await fn();
+  } catch (e) {
+    over(id, false, 'blok spadl (prvek chybí nebo nečekaná chyba)', String(e && e.message).split('\n')[0]);
+  }
+}
+/** Kolik vlastních čekajících hovorů je na dnešek a po termínu (odznak u kalendáře). */
+const kZavolaniDnes = async (page, uid) => {
+  const dnes = denP(Date.now());
+  return (await stav(page)).zavolat.filter((z) => z.user_id === uid && z.stav === 'ceka' && denP(z.kdy) <= dnes).length;
+};
+const odznak = async (page) => {
+  const b = page.locator('nav .nav-badge');
+  return (await b.count()) ? Number(await b.first().innerText()) : 0;
+};
+
+/* ============ C) Moji klienti: sloupce Známka a Cena (pod ní hosting), 1280 i 390 px ============ */
+for (const sirka of [1280, 390]) {
+  await blok050(`C ${sirka}`, async () => {
+    const { ctx, page } = await novaStranka('petra', { sirka, vyska: sirka < 768 ? 844 : 900 });
+    await jdi(page, '#/moji', 600);
+    const hlavicky = (await page.locator('table.kontakty thead th').allInnerTexts()).map((t) => txt(t).toLowerCase());
+    over(`C1 ${sirka}`, hlavicky.includes('známka') && hlavicky.includes('cena'), 'Moji klienti mají sloupce Známka a Cena', hlavicky.join('|'));
+    const bunky = async (jmeno) => {
+      const r = page.locator('table.kontakty tbody tr', { hasText: jmeno }).first();
+      const i = hlavicky.indexOf('známka');
+      const j = hlavicky.indexOf('cena');
+      const td = r.locator('td');
+      return { znamka: i >= 0 ? txt(await td.nth(i).innerText()) : '', cena: j >= 0 ? txt(await td.nth(j).innerText()) : '' };
+    };
+    const vrsek = await bunky('Chalupa Na Vršku');
+    over(`C2 ${sirka}`, vrsek.znamka === 'A' && vrsek.cena === '7 000 Kč hosting 1 500 Kč/rok', 'čistá cena „7 000 Kč“ a pod ní hosting', JSON.stringify(vrsek));
+    const sumava = await bunky('Penzion Šumava');
+    over(`C3 ${sirka}`, sumava.znamka === 'A' && sumava.cena === '4 900 Kč hosting 190/měs', 'cena „4900“ jako „4 900 Kč“, hosting „190/měs“ jak je zapsaný', JSON.stringify(sumava));
+    const palouček = await bunky('Chalupa Na Paloučku');
+    over(`C4 ${sirka}`, palouček.znamka === '—' && palouček.cena === '—', 'bez známky a ceny pomlčky', JSON.stringify(palouček));
+    const w = await page.evaluate(() => document.documentElement.scrollWidth);
+    over(`C5 ${sirka}`, w <= sirka, 'stránka se do strany neposouvá (tabulka uvnitř rámečku)', `scrollWidth ${w}`);
+    await ctx.close();
+  });
+}
+
+/* ============ N) Nerelevantní: okno s povinným důvodem, call_log, další karta, odznak ============ */
+await blok050('N', async () => {
+  const { ctx, page } = await novaStranka('petra');
+  await jdi(page, '#/call', 600);
+  const x = await kartaId(page);
+  const odznakPred = await odznak(page);
+  await page.getByRole('button', { name: 'Nerelevantní', exact: true }).click(KRATKE);
+  const okno = page.locator('.modal');
+  const potvrdit = okno.getByRole('button', { name: 'Ano, nerelevantní' });
+  over('N1', /nepočítá jako odmítnutí/.test(txt(await okno.innerText())) && /nezavolá/.test(txt(await okno.innerText())),
+    'okno vysvětlí, že se kontaktu už nevolá a do statistik se nepočítá jako odmítnutí', txt(await okno.innerText()).slice(0, 160));
+  over('N2', await potvrdit.isDisabled(), 'bez důvodu nejde potvrdit');
+  const pred = (await stav(page)).callLog.length;
+  await okno.getByRole('button', { name: 'není majitel' }).click();
+  over('N3', !(await potvrdit.isDisabled()) && (await okno.getByRole('button', { name: 'není majitel' }).getAttribute('aria-pressed')) === 'true',
+    'rychlý důvod se vybere a potvrzení jde');
+  await potvrdit.click();
+  await klid(page, 500);
+  const st = await stav(page);
+  const zapis = st.callLog.slice(pred);
+  const k = st.kontakty.find((c) => c.id === x);
+  over('N4', zapis.length === 1 && zapis[0].kontakt_id === x && zapis[0].outcome === 'nerelevantni' && zapis[0].user_id === UID.petra,
+    'call_log má hovor s výsledkem nerelevantni', JSON.stringify(zapis));
+  over('N5', k?.status === 'nerelevantni' && /není majitel/.test(k?.note ?? ''), 'kontakt je nerelevantní a důvod je v poznámce', JSON.stringify({ s: k?.status, n: k?.note }));
+  const y = await kartaId(page);
+  over('N6', (await page.locator('.modal').count()) === 0 && y !== null && y !== x, 'okno se zavře a přijde další karta', `${x} → ${y}`);
+  // karta x byla naplánovaný hovor po termínu: výsledek ho uzavře a odznak se hned sníží (bez minutového čekání)
+  await page.waitForTimeout(400);
+  over('N7', odznakPred >= 1 && (await odznak(page)) === odznakPred - 1 && (await odznak(page)) === (await kZavolaniDnes(page, UID.petra)),
+    'odznak u kalendáře se po výsledku hovoru hned sníží', `${odznakPred} → ${await odznak(page)}`);
+  await ctx.close();
+});
+
+/* ============ P) Přeplánovat: výběr času, call_log, kalendář, kontakt se do té doby nenabízí ============ */
+await blok050('P', async () => {
+  const { ctx, page } = await novaStranka('petra');
+  await jdi(page, '#/call', 600);
+  // napřed karta z kalendáře (10, po termínu): zapsat Nedovoláno, ať je na obrazovce obyčejná karta z fronty
+  if ((await kartaId(page)) === 10) {
+    await page.getByRole('button', { name: 'Nedovoláno', exact: true }).click(KRATKE);
+    await klid(page, 400);
+  }
+  const y = await kartaId(page);
+  await page.locator('.call-card textarea').last().fill('chce zavolat zítra ráno');
+  await page.getByRole('button', { name: 'Přeplánovat' }).click(KRATKE);
+  const okno = page.locator('.modal');
+  over('P1', (await okno.locator('textarea').inputValue()) === 'chce zavolat zítra ráno', 'poznámka z karty se přenese do okna');
+  const vsPred = (await volani(page)).length;
+  await okno.getByRole('button', { name: 'Přeplánovat a další' }).click();
+  await page.waitForTimeout(200);
+  over('P2', /Vyberte den a čas, kdy zavolat\./.test(await okno.locator('.error-box').innerText().catch(() => ''))
+    && !(await volani(page)).slice(vsPred).some((v) => v.fn === 'resolveCall'), 'bez času okno řekne „Vyberte den a čas“ a nic neuloží');
+  await okno.getByRole('button', { name: 'Zítra 9:00' }).click();
+  over('P3', /^Zavoláš zítra v 9:00 \(za \d+ (h|min|den)\)\.$/.test(txt(await okno.locator('.zavolat-veta').innerText())),
+    'věta říká, co se uloží', txt(await okno.locator('.zavolat-veta').innerText()));
+  const pred = (await stav(page)).callLog.length;
+  await okno.getByRole('button', { name: 'Přeplánovat a další' }).click();
+  await klid(page, 500);
+  const vs = (await volani(page)).slice(vsPred).filter((v) => v.fn === 'resolveCall' && v.ok);
+  const st = await stav(page);
+  const z = st.zavolat.find((r) => r.kontakt_id === y && r.stav === 'ceka');
+  const zitra = plus1(denP(Date.now()));
+  over('P4', vs.length === 1 && vs[0].args[0].outcome === 'preplanovano' && denP(vs[0].args[0].kdy) === zitra && casP(vs[0].args[0].kdy) === '09:00'
+    && st.callLog.slice(pred).some((l) => l.kontakt_id === y && l.outcome === 'preplanovano'),
+    'zápis hovoru „preplanovano“ s časem zítra v 9:00 (Praha)', JSON.stringify(vs[0]?.args?.[0]));
+  over('P5', !!z && z.user_id === UID.petra && denP(z.kdy) === zitra && z.poznamka === 'chce zavolat zítra ráno' && st.kontakty.find((c) => c.id === y)?.status === 'nedovolano',
+    'v kalendáři čeká Petřin hovor, kontakt zůstal ve frontě', JSON.stringify(z));
+  const dalsi = [];
+  for (let i = 0; i < 12; i++) {
+    const id = await kartaId(page);
+    if (id === null) break;
+    dalsi.push(id);
+    await page.getByRole('button', { name: 'Nedovoláno', exact: true }).click(KRATKE);
+    await klid(page, 300);
+  }
+  over('P6', dalsi.length >= 1 && !dalsi.includes(y), 'přeplánovaný kontakt ve frontě nepřijde, dokud čas nenastane', `${y}: ${dalsi.join()}`);
+  await jdi(page, '#/kalendar', 600);
+  const polozka = page.locator(`.zavolat-polozka[data-zavolat-id="${z?.id}"]`);
+  over('P7', (await polozka.count()) === 1 && /9:00/.test(await polozka.innerText()) && /chce zavolat zítra ráno/.test(await polozka.innerText())
+    && /Nadcházející/.test(await page.locator('.zavolat-oddil.nadchazejici').innerText().catch(() => '')),
+    'hovor je v kalendáři v Nadcházejících v 9:00 s poznámkou');
+  await ctx.close();
+});
+
+/* ============ K) Kalendář: Volající jen svůj, akce; super admin filtr a Všichni volající; 1280 a 390 px ============ */
+for (const sirka of [1280, 390]) {
+  await blok050(`K petra ${sirka}`, async () => {
+    const { ctx, page } = await novaStranka('petra', { sirka, vyska: sirka < 768 ? 844 : 900 });
+    await jdi(page, '#/kalendar', 700);
+    const st = await stav(page);
+    const moje = st.zavolat.filter((z) => z.user_id === UID.petra && z.stav === 'ceka');
+    const polozky = page.locator('.zavolat-polozka:not(.uzavrena)');
+    over(`K1 ${sirka}`, (await page.locator('#kalendar-kdo').count()) === 0 && (await polozky.count()) === moje.length && moje.length >= 3,
+      'Petra: bez výběru člověka, jen svoje čekající hovory', `${await polozky.count()} / ${moje.length}`);
+    const text = await page.evaluate(() => document.body.innerText);
+    over(`K2 ${sirka}`, !/Srub U Potoka/.test(text) && /Po termínu/.test(text) && /Chalupa Na Paloučku/.test(text),
+      'Petra nevidí Honzův hovor; hovor po termínu je v oddílu Po termínu');
+    const vs = (await volani(page)).filter((v) => v.fn === 'zavolatSeznam');
+    over(`K3 ${sirka}`, vs.length >= 1 && vs.every((v) => (v.args[0] ?? null) === null && !v.args[1]), 'Volající se ptá jen na svůj kalendář', JSON.stringify(vs.map((v) => v.args)));
+    const w = await page.evaluate(() => document.documentElement.scrollWidth);
+    over(`K4 ${sirka}`, w <= sirka, 'kalendář se do strany neposouvá', `scrollWidth ${w}`);
+    if (sirka === 1280) {
+      // Zrušit s potvrzením
+      const z12 = moje.find((z) => z.kontakt_id === 12);
+      const p12 = page.locator(`.zavolat-polozka[data-zavolat-id="${z12?.id}"]`);
+      await p12.getByRole('button', { name: 'Zrušit' }).click(KRATKE);
+      over('K5', /Zrušit naplánovaný hovor\?/.test(await page.locator('.modal').innerText()), 'Zrušit se napřed potvrzuje');
+      await page.getByRole('button', { name: 'Ano, zrušit' }).click();
+      await klid(page, 500);
+      over('K5b', (await stav(page)).zavolat.find((z) => z.id === z12?.id)?.stav === 'zruseno' && (await p12.count()) === 0, 'po potvrzení je hovor zrušený a z kalendáře zmizí');
+      // Hotovo u klienta mimo frontu (9)
+      const z9 = moje.find((z) => z.kontakt_id === 9);
+      const p9 = page.locator(`.zavolat-polozka[data-zavolat-id="${z9?.id}"]`);
+      over('K6', (await p9.getByRole('button', { name: 'Zavolat teď' }).count()) === 0 && (await p9.getByRole('button', { name: 'Hotovo' }).count()) === 1,
+        'klient mimo frontu: Hotovo místo Zavolat teď');
+      await p9.getByRole('button', { name: 'Hotovo' }).click();
+      await page.locator('#zavolat-vysledek').fill('domluveno, zaplatí do pátku');
+      await page.locator('.modal').getByRole('button', { name: 'Hotovo' }).click();
+      await klid(page, 500);
+      const h9 = (await volani(page)).find((v) => v.fn === 'zavolatHotovo' && v.ok);
+      over('K6b', (await stav(page)).zavolat.find((z) => z.id === z9?.id)?.stav === 'hotovo' && h9?.args[1] === 'domluveno, zaplatí do pátku', 'Hotovo s výsledkem uzavře hovor');
+      await page.getByRole('button', { name: /Ukázat hotové a zrušené/ }).click();
+      over('K7', (await page.locator('.zavolat-polozka.uzavrena').count()) >= 3 && /domluveno, zaplatí do pátku/.test(await page.locator('.zavolat-oddil.uzavrene').innerText()),
+        'hotové a zrušené za 14 dní jsou sbalené a jdou rozbalit');
+      // Zavolat teď: karta ve volání přes zavolat_vzit, parametr z adresy zmizí
+      const z10 = moje.find((z) => z.kontakt_id === 10);
+      await page.locator(`.zavolat-polozka[data-zavolat-id="${z10?.id}"]`).getByRole('button', { name: 'Zavolat teď' }).click();
+      await klid(page, 700);
+      const vz = (await volani(page)).filter((v) => v.fn === 'zavolatVzit');
+      over('K8', vz.length >= 1 && vz.every((v) => v.args[0] === z10?.id) && (await kartaId(page)) === 10 && !/zavolat=/.test(await page.evaluate(() => location.hash))
+        && /Naplánovaný hovor/.test(await page.locator('.zavolat-banner').innerText().catch(() => '')),
+        '„Zavolat teď“ otevře kartu ve volání s cedulkou naplánovaného hovoru a parametr z adresy zmizí', await page.evaluate(() => location.hash));
+    }
+    await ctx.close();
+  });
+}
+await blok050('K mikulas', async () => {
+  const { ctx, page } = await novaStranka('mikulas');
+  await jdi(page, '#/kalendar', 700);
+  const moznosti = (await page.locator('#kalendar-kdo option').allInnerTexts()).map(txt);
+  over('K9', moznosti[0]?.startsWith('Já (Mikuláš)') && moznosti.some((o) => o.startsWith('Petra')) && moznosti[moznosti.length - 1] === 'Všichni volající',
+    'super admin: výběr Já / kdokoli / Všichni volající', moznosti.join('|'));
+  over('K9b', /Zatím nemáš naplánované hovory/.test(await page.evaluate(() => document.body.innerText)), 'svůj kalendář má prázdný s nápovědou, jak hovor naplánovat');
+  await page.selectOption('#kalendar-kdo', String(UID.petra));
+  await klid(page, 500);
+  const st = await stav(page);
+  const petriny = st.zavolat.filter((z) => z.user_id === UID.petra && z.stav === 'ceka');
+  const polozky = page.locator('.zavolat-polozka:not(.uzavrena)');
+  over('K10', (await polozky.count()) === petriny.length && /volá Petra/.test(await polozky.first().innerText())
+    && (await page.getByRole('button', { name: 'Zavolat teď' }).count()) === 0 && (await page.getByRole('button', { name: 'Přesunout' }).count()) === petriny.length,
+    'Petřin kalendář: její hovory, kdo volá, super admin přesouvá a ruší, „Zavolat teď“ jen ten, kdo má volat', `${await polozky.count()} / ${petriny.length}`);
+  await page.selectOption('#kalendar-kdo', 'vsichni');
+  await klid(page, 500);
+  const text = await page.evaluate(() => document.body.innerText);
+  const vs = (await volani(page)).filter((v) => v.fn === 'zavolatSeznam').map((v) => v.args);
+  over('K11', /Srub U Potoka/.test(text) && /Chalupa Na Paloučku/.test(text) && /volá Honza/.test(text) && vs.some((a) => a[1] === true) && vs.some((a) => a[0] === UID.petra),
+    'Všichni volající: hovory Petry i Honzy', JSON.stringify(vs));
+  // přesun Honzova hovoru Petře (Kdo zavolá)
+  const zH = st.zavolat.find((z) => z.kontakt_id === 11 && z.stav === 'ceka');
+  await page.locator(`.zavolat-polozka[data-zavolat-id="${zH?.id}"]`).getByRole('button', { name: 'Přesunout' }).click(KRATKE);
+  over('K12', (await page.locator('#zavolat-kdo').inputValue()) === String(UID.honza), 'při přesunu je předvybraný ten, kdo hovor má');
+  await page.selectOption('#zavolat-kdo', String(UID.petra));
+  await page.getByRole('button', { name: 'Zítra 14:00' }).click();
+  await page.locator('.modal').getByRole('button', { name: 'Přesunout' }).click();
+  await klid(page, 500);
+  const z2 = (await stav(page)).zavolat.find((z) => z.id === zH?.id);
+  over('K12b', z2?.user_id === UID.petra && casP(z2.kdy) === '14:00', 'super admin hovor přesune a přeřadí Petře', JSON.stringify(z2));
+  await ctx.close();
+});
+
+/* ============ H) Odznak u kalendáře a lišta na Domů ============ */
+for (const kdo of ['petra', 'honza']) {
+  await blok050(`H ${kdo}`, async () => {
+    const { ctx, page } = await novaStranka(kdo);
+    await jdi(page, '#/', 700);
+    const cekane = await kZavolaniDnes(page, UID[kdo]);
+    over(`H1 ${kdo}`, (await odznak(page)) === cekane, `${kdo}: odznak u kalendáře = hovory na dnešek a po termínu`, `${await odznak(page)} / ${cekane}`);
+    const lista = page.locator('.home-zavolat');
+    if (cekane > 0) {
+      const t = txt(await lista.innerText());
+      over(`H2 ${kdo}`, (await lista.count()) === 1 && /^Dnes máš zavolat/.test(t) && /Chalupa Na Paloučku/.test(t) && /po termínu/.test(t) && (await lista.getAttribute('href'))?.endsWith('/kalendar'),
+        `${kdo}: lišta na Domů s časy a odkazem na kalendář`, t.slice(0, 160));
+    } else {
+      over(`H2 ${kdo}`, (await lista.count()) === 0, `${kdo}: bez hovorů na dnešek lišta není`);
+    }
+    over(`H3 ${kdo}`, (await page.locator('a.big-tile[href$="/kalendar"]').count()) === 1, `${kdo}: dlaždice Kalendář na Domů`);
+    await ctx.close();
+  });
+}
+
+/* ============ T) Detail kontaktu: Naplánovat hovor; upozornění v rohu (−5 až +30 minut, každý hovor jednou) ============ */
+await blok050('T', async () => {
+  const { ctx, page } = await novaStranka('petra');
+  const naplanovat = async (jmeno, minut, poznamka) => {
+    await jdi(page, '#/moji', 600);
+    if (await page.locator('.drawer-close').count()) await page.locator('.drawer-close').click();
+    await page.locator('table.kontakty tbody tr', { hasText: jmeno }).click(KRATKE);
+    await klid(page, 400);
+    await page.locator('.drawer').getByRole('button', { name: /Naplánovat hovor|Přesunout hovor/ }).click(KRATKE);
+    const kdy = Date.now() + minut * 60 * 1000;
+    await page.fill('#zavolat-den', denP(kdy));
+    await page.fill('#zavolat-cas', casP(kdy));
+    await page.fill('#zavolat-poznamka', poznamka);
+    await page.locator('.modal').getByRole('button', { name: /^(Naplánovat|Přesunout)$/ }).click();
+    await klid(page, 600);
+    return kdy;
+  };
+  await jdi(page, '#/moji', 600);
+  await page.locator('table.kontakty tbody tr', { hasText: 'Roubenka U Lesa' }).click();
+  await klid(page, 400);
+  await page.locator('.drawer').getByRole('button', { name: 'Naplánovat hovor' }).click(KRATKE);
+  over('T1', (await page.locator('#zavolat-kdo').count()) === 0 && /Naplánovat hovor/.test(await page.locator('.modal').innerText()), 'Volající v okně nevybírá, kdo zavolá');
+  await page.locator('.modal').getByRole('button', { name: 'Zpět' }).click();
+  const kdy = await naplanovat('Roubenka U Lesa', 3, 'připomeň mi to');
+  const n = (await volani(page)).find((v) => v.fn === 'zavolatNaplanovat' && v.ok);
+  over('T2', !!n && n.args[0] === 2 && n.args[2] === 'připomeň mi to' && (n.args[3] ?? null) === null && casP(n.args[1]) === casP(kdy),
+    'detail kontaktu naplánuje hovor (pražský čas)', JSON.stringify(n?.args));
+  const toast = page.locator('.zavolat-toast[role="status"]');
+  await toast.waitFor({ timeout: 5000 }).catch(() => {});
+  over('T3', (await toast.count()) === 1 && /Za chvíli máš zavolat/.test(await toast.innerText()) && /Roubenka U Lesa/.test(await toast.innerText()),
+    'upozornění v rohu hned po naplánování hovoru za 3 minuty', await toast.innerText().catch(() => ''));
+  const pamet = await page.evaluate(() => localStorage.getItem('volacka_zavolat_pripomenuto_2'));
+  over('T4', !!n && JSON.parse(pamet ?? '[]').includes(n.id), 'appka si pamatuje, na který hovor už upozornila', pamet);
+  await toast.getByRole('button', { name: 'Později' }).click(KRATKE);
+  await page.evaluate(() => window.dispatchEvent(new CustomEvent('cmm:zavolat-changed')));
+  await klid(page, 800);
+  over('T5', (await page.locator('.zavolat-toast').count()) === 0, 'po „Později“ se stejné upozornění znovu neukáže');
+  // druhý hovor (Petřin hovor po termínu přesunutý na za 2 minuty): „Zavolat teď“ otevře kartu ve volání
+  await naplanovat('Chalupa Na Paloučku', 2, 'teď');
+  await toast.waitFor({ timeout: 5000 }).catch(() => {});
+  over('T6', /Chalupa Na Paloučku/.test(await toast.innerText().catch(() => '')), 'přesunutý hovor (jiné id) upozorní');
+  await toast.getByRole('button', { name: 'Zavolat teď' }).click(KRATKE);
+  await klid(page, 700);
+  over('T7', (await kartaId(page)) === 10 && !/zavolat=/.test(await page.evaluate(() => location.hash)) && (await toast.count()) === 0
+    && (await volani(page)).some((v) => v.fn === 'zavolatVzit' && v.ok), '„Zavolat teď“ v upozornění otevře kartu ve volání', `${await kartaId(page)} ${await page.evaluate(() => location.hash)}`);
+  await ctx.close();
+});
+
+/* ============ E) Statistiky: nerelevantní, přeplánované a výdělek; super admin vybere člověka; 390 px ============ */
+await blok050('E petra', async () => {
+  const { ctx, page } = await novaStranka('petra');
+  await jdi(page, '#/stats', 800);
+  const hodnota = async (sel) => txt(await page.locator(`${sel} .stat-value`).innerText(KRATKE));
+  const text = txt(await page.evaluate(() => document.body.innerText));
+  over('E1', (await hodnota('.stat-nerelevantni')) === '1' && (await hodnota('.stat-preplanovano')) === '1', 'karty Nerelevantní a Přeplánováno');
+  over('E2', /dovoláno = odmítli \+ zájem \(nerelevantní ani přeplánované se nepočítají\)/.test(text), 'vysvětlivka: nerelevantní ani přeplánované se do dovoláno nepočítají');
+  const tyden = txt(await page.locator('.vydelek-tyden').innerText());
+  over('E3', (await hodnota('.vydelek-celkem')) === '3 570 Kč' && (await hodnota('.vydelek-tyden')) === '2 100 Kč' && /Tento týden \(\d+\. \d+\. až \d+\. \d+\.\)/i.test(tyden)
+    && /30 % z ceny webu, hosting se nepočítá/.test(text), 'Vyděláno: celkem, tento týden s daty, 30 % bez hostingu', tyden);
+  const prodeje = (await page.locator('.vydelek-prodeje li').allInnerTexts()).map(txt);
+  over('E4', prodeje.length === 2 && /Chalupa Na Vršku .*7 000 Kč 2 100 Kč/.test(prodeje[0]) && /Penzion Šumava — Kučerovi 4 900 Kč 1 470 Kč/.test(prodeje[1]),
+    'seznam prodaných webů s cenou a provizí', prodeje.join(' | '));
+  const vs = (await volani(page)).filter((v) => v.fn === 'statistikyVolani');
+  over('E5', vs.length >= 1 && vs.every((v) => (v.args[0] ?? null) === null) && !/€/.test(text) && (await page.locator('.vydelek-nejasne').count()) === 0,
+    'Volající jen svoje; bez eur a bez nejasných cen žádný řádek navíc', JSON.stringify(vs.map((v) => v.args)));
+  await ctx.close();
+});
+await blok050('E mikulas', async () => {
+  const { ctx, page } = await novaStranka('mikulas');
+  await jdi(page, '#/stats', 800);
+  const celkem = async () => txt(await page.locator('.vydelek-celkem .stat-value').innerText(KRATKE));
+  over('E6', (await celkem()) === '0 Kč', 'super admin bez prodejů: 0 Kč');
+  await page.selectOption('#user-select', String(UID.petra));
+  await klid(page, 600);
+  over('E7', (await celkem()) === '3 570 Kč' && (await volani(page)).some((v) => v.fn === 'statistikyVolani' && v.args[0] === UID.petra), 'super admin vidí výdělek Petry', await celkem());
+  await page.selectOption('#user-select', String(UID.honza));
+  await klid(page, 600);
+  const t = txt(await page.evaluate(() => document.body.innerText));
+  over('E8', (await celkem()) === '1 050 Kč' && (await page.locator('.vydelek-nejasne').count()) === 1 && /cena nejde přečíst/.test(t) && (await page.locator('.vydelek-sleva').count()) === 1
+    && /3 500 Kč/.test(t), 'Honza: sleva (3 500 Kč) se počítá, nejasná cena ne a appka to řekne', t.slice(t.indexOf('Vyděláno'), t.indexOf('Vyděláno') + 300));
+  await page.selectOption('#user-select', String(UID.eva));
+  await klid(page, 600);
+  over('E9', /Za weby v eurech navíc: celkem 75 €/.test(txt(await page.locator('.vydelek-eur').innerText().catch(() => ''))), 'eura zvlášť, když nějaká jsou');
+  await ctx.close();
+});
+await blok050('E 390', async () => {
+  const { ctx, page } = await novaStranka('petra', { sirka: 390, vyska: 844 });
+  await jdi(page, '#/stats', 800);
+  const w = await page.evaluate(() => document.documentElement.scrollWidth);
+  over('E10', w <= 390 && (await page.locator('.vydelek-celkem').count()) === 1, 'Statistiky s výdělkem se na telefonu vejdou bez vodorovného posunu', `scrollWidth ${w}`);
+  await jdi(page, '#/call', 800);
+  const w2 = await page.evaluate(() => document.documentElement.scrollWidth);
+  const tl = page.locator('.outcome-row .outcome-dalsi button');
+  const presahuje = await tl.evaluateAll((els) => els.some((e) => e.scrollWidth > e.clientWidth + 1));
+  over('E11', w2 <= 390 && (await tl.count()) === 2 && !presahuje, 'volání na telefonu: Nerelevantní a Přeplánovat se vejdou', `scrollWidth ${w2}`);
+  await ctx.close();
+});
+
 await browser.close();
 server.close();
 rmSync(OUT, { recursive: true, force: true });

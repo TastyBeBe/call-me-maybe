@@ -10,6 +10,10 @@
 // ⚠ Migrace 045 (Albert 20. 10. 2026: Volající vidí stav jen u svých klientů): cizí kontakt Volajícího (skryto)
 // má jen jméno a kontakt; detail mu ukáže jen ty a nápovědu, žádný stav, poznámky, příznak, zámek ani vlákna.
 // NAHRAZUJE „u cizího kontaktu jen příznak a uvolnění zámku“ pro Volající (příznak a zámek cizího mění jen super admin).
+// Migrace 050 (Albert 21. 10. 2026: „they should be able to plan a call for any client, Moji klienti or Kontakty“):
+// v obou variantách tlačítko „Naplánovat hovor“ (sdílené okno ZavolatModal). Jestli smí, rozhodne server: Volající
+// svému klientovi nebo kontaktu ve frontě, kterému nikdo nevolal (ten se mu tím rezervuje), super admin komukoli
+// a vybere, kdo zavolá. U cizího kontaktu appka nezná stav, proto tlačítko nabídne a případnou hlášku serveru ukáže.
 
 import { useCallback, useEffect, useState } from 'react';
 import {
@@ -19,10 +23,11 @@ import {
   type Kontakt,
   type KontaktStatus,
   type ThreadDetail,
+  type ZavolatPolozka,
 } from '../api';
 import { audio } from '../audio';
 import { useSession } from '../auth';
-import { JINY_VOLAJICI, isSuperAdmin } from '../roles';
+import { JINY_VOLAJICI, isSuperAdmin, roleLabel } from '../roles';
 import { bezCizihoIco, icoVidi, segmentOf } from '../segment';
 import {
   ALL_FLAGS,
@@ -42,9 +47,15 @@ import {
   jenZaklad,
   kontaktJmeno,
   obratArchitekta,
+  formatKdyVeta,
+  formatRelativne,
   pravidloPopisek,
 } from '../ui';
+import { useZavolat } from '../zavolat';
+import { usePeople } from './PersonPicker';
+import ZavolatModal from './ZavolatModal';
 import {
+  AlarmIcon,
   CheckIcon,
   FlagIcon,
   GlobeIcon,
@@ -438,6 +449,86 @@ function ArchitektUdaje({ kontakt, icoVidi: vidi }: { kontakt: Kontakt; icoVidi:
   );
 }
 
+/* ---------- naplánovat hovor (migrace 050, Albert 21. 10. 2026) ---------- */
+
+/** Okno „Naplánovat hovor“; lidi pro výběr „Kdo zavolá“ (all_stats) se načtou, jen když ho otevře super admin. */
+function NaplanovatOkno({
+  kontakt,
+  hovor,
+  onZavrit,
+  onHotovo,
+}: {
+  kontakt: Kontakt;
+  /** vlastní čekající hovor kontaktu: okno ho přesune (zavolat_naplanovat čekající hovor kontaktu přesune) */
+  hovor: ZavolatPolozka | null;
+  onZavrit: () => void;
+  onHotovo: (veta: string) => void;
+}) {
+  const session = useSession();
+  const people = usePeople(); // Volajícímu prázdné (usePeople volá all_stats jen za super admina)
+  const lide = people
+    .filter((p) => p.active)
+    .map((p) => ({ user_id: p.user_id, display_name: p.display_name, popis: p.user_id === session.user_id ? '' : roleLabel(p.role) }));
+  // výchozí „Kdo zavolá“: u přesunu ten, kdo hovor má; jinak ten, kdo kontaktu volá (super admin jméno vidí), jinak přihlášený
+  const volajici = people.find((p) => p.display_name === kontakt.last_caller)?.user_id ?? null;
+  return (
+    <ZavolatModal
+      titulek={hovor ? 'Přesunout hovor' : 'Naplánovat hovor'}
+      komu={kontaktJmeno(kontakt)}
+      uvod={<p style={{ margin: 0 }}>Hovor se objeví v kalendáři a v den hovoru ti appka připomene, komu a kdy zavolat.</p>}
+      vychoziKdy={hovor?.kdy ?? null}
+      vychoziPoznamka={hovor?.poznamka ?? null}
+      lide={isSuperAdmin(session.role) ? lide : []}
+      vychoziKdo={hovor ? hovor.user_id : volajici}
+      jaId={session.user_id}
+      potvrdit={hovor ? 'Přesunout' : 'Naplánovat'}
+      onZavrit={onZavrit}
+      onUlozit={async (v) => {
+        const z = await getApi().zavolatNaplanovat(session.token, kontakt.id, v.kdy, v.poznamka, v.userId);
+        audio.play('success');
+        onHotovo(`Hovor je naplánovaný: ${z.muj ? 'zavoláš' : `zavolá ${z.volajici ?? ''}`} ${formatKdyVeta(z.kdy)}.`);
+      }}
+    />
+  );
+}
+
+/** Blok v detailu: vlastní čekající hovor kontaktu (když ho kalendář zná) a tlačítko Naplánovat hovor. */
+function ZavolatBlok({ kontakt }: { kontakt: Kontakt }) {
+  const { hovorKontaktu } = useZavolat();
+  const [otevreno, setOtevreno] = useState(false);
+  const [hotovo, setHotovo] = useState('');
+  const hovor = hovorKontaktu(kontakt.id);
+  useEffect(() => {
+    setOtevreno(false);
+    setHotovo('');
+  }, [kontakt.id]);
+  return (
+    <div className="zavolat-blok">
+      {hovor && (
+        <p className="zavolat-blok-hovor">
+          <AlarmIcon size={15} /> Máš naplánovaný hovor {formatKdyVeta(hovor.kdy)} ({formatRelativne(hovor.kdy)})
+          {hovor.poznamka ? ` · ${hovor.poznamka}` : ''}
+        </p>
+      )}
+      {hotovo && <div className="info-box zavolat-blok-hotovo">{hotovo}</div>}
+      <button type="button" className="pill-btn sm tag zavolat-naplanovat" onClick={() => setOtevreno(true)}>
+        <AlarmIcon size={14} /> {hovor ? 'Přesunout hovor' : 'Naplánovat hovor'}
+      </button>
+      {otevreno && (
+        <NaplanovatOkno
+          kontakt={kontakt}
+          hovor={hovor}
+          onZavrit={() => setOtevreno(false)}
+          onHotovo={(veta) => {
+            setOtevreno(false);
+            setHotovo(veta);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
 /* ---------- drawer ---------- */
 
 export default function KontaktDrawer({
@@ -576,6 +667,7 @@ export default function KontaktDrawer({
           {'email' in kontakt && <p className="meta-line">e-mail: {kontakt.email || '—'}</p>}
           {segmentOf(kontakt) === 'architekt' && <ArchitektUdaje kontakt={kontakt} icoVidi={icoVidi(session.role)} />}
           <div className="info-box skryto-box">{SKRYTO_NAPOVEDA}</div>
+          <ZavolatBlok kontakt={kontakt} />
           <button className="pill-btn" onClick={onClose}>
             Zavřít
           </button>
@@ -636,6 +728,8 @@ export default function KontaktDrawer({
             </button>
           </div>
         )}
+
+        <ZavolatBlok kontakt={kontakt} />
 
         <FlagPanel kontakt={kontakt} readOnly={readOnly} onSaved={onSaved} />
 

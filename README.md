@@ -83,9 +83,60 @@ Demo mock (`src/api/mock.ts`) má stejná pravidla viditelnosti jako server (mig
 až 038, role z 042, z 045 jména kolegů v poznámkách, u příznaku a zámku a v hledání maskovaná, Volajícímu bez `total` a `top_prodejce`, u cizího kontaktu jen allowlist `KLICE_CIZI` se `skryto: true`, filtr stavu a hledání v poznámce jen nad jeho klienty, příznak a zámek cizího odmítnut, vlákna o cizím klientovi skrytá; ⚠ NAHRAZUJE „023 až 036“, mock už zrcadlí i 037 a 038): i hledání osobního IČO jen celým číslem a jen u kontaktů, které smí upravit, IČO
 ateliéru rovné osobnímu skryté s ním, vlastní karta ve volání napřed a strop 10 vrácení do
 fronty za hodinu (audit 1. 10., APP-4 a APP-5; `npm test` blok L). Chaty mají id 1 až 9
-a 90 až 92, falešní architekti id 300 až 303 (jen adresy `example.cz`, telefony s předvolbou 999, IČO `11111111` a `22222222` s neplatným
+a 90 až 92 (od migrace 050 i 10 až 13 a 20 až 23 pro kalendář hovorů a výdělek, viz oddíl Volání 050), falešní architekti id 300 až 303 (jen adresy `example.cz`, telefony s předvolbou 999, IČO `11111111` a `22222222` s neplatným
 kontrolním součtem): 300 a 301 jsou ve frontě, 302 je nedovolaný s příznakem a bez
 e-mailu (volala Petra), 303 má odeslaný návrh a čeká na odpověď (volal Honza).
+
+## Volání 050: nerelevantní, přeplánovat, kalendář hovorů, výdělek (Albert 21. 10. 2026)
+
+Server: `../db/migration_050_volani_kalendar_vydelek.sql` (spouští se PŘED appkou). Albert 21. 10. 2026: v Moji klienti
+známka a cena, ve volání „Nerelevantní“ (třeba starší lidé, do statistik ne jako odmítnutí) a „Přeplánovat“ („Hey, I'm at
+work, call me at this time“), nová záložka s kalendářem lidí k zavolání (super admini i kalendáře ostatních), připomínka
+v den hovoru a ve statistikách kolik volající vydělal celkem a tento týden (30 % z ceny webu, ne z hostingu).
+
+- **Moji klienti**: sloupce Známka (A, B, C) a Cena: čistá částka jako „7 000 Kč“, jiný text tak, jak ho kdo zapsal
+  (dlouhý zkrácený, celý v nápovědě), pod ní menší „hosting …“; „x“, „-“ a podobné = pomlčka (`cenaText` v `src/ui.tsx`).
+  Na telefonu se do strany posouvá jen tabulka v rámečku.
+- **Volání**: pod třemi hlavními tlačítky menší **Nerelevantní** (okno s povinným důvodem: rychlé „starší člověk“,
+  „není majitel“, „objekt neexistuje / nepronajímá“ nebo vlastní text; kontakt se už nevolá ani nepíše a do konverze se
+  nepočítá) a **Přeplánovat** (výběr času: Za hodinu, Dnes 18:00, Zítra 9:00, Zítra 14:00, Za týden nebo den a čas;
+  věta „Zavoláš zítra v 9:00 (za 11 h).“; poznámka z karty se přenese; `resolve_call` s `p_kdy`, kontakt zůstane ve
+  frontě a ve zvolený čas přijde tomu, kdo ho přeplánoval, jako první karta). Karta z kalendáře má nahoře cedulku
+  „Naplánovaný hovor …“. `#/call?zavolat=<id>` vezme kartu přes `zavolat_vzit` (stejná kontrola pozdních odpovědí jako
+  `next_contact`, závislosti `loadNext` beze změny, kontrola 75), segment jde za kartou a parametr z adresy hned zmizí;
+  rozdělanou kartu nejdřív potvrdí. „Zapsat Nedovoláno“ v okně přepnutí zůstává (kontrola 102).
+- **Kalendář** (`#/kalendar`, záložka „kalendář“ s odznakem = vlastní hovory na dnešek a po termínu, dlaždice na Domů):
+  Po termínu, Dnes, Nadcházející po dnech, Hotové a zrušené za 14 dní (sbalené). U hovoru Zavolat teď (kontakt ve frontě
+  a jen ten, kdo má volat), číslo k vytočení, Hotovo (jen klient mimo frontu; server klienta ve frontě odmítne), Přesunout
+  a Zrušit s potvrzením. Volající vidí jen svůj (server cizí odmítne), super admin si vybere sebe, kohokoli nebo
+  „Všichni volající“ a při přesunu vybere, kdo zavolá. Hovor jde naplánovat i v detailu kontaktu (Moji klienti, Kontakty:
+  „Naplánovat hovor“, u cizího kontaktu Volajícího taky; jestli smí, rozhodne server). Okno času je sdílené
+  (`src/components/ZavolatModal.tsx`), čas je vždy pražský jako na serveru (`src/praha.ts`).
+- **Připomínky** (`src/zavolat.tsx`): každou minutu a hned po každé změně si appka načte vlastní kalendář; lišta na Domů
+  „Dnes máš zavolat …“ s časy a upozornění v rohu (`role="status"`) 5 minut před až 30 minut po čase hovoru, se zvukem
+  podle nastavení zvuků, s tlačítky Zavolat teď a Později; každý hovor jen jednou (id v `localStorage`
+  `volacka_zavolat_pripomenuto_<user_id>`). Server bez migrace 050: nic se neukáže, chyba ne.
+- **Statistiky**: karty Nerelevantní a Přeplánováno a oddíl **Vyděláno** (`statistiky_volani`): celkem, tento týden
+  (po až ne v Praze) v Kč, eura zvlášť, „30 % z ceny webu, hosting se nepočítá“, upozornění na prodeje, u kterých cena
+  nejde přečíst (rozpětí, „po domluvě“), a seznam prodaných webů s cenou (po nabídce poloviční ceny částka ze slevy)
+  a provizí. Super admin vybere člověka (posílá `p_user_id`). Vysvětlivka: dovoláno = odmítli + zájem (nerelevantní ani
+  přeplánované se nepočítají). Rozvrh: hovor je každý zapsaný výsledek, i nerelevantní a přeplánovaný.
+- **Soukromí** (`../docs/ROLE-A-VIDITELNOST.md`): kalendář i výdělek Volající jen svůj; kontakt v kalendáři jde stejnou
+  maskou jako v seznamech (cizí klient Volajícího jen jméno a kontakt se `skryto`), kdo hovor naplánoval, je u jiného
+  Volajícího „jiný volající“. Appka jen neukazuje, co by server stejně odmítl.
+- **Starý server** (bez 050): `p_kdy` se posílá jen u přeplánovaného hovoru, takže ostatní výsledky hovoru fungují dál;
+  kalendář, připomínky a výdělek se tiše neukážou.
+- **Demo**: Petra má hovor po termínu (karta 10, ve volání přijde první), hovor u klienta mimo frontu (9, Hotovo),
+  rezervovaný kontakt na zítra (12) a jeden hotový; Honza hovor na zítra (11). Petra prodala dřív Penzion Šumava
+  (4 900 Kč → 1 470 Kč) a tento týden Chalupu Na Vršku (7 000 Kč → 2 100 Kč) a má jeden nerelevantní kontakt (13);
+  Honza prodal web s cenou „6000-7000 Kč po domluvě“ (nejde přečíst) a jeden po slevě (3 500 Kč místo 7 000 Kč →
+  1 050 Kč); Eva web za 250 eur (75 €). Mock zrcadlí server včetně hlášek (`resolve_call`, `next_contact` průchod 0b,
+  `zavolat_*`, `statistiky_volani`, `app_cena_cist` jako `cenaCist`, trigger data prodeje).
+- **Testy**: `npm test` blok volání (`tests/volani.test.mjs`: V výdělek a tabulka vzorků ceny shodná s test_050 mezi
+  řádky „vzorky ceny: začátek/konec“, kontrola 204; M formátování; Z připomínky; K kalendář, práva a maska; N
+  nerelevantní; P přeplánovat a co appka posílá serveru; S zapojení) a `npm run test:e2e` bloky C (Moji klienti 1280
+  a 390 px), N, P, K (Petra a Mikuláš, 1280 a 390 px), H (odznak a lišta na Domů), T (detail kontaktu a upozornění)
+  a E (výdělek, super admin vybírá člověka, 390 px).
 
 ## Účty a přihlášení (produkce)
 
@@ -280,7 +331,8 @@ který schvaluje Albert (u zprávy je vidět jeho stav).
 | ------------- | ------- | --------------------------------------------------------------- |
 | `#/login`     | všichni | přihlášení                                                       |
 | `#/`          | všichni | domů — dlaždice podle role                                       |
-| `#/call`      | všichni | fronta hovorů: přepínač chaty / architekti (028), karta kontaktu + výsledky (nedovoláno/odmítnuto/zájem); kontakt, kterému Volající ještě nevolal, bez stavu, poznámek a příznaku (045, 20. 10. 2026). Poznámka k hovoru je **nepovinná** — zájem jde uložit i bez ní (Albert 2026-09-23; dřív se při prázdné poznámce otevíralo potvrzovací okno navíc) |
+| `#/call`      | všichni | fronta hovorů: přepínač chaty / architekti (028), karta kontaktu + výsledky (nedovoláno/odmítnuto/zájem, od 050 i nerelevantní a přeplánovat; `?zavolat=<id>` = karta z kalendáře); kontakt, kterému Volající ještě nevolal, bez stavu, poznámek a příznaku (045, 20. 10. 2026). Poznámka k hovoru je **nepovinná** — zájem jde uložit i bez ní (Albert 2026-09-23; dřív se při prázdné poznámce otevíralo potvrzovací okno navíc) |
+| `#/kalendar`  | všichni | kalendář hovorů (050): svůj každý, super admin kohokoli nebo všech; Po termínu, Dnes, Nadcházející, Hotové a zrušené; Zavolat teď, Hotovo, Přesunout, Zrušit |
 | `#/stats`     | všichni | moje statistiky; super admin (i Albert) přes dropdown kohokoli (027) a trychtýř „Klienti podle stavu" (součty celé databáze) s filtrem segmentu (028); ⚠ trychtýř od 19. 10. 2026 a dlaždice „jako #1 prodejce“ od 20. 10. 2026 jen super admin (migrace 045, NAHRAZUJE „(admin)“): Volající vidí jen svoje čísla |
 | `#/moji`      | všichni | moji klienti (+ historie poznámek v detailu); super admin může vybrat kohokoli (027); filtr segmentu (028) |
 | `#/rozvrh`    | všichni | Rozvrh (042): týden po až ne, hodiny na den a cíl (hovorů za hodinu posílá server), plnění z hovorů, hláška pozadu / v plánu / napřed, poznámky ke dnům; Volající si ho nastaví jednou, super admin vidí přehled všech, mění a odemyká |
