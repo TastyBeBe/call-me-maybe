@@ -145,7 +145,8 @@ jen jeho klienty, cizí kontakty server řadí za jeho jen podle id; příznak a
 (chyba „Tohle není váš klient: …“), vlákno o cizím klientovi nevidí. Appka (`jenZaklad`, `Skryto`, `SKRYTO_NAPOVEDA`
 v `ui.tsx`): Kontakty ukážou u cizího kontaktu pomlčku místo stavu, známky, „volal/a“, čekání a data změny a nad
 tabulkou nápovědu; detail cizího kontaktu jen jméno, telefon, e-mail, web a údaje architekta (bez stavu, poznámek,
-příznaku, zámku a vzkazů); karta ve volání u kontaktu, kterému Volající ještě nevolal, bez řádku status a poznámek
+příznaku, zámku a vzkazů; ⚠ od migrace 048 e-mail jen u architekta a na kartě, kterou Volající volá, u cizí chaty ne,
+oddíl „Po auditu soukromí 20. 10. 2026“ níž); karta ve volání u kontaktu, kterému Volající ještě nevolal, bez řádku status a poznámek
 (po hovoru je jeho a vidí ho celý). Super admin a Albert vidí všechno jako dřív. Hlídá `npm test` blok U, e2e U
 a kontrola 193 v repu webdomov.
 
