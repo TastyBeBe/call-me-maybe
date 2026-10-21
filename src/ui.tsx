@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { useEffect, useRef, type ReactNode, type RefObject } from 'react';
 import type {
   CekaniKind,
   CekaniKos,
@@ -10,6 +10,7 @@ import type {
   Segment,
 } from './api';
 import { CompassIcon, FlagIcon, HomeIcon } from './icons';
+import { isoDen, posunDen, prahaCas, prahaDen } from './praha';
 import { SEGMENTY, segmentOf } from './segment';
 
 /** České popisky statusů kontaktu. */
@@ -17,6 +18,8 @@ export const STATUS_LABELS: Record<KontaktStatus, string> = {
   nekontaktovano: 'Nekontaktováno',
   nedovolano: 'Nedovoláno',
   odmitnuto: 'Odmítnuto',
+  // migrace 050 (Albert 21. 10. 2026): kontakt není relevantní (starší člověk, není majitel); nevolá se, nepíše se
+  nerelevantni: 'Nerelevantní',
   zajem: 'Mají zájem',
   web_ve_vyrobe: 'Web ve výrobě',
   navrh_odeslan: 'Návrh odeslán',
@@ -38,6 +41,8 @@ export const STATUS_COLORS: Record<KontaktStatus, { bg: string; fg: string }> = 
   nekontaktovano: { bg: '#fdf6e9', fg: '#7b7695' },
   nedovolano: { bg: '#f6cd5e', fg: '#221e33' },
   odmitnuto: { bg: '#b9b3a7', fg: '#221e33' },
+  // klidná šedofialová: konečný stav jako odmítnuto, ale jiná barva (nepočítá se jako odmítnutí)
+  nerelevantni: { bg: '#c9c0e0', fg: '#221e33' },
   zajem: { bg: '#3ea45c', fg: '#fdf6e9' },
   web_ve_vyrobe: { bg: '#d95b32', fg: '#fdf6e9' },
   navrh_odeslan: { bg: '#e4926f', fg: '#221e33' },
@@ -477,3 +482,153 @@ export function icoDph(ico: string | null | undefined, dph: DphStav | null | und
 
 /* ⚠ Zdroj telefonu („odkud máme číslo“) v appce není (Albert 19. 10. 2026, migrace 043; NAHRAZUJE [ALBERT 10]).
    Popisky zdroje čísla (pro kartu i pro větu ve scénáři) a funkce k nim jsou proto pryč. */
+
+/* ---------------------------------------------------------------------------
+   Ceny a čas naplánovaných hovorů (migrace 050, Albert 21. 10. 2026). Čas vždy v Praze (src/praha.ts),
+   stejně jako server: „zavolat v 15:00“ je 15:00 u klienta.
+   --------------------------------------------------------------------------- */
+
+const NBSP = '\u00a0';
+
+/** Tisíce oddělené nezlomitelnou mezerou: 7000 -> „7 000“ (číslo se nezalomí). */
+function tisice(n: number): string {
+  const [cele, des] = Math.abs(n).toFixed(Number.isInteger(n) ? 0 : 2).split('.');
+  const s = cele.replace(/\B(?=(\d{3})+(?!\d))/g, NBSP);
+  return `${n < 0 ? '-' : ''}${s}${des ? `,${des}` : ''}`;
+}
+
+/** „7 000 Kč“ (celé koruny). */
+export function formatKc(n: number): string {
+  return `${tisice(Math.round(n))}${NBSP}Kč`;
+}
+
+/** „75 €“, „75,50 €“. */
+export function formatEur(n: number): string {
+  return `${tisice(Math.round(n * 100) / 100)}${NBSP}€`;
+}
+
+/** Částka v měně výdělku (kc | eur). */
+export function formatCastka(n: number, mena: 'kc' | 'eur' | null | undefined): string {
+  return mena === 'eur' ? formatEur(n) : formatKc(n);
+}
+
+/** Zástupné hodnoty ceny, které znamenají „nezadáno“ (x, xx, X, Xx, yx, -, —). */
+const CENA_ZASTUPNA = /^(?:x{1,3}|yx|[-–—]{1,3})$/i;
+/** Čisté číslo, případně s Kč, Kc, CZK nebo „,-“: ukáže se jako „7 000 Kč“. */
+const CENA_CISLO = /^(\d{1,3}(?:[ .\u00a0]\d{3})+|\d+)\s*(?:kč|kc|czk|,-)?$/i;
+const CENA_DELKA = 26;
+
+/**
+ * Cena webu nebo hostingu v Moji klienti: čisté číslo jako „7 000 Kč“, jiný text (190/měs, 6000-7000 po domluvě)
+ * tak, jak ho kdo zapsal, dlouhý zkrácený (celý v `cele` pro title); prázdné a zástupné (x, -) = null (nezadáno).
+ */
+export function cenaText(text: string | null | undefined): { text: string; cele: string } | null {
+  const t = (text ?? '').trim();
+  if (t === '' || CENA_ZASTUPNA.test(t)) return null;
+  const m = CENA_CISLO.exec(t);
+  if (m) return { text: formatKc(Number(m[1].replace(/[ .\u00a0]/g, ''))), cele: t };
+  const znaky = [...t];
+  return { text: znaky.length > CENA_DELKA ? `${znaky.slice(0, CENA_DELKA - 1).join('')}…` : t, cele: t };
+}
+
+const DNY_KRATCE = ['po', 'út', 'st', 'čt', 'pá', 'so', 'ne'];
+const DNY_KDY = ['v pondělí', 'v úterý', 've středu', 've čtvrtek', 'v pátek', 'v sobotu', 'v neděli'];
+const DNY_NAZEV = ['pondělí', 'úterý', 'středa', 'čtvrtek', 'pátek', 'sobota', 'neděle'];
+
+/** Čas v Praze bez úvodní nuly: „9:00“, „15:30“. */
+export function formatCas(iso: string): string {
+  return prahaCas(iso).replace(/^0(\d)/, '$1');
+}
+
+/** „23. 10.“ z YYYY-MM-DD. */
+function denMesic(datum: string): string {
+  const [, m, d] = datum.split('-').map(Number);
+  return `${d}. ${m}.`;
+}
+
+/** „čt 23. 10. v 15:00“ (Praha). */
+export function formatKdy(iso: string | null | undefined): string {
+  if (!iso || Number.isNaN(new Date(iso).getTime())) return '—';
+  const datum = prahaDen(iso);
+  return `${DNY_KRATCE[isoDen(datum) - 1]} ${denMesic(datum)} v ${formatCas(iso)}`;
+}
+
+/** Datum v Praze „21. 10. 2026“ (výdělek: den prodeje jako server, i když je telefon v jiném pásmu). */
+export function formatDatumPraha(iso: string | null | undefined): string {
+  if (!iso || Number.isNaN(new Date(iso).getTime())) return '—';
+  const [y, m, d] = prahaDen(iso).split('-').map(Number);
+  return `${d}. ${m}. ${y}`;
+}
+
+/** Nadpis dne v kalendáři: „pátek 24. 10.“ (YYYY-MM-DD). */
+export function formatDenNadpis(datum: string): string {
+  return `${DNY_NAZEV[isoDen(datum) - 1]} ${denMesic(datum)}`;
+}
+
+/** Věta „dnes v 15:00“, „zítra v 9:00“, „ve čtvrtek 23. 10. v 15:00“ (dnes = YYYY-MM-DD v Praze). */
+export function formatKdyVeta(iso: string, dnes: string = prahaDen(new Date())): string {
+  const datum = prahaDen(iso);
+  if (datum === dnes) return `dnes v ${formatCas(iso)}`;
+  if (datum === posunDen(dnes, 1)) return `zítra v ${formatCas(iso)}`;
+  if (datum === posunDen(dnes, -1)) return `včera v ${formatCas(iso)}`;
+  return `${DNY_KDY[isoDen(datum) - 1]} ${denMesic(datum)} v ${formatCas(iso)}`;
+}
+
+/** „za 2 dny“, „před 3 h“, „za 15 min“, „teď“. */
+export function formatRelativne(iso: string, ted: number = Date.now()): string {
+  const diff = new Date(iso).getTime() - ted;
+  if (Number.isNaN(diff)) return '';
+  const abs = Math.abs(diff);
+  const za = diff > 0;
+  const min = Math.round(abs / 60000);
+  if (min < 1) return 'teď';
+  if (min < 60) return za ? `za ${min} min` : `před ${min} min`;
+  const h = Math.round(abs / 3600000);
+  if (h < 24) return za ? `za ${h} h` : `před ${h} h`;
+  const dny = Math.round(abs / 86400000);
+  if (za) return `za ${dny} ${dny === 1 ? 'den' : dny <= 4 ? 'dny' : 'dní'}`;
+  return `před ${dny} ${dny === 1 ? 'dnem' : 'dny'}`;
+}
+
+/**
+ * Okno (dialog) z klávesnice (po recenzi 21. 10. 2026, okna Přeplánovat, Naplánovat hovor a Nerelevantní): při otevření
+ * fokus na první volbu (`data-autofocus`, jinak první ovládací prvek), Tab a Shift+Tab zůstávají v okně, Escape okno
+ * zavře (ne během ukládání) a po zavření se fokus vrátí tam, odkud se okno otevřelo (když ten prvek pořád je).
+ */
+export function useOkno(ref: RefObject<HTMLElement>, zavrit: () => void, busy: boolean): void {
+  const zavritRef = useRef(zavrit);
+  zavritRef.current = zavrit;
+  const busyRef = useRef(busy);
+  busyRef.current = busy;
+  useEffect(() => {
+    const predtim = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const PRVKY = 'button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), a[href]';
+    const prvni = ref.current?.querySelector<HTMLElement>('[data-autofocus]:not([disabled])') ?? ref.current?.querySelector<HTMLElement>(PRVKY);
+    prvni?.focus();
+    const klavesa = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        if (!busyRef.current) zavritRef.current();
+        return;
+      }
+      if (e.key !== 'Tab' || !ref.current) return;
+      const vse = Array.from(ref.current.querySelectorAll<HTMLElement>(PRVKY));
+      if (vse.length === 0) return;
+      const i = vse.indexOf(document.activeElement as HTMLElement);
+      if (e.shiftKey && (i <= 0)) {
+        e.preventDefault();
+        vse[vse.length - 1].focus();
+      } else if (!e.shiftKey && (i === -1 || i === vse.length - 1)) {
+        e.preventDefault();
+        vse[0].focus();
+      }
+    };
+    document.addEventListener('keydown', klavesa);
+    return () => {
+      document.removeEventListener('keydown', klavesa);
+      if (predtim && document.contains(predtim)) predtim.focus();
+    };
+    // jen při otevření a zavření okna
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+}

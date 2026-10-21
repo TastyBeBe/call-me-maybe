@@ -19,6 +19,7 @@ import AdminPage from './pages/AdminPage';
 import AutomatizacePage from './pages/AutomatizacePage';
 import CallPage from './pages/CallPage';
 import HomePage from './pages/HomePage';
+import KalendarPage from './pages/KalendarPage';
 import LoginPage from './pages/LoginPage';
 import MojiPage from './pages/MojiPage';
 import OznacenePage from './pages/OznacenePage';
@@ -29,6 +30,7 @@ import UzivatelePage from './pages/UzivatelePage';
 import ZpravyPage from './pages/ZpravyPage';
 import PigLayer from './pig/PigLayer';
 import SoundMenu from './SoundMenu';
+import { useZavolat, ZavolatProvider } from './zavolat';
 
 /** Prokchop je dekorace: když spadne, zaloguj to a vrstvu zahoď — appka jede dál. */
 class PigBoundary extends Component<{ children: ReactNode }, { broken: boolean }> {
@@ -100,12 +102,15 @@ function RequireAuth({
 
 function TopBar() {
   const { session, logout } = useAuth();
+  const zavolat = useZavolat();
   const navigate = useNavigate();
   const { demo } = getConfig();
   if (!session) return null;
   const isAdmin = isAdminRole(session.role);
   const isSuper = isSuperAdmin(session.role);
   const isOwner = isAdmin && session.user_id === OWNER_USER_ID;
+  // odznak u kalendáře: vlastní hovory na dnešek a po termínu (migrace 050, src/zavolat.tsx)
+  const kZavolani = zavolat.dnes.length;
 
   const onLogout = async () => {
     await logout();
@@ -125,6 +130,17 @@ function TopBar() {
           className={({ isActive }) => `nav-pill${isActive ? ' active' : ''}`}
         >
           volat
+        </NavLink>
+        {/* Kalendář hovorů (migrace 050, Albert 21. 10. 2026): každý svůj, super admin kohokoli. Odznak = kolik
+            vlastních hovorů je na dnešek a po termínu. */}
+        <NavLink
+          to="/kalendar"
+          data-sfx="none"
+          className={({ isActive }) => `nav-pill${isActive ? ' active' : ''}`}
+          aria-label={kZavolani > 0 ? `kalendář, dnes zavolat: ${kZavolani}` : undefined}
+        >
+          kalendář
+          {kZavolani > 0 && <span className="nav-badge">{kZavolani}</span>}
         </NavLink>
         <NavLink
           to="/stats"
@@ -211,6 +227,7 @@ function TopBar() {
 
 export default function App() {
   return (
+    <ZavolatProvider>
     <div className="page wide">
       <AudioLayer />
       <TopBar />
@@ -233,6 +250,14 @@ export default function App() {
           element={
             <RequireAuth>
               <CallPage />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/kalendar"
+          element={
+            <RequireAuth>
+              <KalendarPage />
             </RequireAuth>
           }
         />
@@ -303,5 +328,6 @@ export default function App() {
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </div>
+    </ZavolatProvider>
   );
 }

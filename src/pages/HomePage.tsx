@@ -4,9 +4,11 @@ import { getApi, type AutomationStatus, type Rozvrh } from '../api';
 import { OWNER_USER_ID, useSession } from '../auth';
 import { accountLabel, powerSummary } from '../automation';
 import { isAdminRole, isSuperAdmin } from '../roles';
-import { CalendarIcon, ChartIcon, FlagIcon, MessageIcon, PhoneIcon, RocketIcon, TableIcon, UsersIcon } from '../icons';
+import { AlarmIcon, CalendarIcon, ChartIcon, FlagIcon, MessageIcon, PhoneIcon, RocketIcon, TableIcon, UsersIcon } from '../icons';
 import { dnesHlaska, stavHlaska } from '../rozvrh';
-import { formatDateTime } from '../ui';
+import { formatCas, formatDateTime, formatKdy, kontaktJmeno } from '../ui';
+import { useZavolat } from '../zavolat';
+import { prahaDen } from '../praha';
 
 /** Podtitulek dlaždice Automatizace: stejný stav jako na stránce, ať ho Albert vidí hned. */
 function AutomationTileSub({ st }: { st: AutomationStatus | null }) {
@@ -59,6 +61,48 @@ function RozvrhPripominka({ token, jaSuper }: { token: string; jaSuper: boolean 
   );
 }
 
+/** Kolik lidem: „1 člověku“, „3 lidem“. */
+function lidem(n: number): string {
+  return n === 1 ? '1 člověku' : `${n} lidem`;
+}
+
+/**
+ * Připomínka naplánovaných hovorů na Domů (migrace 050, Albert 21. 10. 2026: „in the day of the call, there should be
+ * a reminder“): vlastní hovory na dnešek a po termínu s časy, odkaz na kalendář. Data z ZavolatProvider (src/zavolat.tsx);
+ * bez hovorů, nebo na serveru bez migrace 050, se neukáže nic.
+ */
+function ZavolatPripominka() {
+  const { dnes, seznam } = useZavolat();
+  if (dnes.length === 0) return null;
+  const ted = Date.now();
+  const poTerminu = dnes.filter((z) => new Date(z.kdy).getTime() < ted).length;
+  const ukazat = dnes.slice(0, 5);
+  return (
+    <Link to="/kalendar" className="home-zavolat" data-sfx="none">
+      <div className={`card zavolat-alert${poTerminu > 0 ? ' zle' : ''}`} role="status">
+        <p className="zavolat-alert-titulek">
+          Dnes máš zavolat {lidem(dnes.length)}
+          {poTerminu > 0 ? ` (po termínu ${poTerminu})` : ''}
+        </p>
+        <ul className="zavolat-alert-seznam">
+          {ukazat.map((z) => {
+            const po = new Date(z.kdy).getTime() < ted;
+            const dnesni = seznam ? prahaDen(z.kdy) === seznam.dnes : true;
+            return (
+              <li key={z.id}>
+                <strong>{dnesni ? formatCas(z.kdy) : formatKdy(z.kdy)}</strong> {kontaktJmeno(z.kontakt)}
+                {po && <span className="zavolat-alert-po"> · po termínu</span>}
+              </li>
+            );
+          })}
+          {dnes.length > ukazat.length && <li className="muted">a další {dnes.length - ukazat.length}</li>}
+        </ul>
+        <p className="zavolat-alert-odkaz">Otevřít kalendář →</p>
+      </div>
+    </Link>
+  );
+}
+
 export default function HomePage() {
   const session = useSession();
   const isAdmin = isAdminRole(session.role);
@@ -89,12 +133,18 @@ export default function HomePage() {
     <div>
       <p className="eyebrow">webdomov · interní</p>
       <h1 className="page-title">Ahoj, {session.display_name}!</h1>
+      <ZavolatPripominka />
       <RozvrhPripominka token={session.token} jaSuper={isSuper} />
       <div className="home-grid">
         <Link to="/call" className="big-tile hot">
           <span className="tile-emoji"><PhoneIcon size={42} /></span>
           <span className="tile-label">VOLAT</span>
           <span className="tile-sub">další kontakt z fronty</span>
+        </Link>
+        <Link to="/kalendar" className="big-tile">
+          <span className="tile-emoji"><AlarmIcon size={42} /></span>
+          <span className="tile-label">KALENDÁŘ</span>
+          <span className="tile-sub">{isSuper ? 'komu kdy zavolat, i kalendáře ostatních' : 'komu kdy zavolat'}</span>
         </Link>
         <Link to="/stats" className="big-tile">
           <span className="tile-emoji"><ChartIcon size={42} /></span>

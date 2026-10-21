@@ -1,9 +1,30 @@
 import { useEffect, useState } from 'react';
-import { getApi, type KontaktStatus, type MyStats, type Segment, type UserStats } from '../api';
+import {
+  getApi,
+  type KontaktStatus,
+  type MyStats,
+  type Segment,
+  type StatistikyVolani,
+  type UserStats,
+  type Vydelek,
+} from '../api';
 import { useSession } from '../auth';
 import { dayWord, topDaysFor } from '../pig/progress';
 import { isSuperAdmin, roleLabel } from '../roles';
-import { ALL_STATUSES, ErrorBox, SegmentFilter, Spinner, STATUS_LABELS, errMsg } from '../ui';
+import { datumKratce } from '../rozvrh';
+import {
+  ALL_STATUSES,
+  ErrorBox,
+  SegmentFilter,
+  Spinner,
+  STATUS_LABELS,
+  cenaText,
+  errMsg,
+  formatCastka,
+  formatDatumPraha,
+  formatEur,
+  formatKc,
+} from '../ui';
 
 function StatCards({ stats }: { stats: MyStats }) {
   // ⚠ POPISKY MUSÍ ŘÍKAT, CO TO JE (Albert 2026-09-12). Dřív tu stálo prosté
@@ -43,6 +64,27 @@ export default function StatsPage() {
   const [selectedUser, setSelectedUser] = useState<number | 'me'>('me');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
+  // Migrace 050 (Albert 21. 10. 2026): nerelevantní a přeplánované hovory a výdělek (30 % z ceny webu) toho, koho
+  // stránka ukazuje. Volající jen svoje (server statistiky_volani cizí odmítne), super admin přes výběr kohokoli.
+  // Server bez migrace 050 RPC nezná: karty a výdělek se pak neukážou, zbytek stránky jede dál.
+  const [volani, setVolani] = useState<StatistikyVolani | null>(null);
+  const volaniUid = selectedUser === 'me' ? null : selectedUser;
+
+  useEffect(() => {
+    let alive = true;
+    setVolani(null);
+    getApi()
+      .statistikyVolani(session.token, volaniUid)
+      .then((x) => {
+        if (alive) setVolani(x);
+      })
+      .catch(() => {
+        if (alive) setVolani(null);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [session.token, volaniUid]);
 
   useEffect(() => {
     let alive = true;
@@ -121,9 +163,11 @@ export default function StatsPage() {
             klient může mít víc hovorů a po projeveném zájmu se přesune dál podle toho,
             jak daleko je jeho web.{isSuper && ' Kolik klientů je právě teď v jakém stavu, je níž.'}
           </p>
+          {/* migrace 050 (Albert 21. 10. 2026): nerelevantní kontakty se do konverze nepočítají (ani jako odmítnutí)
+              a přeplánovaný hovor taky ne; ⚠ NAHRAZUJE „dovoláno = odmítli + zájem“ bez vysvětlení */}
           <p className="muted" style={{ margin: '4px 0 0' }}>
-            dovoláno = odmítli + zájem · konverze = zájem / dovoláno · prodáno = klient
-            web schválil (a dál)
+            dovoláno = odmítli + zájem (nerelevantní ani přeplánované se nepočítají) · konverze = zájem / dovoláno ·
+            prodáno = klient web schválil (a dál)
           </p>
           <StatCards stats={shown} />
           <div className="stat-grid" style={{ marginTop: 16 }}>
@@ -135,6 +179,18 @@ export default function StatsPage() {
               <div className="stat-value">{shown.nedovolano}</div>
               <div className="stat-label">Nedovolaných pokusů</div>
             </div>
+            {volani && (
+              <>
+                <div className="card stat-card stat-nerelevantni">
+                  <div className="stat-value">{volani.nerelevantni}</div>
+                  <div className="stat-label">Nerelevantní</div>
+                </div>
+                <div className="card stat-card stat-preplanovano">
+                  <div className="stat-value">{volani.preplanovano}</div>
+                  <div className="stat-label">Přeplánováno</div>
+                </div>
+              </>
+            )}
             {/* kolik dní drží tenhle člověk korunu #1 prodejce (Prokchopovo počítadlo); jen super admin (045) */}
             {isSuper && (
               <div className="card stat-card">
@@ -143,10 +199,87 @@ export default function StatsPage() {
               </div>
             )}
           </div>
+          {volani && <Vydelano v={volani.vydelek} ja={selectedUser === 'me'} jmeno={shownName} jaSuper={isSuper} />}
           {isSuper && <KlientiFunnel token={session.token} />}
         </>
       )}
     </div>
+  );
+}
+
+/** „1 prodaného webu“, „3 prodaných webů“ (po předložce U). */
+function prodanychWebu(n: number): string {
+  return n === 1 ? '1 prodaného webu' : `${n} prodaných webů`;
+}
+
+/**
+ * VYDĚLÁNO (migrace 050, Albert 21. 10. 2026: „how much money each caller has made … 30 % from each website, not from
+ * the hosting“). Celkem a tento týden (po až ne v Praze) v Kč, eura zvlášť (nepřepočítávají se), seznam prodaných webů
+ * s cenou, ze které se počítalo (po nabídce poloviční ceny částka ze slevy). Cenu, která nejde přečíst přesně
+ * (rozpětí, „do 8000“), server do součtu nepočítá; appka to řekne. Čísla i sazbu posílá server (statistiky_volani).
+ */
+function Vydelano({ v, ja, jmeno, jaSuper }: { v: Vydelek; ja: boolean; jmeno: string; jaSuper: boolean }) {
+  const eura = v.celkem_eur > 0 || v.tyden_eur > 0;
+  return (
+    <section className="vydelek">
+      <h2 className="page-title" style={{ fontSize: 22, marginTop: 28 }}>
+        Vyděláno
+      </h2>
+      <p className="muted vydelek-sazba" style={{ margin: '0 0 4px' }}>
+        {v.sazba_procent} % z ceny webu, hosting se nepočítá. Počítá se web, který klient schválil (a dál), když{' '}
+        {ja ? 'jsi mu volal/a' : `mu volal/a ${jmeno}`} a měl zájem.
+      </p>
+      <div className="stat-grid vydelek-grid">
+        <div className="card stat-card hot vydelek-celkem">
+          <div className="stat-value">{formatKc(v.celkem_kc)}</div>
+          <div className="stat-label">Celkem</div>
+        </div>
+        <div className="card stat-card vydelek-tyden">
+          <div className="stat-value">{formatKc(v.tyden_kc)}</div>
+          <div className="stat-label">
+            Tento týden ({datumKratce(v.tyden_od)} až {datumKratce(v.tyden_do)})
+          </div>
+        </div>
+        <div className="card stat-card">
+          <div className="stat-value">{v.prodano}</div>
+          <div className="stat-label">Prodaných webů</div>
+        </div>
+      </div>
+      {eura && (
+        <p className="vydelek-eur">
+          Za weby v eurech navíc: celkem <strong>{formatEur(v.celkem_eur)}</strong>, tento týden{' '}
+          <strong>{formatEur(v.tyden_eur)}</strong> (eura se na koruny nepřepočítávají).
+        </p>
+      )}
+      {v.nejasne > 0 && (
+        <div className="info-box vydelek-nejasne">
+          U {prodanychWebu(v.nejasne)} cena nejde přečíst (třeba rozpětí nebo „po domluvě“), do součtu se nepočítá
+          {v.nejasne_tyden > 0 ? ` (z toho tento týden ${v.nejasne_tyden})` : ''}.{' '}
+          {jaSuper
+            ? 'Oprav ji v detailu klienta (Cena webu) na přesnou částku, třeba „7 000 Kč“.'
+            : 'Cenu webu opraví super admin v detailu klienta na přesnou částku, třeba „7 000 Kč“.'}
+        </div>
+      )}
+      {v.prodeje.length === 0 ? (
+        <p className="muted">Zatím žádný prodaný web.</p>
+      ) : (
+        <ul className="vydelek-prodeje">
+          {v.prodeje.map((p) => (
+            <li key={p.kontakt_id} className={p.tento_tyden ? 'tento-tyden' : ''}>
+              <span className="vydelek-datum">{formatDatumPraha(p.prodano_at)}</span>
+              <span className="vydelek-jmeno">{p.jmeno}</span>
+              <span className="vydelek-cena" title={p.zdroj === 'sleva' ? 'Cena po nabídce poloviční ceny (sleva)' : 'Cena webu'}>
+                {cenaText(p.cena)?.text ?? p.cena ?? '—'}
+                {p.zdroj === 'sleva' && <span className="badge yellow vydelek-sleva">sleva</span>}
+              </span>
+              <span className={`vydelek-provize${p.provize === null ? ' nejasna' : ''}`}>
+                {p.provize === null ? 'cena nejde přečíst' : formatCastka(p.provize, p.mena)}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
   );
 }
 

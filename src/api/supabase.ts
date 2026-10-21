@@ -22,12 +22,15 @@ import type {
   RozvrhPrehledRadek,
   Segment,
   Session,
+  StatistikyVolani,
   ThreadDetail,
   ThreadScope,
   ThreadStatus,
   UpdatedUser,
   UpdateUserArgs,
   UserStats,
+  ZavolatPolozka,
+  ZavolatSeznam,
 } from './types';
 
 /** Chyba z PostgREST i s kódem (`PGRST202` = funkce s těmi parametry na serveru není). */
@@ -133,6 +136,9 @@ export const supabaseApi: Api = {
       p_note: args.note ?? null,
       p_rating: args.rating ?? null,
       p_email: args.email ?? null,
+      // Migrace 050 (Albert 21. 10. 2026): p_kdy jen u přeplánovaného hovoru. Ostatní výsledky ho neposílají, takže
+      // nová appka zapisuje hovory i proti serveru bez migrace 050 (ten p_kdy nezná a celé volání by odmítl).
+      ...(args.outcome === 'preplanovano' ? { p_kdy: args.kdy ?? null } : {}),
     });
   },
 
@@ -358,5 +364,73 @@ export const supabaseApi: Api = {
 
   async prehledRozvrhu(token: string): Promise<RozvrhPrehledRadek[]> {
     return (await rpc<RozvrhPrehledRadek[]>('rozvrh_prehled', { p_token: token })) ?? [];
+  },
+
+  /* ---- kalendář hovorů a výdělek (migrace 050, Albert 21. 10. 2026) ---- */
+
+  async zavolatSeznam(
+    token: string,
+    userId: number | null = null,
+    vsichni = false,
+    jenCekajici = false
+  ): Promise<ZavolatSeznam> {
+    return rpc<ZavolatSeznam>('zavolat_seznam', {
+      p_token: token,
+      p_user_id: userId,
+      p_vsichni: vsichni,
+      p_jen_cekajici: jenCekajici,
+    });
+  },
+
+  async zavolatKontaktu(token: string, kontaktId: number): Promise<ZavolatPolozka | null> {
+    return rpc<ZavolatPolozka | null>('zavolat_kontaktu', { p_token: token, p_kontakt_id: kontaktId });
+  },
+
+  async zavolatNaplanovat(
+    token: string,
+    kontaktId: number,
+    kdy: string,
+    poznamka: string | null,
+    userId: number | null = null
+  ): Promise<ZavolatPolozka> {
+    return rpc<ZavolatPolozka>('zavolat_naplanovat', {
+      p_token: token,
+      p_kontakt_id: kontaktId,
+      p_kdy: kdy,
+      p_poznamka: poznamka,
+      p_user_id: userId,
+    });
+  },
+
+  async zavolatPresunout(
+    token: string,
+    id: number,
+    kdy: string,
+    poznamka: string | null,
+    userId: number | null = null
+  ): Promise<ZavolatPolozka> {
+    return rpc<ZavolatPolozka>('zavolat_presunout', {
+      p_token: token,
+      p_id: id,
+      p_kdy: kdy,
+      p_poznamka: poznamka,
+      p_user_id: userId,
+    });
+  },
+
+  async zavolatZrusit(token: string, id: number): Promise<{ ok: boolean; id: number }> {
+    return rpc<{ ok: boolean; id: number }>('zavolat_zrusit', { p_token: token, p_id: id });
+  },
+
+  async zavolatHotovo(token: string, id: number, vysledek: string | null = null): Promise<{ ok: boolean; id: number }> {
+    return rpc<{ ok: boolean; id: number }>('zavolat_hotovo', { p_token: token, p_id: id, p_vysledek: vysledek });
+  },
+
+  async zavolatVzit(token: string, id: number): Promise<Kontakt> {
+    return rpc<Kontakt>('zavolat_vzit', { p_token: token, p_id: id });
+  },
+
+  async statistikyVolani(token: string, userId: number | null = null): Promise<StatistikyVolani> {
+    return rpc<StatistikyVolani>('statistiky_volani', { p_token: token, p_user_id: userId });
   },
 };

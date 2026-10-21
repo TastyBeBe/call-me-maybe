@@ -4,6 +4,10 @@
 // Fulltext filtr je čistě klientský; klik na řádek otevře sdílený detail kontaktu.
 // Filtr „vše / chaty / architekti" (migrace 028) jde na server (my_kontakty p_segment),
 // aby počet v pilulce zůstal ze serveru (docs/ARCHITEKTI.md 9.6).
+// Albert 21. 10. 2026 (migrace 050, jen appka, server obojí posílá od začátku): u každého klienta i známka (A, B, C)
+// a cena webu, pod ní menší cena hostingu. Čistá částka jako „7 000 Kč“, jiný text tak, jak ho kdo zapsal (dlouhý
+// zkrácený, celý v nápovědě), zástupné „x“ nebo „-“ jako nezadáno. Na telefonu se tabulka posouvá do strany
+// uvnitř rámečku (table-wrap), stránka sama ne.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getApi, type Kontakt, type Segment } from '../api';
@@ -17,10 +21,13 @@ import {
   FlagBadge,
   SegmentBadge,
   SegmentFilter,
+  Skryto,
   Spinner,
   StatusBadge,
+  cenaText,
   errMsg,
   formatDateTime,
+  jenZaklad,
   kontaktJmeno,
 } from '../ui';
 import { SearchIcon } from '../icons';
@@ -32,6 +39,28 @@ import { SearchIcon } from '../icons';
  * stránka to řekne (viz „zobrazeno X z Y") a zbytek najde v Kontaktech.
  */
 const MOJI_LIMIT = 2000;
+
+/** Cena webu a pod ní menší cena hostingu (Albert 21. 10. 2026); nezadaná cena = pomlčka. */
+function CenaBunka({ web, hosting }: { web: string | null; hosting: string | null }) {
+  const w = cenaText(web);
+  const h = cenaText(hosting);
+  return (
+    <>
+      {w ? (
+        <span className="cena-web" title={w.cele}>
+          {w.text}
+        </span>
+      ) : (
+        <span className="muted">—</span>
+      )}
+      {h && (
+        <span className="cena-hosting muted" title={`hosting ${h.cele}`}>
+          hosting {h.text}
+        </span>
+      )}
+    </>
+  );
+}
 
 export default function MojiPage() {
   const session = useSession();
@@ -163,6 +192,8 @@ export default function MojiPage() {
                 <th>Jméno</th>
                 <th>Telefon</th>
                 <th>Status</th>
+                <th>Známka</th>
+                <th>Cena</th>
                 <th>Změněno</th>
               </tr>
             </thead>
@@ -181,6 +212,10 @@ export default function MojiPage() {
                   <td>
                     <StatusBadge status={r.status} />
                   </td>
+                  <td className="znamka-cell">
+                    {jenZaklad(r) ? <Skryto /> : r.rating ? <span className="badge rating">{r.rating}</span> : <span className="muted">—</span>}
+                  </td>
+                  <td className="cena-cell">{jenZaklad(r) ? <Skryto /> : <CenaBunka web={r.cena_web} hosting={r.cena_hosting} />}</td>
                   <td style={{ whiteSpace: 'nowrap' }} className="muted">
                     {formatDateTime(r.updated_at)}
                   </td>
