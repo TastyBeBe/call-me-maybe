@@ -114,7 +114,9 @@ v den hovoru a ve statistikách kolik volající vydělal celkem a tento týden 
   a Zrušit s potvrzením. Volající vidí jen svůj (server cizí odmítne), super admin si vybere sebe, kohokoli nebo
   „Všichni volající“ a při přesunu vybere, kdo zavolá. Hovor jde naplánovat i v detailu kontaktu (Moji klienti, Kontakty:
   „Naplánovat hovor“). Po recenzi 21. 10. 2026 (⚠ NAHRAZUJE „u cizího kontaktu Volajícího taky, rozhodne server“):
-  Volající jen u svého klienta (kontakt z fronty přeplánuje při hovoru; podle naplánování volného kontaktu by zjistil,
+  Volající jen u svého klienta, tedy u kohokoli, komu kdy volal, v jakémkoli stavu (Albert 22. 10. 2026: „anyone who has been
+  called by that caller … even people who didn't pick up or were irrelevant“; klient mimo frontu přijde v kalendáři s číslem
+  a Hotovo, test volani Q) (kontakt z fronty přeplánuje při hovoru; podle naplánování volného kontaktu by zjistil,
   jestli mu někdo z firmy volal), super admin u každého a volný kontakt z fronty tím tomu člověku rezervuje. Detail při
   otevření načte čekající hovor (`zavolat_kontaktu`: kdy, kdo, poznámka) a okno ho přesune (předvybraný ten, kdo ho má,
   předvyplněná poznámka). Hovor deaktivovaného člověka nic neblokuje a další naplánování ho nahradí. Okno času je
@@ -129,7 +131,7 @@ v den hovoru a ve statistikách kolik volající vydělal celkem a tento týden 
   (po až ne v Praze) v Kč, eura zvlášť, „30 % z ceny webu, hosting se nepočítá“, upozornění na prodeje, u kterých cena
   nejde přečíst (rozpětí, „po domluvě“), a seznam prodaných webů (datum v Praze) s cenou (po nabídce poloviční ceny
   částka ze slevy, jak ji agent zapsal) a provizí. Každý prodej patří jen tomu, kdo zapsal poslední zájem (recenze
-  21. 10. 2026; my_stats „prodáno“ se nemění). Super admin vybere člověka (posílá `p_user_id`). Vysvětlivka: dovoláno = odmítli + zájem (nerelevantní ani
+  21. 10. 2026, rozhodl Albert 22. 10. 2026: „Latest interest gets it“; my_stats „prodáno“ se nemění). Super admin vybere člověka (posílá `p_user_id`). Vysvětlivka: dovoláno = odmítli + zájem (nerelevantní ani
   přeplánované se nepočítají). Rozvrh: hovor je každý zapsaný výsledek, i nerelevantní a přeplánovaný.
 - **Soukromí** (`../docs/ROLE-A-VIDITELNOST.md`): kalendář i výdělek Volající jen svůj; kontakt v kalendáři jde stejnou
   maskou jako v seznamech (cizí klient Volajícího jen jméno a kontakt se `skryto`), kdo hovor naplánoval, je u jiného

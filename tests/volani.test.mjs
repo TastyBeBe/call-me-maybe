@@ -677,6 +677,35 @@ await blok('S', async () => {
     'detail: Naplánovat hovor Volající jen u svého klienta');
 });
 
+// Albert 22. 10. 2026 (přes S33): „keep it for their own clients … anyone who has been called by that caller can be entered into the
+// calendar. Even people who didn't pick up or were irrelevant.“ Svůj klient = kdokoli, komu Volající kdy volal (nebo je jeho
+// last_caller), v jakémkoli stavu; klient mimo frontu přijde v kalendáři bez karty ve volání a uzavře ho Hotovo; kontakt, kterému
+// volal jen kolega, odmítnut stejnou hláškou (jako server, test 050 případ 50m).
+await blok('Q', async () => {
+  const kdy = za(48 * 60 * MIN);
+  const CIZI = 'Naplánovat hovor můžete jen svému klientovi (kontaktu, kterému jste volal/a). Kontakt z fronty naplánujete při hovoru tlačítkem Přeplánovat.';
+  const presne = new RegExp('^' + CIZI.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '$');
+  for (const id of [13, 4, 7]) {   // Petřini klienti: nerelevantní, odmítnutý, prodaný (zaplaceno)
+    const r = await radek(id);
+    over(`Q0-${id}`, r && r.last_caller === 'Petra' && !['nekontaktovano', 'nedovolano'].includes(r.status),
+      'ukázkový klient Petry je mimo frontu (předpoklad testu)', r && r.status);
+    const p = await api.zavolatNaplanovat(petra, id, kdy, 'Albert 22. 10. 2026');
+    over(`Q1-${id}`, p.muj === true && p.ve_fronte === false, `Volající naplánuje hovor svému klientovi ve stavu ${r && r.status}`,
+      JSON.stringify({ muj: p.muj, ve_fronte: p.ve_fronte }));
+    await chyba(`Q2-${id}`, () => api.zavolatVzit(petra, p.id), /^Tenhle klient není ve frontě volání, kartu volání pro něj appka nemá\./,
+      'klient mimo frontu nemá kartu ve volání (uzavře ho Hotovo)');
+    const h = await api.zavolatHotovo(petra, p.id, 'zavolala jsem mu');
+    over(`Q3-${id}`, h && h.ok === true, 'hovor klienta mimo frontu jde uzavřít jako hotový');
+  }
+  // Honzovi klienti, kterým Petra nikdy nevolala (podle Moji klienti obou; dřívější bloky volají náhodné karty)
+  const petriny = new Set((await api.myKontakty(petra, 2000)).rows.map((r) => r.id));
+  const jenHonzovi = (await api.myKontakty(honza, 2000)).rows.map((r) => r.id).filter((id) => !petriny.has(id));
+  over('Q4', jenHonzovi.length >= 2, 'demo má aspoň dva kontakty, kterým volal jen kolega (předpoklad testu)', `${jenHonzovi.length}`);
+  for (const id of jenHonzovi.slice(0, 3)) {
+    await chyba(`Q4-${id}`, () => api.zavolatNaplanovat(petra, id, kdy), presne, 'kontakt, kterému volal jen kolega, Volající nenaplánuje');
+  }
+});
+
 if (chyby === 0) {
   console.log(`ALL OK (${pocet} kontrol)`);
   process.exit(0);
