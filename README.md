@@ -161,7 +161,8 @@ arranged them yet“. ⚠ 22. 10. 2026 (Albert) NAHRAZUJE povinnou cenu webu i h
 7c982cd), kvůli které volající psali výplně jako „7000 / hosting 0“ nebo „Xx“. Zapsané ceny se nepřepisují.
 
 - **Volání**: „Cena webu (nepovinné)“ a „Cena hostingu (nepovinné)“ s nápovědou „Nech prázdné = n/a, cena zatím
-  nedohodnutá“; povinná je jen známka (A, B, C). Prázdné pole (i jen mezery) i napsaná výplň („n/a“, „x“, „0“) jde
+  nedohodnutá“ a že se agent na cenu zeptá ve Zprávách (volajícího, super admina nebo Alberta), až klient web bude chtít,
+  a tu pak klientovi napíše (Albert 22. 10. 2026 dopoledne: návrh bez dohodnuté ceny cenu neuvádí); povinná je jen známka (A, B, C). Prázdné pole (i jen mezery) i napsaná výplň („n/a“, „x“, „0“) jde
   serveru jako `null`, nikdy `''` ani text „n/a“ (`cenaProServer` v `src/ui.tsx`); server pak cenu, která u kontaktu už je,
   nepřepíše (`coalesce`, jako známka) a napsanou výplň sám taky uloží jako null (po revizi DB 22. 10. 2026).
 - **Nedohodnutá cena** = prázdná nebo zástupná hodnota (x až xxx, yx, 1 až 3 pomlčky, n/a, n.a. a po revizi DB i nula:

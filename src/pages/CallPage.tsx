@@ -661,7 +661,8 @@ export default function CallPage() {
               </div>
             </div>
             <p id="zajem-cena-napoveda" className="muted zajem-cena-napoveda" style={{ fontSize: 12.5, margin: '-6px 0 12px' }}>
-              Nech prázdné = n/a, cena zatím nedohodnutá. Doplnit ji jde později v detailu klienta.
+              Nech prázdné = n/a, cena zatím nedohodnutá. Až klient web bude chtít, agent se na cenu zeptá ve Zprávách
+              (tebe, super admina nebo Alberta) a tu pak klientovi napíše. Doplnit ji jde i v detailu klienta.
             </p>
             <div className="field">
               <label>E-mail klienta (ověř po telefonu)</label>
