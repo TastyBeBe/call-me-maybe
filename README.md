@@ -83,7 +83,7 @@ Demo mock (`src/api/mock.ts`) má stejná pravidla viditelnosti jako server (mig
 až 038, role z 042, z 045 jména kolegů v poznámkách, u příznaku a zámku a v hledání maskovaná, Volajícímu bez `total` a `top_prodejce`, u cizího kontaktu jen allowlist `KLICE_CIZI` se `skryto: true`, filtr stavu a hledání v poznámce jen nad jeho klienty, příznak a zámek cizího odmítnut, vlákna o cizím klientovi skrytá; ⚠ NAHRAZUJE „023 až 036“, mock už zrcadlí i 037 a 038): i hledání osobního IČO jen celým číslem a jen u kontaktů, které smí upravit, IČO
 ateliéru rovné osobnímu skryté s ním, vlastní karta ve volání napřed a strop 10 vrácení do
 fronty za hodinu (audit 1. 10., APP-4 a APP-5; `npm test` blok L). Chaty mají id 1 až 9
-a 90 až 92 (od migrace 050 i 10 až 13 a 20 až 23 pro kalendář hovorů a výdělek, viz oddíl Volání 050), falešní architekti id 300 až 303 (jen adresy `example.cz`, telefony s předvolbou 999, IČO `11111111` a `22222222` s neplatným
+a 90 až 92 (od migrace 050 i 10 až 13 a 20 až 23 pro kalendář hovorů a výdělek, viz oddíl Volání 050, od 051 i 24 bez ceny, oddíl Cena 051), falešní architekti id 300 až 303 (jen adresy `example.cz`, telefony s předvolbou 999, IČO `11111111` a `22222222` s neplatným
 kontrolním součtem): 300 a 301 jsou ve frontě, 302 je nedovolaný s příznakem a bez
 e-mailu (volala Petra), 303 má odeslaný návrh a čeká na odpověď (volal Honza).
 
@@ -95,7 +95,8 @@ work, call me at this time“), nová záložka s kalendářem lidí k zavolán�
 v den hovoru a ve statistikách kolik volající vydělal celkem a tento týden (30 % z ceny webu, ne z hostingu).
 
 - **Moji klienti**: sloupce Známka (A, B, C) a Cena: čistá částka jako „7 000 Kč“, jiný text tak, jak ho kdo zapsal
-  (dlouhý zkrácený, celý v nápovědě), pod ní menší „hosting …“; „x“, „-“ a podobné = pomlčka (`cenaText` v `src/ui.tsx`).
+  (dlouhý zkrácený, celý v nápovědě), pod ní menší „hosting …“; „x“, „-“ a podobné = nezadáno (`cenaText` v `src/ui.tsx`).
+  ⚠ 22. 10. 2026 (Albert, migrace 051) NAHRAZUJE pomlčku u nezadané ceny: nedohodnutá cena je „n/a“ (viz oddíl Cena 051).
   Na telefonu se do strany posouvá jen tabulka v rámečku.
 - **Volání**: pod třemi hlavními tlačítky menší **Nerelevantní** (okno s povinným důvodem: rychlé „starší člověk“,
   „není majitel“, „objekt neexistuje / nepronajímá“ nebo vlastní text; kontakt se už nevolá ani nepíše a do konverze se
@@ -130,7 +131,8 @@ v den hovoru a ve statistikách kolik volající vydělal celkem a tento týden 
 - **Statistiky**: karty Nerelevantní a Přeplánováno a oddíl **Vyděláno** (`statistiky_volani`): celkem, tento týden
   (po až ne v Praze) v Kč, eura zvlášť, „30 % z ceny webu, hosting se nepočítá“, upozornění na prodeje, u kterých cena
   nejde přečíst (rozpětí, „po domluvě“), a seznam prodaných webů (datum v Praze) s cenou (po nabídce poloviční ceny
-  částka ze slevy, jak ji agent zapsal) a provizí. Každý prodej patří jen tomu, kdo zapsal poslední zájem (recenze
+  částka ze slevy, jak ji agent zapsal) a provizí (od migrace 051 prodej bez dohodnuté ceny zvlášť jako „n/a“, viz oddíl
+  Cena 051). Každý prodej patří jen tomu, kdo zapsal poslední zájem (recenze
   21. 10. 2026, rozhodl Albert 22. 10. 2026: „Latest interest gets it“; my_stats „prodáno“ se nemění). Super admin vybere člověka (posílá `p_user_id`). Vysvětlivka: dovoláno = odmítli + zájem (nerelevantní ani
   přeplánované se nepočítají). Rozvrh: hovor je každý zapsaný výsledek, i nerelevantní a přeplánovaný.
 - **Soukromí** (`../docs/ROLE-A-VIDITELNOST.md`): kalendář i výdělek Volající jen svůj; kontakt v kalendáři jde stejnou
@@ -149,6 +151,39 @@ v den hovoru a ve statistikách kolik volající vydělal celkem a tento týden 
   nerelevantní; P přeplánovat a co appka posílá serveru; R hovory deaktivovaného člověka; S zapojení) a `npm run test:e2e`
   bloky C (Moji klienti 1280 a 390 px), N, P, K (Petra a Mikuláš, 1280 a 390 px), K seg (segment se nepřepne potichu),
   H (odznak a lišta na Domů), T (detail kontaktu a upozornění) a E (výdělek, super admin vybírá člověka, 390 px).
+
+## Cena 051: cena při „Mají zájem“ nepovinná, nedohodnutá = „n/a“ (Albert 22. 10. 2026)
+
+Server: `../db/migration_051_cena_na.sql` (spouští se PŘED appkou: starý server bez 051 zájem bez ceny odmítne hláškou
+„vyžaduje vyplněnou cenu webu“). Albert 22. 10. 2026: „make the web and hosting price optional at Mají zájem … earnings
+count only once a price is known“ a nejnovější oprava „there's n/a on the hosting and on the prices when we haven't
+arranged them yet“. ⚠ 22. 10. 2026 (Albert) NAHRAZUJE povinnou cenu webu i hostingu při zájmu (od 1. 9. 2026, commit
+7c982cd), kvůli které volající psali výplně jako „7000 / hosting 0“ nebo „Xx“. Zapsané ceny se nepřepisují.
+
+- **Volání**: „Cena webu (nepovinné)“ a „Cena hostingu (nepovinné)“ s nápovědou „Nech prázdné = n/a, cena zatím
+  nedohodnutá“ a že se agent na cenu zeptá ve Zprávách (volajícího, super admina nebo Alberta), až klient web bude chtít,
+  a tu pak klientovi napíše (Albert 22. 10. 2026 dopoledne: návrh bez dohodnuté ceny cenu neuvádí); povinná je jen známka (A, B, C). Prázdné pole (i jen mezery) i napsaná výplň („n/a“, „x“, „0“) jde
+  serveru jako `null`, nikdy `''` ani text „n/a“ (`cenaProServer` v `src/ui.tsx`); server pak cenu, která u kontaktu už je,
+  nepřepíše (`coalesce`, jako známka) a napsanou výplň sám taky uloží jako null (po revizi DB 22. 10. 2026).
+- **Nedohodnutá cena** = prázdná nebo zástupná hodnota (x až xxx, yx, 1 až 3 pomlčky, n/a, n.a. a po revizi DB i nula:
+  „0“, „00“, „0 Kč“, „0,-“; po `trim()`; `cenaNezadana` a `CENA_ZASTUPNA` v `src/ui.tsx`, zrcadlo serverové
+  `app_cena_nezadana`; tabulka vzorků „vzorky nezadané ceny: začátek/konec“ v `tests/volani.test.mjs` je shodná
+  s test_051, 20 řádků, kontrola 205). Text „n/a“ se do databáze nezapisuje.
+- **Moji klienti** (Cena): web bez ceny šedé „n/a“, hosting bez ceny pod cenou webu „hosting n/a“, bez obou jen jedno
+  šedé „n/a“ (nápověda „Cena webu ani hostingu zatím není dohodnutá“), web bez ceny a hosting s cenou „n/a“ a pod ním
+  „hosting 1 000 Kč“. Kontakty sloupec s cenou nemají (cenu ukáže detail).
+- **Detail kontaktu**: řádek jen ke čtení „cena webu: n/a · cena hostingu: n/a“ (jinak text, jak ho kdo zapsal); pole
+  k úpravě mají nápovědu „n/a“ a vymazané pole i napsané „n/a“ nebo „0“ se uloží jako `null` (`update_kontakt` uloží, co
+  dostane, proto to hlídá appka); pole pak ukáže uloženou hodnotu.
+- **Statistiky** (Vyděláno): prodej, u kterého cena webu zatím není dohodnutá (bez slevy), má cenu i provizi „n/a“,
+  do součtu se nepočítá a má vlastní upozornění („U 1 prodaného webu cena zatím není dohodnutá (n/a) … Započítá se sama,
+  až bude cena webu v detailu klienta.“, `neznama`, `neznama_tyden`). „Cena nejde přečíst“ zůstává jen pro zapsanou
+  nečitelnou cenu (`nejasne`). Server bez 051 `neznama` neposílá: appka počítá s nulou.
+- **Demo**: Honza prodal tento týden Chalupu U Studánky (kontakt 24) bez ceny: v jeho výdělku „n/a“.
+- **Testy**: `npm test` blok D (`tests/volani.test.mjs`: vzorky nezadané ceny, zájem bez ceny i s napsaným „n/a“ nebo
+  „0“ uloží `null` a nesmaže stávající cenu, `cenaProServer`, známka povinná, výdělek `neznama`) a `npm run test:e2e`
+  bloky A (zájem jen se známkou, Moji klienti, detail včetně napsaného „n/a“, Statistiky, 390 px) a C4 („n/a“ místo
+  pomlčky).
 
 ## Účty a přihlášení (produkce)
 
@@ -343,7 +378,7 @@ který schvaluje Albert (u zprávy je vidět jeho stav).
 | ------------- | ------- | --------------------------------------------------------------- |
 | `#/login`     | všichni | přihlášení                                                       |
 | `#/`          | všichni | domů — dlaždice podle role                                       |
-| `#/call`      | všichni | fronta hovorů: přepínač chaty / architekti (028), karta kontaktu + výsledky (nedovoláno/odmítnuto/zájem, od 050 i nerelevantní a přeplánovat; `?zavolat=<id>` = karta z kalendáře); kontakt, kterému Volající ještě nevolal, bez stavu, poznámek a příznaku (045, 20. 10. 2026). Poznámka k hovoru je **nepovinná** — zájem jde uložit i bez ní (Albert 2026-09-23; dřív se při prázdné poznámce otevíralo potvrzovací okno navíc) |
+| `#/call`      | všichni | fronta hovorů: přepínač chaty / architekti (028), karta kontaktu + výsledky (nedovoláno/odmítnuto/zájem, od 050 i nerelevantní a přeplánovat; `?zavolat=<id>` = karta z kalendáře); kontakt, kterému Volající ještě nevolal, bez stavu, poznámek a příznaku (045, 20. 10. 2026). Poznámka k hovoru je **nepovinná** — zájem jde uložit i bez ní (Albert 2026-09-23; dřív se při prázdné poznámce otevíralo potvrzovací okno navíc); od migrace 051 (Albert 22. 10. 2026) i bez ceny webu a hostingu, povinná je jen známka (⚠ NAHRAZUJE povinné ceny z 1. 9. 2026) |
 | `#/kalendar`  | všichni | kalendář hovorů (050): svůj každý, super admin kohokoli nebo všech; Po termínu, Dnes, Nadcházející, Hotové a zrušené; Zavolat teď, Hotovo, Přesunout, Zrušit |
 | `#/stats`     | všichni | moje statistiky; super admin (i Albert) přes dropdown kohokoli (027) a trychtýř „Klienti podle stavu" (součty celé databáze) s filtrem segmentu (028); ⚠ trychtýř od 19. 10. 2026 a dlaždice „jako #1 prodejce“ od 20. 10. 2026 jen super admin (migrace 045, NAHRAZUJE „(admin)“): Volající vidí jen svoje čísla |
 | `#/moji`      | všichni | moji klienti (+ historie poznámek v detailu); super admin může vybrat kohokoli (027); filtr segmentu (028) |

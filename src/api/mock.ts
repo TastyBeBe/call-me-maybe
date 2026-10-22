@@ -387,6 +387,23 @@ const kontakty: Kontakt[] = [
     last_caller: 'Eva',
     live_url: 'https://alpsky-vyhled.example.app',
   }),
+  k({
+    // migrace 051 (Albert 22. 10. 2026): Honza prodal TENTO týden, cenu při „Mají zájem“ nechal prázdnou (zatím
+    // nedohodnutá): v Moji klienti „n/a“, ve výdělku cena i provize „n/a“ a do součtu se nepočítá, dokud cena webu
+    // nebude v detailu klienta
+    id: 24,
+    name: 'Chalupa U Studánky',
+    phone: '+420 731 000 124',
+    ma_web: 'ne',
+    email: 'studanka@example.cz',
+    note: '[2026-10-20 Honza] Zájem B, cenu ještě probereme.',
+    status: 'schvaleno',
+    rating: 'B',
+    cena_web: null,
+    cena_hosting: null,
+    last_caller: 'Honza',
+    live_url: 'https://chalupa-u-studanky.example.app',
+  }),
 
   // --- architekti (migrace 028, docs/ARCHITEKTI.md 9.7) ---
   // Jen vymyšlená data: jména „Ukázka / Vzor / Příklad", adresy example.cz, telefony
@@ -486,6 +503,8 @@ const callLog: CallLogRow[] = [
   { id: nextCallLogId++, kontakt_id: 21, user_id: 3, outcome: 'zajem', created_at: daysAgo(20) },
   { id: nextCallLogId++, kontakt_id: 22, user_id: 3, outcome: 'zajem', created_at: daysAgo(16) },
   { id: nextCallLogId++, kontakt_id: 23, user_id: 5, outcome: 'zajem', created_at: daysAgo(45) },
+  // migrace 051 (22. 10. 2026): Honzův zájem bez ceny (kontakt 24, prodaný tento týden)
+  { id: nextCallLogId++, kontakt_id: 24, user_id: 3, outcome: 'zajem', created_at: daysAgo(8) },
 ];
 
 /** Události vraceno_do_fronty (kdo a kdy, Date.now()): strop 10 za hodinu ve returnContact. */
@@ -1752,6 +1771,19 @@ function cenaZeSlevyText(detail: string): string {
 const PROVIZE_PROCENT = 30;
 
 /**
+ * app_cena_nezadana (migrace 051, Albert 22. 10. 2026): cena zatím není dohodnutá = null, prázdná nebo zástupná hodnota
+ * (x až xxx, yx, 1 až 3 pomlčky, n/a, n.a., po revizi DB i nula: 0, 00, 0 Kč, 0,-; velikost písmen nehraje roli) po trim()
+ * se sadou mezer jako JavaScript (server ji má vypsanou stejně). Mock appku (src/ui.tsx) neimportuje, proto je tu vzor
+ * ZNOVU a doslova stejný jako CENA_ZASTUPNA a cenaNezadana v src/ui.tsx; měnit všechna tři místa spolu (tabulka vzorků
+ * „nezadané ceny“ v tests/volani.test.mjs a v test_051, kontrola 205).
+ */
+const CENA_ZASTUPNA_MOCK = /^(?:x{1,3}|yx|[-–—]{1,3}|n\/a|n\.a\.|0+(?:\s*(?:kč|kc|czk|,-))?)$/i;
+export function cenaNezadanaMock(p: string | null | undefined): boolean {
+  const t = (p ?? '').trim();
+  return t === '' || CENA_ZASTUPNA_MOCK.test(t);
+}
+
+/**
  * app_vydelek: výdělek člověka. Kontakt ve stavu prodeje, u kterého má člověk v call_log POSLEDNÍ zájem (po recenzi
  * 21. 10. 2026; my_stats „prodáno“ počítá každého, kdo zájem zapsal). Cena = částka ze slevy (sleva_odeslana PŘED prodejem), jinak cena webu; hosting
  * nikdy. 30 % v Kč na celé koruny, v € na haléře (centy). Tento týden = po až ne v Praze podle data prodeje.
@@ -1776,7 +1808,9 @@ function vydelekPro(uid: number): Vydelek {
         .filter((e) => e.created_at <= prodanoAt)
         .sort((a, b) => b.created_at.localeCompare(a.created_at))[0];
       const zdrojText = sleva ? cenaZeSlevy(sleva.detail) : c.cena_web;
-      const { castka, mena } = cenaCist(zdrojText);
+      // migrace 051: bez slevy a s nedohodnutou cenou webu je cena neznámá (castka, mena i provize null, cena = text jak je)
+      const neznama = !sleva && cenaNezadanaMock(c.cena_web);
+      const { castka, mena } = neznama ? { castka: null, mena: null } : cenaCist(zdrojText);
       const provize = castka === null ? null : mena === 'kc' ? Math.round((castka * PROVIZE_PROCENT) / 100) : Math.round(castka * PROVIZE_PROCENT) / 100;
       const den = denPraha(new Date(prodanoAt));
       return {
@@ -1790,6 +1824,7 @@ function vydelekPro(uid: number): Vydelek {
         mena,
         provize,
         tento_tyden: den >= od && den <= doDne,
+        neznama,
         razeni: new Date(prodanoAt).getTime(),
       };
     })
@@ -1805,16 +1840,20 @@ function vydelekPro(uid: number): Vydelek {
     tyden_kc: soucet((r) => r.mena === 'kc' && r.tento_tyden),
     celkem_eur: centy(soucet((r) => r.mena === 'eur')),
     tyden_eur: centy(soucet((r) => r.mena === 'eur' && r.tento_tyden)),
-    nejasne: radky.filter((r) => r.castka === null).length,
-    nejasne_tyden: radky.filter((r) => r.castka === null && r.tento_tyden).length,
+    // migrace 051: nejasne jen zapsaná nečitelná cena, nedohodnutá zvlášť (neznama); ani jedno se nesčítá
+    nejasne: radky.filter((r) => r.castka === null && !r.neznama).length,
+    nejasne_tyden: radky.filter((r) => r.castka === null && !r.neznama && r.tento_tyden).length,
+    neznama: radky.filter((r) => r.neznama).length,
+    neznama_tyden: radky.filter((r) => r.neznama && r.tento_tyden).length,
     prodeje: radky.map(({ razeni: _r, ...r }) => r),
   };
 }
 
 // Demo (Albert 21. 10. 2026): Petra má hovor po termínu (ve frontě: karta ve volání ho dá hned první), dnes později
 // (klient mimo frontu: „Hotovo“) a zítra (rezervovaný kontakt bez volajícího) a jeden hotový; Honza jeden na zítra.
-// Prodeje: Petra 7 (dřív, 4 900 Kč → 1 470 Kč) a 20 (tento týden), Honza 21 (cena nejde přečíst) a 22 (po slevě),
-// Eva 23 (eura). Časy jsou mimo okno připomínky (−5 až +30 minut), ať demo po přihlášení nic samo neohlásí.
+// Prodeje: Petra 7 (dřív, 4 900 Kč → 1 470 Kč) a 20 (tento týden), Honza 21 (cena nejde přečíst), 22 (po slevě)
+// a od migrace 051 24 (tento týden, cena zatím nedohodnutá = „n/a“), Eva 23 (eura). Časy jsou mimo okno připomínky
+// (−5 až +30 minut), ať demo po přihlášení nic samo neohlásí.
 (() => {
   const dnes = denPraha(new Date());
   const zitra = posunDen(dnes, 1);
@@ -1853,6 +1892,7 @@ function vydelekPro(uid: number): Vydelek {
   kontaktProdej.set(21, { prodano_at: daysAgo(12), zdroj: 'demo' });
   kontaktProdej.set(22, { prodano_at: daysAgo(10), zdroj: 'demo' });
   kontaktProdej.set(23, { prodano_at: daysAgo(30), zdroj: 'demo' });
+  kontaktProdej.set(24, { prodano_at: new Date(Math.max(Date.now() - 3 * 3600000, zacatekTydne + 120000)).toISOString(), zdroj: 'demo' });
   slevy.set(22, [{ detail: '3 500 Kč místo 7 000 Kč', created_at: daysAgo(11) }]);
 })();
 
@@ -2004,10 +2044,9 @@ const mockApiZaklad: Api = {
     if (rating && !['A', 'B', 'C'].includes(rating)) {
       fail(`Neplatný rating: ${rating}. Povolené: A, B, C.`);
     }
+    // ⚠ Migrace 051 (Albert 22. 10. 2026: „make the web and hosting price optional at Mají zájem“) NAHRAZUJE povinnou cenu
+    // webu a hostingu (hlášky „vyžaduje vyplněnou cenu webu / hostingu“ jsou pryč); povinná zůstává jen známka.
     if (outcome === 'zajem') {
-      if (!(args.cena_web ?? '').trim()) fail('Výsledek "zajem" vyžaduje vyplněnou cenu webu (cena_web).');
-      if (!(args.cena_hosting ?? '').trim())
-        fail('Výsledek "zajem" vyžaduje vyplněnou cenu hostingu (cena_hosting).');
       if (!['A', 'B', 'C'].includes(rating)) fail('Výsledek "zajem" vyžaduje rating A, B nebo C.');
     }
     // migrace 050: přeplánovaný hovor potřebuje čas (od teď do roka, app_zavolat_over_kdy)
@@ -2060,9 +2099,15 @@ const mockApiZaklad: Api = {
     kontakt.lock_by = null;
     kontakt.lock_at = null;
     if (rating) kontakt.rating = rating as Rating;
+    // migrace 051 (po revizi DB 22. 10. 2026): coalesce(case when app_cena_nezadana(p) then null else trim(p) end, stávající)
+    // jako server: prázdné pole ani napsaná výplň („n/a“, „x“, „0“) nikdy neuloží '' ani text „n/a“ a cenu, která u kontaktu
+    // už je, nesmaže (stejně jako známka); skutečná cena se uloží oříznutá (trim v SQL = jen obyčejné mezery). ⚠ NAHRAZUJE
+    // coalesce(nullif(trim(p), ''), stávající) z první verze 051, která napsané „n/a“ uložila jako text.
     if (outcome === 'zajem') {
-      kontakt.cena_web = (args.cena_web ?? '').trim();
-      kontakt.cena_hosting = (args.cena_hosting ?? '').trim();
+      const web = cenaNezadanaMock(args.cena_web) ? null : oriznoutMezery(args.cena_web ?? '');
+      const hosting = cenaNezadanaMock(args.cena_hosting) ? null : oriznoutMezery(args.cena_hosting ?? '');
+      kontakt.cena_web = web ?? kontakt.cena_web;
+      kontakt.cena_hosting = hosting ?? kontakt.cena_hosting;
     }
     const email = (args.email ?? '').trim();
     if (email) kontakt.email = email;
@@ -3277,7 +3322,7 @@ const mockApiZaklad: Api = {
  * - `zpozdeni(fn, args)` vrátí extra čekání v ms pro jedno volání (args bez tokenu); tak test
  *   pustí odpovědi mimo pořadí (odpověď po přepnutí segmentu nebo filtru).
  * - `volani` dostává záznam každého volání: jméno, argumenty bez tokenu, výsledek.
- * - `stav()` vrátí snímek zámků, stavů, poznámek, DPH architektů, call_log a předmětů vláken.
+ * - `stav()` vrátí snímek zámků, stavů, poznámek, DPH architektů, od 051 jmen a cen, call_log a předmětů vláken.
  */
 interface DemoTestHacek {
   zpozdeni?: (fn: string, args: unknown[]) => number;
@@ -3300,6 +3345,10 @@ function sDemoTestem(api: Api): Api {
       flag_kind: c.flag_kind,
       dph_osobni: c.dph_osobni ?? null,
       dph_firma: c.dph_firma ?? null,
+      // migrace 051 (22. 10. 2026): jméno a ceny (e2e blok A: zájem bez ceny uloží null, ne prázdný text)
+      name: c.name,
+      cena_web: c.cena_web,
+      cena_hosting: c.cena_hosting,
     })),
     callLog: callLog.map((l) => ({ kontakt_id: l.kontakt_id, user_id: l.user_id, outcome: l.outcome })),
     vlakna: chatThreads.map((t) => ({ id: t.id, kontakt_id: t.kontakt_id, subject: t.subject })),

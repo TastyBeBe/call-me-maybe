@@ -1,5 +1,6 @@
 // Test chování: volání 050 (Albert 21. 10. 2026): nerelevantní kontakt, přeplánovaný hovor, kalendář hovorů, výdělek
-// volajícího a sloupce v Moji klienti.
+// volajícího a sloupce v Moji klienti. Od migrace 051 (Albert 22. 10. 2026) i blok D: cena při „Mají zájem“ nepovinná,
+// nedohodnutá cena = „n/a“ (db/migration_051_cena_na.sql, test db/tests/test_051_cena_na.sql).
 //
 // Měří DEMO mock (src/api/mock.ts), který musí zrcadlit server (db/migration_050_volani_kalendar_vydelek.sql, test
 // db/tests/test_050_volani_kalendar_vydelek.sql), pomocníky v src/ui.tsx, src/praha.ts, src/zavolat.tsx
@@ -42,7 +43,7 @@ let bundle;
   const out = await build({
     stdin: {
       contents: [
-        "export { mockApi, cenaCist } from './src/api/mock.ts';",
+        "export { mockApi, cenaCist, cenaNezadanaMock } from './src/api/mock.ts';",
         "export { supabaseApi } from './src/api/supabase.ts';",
         "export * as uiModul from './src/ui.tsx';",
         "export * as prahaModul from './src/praha.ts';",
@@ -69,7 +70,7 @@ let bundle;
   bundle = createRequire(import.meta.url)(f);
   rmSync(dir, { recursive: true, force: true });
 }
-const { mockApi: api, cenaCist, supabaseApi, uiModul: U, prahaModul: P, zavolatModul: Z, oknoModul: O } = bundle;
+const { mockApi: api, cenaCist, cenaNezadanaMock, supabaseApi, uiModul: U, prahaModul: P, zavolatModul: Z, oknoModul: O } = bundle;
 
 let pocet = 0;
 let chyby = 0;
@@ -191,7 +192,9 @@ await blok('V', async () => {
   await api.updateKontakt(albert, 5, { status: 'schvaleno', cena_web: '1 005 Kč' });
   let h = (await api.statistikyVolani(honza)).vydelek;
   const s5 = h.prodeje.find((x) => x.kontakt_id === 5);
-  over('V11', s5?.tento_tyden === true && s5.provize === 302 && h.tyden_kc === 302 && h.prodano === 3,
+  // migrace 051 (22. 10. 2026): Honza má navíc prodej 24 s nedohodnutou cenou (tento týden, do součtu se nepočítá),
+  // proto prodano o jedna víc (⚠ NAHRAZUJE 3 a v V12 2) a tyden_kc beze změny
+  over('V11', s5?.tento_tyden === true && s5.provize === 302 && h.tyden_kc === 302 && h.prodano === 4,
     'nový prodej (stav schváleno) je tento týden; 30 % z 1 005 Kč = 302 Kč (celé koruny)', JSON.stringify(s5));
   await api.updateKontakt(albert, 5, { status: 'navrh_odeslan' });
   over('V11b', !(await api.statistikyVolani(honza)).vydelek.prodeje.some((x) => x.kontakt_id === 5), 'kontakt mimo stavy prodeje ve výdělku není');
@@ -217,7 +220,7 @@ await blok('V', async () => {
     'prodej s dvěma zájmy připadne jen poslednímu (Petra), my_stats „prodáno“ ho dál počítá oběma', JSON.stringify({ p: vpx.prodano, h: vhx.prodano }));
   await api.updateKontakt(albert, x, { status: 'odmitnuto' }); // ven z prodeje i z fronty (nepletl by další bloky)
   h = (await api.statistikyVolani(honza)).vydelek;
-  over('V12', h.celkem_kc === 1050 && h.prodano === 2 && !h.prodeje.some((x) => /hosting|190/.test(String(x.cena))), 'po návratu stavu zpět; hosting se nikde nepočítá');
+  over('V12', h.celkem_kc === 1050 && h.prodano === 3 && !h.prodeje.some((x) => /hosting|190/.test(String(x.cena))), 'po návratu stavu zpět; hosting se nikde nepočítá');
 });
 
 /* ---------------- M) Moji klienti a čas: formátování ceny, data a času v Praze ---------------- */
@@ -704,6 +707,187 @@ await blok('Q', async () => {
   for (const id of jenHonzovi.slice(0, 3)) {
     await chyba(`Q4-${id}`, () => api.zavolatNaplanovat(petra, id, kdy), presne, 'kontakt, kterému volal jen kolega, Volající nenaplánuje');
   }
+});
+
+/* ---------------- D) cena při „Mají zájem“ nepovinná, nedohodnutá = „n/a“ (migrace 051, Albert 22. 10. 2026) ---------------- */
+// Albert 22. 10. 2026: „make the web and hosting price optional at Mají zájem … earnings count only once a price is known“
+// a „there's n/a on the hosting and on the prices when we haven't arranged them yet“. Mock = server (resolve_call bez
+// povinné ceny, coalesce(case when app_cena_nezadana(p) then null else trim(p) end, stávající), app_cena_nezadana,
+// app_vydelek neznama), appka = src/ui.tsx (cenaNezadana, cenaProServer).
+// Blok běží POSLEDNÍ: bere karty z fronty a mění prodej 24 (ostatní bloky by to pletlo).
+// VZORKY NEZADANÉ CENY (spec 051 „Shared samples nezadaná cena“): db/tests/test_051_cena_na.sql (mezi řádky
+// „-- vzorky nezadané ceny: začátek“ a „-- vzorky nezadané ceny: konec“) a tenhle test mají TUTÉŽ tabulku ve stejném
+// pořadí, kontrola 205 v repu webdomov je porovnává. Měnit jen spolu.
+// vzorky nezadané ceny: začátek
+const VZORKY_NEZADANE = [
+  ['', true],
+  ['   ', true],
+  ['x', true],
+  ['X', true],
+  ['Xx', true],
+  ['XXX', true],
+  ['yx', true],
+  ['-', true],
+  ['—', true],
+  ['n/a', true],
+  ['N/A', true],
+  ['n.a.', true],
+  ['0', true],
+  ['0 Kč', true],
+  ['xxxx', false],
+  ['7000', false],
+  ['7 000 Kč', false],
+  ['Nebylo řečeno', false],
+  ['190/měs', false],
+  ['po domluvě', false],
+];
+// vzorky nezadané ceny: konec
+await blok('D', async () => {
+  over('D0', typeof U.cenaNezadana === 'function' && typeof cenaNezadanaMock === 'function' && VZORKY_NEZADANE.length === 20,
+    'appka má cenaNezadana (src/ui.tsx), mock app_cena_nezadana a tabulka vzorků má 20 řádků');
+  VZORKY_NEZADANE.forEach(([text, nezadana], i) => {
+    over(`D0.${i + 1}`, U.cenaNezadana(text) === nezadana && cenaNezadanaMock(text) === nezadana,
+      `cena „${text}“ ${nezadana ? 'není dohodnutá (n/a)' : 'je zapsaná'} (appka i mock)`, `${U.cenaNezadana(text)} / ${cenaNezadanaMock(text)}`);
+  });
+  over('D0b', U.cenaNezadana(null) && U.cenaNezadana(undefined) && cenaNezadanaMock(null) && U.CENA_NA === 'n/a'
+    && U.cenaText('n/a') === null && U.cenaText(' N.A. ') === null && mezery(U.cenaText('7000')?.text) === '7 000 Kč',
+    'null = nedohodnutá; cenaText vrátí null i pro n/a (stránka ukáže „n/a“), čistá cena dál „7 000 Kč“');
+  // po revizi DB 22. 10. 2026: nula je výplň („hosting 0“), ne cena; „010“ a „0 Kč/měs“ už ne
+  over('D0c', ['00', '0,-', '0 kc', '0 CZK', ' 0 KČ '].every((z) => U.cenaNezadana(z) && cenaNezadanaMock(z))
+    && !['010', '0 Kč/měs', '100'].some((z) => U.cenaNezadana(z) || cenaNezadanaMock(z)),
+    'nula s měnou nebo bez je nedohodnutá cena (appka i mock), „010“ a „0 Kč/měs“ ne');
+  // cena pro server (volání i detail): nedohodnutá = null, nikdy text „n/a“; skutečná oříznutá
+  const ps = U.cenaProServer;
+  over('D0d', typeof ps === 'function' && ps('n/a') === null && ps(' N/A ') === null && ps('0') === null && ps('0 Kč') === null && ps('Xx') === null
+    && ps('   ') === null && ps('') === null && ps(null) === null && ps(' 7 000 Kč ') === '7 000 Kč' && ps('190/měs') === '190/měs',
+    'cenaProServer: „n/a“, „0“, „Xx“ a prázdné pole jdou jako null, cena oříznutá');
+
+  // šest chat, které předchozí bloky z fronty vyřadily nebo zamkly (odmítnuté, nedovolané, zájem 3), Albert vrátí do fronty
+  // bez cen; super admin je dá Evě a ona si je vezme „Zavolat teď“ (fronta demo chat je po blocích výš skoro prázdná)
+  // (blok P si náhodně vybere jednu z nich pro Petřin naplánovaný hovor a karty z fronty mohou zůstat zamčené: obojí
+  // tu super admin a Albert napřed uklidí, jinak by výsledek záležel na pořadí fronty)
+  const volne = [1, 4, 8, 6, 2, 3];
+  for (const id of volne) {
+    const z = await cekajici(mikulas, id, null, true);
+    if (z) await api.zavolatZrusit(mikulas, z.id);
+    await api.updateKontakt(albert, id, { clear_lock: true });
+    await api.updateKontakt(albert, id, { status: 'nekontaktovano', cena_web: null, cena_hosting: null });
+  }
+  const pripraveno = [];
+  for (const id of volne) {
+    const r = await radek(id);
+    if (r?.segment === 'chata' && r.status === 'nekontaktovano' && r.lock_by === null && r.cena_web === null && !(await cekajici(mikulas, id, null, true))) pripraveno.push(id);
+  }
+  over('D1-pred', pripraveno.length === 6, 'šest volných chat ve frontě bez ceny a bez čekajícího hovoru (předpoklad testu)', pripraveno.join());
+  if (pripraveno.length < 6) return;
+  const vezmi = async (id) => api.zavolatVzit(eva, (await api.zavolatNaplanovat(mikulas, id, za(60 * MIN), null, 5)).id);
+  const [a, b, c, d, e, f] = volne;
+
+  // známka zůstává povinná (přesná hláška serveru), ceny ne; odmítnutý zápis nic nezapíše
+  await vezmi(a);
+  const hovoryPred = (await api.myStats(eva)).calls;
+  await chyba('D1', () => api.resolveCall(eva, { kontakt_id: a, outcome: 'zajem', cena_web: '', cena_hosting: '' }),
+    presne('Výsledek "zajem" vyžaduje rating A, B nebo C.'), 'Mají zájem bez známky neprojde ani bez ceny (hláška jako server)');
+  over('D1b', (await api.myStats(eva)).calls === hovoryPred && (await radek(a))?.status !== 'zajem', 'odmítnutý zájem nic nezapsal');
+
+  // prázdné ceny (jak je appka posílá: null; i '' a mezery od starší appky) projdou a uloží null, nikdy ''
+  const r1 = await api.resolveCall(eva, { kontakt_id: a, outcome: 'zajem', cena_web: null, cena_hosting: null, rating: 'B' });
+  const ka = await radek(a);
+  over('D2', r1?.status === 'zajem' && ka?.status === 'zajem' && ka.cena_web === null && ka.cena_hosting === null && ka.rating === 'B',
+    'Mají zájem jen se známkou projde, ceny zůstanou null', JSON.stringify({ s: ka?.status, w: ka?.cena_web, h: ka?.cena_hosting }));
+  await vezmi(b);
+  await api.resolveCall(eva, { kontakt_id: b, outcome: 'zajem', cena_web: '', cena_hosting: '   ', rating: 'C' });
+  const kb = await radek(b);
+  over('D2b', kb?.status === 'zajem' && kb.cena_web === null && kb.cena_hosting === null,
+    'prázdné pole a pole jen z mezer se uloží jako null, ne jako prázdný text', JSON.stringify({ w: kb?.cena_web, h: kb?.cena_hosting }));
+
+  // cena, která u kontaktu už je (7 kontaktů ve frontě má starou cenu z tabulky), prázdné pole nesmaže; nová ji přepíše
+  await api.updateKontakt(albert, c, { cena_web: '7000', cena_hosting: '190/měs' });
+  await vezmi(c);
+  await api.resolveCall(eva, { kontakt_id: c, outcome: 'zajem', cena_web: '', cena_hosting: null, rating: 'A' });
+  const kc = await radek(c);
+  over('D3', kc?.status === 'zajem' && kc.cena_web === '7000' && kc.cena_hosting === '190/měs',
+    'prázdná cena při zájmu stávající cenu nesmaže (coalesce jako server)', JSON.stringify({ w: kc?.cena_web, h: kc?.cena_hosting }));
+  await api.updateKontakt(albert, d, { cena_web: '5000', cena_hosting: null });
+  await vezmi(d);
+  await api.resolveCall(eva, { kontakt_id: d, outcome: 'zajem', cena_web: '  8 000 Kč  ', cena_hosting: ' 1000/rok ', rating: 'A' });
+  const kd = await radek(d);
+  over('D3b', kd?.cena_web === '8 000 Kč' && kd.cena_hosting === '1000/rok', 'zapsaná cena přepíše starou (oříznutá o mezery)',
+    JSON.stringify({ w: kd?.cena_web, h: kd?.cena_hosting }));
+  // po revizi DB 22. 10. 2026: napsaná výplň („n/a“, „0“) je totéž co prázdné pole: stávající cenu nesmaže a bez ní uloží null
+  await api.updateKontakt(albert, e, { cena_web: '7000', cena_hosting: '190/měs' });
+  await vezmi(e);
+  await api.resolveCall(eva, { kontakt_id: e, outcome: 'zajem', cena_web: 'n/a', cena_hosting: '0', rating: 'B' });
+  const ke = await radek(e);
+  over('D3c', ke?.status === 'zajem' && ke.cena_web === '7000' && ke.cena_hosting === '190/měs',
+    'napsané „n/a“ a „0“ při zájmu stávající cenu nesmažou', JSON.stringify({ w: ke?.cena_web, h: ke?.cena_hosting }));
+  await vezmi(f);
+  await api.resolveCall(eva, { kontakt_id: f, outcome: 'zajem', cena_web: ' N/A ', cena_hosting: '0 Kč', rating: 'C' });
+  const kf = await radek(f);
+  over('D3d', kf?.status === 'zajem' && kf.cena_web === null && kf.cena_hosting === null,
+    'napsané „N/A“ a „0 Kč“ bez dřívější ceny se uloží jako null, ne jako text', JSON.stringify({ w: kf?.cena_web, h: kf?.cena_hosting }));
+
+  // výdělek: prodej 24 (Honza, tento týden, bez ceny) je „neznámá cena“, nesčítá se a nejasne se nemění
+  const vydelek = async (tok) => (await api.statistikyVolani(tok)).vydelek;
+  const soucetKc = (v) => v.prodeje.reduce((s, r) => s + (r.mena === 'kc' ? r.provize ?? 0 : 0), 0);
+  let vh = await vydelek(honza);
+  let s24 = vh.prodeje.find((r) => r.kontakt_id === 24);
+  const s21 = vh.prodeje.find((r) => r.kontakt_id === 21);
+  over('D4', s24?.neznama === true && s24.castka === null && s24.mena === null && s24.provize === null && s24.cena === null
+    && s24.zdroj === 'cena_web' && s24.tento_tyden === true,
+    'prodej bez dohodnuté ceny: neznama, bez částky, měny a provize, cena null', JSON.stringify(s24));
+  over('D4b', vh.neznama === 1 && vh.neznama_tyden === 1 && vh.nejasne === 1 && s21?.neznama === false && s21.castka === null,
+    'neznama 1 (tento týden 1), nejasne dál 1 (jen „6000-7000 Kč po domluvě“)', JSON.stringify({ n: vh.neznama, nt: vh.neznama_tyden, j: vh.nejasne }));
+  const celkemPred = vh.celkem_kc;
+  const tydenPred = vh.tyden_kc;
+  over('D4c', celkemPred === soucetKc(vh) && vh.prodeje.filter((r) => r.kontakt_id !== 24).every((r) => r.neznama === false),
+    'neznámá cena se do součtu nepočítá; ostatní prodeje mají neznama false', `${celkemPred} / ${soucetKc(vh)}`);
+  // výplň z doby povinné ceny („Xx“, „N/A“) je taky neznámá cena, text zůstane, jak je
+  await api.updateKontakt(albert, 24, { cena_web: 'Xx' });
+  vh = await vydelek(honza);
+  s24 = vh.prodeje.find((r) => r.kontakt_id === 24);
+  over('D5', s24?.neznama === true && s24.cena === 'Xx' && vh.neznama === 1 && vh.nejasne === 1 && vh.celkem_kc === celkemPred,
+    'výplň „Xx“ je nedohodnutá cena (ne nečitelná) a zůstane zapsaná, jak je', JSON.stringify({ s24, j: vh.nejasne }));
+  // cenu doplní Volající sám v detailu klienta: prodej se započítá
+  await api.updateKontakt(honza, 24, { cena_web: '6 000 Kč' });
+  vh = await vydelek(honza);
+  s24 = vh.prodeje.find((r) => r.kontakt_id === 24);
+  over('D6', s24?.neznama === false && s24.castka === 6000 && s24.provize === 1800 && vh.neznama === 0 && vh.neznama_tyden === 0
+    && vh.celkem_kc === celkemPred + 1800 && vh.tyden_kc === tydenPred + 1800 && vh.nejasne === 1,
+    'po doplnění ceny webu (6 000 Kč) se prodej započítá sám: +1 800 Kč celkem i tento týden', JSON.stringify({ s24, c: vh.celkem_kc }));
+  await api.updateKontakt(honza, 24, { cena_web: null });
+  over('D6b', (await vydelek(honza)).neznama === 1 && (await radek(24))?.cena_web === null, 'vymazaná cena: prodej je zase neznámý');
+
+  // nový prodej z kontaktu s prázdnou cenou (Eva, kontakt a): neznámý, po doplnění ceny se počítá
+  await api.updateKontakt(albert, a, { status: 'schvaleno' });
+  let ve = await vydelek(eva);
+  const ea = () => ve.prodeje.find((r) => r.kontakt_id === a);
+  over('D7', ea()?.neznama === true && ea().provize === null && ve.neznama === 1 && ve.neznama_tyden === 1 && ve.nejasne === 0,
+    'web prodaný po zájmu bez ceny: Eva ho má jako neznámou cenu, ne jako nečitelnou', JSON.stringify(ea()));
+  await api.updateKontakt(eva, a, { cena_web: '7 000 Kč' });
+  ve = await vydelek(eva);
+  over('D7b', ea()?.neznama === false && ea().provize === 2100 && ve.neznama === 0 && ve.tyden_kc === 2100,
+    'po doplnění ceny se Evě prodej započítá (2 100 Kč tento týden)', JSON.stringify(ea()));
+
+  // supabase.ts posílá prázdnou cenu jako null (CallPage ji tak předá), nikdy ''
+  odeslano.length = 0;
+  await supabaseApi.resolveCall('tok', { kontakt_id: 5, outcome: 'zajem', cena_web: null, cena_hosting: null, rating: 'A' });
+  await supabaseApi.resolveCall('tok', { kontakt_id: 5, outcome: 'zajem', rating: 'A' });
+  over('D8', odeslano.length === 2 && odeslano.every((o) => o.body.p_cena_web === null && o.body.p_cena_hosting === null && o.body.p_rating === 'A'),
+    'resolve_call dostane prázdné ceny jako null', JSON.stringify(odeslano.map((o) => [o.body.p_cena_web, o.body.p_cena_hosting])));
+
+  // CallPage (React, klikání měří tests/demo-e2e.mjs blok A): jen známka povinná, prázdné pole = null, popisky nepovinné
+  const call = readFileSync(join(ROOT, 'src/pages/CallPage.tsx'), 'utf8');
+  over('D9', /const zajemValid = rating !== '';/.test(call) && /cena_web: outcome === 'zajem' \? cenaProServer\(cenaWeb\) : null/.test(call)
+    && /cena_hosting: outcome === 'zajem' \? cenaProServer\(cenaHosting\) : null/.test(call)
+    && call.includes('Cena webu (nepovinné)') && call.includes('Cena hostingu (nepovinné)') && /Nech prázdné = n\/a, cena zatím nedohodnutá/.test(call)
+    && !/Vyplň cenu webu/.test(call) && !/Cena webu <span className="req">/.test(call),
+    've volání je povinná jen známka, ceny jsou nepovinné a prázdná jde jako null');
+  // detail kontaktu (klikání měří e2e blok A, A9): pole s „n/a“ nebo prázdné se uloží jako null (update_kontakt uloží, co dostane)
+  const drawer = readFileSync(join(ROOT, 'src/components/KontaktDrawer.tsx'), 'utf8');
+  over('D10', /patch\.cena_web = cenaProServer\(cenaWeb\);/.test(drawer) && /patch\.cena_hosting = cenaProServer\(cenaHosting\);/.test(drawer)
+    && (drawer.match(/placeholder=\{CENA_NA\}/g) ?? []).length === 2,
+    'detail: obě pole cen se ukládají přes cenaProServer („n/a“ = null) a mají nápovědu „n/a“');
 });
 
 if (chyby === 0) {

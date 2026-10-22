@@ -2518,7 +2518,8 @@ table.kontakty tbody tr.selected .cena-hosting {
   font-weight: 700;
 }
 
-.vydelek-nejasne {
+.vydelek-nejasne,
+.vydelek-neznama {
   margin-top: 14px;
 }
 
@@ -2575,6 +2576,12 @@ table.kontakty tbody tr.selected .cena-hosting {
 .vydelek-provize.nejasna {
   color: var(--pink);
   font-size: 13px;
+}
+
+/* cena zatím nedohodnutá (migrace 051, 22. 10. 2026): „n/a“ šedě, není to chyba jako nečitelná cena */
+.vydelek-provize.neznama {
+  color: var(--ink-soft);
+  font-weight: 700;
 }
 
 @media (max-width: 640px) {

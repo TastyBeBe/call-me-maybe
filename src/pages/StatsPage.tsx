@@ -18,6 +18,8 @@ import {
   SegmentFilter,
   Spinner,
   STATUS_LABELS,
+  CENA_NA,
+  cenaNezadana,
   cenaText,
   errMsg,
   formatCastka,
@@ -217,9 +219,15 @@ function prodanychWebu(n: number): string {
  * the hosting“). Celkem a tento týden (po až ne v Praze) v Kč, eura zvlášť (nepřepočítávají se), seznam prodaných webů
  * s cenou, ze které se počítalo (po nabídce poloviční ceny částka ze slevy). Cenu, která nejde přečíst přesně
  * (rozpětí, „do 8000“), server do součtu nepočítá; appka to řekne. Čísla i sazbu posílá server (statistiky_volani).
+ * Migrace 051 (Albert 22. 10. 2026: „earnings count only once a price is known“): prodej, u kterého cena webu zatím
+ * není dohodnutá (prázdná nebo výplň jako „Xx“, bez slevy), má cenu i provizi „n/a“, do součtu se nepočítá a má vlastní
+ * upozornění (`neznama`); „cena nejde přečíst“ zůstává jen pro zapsanou nečitelnou cenu (`nejasne`). Server bez
+ * migrace 051 `neznama` neposílá: appka počítá s nulou.
  */
 function Vydelano({ v, ja, jmeno, jaSuper }: { v: Vydelek; ja: boolean; jmeno: string; jaSuper: boolean }) {
   const eura = v.celkem_eur > 0 || v.tyden_eur > 0;
+  const neznama = v.neznama ?? 0;
+  const neznamaTyden = v.neznama_tyden ?? 0;
   return (
     <section className="vydelek">
       <h2 className="page-title" style={{ fontSize: 22, marginTop: 28 }}>
@@ -260,6 +268,13 @@ function Vydelano({ v, ja, jmeno, jaSuper }: { v: Vydelek; ja: boolean; jmeno: s
             : 'Cenu webu opraví super admin v detailu klienta na přesnou částku, třeba „7 000 Kč“.'}
         </div>
       )}
+      {neznama > 0 && (
+        <div className="info-box vydelek-neznama">
+          U {prodanychWebu(neznama)} cena zatím není dohodnutá ({CENA_NA}), do součtu se nepočítá
+          {neznamaTyden > 0 ? ` (z toho tento týden ${neznamaTyden})` : ''}. Započítá se sama, až bude cena webu
+          v detailu klienta.
+        </div>
+      )}
       {v.prodeje.length === 0 ? (
         <p className="muted">Zatím žádný prodaný web.</p>
       ) : (
@@ -268,13 +283,29 @@ function Vydelano({ v, ja, jmeno, jaSuper }: { v: Vydelek; ja: boolean; jmeno: s
             <li key={p.kontakt_id} className={p.tento_tyden ? 'tento-tyden' : ''}>
               <span className="vydelek-datum">{formatDatumPraha(p.prodano_at)}</span>
               <span className="vydelek-jmeno">{p.jmeno}</span>
-              <span className="vydelek-cena" title={p.zdroj === 'sleva' ? 'Cena po nabídce poloviční ceny (sleva)' : 'Cena webu'}>
-                {cenaText(p.cena)?.text ?? p.cena ?? '—'}
+              <span
+                className="vydelek-cena"
+                title={
+                  p.zdroj === 'sleva'
+                    ? 'Cena po nabídce poloviční ceny (sleva)'
+                    : cenaNezadana(p.cena)
+                      ? 'Cena webu zatím není dohodnutá'
+                      : 'Cena webu'
+                }
+              >
+                {/* nezadaná cena (prázdná, „Xx“) = „n/a“, ne výplň doslova (migrace 051) */}
+                {cenaText(p.cena)?.text ?? CENA_NA}
                 {p.zdroj === 'sleva' && <span className="badge yellow vydelek-sleva">sleva</span>}
               </span>
-              <span className={`vydelek-provize${p.provize === null ? ' nejasna' : ''}`}>
-                {p.provize === null ? 'cena nejde přečíst' : formatCastka(p.provize, p.mena)}
-              </span>
+              {p.neznama ? (
+                <span className="vydelek-provize neznama" title="Cena webu zatím není dohodnutá, do součtu se nepočítá">
+                  {CENA_NA}
+                </span>
+              ) : (
+                <span className={`vydelek-provize${p.provize === null ? ' nejasna' : ''}`}>
+                  {p.provize === null ? 'cena nejde přečíst' : formatCastka(p.provize, p.mena)}
+                </span>
+              )}
             </li>
           ))}
         </ul>

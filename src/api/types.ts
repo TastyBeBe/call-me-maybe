@@ -266,6 +266,10 @@ export type VysledekHovoru = 'nedovolano' | 'odmitnuto' | 'zajem' | 'nerelevantn
 export interface ResolveCallArgs {
   kontakt_id: number;
   outcome: VysledekHovoru;
+  /**
+   * Ceny u `zajem` jsou od migrace 051 (Albert 22. 10. 2026) nepovinné: null = cena zatím nedohodnutá („n/a“), server
+   * pak cenu, která u kontaktu už je, nepřepíše. Appka prázdné pole posílá jako null, nikdy ''.
+   */
   cena_web?: string | null;
   cena_hosting?: string | null;
   note?: string | null;
@@ -503,14 +507,19 @@ export interface VydelekProdej {
   jmeno: string;
   segment: Segment;
   prodano_at: string;
-  /** text ceny, ze kterého se počítalo (cena webu, nebo částka ze slevy) */
+  /** text ceny, ze kterého se počítalo (cena webu, nebo částka ze slevy); u nedohodnuté ceny null nebo výplň („Xx“) */
   cena: string | null;
   zdroj: 'cena_web' | 'sleva';
-  /** přečtená částka; null = cena nejde přečíst přesně (do součtu se nepočítá) */
+  /** přečtená částka; null = cena nejde přečíst přesně, nebo zatím není dohodnutá (do součtu se nepočítá) */
   castka: number | null;
   mena: 'kc' | 'eur' | null;
   provize: number | null;
   tento_tyden: boolean;
+  /**
+   * Cena webu zatím není dohodnutá (migrace 051, Albert 22. 10. 2026): bez slevy a cena webu prázdná nebo zástupná
+   * (app_cena_nezadana). Appka ukáže cenu i provizi „n/a“. Server bez migrace 051 klíč neposílá (= false).
+   */
+  neznama?: boolean;
 }
 
 /** Výdělek: 30 % z ceny každého prodaného webu (ne z hostingu), celkem a v tomto týdnu (po až ne, Praha). */
@@ -523,9 +532,16 @@ export interface Vydelek {
   tyden_kc: number;
   celkem_eur: number;
   tyden_eur: number;
-  /** prodeje, u kterých cena nejde přečíst */
+  /** prodeje se zapsanou cenou, která nejde přečíst (rozpětí, „po domluvě“); od migrace 051 bez nedohodnutých */
   nejasne: number;
   nejasne_tyden: number;
+  /**
+   * Prodeje, u kterých cena webu zatím není dohodnutá (migrace 051, Albert 22. 10. 2026: „earnings count only once a
+   * price is known“); do součtu se nepočítají, započítají se samy, až bude cena webu v detailu klienta. Server bez
+   * migrace 051 je neposílá (= 0, takové prodeje jsou pak v `nejasne`).
+   */
+  neznama?: number;
+  neznama_tyden?: number;
   prodeje: VydelekProdej[];
 }
 
