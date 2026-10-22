@@ -900,7 +900,7 @@ for (const [kdo, superAdmin] of [['petra', false], ['mikulas', true]]) {
 }
 
 /* ============ Volání 050 (Albert 21. 10. 2026): Moji klienti, nerelevantní, přeplánovat, kalendář, připomínky, výdělek ============ */
-// Bloky C, N, P, K, H, T, E. Každý blok běží ve vlastní stránce (vlastní mock v paměti) a nečekaná chyba (chybějící
+// Bloky C, N, P, K, H, T, E (od migrace 051 na konci i A: cena „n/a“). Každý blok běží ve vlastní stránce (vlastní mock v paměti) a nečekaná chyba (chybějící
 // tlačítko na staré appce) je FAIL bloku, ne pád celé zkoušky. Čas a dny počítá v Praze jako server a appka.
 const PRAHA_DEN_E2E = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Prague', year: 'numeric', month: '2-digit', day: '2-digit' });
 const PRAHA_CAS_E2E = new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/Prague', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
@@ -945,7 +945,8 @@ for (const sirka of [1280, 390]) {
     const sumava = await bunky('Penzion Šumava');
     over(`C3 ${sirka}`, sumava.znamka === 'A' && sumava.cena === '4 900 Kč hosting 190/měs', 'cena „4900“ jako „4 900 Kč“, hosting „190/měs“ jak je zapsaný', JSON.stringify(sumava));
     const palouček = await bunky('Chalupa Na Paloučku');
-    over(`C4 ${sirka}`, palouček.znamka === '—' && palouček.cena === '—', 'bez známky a ceny pomlčky', JSON.stringify(palouček));
+    // ⚠ migrace 051 (Albert 22. 10. 2026): nedohodnutá cena je „n/a“, NAHRAZUJE pomlčku (známka bez hodnoty dál „—“)
+    over(`C4 ${sirka}`, palouček.znamka === '—' && palouček.cena === 'n/a', 'bez známky pomlčka, bez ceny „n/a“', JSON.stringify(palouček));
     const w = await page.evaluate(() => document.documentElement.scrollWidth);
     over(`C5 ${sirka}`, w <= sirka, 'stránka se do strany neposouvá (tabulka uvnitř rámečku)', `scrollWidth ${w}`);
     await ctx.close();
@@ -1329,6 +1330,137 @@ await blok050('E 390', async () => {
   const tl = page.locator('.outcome-row .outcome-dalsi button');
   const presahuje = await tl.evaluateAll((els) => els.some((e) => e.scrollWidth > e.clientWidth + 1));
   over('E11', w2 <= 390 && (await tl.count()) === 2 && !presahuje, 'volání na telefonu: Nerelevantní a Přeplánovat se vejdou', `scrollWidth ${w2}`);
+  await ctx.close();
+});
+
+/* ============ A) Cena při „Mají zájem“ nepovinná, nedohodnutá = „n/a“ (migrace 051, Albert 22. 10. 2026) ============ */
+// Albert: „make the web and hosting price optional at Mají zájem“ a „there's n/a on the hosting and on the prices when we
+// haven't arranged them yet“. Volající uloží zájem jen se známkou; Moji klienti, detail i výdělek ukážou „n/a“.
+const cenaBunka = async (page, jmeno) => {
+  const hlavicky = (await page.locator('table.kontakty thead th').allInnerTexts()).map((t) => txt(t).toLowerCase());
+  const td = page.locator('table.kontakty tbody tr', { hasText: jmeno }).first().locator('td').nth(hlavicky.indexOf('cena'));
+  return { text: txt(await td.innerText(KRATKE)), na: await td.locator('.cena-na').count(), title: (await td.locator('.cena-na').first().getAttribute('title').catch(() => null)) ?? '' };
+};
+const poleCeny = (page, popisek) => page.locator('.drawer .field', { has: page.locator('label', { hasText: new RegExp(`^${popisek}$`) }) }).locator('input');
+await blok050('A petra', async () => {
+  const { ctx, page } = await novaStranka('petra');
+  await jdi(page, '#/call', 600);
+  const x = await kartaId(page);
+  const jmeno = (await stav(page)).kontakty.find((k) => k.id === x)?.name ?? '';
+  await page.getByRole('button', { name: 'Mají zájem' }).click(KRATKE);
+  const formular = page.locator('.zajem-form');
+  const ft = txt(await formular.innerText(KRATKE));
+  const ulozit = formular.getByRole('button', { name: /Uložit a další/ });
+  over('A1', /Cena webu \(nepovinné\)/.test(ft) && /Cena hostingu \(nepovinné\)/.test(ft) && /Nech prázdné = n\/a, cena zatím nedohodnutá/.test(ft)
+    && (await formular.locator('.form-grid .req').count()) === 0 && (await page.locator('#zajem-cena-web').inputValue()) === ''
+    && (await page.locator('#zajem-cena-hosting').inputValue()) === '',
+    'formulář zájmu: ceny nepovinné, nápověda „nech prázdné = n/a“, u cen žádná hvězdička', ft.slice(0, 200));
+  over('A2', (await ulozit.isDisabled()) && /Vyber známku zájmu/.test(ft), 'bez známky uložit nejde (známka zůstává povinná)');
+  await formular.locator('.segmented button', { hasText: /^B$/ }).click();
+  over('A3', !(await ulozit.isDisabled()), 's prázdnými cenami a známkou uložit jde');
+  // po revizi DB 22. 10. 2026: napsaná výplň („0“ u hostingu) je totéž co prázdné pole
+  await page.fill('#zajem-cena-hosting', '0');
+  const pred = (await volani(page)).length;
+  await ulozit.click();
+  await klid(page, 600);
+  const zapis = (await volani(page)).slice(pred).find((v) => v.fn === 'resolveCall');
+  const k = (await stav(page)).kontakty.find((c) => c.id === x);
+  over('A4', !!zapis && zapis.ok && zapis.args[0].outcome === 'zajem' && zapis.args[0].rating === 'B' && zapis.args[0].cena_web === null
+    && zapis.args[0].cena_hosting === null && k?.status === 'zajem' && k.cena_web === null && k.cena_hosting === null && (await kartaId(page)) !== x,
+    'zájem jen se známkou se uloží, prázdná cena i napsaná „0“ jdou jako null (ne text) a přijde další karta', JSON.stringify({ a: zapis?.args[0], w: k?.cena_web, h: k?.cena_hosting }));
+
+  // Moji klienti: obě ceny nedohodnuté = JEDNO šedé „n/a“
+  await jdi(page, '#/moji', 600);
+  let b = await cenaBunka(page, jmeno);
+  over('A5', b.text === 'n/a' && b.na === 1 && b.title === 'Cena webu ani hostingu zatím není dohodnutá',
+    'Moji klienti: bez ceny webu i hostingu jedno „n/a“ s nápovědou', JSON.stringify(b));
+  // detail vlastního klienta: pole cen prázdná s nápovědou „n/a“; hosting doplní, web ne → „n/a“ a „hosting 190/měs“
+  const otevri = async () => {
+    if (await page.locator('.drawer-close').count()) await page.locator('.drawer-close').click();
+    await page.locator('table.kontakty tbody tr', { hasText: jmeno }).first().click(KRATKE);
+    await klid(page, 400);
+  };
+  const ulozDetail = async () => {
+    const p0 = (await volani(page)).length;
+    await page.locator('.drawer').getByRole('button', { name: 'Uložit změny' }).click(KRATKE);
+    await klid(page, 500);
+    return (await volani(page)).slice(p0).find((v) => v.fn === 'updateKontakt');
+  };
+  await otevri();
+  over('A6', (await poleCeny(page, 'Cena webu').inputValue()) === '' && (await poleCeny(page, 'Cena webu').getAttribute('placeholder')) === 'n/a'
+    && (await poleCeny(page, 'Cena hostingu').getAttribute('placeholder')) === 'n/a', 'detail: prázdná pole cen s nápovědou „n/a“');
+  await poleCeny(page, 'Cena hostingu').fill('190/měs');
+  const u1 = await ulozDetail();
+  await page.locator('.drawer-close').click();
+  b = await cenaBunka(page, jmeno);
+  over('A7', u1?.ok && JSON.stringify(u1.args[1]) === '{"cena_hosting":"190/měs"}' && b.text === 'n/a hosting 190/měs' && b.na === 1,
+    'cena webu nedohodnutá, hosting ano: „n/a“ a pod ním „hosting 190/měs“', JSON.stringify({ p: u1?.args[1], b }));
+  // web 7000, hosting vymazaný: vymazané pole se uloží jako null → „7 000 Kč“ a „hosting n/a“
+  await otevri();
+  await poleCeny(page, 'Cena webu').fill('7000');
+  await poleCeny(page, 'Cena hostingu').fill('');
+  const u2 = await ulozDetail();
+  await page.locator('.drawer-close').click();
+  b = await cenaBunka(page, jmeno);
+  const k2 = (await stav(page)).kontakty.find((c) => c.id === x);
+  over('A8', u2?.ok && u2.args[1].cena_web === '7000' && u2.args[1].cena_hosting === null && k2?.cena_hosting === null && b.text === '7 000 Kč hosting n/a',
+    'vymazaná cena hostingu se uloží jako null, Moji klienti „7 000 Kč“ a „hosting n/a“', JSON.stringify({ p: u2?.args[1], b }));
+  // po revizi DB 22. 10. 2026: napsané „n/a“ se uloží jako null (update_kontakt uloží, co dostane, text „n/a“ tam nesmí),
+  // pole pak ukáže prázdno s nápovědou „n/a“ a v Moji klienti je jedno „n/a“
+  await otevri();
+  await poleCeny(page, 'Cena webu').fill('n/a');
+  const u3 = await ulozDetail();
+  const pole = await poleCeny(page, 'Cena webu').inputValue();
+  const ulozitJde = !(await page.locator('.drawer').getByRole('button', { name: 'Uložit změny' }).isDisabled());
+  await page.locator('.drawer-close').click();
+  b = await cenaBunka(page, jmeno);
+  over('A9', u3?.ok && u3.args[1].cena_web === null && (await stav(page)).kontakty.find((c) => c.id === x)?.cena_web === null && pole === ''
+    && !ulozitJde && b.text === 'n/a' && b.na === 1,
+    'napsané „n/a“ v detailu se uloží jako null, pole je pak prázdné a v Moji klienti jedno „n/a“', JSON.stringify({ p: u3?.args[1], pole, ulozitJde, b }));
+  await ctx.close();
+});
+await blok050('A mikulas', async () => {
+  const { ctx, page } = await novaStranka('mikulas');
+  // detail jen ke čtení (Petřin klient, super admin Honzy ho neupraví): „cena webu: n/a · cena hostingu: n/a“
+  const radekCeny = async (hledat) => {
+    await jdi(page, '#/admin', 700);
+    await page.locator('input.search-input').fill(hledat);
+    await klid(page, 800);
+    await page.locator('table.kontakty tbody tr', { hasText: hledat }).first().click(KRATKE);
+    await klid(page, 500);
+    const t = txt(await page.locator('.drawer .cena-radek').innerText(KRATKE));
+    await page.locator('.drawer-close').click();
+    return t;
+  };
+  const r10 = await radekCeny('Paloučku');
+  const r7 = await radekCeny('Penzion Šumava');
+  over('A10', r10 === 'cena webu: n/a · cena hostingu: n/a' && r7 === 'cena webu: 4900 · cena hostingu: 190/měs',
+    'detail jen ke čtení: nedohodnutá cena „n/a“, zapsaná tak, jak ji kdo zapsal', `${r10} | ${r7}`);
+  // Statistiky Honzy: prodej Chalupa U Studánky bez ceny = „n/a“, vlastní upozornění, do součtu ne; nečitelná cena zvlášť
+  await jdi(page, '#/stats', 800);
+  await page.selectOption('#user-select', String(UID.honza));
+  await klid(page, 600);
+  const pozn = txt(await page.locator('.vydelek-neznama').innerText(KRATKE));
+  const li = page.locator('.vydelek-prodeje li', { hasText: 'Chalupa U Studánky' });
+  const cena = txt(await li.locator('.vydelek-cena').innerText(KRATKE));
+  const provize = txt(await li.locator('.vydelek-provize').innerText(KRATKE));
+  over('A11', pozn === 'U 1 prodaného webu cena zatím není dohodnutá (n/a), do součtu se nepočítá (z toho tento týden 1). Započítá se sama, až bude cena webu v detailu klienta.'
+    && cena === 'n/a' && provize === 'n/a' && (await li.locator('.vydelek-provize.neznama').count()) === 1,
+    'výdělek: prodej bez dohodnuté ceny má cenu i provizi „n/a“ a vlastní upozornění', `${pozn} | ${cena} | ${provize}`);
+  const celkem = txt(await page.locator('.vydelek-celkem .stat-value').innerText(KRATKE));
+  const nejasne = txt(await page.locator('.vydelek-nejasne').innerText(KRATKE));
+  over('A12', celkem === '1 050 Kč' && (await page.locator('.vydelek-nejasne').count()) === 1 && /^U 1 prodaného webu cena nejde přečíst/.test(nejasne)
+    && (await page.locator('.vydelek-neznama').count()) === 1,
+    'nedohodnutá cena se nesčítá a „cena nejde přečíst“ zůstává jen pro nečitelnou cenu (1)', `${celkem} | ${nejasne.slice(0, 80)}`);
+  await ctx.close();
+});
+await blok050('A 390', async () => {
+  const { ctx, page } = await novaStranka('petra', { sirka: 390, vyska: 844 });
+  await jdi(page, '#/call', 700);
+  await page.getByRole('button', { name: 'Mají zájem' }).click(KRATKE);
+  await page.waitForTimeout(150);
+  const w = await page.evaluate(() => document.documentElement.scrollWidth);
+  over('A13', w <= 390 && (await page.locator('.zajem-cena-napoveda').isVisible()), 'formulář zájmu s nápovědou se na telefonu vejde', `scrollWidth ${w}`);
   await ctx.close();
 });
 

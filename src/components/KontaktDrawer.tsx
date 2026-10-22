@@ -39,6 +39,9 @@ import {
   SKRYTO_NAPOVEDA,
   Spinner,
   StatusBadge,
+  CENA_NA,
+  cenaNezadana,
+  cenaProServer,
   errMsg,
   flagHintDetail,
   formatDateTime,
@@ -629,8 +632,10 @@ export default function KontaktDrawer({
     if (status !== kontakt.status) patch.status = status;
     if (email !== (kontakt.email ?? '')) patch.email = email.trim() || null;
     if (note !== (kontakt.note ?? '')) patch.note = note || null;
-    if (cenaWeb !== (kontakt.cena_web ?? '')) patch.cena_web = cenaWeb.trim() || null;
-    if (cenaHosting !== (kontakt.cena_hosting ?? '')) patch.cena_hosting = cenaHosting.trim() || null;
+    // migrace 051 (po revizi DB 22. 10. 2026): prázdné nebo zástupné pole („n/a“, „x“, „0“) = null, ne text „n/a“;
+    // update_kontakt uloží, co dostane
+    if (cenaWeb !== (kontakt.cena_web ?? '')) patch.cena_web = cenaProServer(cenaWeb);
+    if (cenaHosting !== (kontakt.cena_hosting ?? '')) patch.cena_hosting = cenaProServer(cenaHosting);
     if (rating !== (kontakt.rating ?? '')) patch.rating = rating;
     if (Object.keys(patch).length === 0) return;
     setBusy(true);
@@ -642,6 +647,9 @@ export default function KontaktDrawer({
       // server vrátí uloženou poznámku: obyčejný řádek pod zápisem kolegy v ní už má vlastní hlavičku (recenze 046),
       // pole ji ukáže hned a uložení se nezdá rozpracované
       if ('note' in patch) setNote(updated.note ?? '');
+      // napsané „n/a“ se uložilo jako null: pole ukáže uloženou cenu (prázdné s nápovědou „n/a“), ne rozepsaný text
+      if ('cena_web' in patch) setCenaWeb(updated.cena_web ?? '');
+      if ('cena_hosting' in patch) setCenaHosting(updated.cena_hosting ?? '');
       setSavedFlash(true);
       setTimeout(() => setSavedFlash(false), 1500);
     } catch (e) {
@@ -782,8 +790,11 @@ export default function KontaktDrawer({
               )}
             </p>
             <p className="meta-line">e-mail: {kontakt.email || '—'}</p>
-            <p className="meta-line">
-              cena webu: {kontakt.cena_web || '—'} · cena hostingu: {kontakt.cena_hosting || '—'}
+            {/* migrace 051 (Albert 22. 10. 2026): nedohodnutá cena (prázdná nebo zástupná „Xx“, „-“) = „n/a“, jinak text,
+                jak ho kdo zapsal (⚠ NAHRAZUJE pomlčku, která zástupné výplně ukazovala doslova) */}
+            <p className="meta-line cena-radek">
+              cena webu: {cenaNezadana(kontakt.cena_web) ? CENA_NA : kontakt.cena_web} · cena hostingu:{' '}
+              {cenaNezadana(kontakt.cena_hosting) ? CENA_NA : kontakt.cena_hosting}
             </p>
             {kontakt.note && (
               <div className="field">
@@ -817,14 +828,15 @@ export default function KontaktDrawer({
               <label>E-mail</label>
               <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
             </div>
+            {/* migrace 051 (Albert 22. 10. 2026): prázdné pole = cena zatím nedohodnutá („n/a“), uloží se jako null */}
             <div className="form-grid">
               <div className="field">
                 <label>Cena webu</label>
-                <input value={cenaWeb} onChange={(e) => setCenaWeb(e.target.value)} />
+                <input value={cenaWeb} placeholder={CENA_NA} onChange={(e) => setCenaWeb(e.target.value)} />
               </div>
               <div className="field">
                 <label>Cena hostingu</label>
-                <input value={cenaHosting} onChange={(e) => setCenaHosting(e.target.value)} />
+                <input value={cenaHosting} placeholder={CENA_NA} onChange={(e) => setCenaHosting(e.target.value)} />
               </div>
             </div>
             <div className="field">

@@ -15,6 +15,7 @@ import {
   SegmentSwitch,
   Spinner,
   StatusBadge,
+  cenaProServer,
   errMsg,
   formatKdyVeta,
   formatRelativne,
@@ -362,8 +363,10 @@ export default function CallPage() {
       await getApi().resolveCall(session.token, {
         kontakt_id: kontakt.id,
         outcome,
-        cena_web: outcome === 'zajem' ? cenaWeb : null,
-        cena_hosting: outcome === 'zajem' ? cenaHosting : null,
+        // migrace 051 (Albert 22. 10. 2026): prázdná nebo zástupná cena („n/a“, „0“) = null (cena zatím nedohodnutá, appka
+        // ukáže „n/a“); server pak u kontaktu nechá cenu, která tam už je
+        cena_web: outcome === 'zajem' ? cenaProServer(cenaWeb) : null,
+        cena_hosting: outcome === 'zajem' ? cenaProServer(cenaHosting) : null,
         note: (extra.note ?? note).trim() || null,
         rating: outcome === 'zajem' ? rating || null : null,
         email: outcome === 'zajem' ? email.trim() || null : null,
@@ -387,7 +390,10 @@ export default function CallPage() {
     }
   };
 
-  const zajemValid = cenaWeb.trim() !== '' && cenaHosting.trim() !== '' && rating !== '';
+  // ⚠ Migrace 051 (Albert 22. 10. 2026: „make the web and hosting price optional at Mají zájem“) NAHRAZUJE povinnou cenu
+  // webu i hostingu (od 1. 9. 2026, commit 7c982cd): povinná je jen známka. Volající kvůli povinnému poli psali výplně
+  // („7000 / hosting 0“, „Xx“); nedohodnutou cenu teď nechají prázdnou a appka ji ukáže jako „n/a“.
+  const zajemValid = rating !== '';
 
   // Poznámka je VOLITELNÁ (Albert 2026-09-23). Do té doby se při prázdné poznámce
   // otevřelo potvrzovací okno „Opravdu bez poznámky?" — u klienta, který si jen řekl
@@ -633,27 +639,30 @@ export default function CallPage() {
             <p className="eyebrow">mají zájem — vyplň detaily</p>
             <div className="form-grid">
               <div className="field">
-                <label>
-                  Cena webu <span className="req">*</span>
-                </label>
+                <label htmlFor="zajem-cena-web">Cena webu (nepovinné)</label>
                 <input
+                  id="zajem-cena-web"
                   value={cenaWeb}
                   onChange={(e) => setCenaWeb(e.target.value)}
                   placeholder={architekt ? 'např. 6500' : 'např. 4900'}
+                  aria-describedby="zajem-cena-napoveda"
                   autoFocus
                 />
               </div>
               <div className="field">
-                <label>
-                  Cena hostingu <span className="req">*</span>
-                </label>
+                <label htmlFor="zajem-cena-hosting">Cena hostingu (nepovinné)</label>
                 <input
+                  id="zajem-cena-hosting"
                   value={cenaHosting}
                   onChange={(e) => setCenaHosting(e.target.value)}
                   placeholder={architekt ? 'např. 1000/rok' : 'např. 190/měs'}
+                  aria-describedby="zajem-cena-napoveda"
                 />
               </div>
             </div>
+            <p id="zajem-cena-napoveda" className="muted zajem-cena-napoveda" style={{ fontSize: 12.5, margin: '-6px 0 12px' }}>
+              Nech prázdné = n/a, cena zatím nedohodnutá. Doplnit ji jde později v detailu klienta.
+            </p>
             <div className="field">
               <label>E-mail klienta (ověř po telefonu)</label>
               <input
@@ -707,7 +716,7 @@ export default function CallPage() {
             </div>
             {!zajemValid && (
               <p className="muted" style={{ fontSize: 13, marginTop: 8 }}>
-                Vyplň cenu webu, cenu hostingu a známku zájmu.
+                Vyber známku zájmu (A, B nebo C).
               </p>
             )}
           </div>

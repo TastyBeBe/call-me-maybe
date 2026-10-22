@@ -8,6 +8,8 @@
 // a cena webu, pod ní menší cena hostingu. Čistá částka jako „7 000 Kč“, jiný text tak, jak ho kdo zapsal (dlouhý
 // zkrácený, celý v nápovědě), zástupné „x“ nebo „-“ jako nezadáno. Na telefonu se tabulka posouvá do strany
 // uvnitř rámečku (table-wrap), stránka sama ne.
+// ⚠ Migrace 051 (Albert 22. 10. 2026: „there's n/a on the hosting and on the prices when we haven't arranged them yet“)
+// NAHRAZUJE pomlčku u nezadané ceny: nedohodnutá cena (prázdná nebo zástupná, cenaNezadana) je „n/a“, viz CenaBunka.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getApi, type Kontakt, type Segment } from '../api';
@@ -24,6 +26,7 @@ import {
   Skryto,
   Spinner,
   StatusBadge,
+  CENA_NA,
   cenaText,
   errMsg,
   formatDateTime,
@@ -40,10 +43,21 @@ import { SearchIcon } from '../icons';
  */
 const MOJI_LIMIT = 2000;
 
-/** Cena webu a pod ní menší cena hostingu (Albert 21. 10. 2026); nezadaná cena = pomlčka. */
+/**
+ * Cena webu a pod ní menší cena hostingu (Albert 21. 10. 2026). Nedohodnutá cena (migrace 051, Albert 22. 10. 2026) je
+ * „n/a“: web bez ceny = šedé „n/a“, hosting bez ceny pod cenou webu = „hosting n/a“, bez obou jen JEDNO šedé „n/a“
+ * (ne dvakrát), web bez ceny a hosting s cenou = „n/a“ a pod ním „hosting 1 000 Kč“.
+ */
 function CenaBunka({ web, hosting }: { web: string | null; hosting: string | null }) {
   const w = cenaText(web);
   const h = cenaText(hosting);
+  if (!w && !h) {
+    return (
+      <span className="muted cena-na" title="Cena webu ani hostingu zatím není dohodnutá">
+        {CENA_NA}
+      </span>
+    );
+  }
   return (
     <>
       {w ? (
@@ -51,11 +65,17 @@ function CenaBunka({ web, hosting }: { web: string | null; hosting: string | nul
           {w.text}
         </span>
       ) : (
-        <span className="muted">—</span>
+        <span className="muted cena-na" title="Cena webu zatím není dohodnutá">
+          {CENA_NA}
+        </span>
       )}
-      {h && (
+      {h ? (
         <span className="cena-hosting muted" title={`hosting ${h.cele}`}>
           hosting {h.text}
+        </span>
+      ) : (
+        <span className="cena-hosting muted cena-na" title="Cena hostingu zatím není dohodnutá">
+          hosting {CENA_NA}
         </span>
       )}
     </>

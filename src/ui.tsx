@@ -512,19 +512,50 @@ export function formatCastka(n: number, mena: 'kc' | 'eur' | null | undefined): 
   return mena === 'eur' ? formatEur(n) : formatKc(n);
 }
 
-/** Zástupné hodnoty ceny, které znamenají „nezadáno“ (x, xx, X, Xx, yx, -, —). */
-const CENA_ZASTUPNA = /^(?:x{1,3}|yx|[-–—]{1,3})$/i;
+/**
+ * Zástupné hodnoty ceny, které znamenají „nezadáno“ (x, xx, X, Xx, yx, -, —, od 22. 10. 2026 i n/a, n.a. a nula:
+ * „0“, „00“, „0 Kč“, „0,-“). Migrace 051 (Albert 22. 10. 2026): cena při „Mají zájem“ je nepovinná a nedohodnutá cena se
+ * ukazuje jako „n/a“. Volající do 22. 10. kvůli povinnému poli psali výplně („Xx“, „hosting 0“), ty zůstávají, jak jsou,
+ * a čtou se jako nezadané; nula není cena (po revizi DB 22. 10. 2026, automatizace 0 jako cenu nikdy nebere).
+ * Stejný vzor má server v app_cena_nezadana (db/migration_051_cena_na.sql), po trim() se stejnou sadou mezer jako
+ * JavaScript; měnit jen spolu (tabulka vzorků v tests/volani.test.mjs a v test_051, kontrola 205).
+ */
+const CENA_ZASTUPNA = /^(?:x{1,3}|yx|[-–—]{1,3}|n\/a|n\.a\.|0+(?:\s*(?:kč|kc|czk|,-))?)$/i;
+
+/**
+ * Cena webu nebo hostingu zatím není dohodnutá (migrace 051, Albert 22. 10. 2026: „there's n/a on the hosting and on the
+ * prices when we haven't arranged them yet“): prázdná, jen mezery nebo zástupná hodnota (CENA_ZASTUPNA). Zrcadlo serverové
+ * app_cena_nezadana: stejná nezadaná cena se v Moji klienti, v detailu i ve výdělku ukáže jako „n/a“ a do výdělku se
+ * nepočítá. Text „n/a“ se do databáze nikdy nezapisuje, prázdné pole se uloží jako null.
+ */
+export function cenaNezadana(text: string | null | undefined): boolean {
+  const t = (text ?? '').trim();
+  return t === '' || CENA_ZASTUPNA.test(t);
+}
+
+/** Co appka ukáže místo nedohodnuté ceny (Albert 22. 10. 2026, „n/a“, ne „dohodou“ ani pomlčka). */
+export const CENA_NA = 'n/a';
+
+/**
+ * Cena tak, jak ji appka pošle serveru (volání i detail kontaktu): nedohodnutá (prázdná nebo zástupná, třeba napsané
+ * „n/a“ nebo „0“) = null, jinak text oříznutý o mezery. Po revizi DB 22. 10. 2026: update_kontakt uloží, co dostane, takže
+ * text „n/a“ do databáze nesmí odejít nikdy; resolve_call by ho sám zahodil, appka ho stejně pošle jako null.
+ */
+export function cenaProServer(text: string | null | undefined): string | null {
+  return cenaNezadana(text) ? null : (text ?? '').trim();
+}
 /** Čisté číslo, případně s Kč, Kc, CZK nebo „,-“: ukáže se jako „7 000 Kč“. */
 const CENA_CISLO = /^(\d{1,3}(?:[ .\u00a0]\d{3})+|\d+)\s*(?:kč|kc|czk|,-)?$/i;
 const CENA_DELKA = 26;
 
 /**
  * Cena webu nebo hostingu v Moji klienti: čisté číslo jako „7 000 Kč“, jiný text (190/měs, 6000-7000 po domluvě)
- * tak, jak ho kdo zapsal, dlouhý zkrácený (celý v `cele` pro title); prázdné a zástupné (x, -) = null (nezadáno).
+ * tak, jak ho kdo zapsal, dlouhý zkrácený (celý v `cele` pro title); prázdné a zástupné (x, -, n/a) = null (nezadáno,
+ * stránka ukáže „n/a“, cenaNezadana).
  */
 export function cenaText(text: string | null | undefined): { text: string; cele: string } | null {
+  if (cenaNezadana(text)) return null;
   const t = (text ?? '').trim();
-  if (t === '' || CENA_ZASTUPNA.test(t)) return null;
   const m = CENA_CISLO.exec(t);
   if (m) return { text: formatKc(Number(m[1].replace(/[ .\u00a0]/g, ''))), cele: t };
   const znaky = [...t];
