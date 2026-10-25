@@ -43,7 +43,7 @@ let bundle;
   const out = await build({
     stdin: {
       contents: [
-        "export { mockApi, cenaCist, cenaNezadanaMock } from './src/api/mock.ts';",
+        "export { mockApi, cenaCist, cenaNezadanaMock, maVlastniWeb } from './src/api/mock.ts';",
         "export { supabaseApi } from './src/api/supabase.ts';",
         "export * as uiModul from './src/ui.tsx';",
         "export * as prahaModul from './src/praha.ts';",
@@ -70,7 +70,7 @@ let bundle;
   bundle = createRequire(import.meta.url)(f);
   rmSync(dir, { recursive: true, force: true });
 }
-const { mockApi: api, cenaCist, cenaNezadanaMock, supabaseApi, uiModul: U, prahaModul: P, zavolatModul: Z, oknoModul: O } = bundle;
+const { mockApi: api, cenaCist, cenaNezadanaMock, maVlastniWeb, supabaseApi, uiModul: U, prahaModul: P, zavolatModul: Z, oknoModul: O } = bundle;
 
 let pocet = 0;
 let chyby = 0;
@@ -221,6 +221,35 @@ await blok('V', async () => {
   await api.updateKontakt(albert, x, { status: 'odmitnuto' }); // ven z prodeje i z fronty (nepletl by další bloky)
   h = (await api.statistikyVolani(honza)).vydelek;
   over('V12', h.celkem_kc === 1050 && h.prodano === 3 && !h.prodeje.some((x) => /hosting|190/.test(String(x.cena))), 'po návratu stavu zpět; hosting se nikde nepočítá');
+});
+
+/* ---------------- F) fronta architektů: napřed bez vlastního webu (migrace 054, Albert 25. 10. 2026) ---------------- */
+await blok('F', async () => {
+  // pomocník = app_kontakt_ma_web na serveru (stejná tabulka jako test 054, 54a)
+  const tab = [[null, null, false], ['', '', false], ['   ', ' ', false], [null, 'nemá web', false], [null, 'NEMÁ WEB', false],
+    ['', '773126585', false], [null, 'ne', false], [' ', 'nevím', false], ['https://atelier.example.cz', null, true],
+    ['https://atelier.example.cz', 'nemá web', true], [null, 'má web', true], ['', ' Má web ', true], [null, 'ma web', true], [null, 'ano', true]];
+  const spatne = tab.filter(([w, m, c]) => maVlastniWeb(w, m) !== c);
+  over('F1', spatne.length === 0, 'maVlastniWeb = app_kontakt_ma_web (adresa nebo „má web“ = web, jinak bez webu)', JSON.stringify(spatne));
+  // demo: jediný volatelný architekt bez webu je 301, s webem 300 a 302
+  // šestkrát (vrácení do fronty má strop 10 za hodinu na člověka): při náhodném výběru ze tří by 301 přišel pokaždé s 0,14 %
+  const tahy = [];
+  for (const tok of [eva, albert, mikulas, eva, albert, mikulas]) {
+    const c = await api.nextContact(tok, 'architekt');
+    tahy.push(c?.id ?? null);
+    if (c) await api.returnContact(tok, c.id);
+  }
+  const prvni = await api.nextContact(petra, 'architekt');
+  over('F2', prvni?.id === 301 && tahy.every((x) => x === 301), 'první architekt ve frontě je vždy ten bez webu (301), ne 300 ani 302 s webem', `${tahy.join()} / ${prvni?.id}`);
+  const druhy = await api.nextContact(honza, 'architekt');
+  over('F3', !!druhy && [300, 302].includes(druhy.id), 'architekt s webem přijde, až když bez webu nikdo nezbyl', druhy && `${druhy.id}`);
+  if (prvni) await api.returnContact(petra, prvni.id);
+  if (druhy) await api.returnContact(honza, druhy.id);
+  // chaty: přednost se nepoužije (u chat s webem i bez web náhodně jako dřív); měří se zdroj, náhodu nejde změřit napevno
+  const m = readFileSync(join(ROOT, 'src/api/mock.ts'), 'utf8');
+  over('F4', /const bezWebu = segment === 'architekt' \? pool\.filter\(\(c\) => !maVlastniWeb\(c\.web, c\.ma_web\)\) : \[\];\s*const z = bezWebu\.length > 0 \? bezWebu : pool;/.test(m)
+    && (m.match(/pick\(callable\.filter/g) ?? []).length === 2,
+    'přednost bez webu jen u architektů a v obou průchodech (1 i 2) jedním výběrem pick');
 });
 
 /* ---------------- M) Moji klienti a čas: formátování ceny, data a času v Praze ---------------- */

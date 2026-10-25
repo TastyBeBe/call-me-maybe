@@ -1778,6 +1778,15 @@ const PROVIZE_PROCENT = 30;
  * „nezadané ceny“ v tests/volani.test.mjs a v test_051, kontrola 205).
  */
 const CENA_ZASTUPNA_MOCK = /^(?:x{1,3}|yx|[-–—]{1,3}|n\/a|n\.a\.|0+(?:\s*(?:kč|kc|czk|,-))?)$/i;
+/**
+ * app_kontakt_ma_web (db/migration_054_fronta_bez_webu.sql, Albert 25. 10. 2026): má kontakt VLASTNÍ web? Adresa ve `web`
+ * (bez mezer) nebo `ma_web` „má web“, „ma web“ či „ano“ = web; null, prázdné, „nemá web“ a cokoli jiného = bez webu.
+ * live_url (náš web pro klienta) se nečte. Musí zůstat shodné se serverem (kontrola 214).
+ */
+export function maVlastniWeb(web: string | null | undefined, maWeb: string | null | undefined): boolean {
+  return (web ?? '').trim() !== '' || ['má web', 'ma web', 'ano'].includes((maWeb ?? '').trim().toLowerCase());
+}
+
 export function cenaNezadanaMock(p: string | null | undefined): boolean {
   const t = (p ?? '').trim();
   return t === '' || CENA_ZASTUPNA_MOCK.test(t);
@@ -1966,7 +1975,7 @@ const mockApiZaklad: Api = {
     }
     // Musí zůstat shodné s db/migration_036_vlastni_karta.sql (tělo z 023 a 028):
     // jen nekontaktovano + nedovolano, jen zvolený segment, koho jsme dnes už volali
-    // se dnes znovu nenabídne, a výběr je NÁHODNÝ (ne podle id).
+    // se dnes znovu nenabídne, a výběr je NÁHODNÝ (ne podle id); ⚠ od migrace 054 u architektů napřed bez webu (pick).
     // Migrace 050: kontakt s čekajícím naplánovaným hovorem nikomu (dostane ho jen ten, kdo má volat, průchod 0b).
     // Jen hovor AKTIVNÍHO člověka (recenze 21. 10. 2026): hovory deaktivovaného kontakty neblokují, super admin je
     // v kalendáři „Všichni volající“ přeřadí nebo zruší.
@@ -1989,8 +1998,13 @@ const mockApiZaklad: Api = {
           .filter((l) => l.kontakt_id === c.id)
           .map((l) => new Date(l.created_at).getTime())
       );
-    const pick = (pool: Kontakt[]) =>
-      pool.length === 0 ? null : pool[Math.floor(Math.random() * pool.length)];
+    // Migrace 054 (Albert 25. 10. 2026): u architektů v každém průchodu napřed kontakty BEZ vlastního webu (mezi nimi
+    // náhodně), kontakt s webem jen tehdy, když v tom průchodu žádný bez webu není; u chat náhodně jako dřív.
+    const pick = (pool: Kontakt[]) => {
+      const bezWebu = segment === 'architekt' ? pool.filter((c) => !maVlastniWeb(c.web, c.ma_web)) : [];
+      const z = bezWebu.length > 0 ? bezWebu : pool;
+      return z.length === 0 ? null : z[Math.floor(Math.random() * z.length)];
+    };
     const next =
       // 1. průchod: dnes na ně nikdo nevolal
       pick(callable.filter((c) => lastCall(c) < startOfToday())) ??
