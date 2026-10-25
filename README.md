@@ -333,7 +333,7 @@ který schvaluje Albert (u zprávy je vidět jeho stav).
   2 h, zámek se neposouvá): reload nebo návrat na Volání ukáže tutéž kartu a nezamkne další.
 - ⚠ Od migrace 054 (Albert 25. 10. 2026) u architektů napřed ti, kdo nemají vlastní web: v náhodných průchodech (dnes
   nevolaní, pak záloha po 4 h) dostane volající architekta s webem, až když žádný bez webu nezbyl (`app_kontakt_ma_web`:
-  adresa ve `web` nebo „má web“ = web; null, prázdné a „nemá web“ = bez webu). Vlastní karta a naplánovaný hovor jsou
+  adresa s tečkou ve `web` nebo „má web“ = web; null, prázdné, slovo bez tečky a „nemá web“ = bez webu). Vlastní karta a naplánovaný hovor jsou
   dál první, chaty jdou náhodně jako dřív (NAHRAZUJE u architektů „náhodně“). Demo mock totéž (`maVlastniWeb`
   v `src/api/mock.ts`), `npm test` blok F (volani.test.mjs), kontrola 214 repozitáře automatizace.
 - Karta architekta: jméno (jinak studio), studio, telefon, e-mail, město, web a „obrat“

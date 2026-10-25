@@ -1780,11 +1780,12 @@ const PROVIZE_PROCENT = 30;
 const CENA_ZASTUPNA_MOCK = /^(?:x{1,3}|yx|[-–—]{1,3}|n\/a|n\.a\.|0+(?:\s*(?:kč|kc|czk|,-))?)$/i;
 /**
  * app_kontakt_ma_web (db/migration_054_fronta_bez_webu.sql, Albert 25. 10. 2026): má kontakt VLASTNÍ web? Adresa ve `web`
- * (bez mezer) nebo `ma_web` „má web“, „ma web“ či „ano“ = web; null, prázdné, „nemá web“ a cokoli jiného = bez webu.
+ * (aspoň jedna tečka mezi znaky, jako doména) nebo `ma_web` „má web“, „ma web“ či „ano“ = web; null, prázdné, slovo bez
+ * tečky („ne“, „-“), „nemá web“ a cokoli jiného = bez webu.
  * live_url (náš web pro klienta) se nečte. Musí zůstat shodné se serverem (kontrola 214).
  */
 export function maVlastniWeb(web: string | null | undefined, maWeb: string | null | undefined): boolean {
-  return (web ?? '').trim() !== '' || ['má web', 'ma web', 'ano'].includes((maWeb ?? '').trim().toLowerCase());
+  return /\S\.\S/.test(web ?? '') || ['má web', 'ma web', 'ano'].includes((maWeb ?? '').trim().toLowerCase());
 }
 
 export function cenaNezadanaMock(p: string | null | undefined): boolean {

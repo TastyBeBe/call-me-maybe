@@ -228,11 +228,12 @@ await blok('F', async () => {
   // pomocník = app_kontakt_ma_web na serveru (stejná tabulka jako test 054, 54a)
   const tab = [[null, null, false], ['', '', false], ['   ', ' ', false], [null, 'nemá web', false], [null, 'NEMÁ WEB', false],
     ['', '773126585', false], [null, 'ne', false], [' ', 'nevím', false], ['https://atelier.example.cz', null, true],
-    ['https://atelier.example.cz', 'nemá web', true], [null, 'má web', true], ['', ' Má web ', true], [null, 'ma web', true], [null, 'ano', true]];
+    ['https://atelier.example.cz', 'nemá web', true], [null, 'má web', true], ['', ' Má web ', true], [null, 'ma web', true], [null, 'ano', true],
+    ['ne', null, false], ['-', null, false], ['nemá', null, false], ['www.atelier.cz', null, true], ['\t\n', null, false], [null, '\tmá web\n', true]];
   const spatne = tab.filter(([w, m, c]) => maVlastniWeb(w, m) !== c);
   over('F1', spatne.length === 0, 'maVlastniWeb = app_kontakt_ma_web (adresa nebo „má web“ = web, jinak bez webu)', JSON.stringify(spatne));
   // demo: jediný volatelný architekt bez webu je 301, s webem 300 a 302
-  // šestkrát (vrácení do fronty má strop 10 za hodinu na člověka): při náhodném výběru ze tří by 301 přišel pokaždé s 0,14 %
+  // šestkrát (vrácení do fronty má strop 10 za hodinu na člověka): při náhodném výběru ze tří by 301 přišel ve všech sedmi tazích s 0,05 %
   const tahy = [];
   for (const tok of [eva, albert, mikulas, eva, albert, mikulas]) {
     const c = await api.nextContact(tok, 'architekt');
