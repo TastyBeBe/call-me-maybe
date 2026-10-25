@@ -331,11 +331,14 @@ který schvaluje Albert (u zprávy je vidět jeho stav).
   dorazí až po přepnutí, se zahodí a její zámek se vrátí.
 - `next_contact` od migrace 036 vrací nejdřív vlastní platnou kartu v segmentu (zámek mladší
   2 h, zámek se neposouvá): reload nebo návrat na Volání ukáže tutéž kartu a nezamkne další.
-- ⚠ Od migrace 054 (Albert 25. 10. 2026) u architektů napřed ti, kdo nemají vlastní web: v náhodných průchodech (dnes
-  nevolaní, pak záloha po 4 h) dostane volající architekta s webem, až když žádný bez webu nezbyl (`app_kontakt_ma_web`:
-  adresa s tečkou ve `web` nebo „má web“ = web; null, prázdné, slovo bez tečky a „nemá web“ = bez webu). Vlastní karta a naplánovaný hovor jsou
-  dál první, chaty jdou náhodně jako dřív (NAHRAZUJE u architektů „náhodně“). Demo mock totéž (`maVlastniWeb`
-  v `src/api/mock.ts`), `npm test` blok F (volani.test.mjs), kontrola 214 repozitáře automatizace.
+- ⚠ Od migrace 054 (Albert 25. 10. 2026) jdou architekti v náhodných průchodech (dnes nevolaní, pak záloha po 4 h) po
+  vrstvách, v každé náhodně: napřed bez vlastního webu s méně než dvěma nedovoláními, pak s webem, nakonec bez webu po
+  dvou a víc nedovoláních (Albert večer: „if they don't pick up for the second time, then they should allow people with
+  websites to go in front of them“). Další vrstva přijde, až když v té předchozí nikdo volatelný nezbyl. Web =
+  `app_kontakt_ma_web` (adresa s tečkou ve `web` nebo „má web“); nedovolání = hovory s výsledkem nedovoláno za celou dobu,
+  přeplánování se nepočítá. Vlastní karta a naplánovaný hovor jsou dál první, chaty jdou náhodně jako dřív (NAHRAZUJE
+  u architektů „náhodně“). Demo mock totéž (`maVlastniWeb`, `vrstvaFronty` v `src/api/mock.ts`), `npm test` blok F
+  (volani.test.mjs), kontrola 214 repozitáře automatizace.
 - Karta architekta: jméno (jinak studio), studio, telefon, e-mail, město, web a „obrat“
   (⚠ odkud máme číslo už ne: migrace 043, Albert 19. 10. 2026). IČO architekta volající nevidí (Albert 3. 10. 2026, migrace 037; ⚠ od 042
   role `caller` není a Volající = `admin` IČO vidí, viz níž):

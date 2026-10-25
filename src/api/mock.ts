@@ -1788,6 +1788,18 @@ export function maVlastniWeb(web: string | null | undefined, maWeb: string | nul
   return /\S\.\S/.test(web ?? '') || ['má web', 'ma web', 'ano'].includes((maWeb ?? '').trim().toLowerCase());
 }
 
+/**
+ * Vrstva kontaktu v průchodech 1 a 2 next_contact (db/migration_054_fronta_bez_webu.sql; Albert 25. 10. 2026 večer: po
+ * druhém nedovolání jde architekt bez webu za architekty s webem). Menší napřed, v ní náhodně. Chata vždy 0. Architekt:
+ * 0 = bez vlastního webu a méně než 2 nedovolání, 1 = s vlastním webem, 2 = bez webu a 2 a víc nedovolání (call_log
+ * s výsledkem nedovolano za celou dobu; preplanovano se nepočítá). Musí zůstat shodné se serverem (kontrola 214).
+ */
+export function vrstvaFronty(segment: string, web: string | null | undefined, maWeb: string | null | undefined, nedovolani: number): number {
+  if (segment !== 'architekt') return 0;
+  if (maVlastniWeb(web, maWeb)) return 1;
+  return nedovolani >= 2 ? 2 : 0;
+}
+
 export function cenaNezadanaMock(p: string | null | undefined): boolean {
   const t = (p ?? '').trim();
   return t === '' || CENA_ZASTUPNA_MOCK.test(t);
@@ -1976,7 +1988,7 @@ const mockApiZaklad: Api = {
     }
     // Musí zůstat shodné s db/migration_036_vlastni_karta.sql (tělo z 023 a 028):
     // jen nekontaktovano + nedovolano, jen zvolený segment, koho jsme dnes už volali
-    // se dnes znovu nenabídne, a výběr je NÁHODNÝ (ne podle id); ⚠ od migrace 054 u architektů napřed bez webu (pick).
+    // se dnes znovu nenabídne, a výběr je NÁHODNÝ (ne podle id); ⚠ od migrace 054 u architektů podle vrstev (pick, vrstvaFronty).
     // Migrace 050: kontakt s čekajícím naplánovaným hovorem nikomu (dostane ho jen ten, kdo má volat, průchod 0b).
     // Jen hovor AKTIVNÍHO člověka (recenze 21. 10. 2026): hovory deaktivovaného kontakty neblokují, super admin je
     // v kalendáři „Všichni volající“ přeřadí nebo zruší.
@@ -1999,12 +2011,16 @@ const mockApiZaklad: Api = {
           .filter((l) => l.kontakt_id === c.id)
           .map((l) => new Date(l.created_at).getTime())
       );
-    // Migrace 054 (Albert 25. 10. 2026): u architektů v každém průchodu napřed kontakty BEZ vlastního webu (mezi nimi
-    // náhodně), kontakt s webem jen tehdy, když v tom průchodu žádný bez webu není; u chat náhodně jako dřív.
+    // Migrace 054 (Albert 25. 10. 2026): v každém průchodu napřed nejnižší vrstva (vrstvaFronty: architekt bez webu
+    // s méně než 2 nedovoláními, pak s webem, pak bez webu po 2 a víc nedovoláních), v ní náhodně; u chat vždy vrstva 0,
+    // tedy náhodně jako dřív.
+    const nedovolani = (c: Kontakt) => callLog.filter((l) => l.kontakt_id === c.id && l.outcome === 'nedovolano').length;
     const pick = (pool: Kontakt[]) => {
-      const bezWebu = segment === 'architekt' ? pool.filter((c) => !maVlastniWeb(c.web, c.ma_web)) : [];
-      const z = bezWebu.length > 0 ? bezWebu : pool;
-      return z.length === 0 ? null : z[Math.floor(Math.random() * z.length)];
+      if (pool.length === 0) return null;
+      const v = pool.map((c) => vrstvaFronty(segment, c.web, c.ma_web, nedovolani(c)));
+      const nejnizsi = Math.min(...v);
+      const z = pool.filter((_, i) => v[i] === nejnizsi);
+      return z[Math.floor(Math.random() * z.length)];
     };
     const next =
       // 1. průchod: dnes na ně nikdo nevolal
