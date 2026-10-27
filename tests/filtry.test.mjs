@@ -38,6 +38,9 @@ globalThis.fetch = async (url, init) => {
   return new Response(odpoved.telo, { status: odpoved.status, headers: { 'Content-Type': 'application/json' } });
 };
 
+// háček DEMO mocku (src/api/mock.ts, sDemoTestem): musí být PŘED načtením balíčku; blok D z něj čte call_log a prodeje
+globalThis.__volackaDemoTest = {};
+
 let bundle;
 {
   const out = await build({
@@ -110,20 +113,48 @@ const mikulas = (await api.login('mikulas', 'mikulas')).token; // super admin (i
 await blok('D', async () => {
   const den = (ms) => P.prahaDen(new Date(Date.now() - ms));
   const radekDne = async (tok, d, uid) => (await api.allStats(tok, d)).find((u) => u.user_id === uid);
-  // Petra: přeplánováno před dnem, zájem před 9 dny (kontakt 20), nedovoláno před 2 dny (302), nerelevantní před 4 dny (13)
-  const vcera = await radekDne(mikulas, den(DEN_MS), 2);
-  over('D1', vcera && vcera.calls === 1 && vcera.preplanovano === 1 && vcera.reached === 0 && vcera.zajem === 0 && vcera.nedovolano === 0
-    && vcera.nerelevantni === 0 && vcera.conversion === 0 && vcera.sold === 0,
-    'den přeplánovaného hovoru: jen ten hovor', JSON.stringify(vcera));
-  const zajem = await radekDne(mikulas, den(9 * DEN_MS), 2);
-  over('D2', zajem && zajem.calls === 1 && zajem.reached === 1 && zajem.zajem === 1 && zajem.conversion === 100 && zajem.sold === 0,
-    'den zájmu: hovor, dovoláno, zájem a konverze 100 %; prodáno ne (prodalo se jindy)', JSON.stringify(zajem));
-  const nerel = await radekDne(mikulas, den(4 * DEN_MS), 2);
-  over('D3', nerel && nerel.calls === 1 && nerel.nerelevantni === 1 && nerel.reached === 0, 'den nerelevantního hovoru', JSON.stringify(nerel));
-  // prodáno podle dne prodeje (kontakt_prodej), ne podle dne hovoru
+  // Petra: přeplánováno před dnem (kontakt 10), nedovoláno před 2 dny (302), nerelevantní před 4 dny (13), zájem před 9 dny
+  // (20). Data mají časy „teď minus N × 24 h“: kolem změny času padnou dva sousední na týž pražský den (26. 10. 2026 ve 23:19
+  // přeplánovaný i nedovolaný hovor na 25. 10.) a Petřin prodej z tohoto týdne („před dvěma hodinami“) padne mezi půlnocí
+  // a 2:00 na včerejšek (změřeno 27. a 28. 10. 2026 s posunutými hodinami). Očekávaná čísla dne se proto počítají přímo
+  // z dat mocku (háček __volackaDemoTest, jako e2e blok D056) a každý případ navíc hlídá, co je na něm podstatné.
+  const stavMocku = () => globalThis.__volackaDemoTest.stav();
+  const ocekDne = (uid, d) => {
+    const s = stavMocku();
+    const h = s.callLog.filter((l) => l.user_id === uid && P.prahaDen(l.created_at) === d);
+    const n = (o) => h.filter((l) => l.outcome === o).length;
+    const reached = n('odmitnuto') + n('zajem');
+    const sZajmem = new Set(s.callLog.filter((l) => l.user_id === uid && l.outcome === 'zajem').map((l) => l.kontakt_id));
+    return {
+      calls: h.length, reached, zajem: n('zajem'), odmitnuto: n('odmitnuto'), nedovolano: n('nedovolano'),
+      nerelevantni: n('nerelevantni'), preplanovano: n('preplanovano'),
+      conversion: reached === 0 ? 0 : Math.round((n('zajem') / reached) * 1000) / 10,
+      sold: s.kontakty.filter((c) => c.prodano_at && P.prahaDen(c.prodano_at) === d && sZajmem.has(c.id)).length,
+    };
+  };
+  const sedi = (r, o) => !!r && Object.keys(o).every((k) => r[k] === o[k]);
+  const denHovoru = (uid, kontakt, outcome) =>
+    P.prahaDen(stavMocku().callLog.find((l) => l.user_id === uid && l.kontakt_id === kontakt && l.outcome === outcome).created_at);
+  const hovoruPetry = stavMocku().callLog.filter((l) => l.user_id === 2).length;
+  const dPrepl = denHovoru(2, 10, 'preplanovano');
+  const vcera = await radekDne(mikulas, dPrepl, 2);
+  const oPrepl = ocekDne(2, dPrepl);
+  over('D1', sedi(vcera, oPrepl) && vcera.preplanovano === 1 && vcera.calls < hovoruPetry,
+    'den přeplánovaného hovoru: jen hovory toho dne (přeplánovaný do dovoláno ani konverze ne)', `${JSON.stringify(vcera)} / ${JSON.stringify(oPrepl)}`);
+  const dZajem = denHovoru(2, 20, 'zajem');
+  const zajem = await radekDne(mikulas, dZajem, 2);
+  const oZajem = ocekDne(2, dZajem);
+  over('D2', sedi(zajem, oZajem) && zajem.zajem === 1 && zajem.reached >= 1 && zajem.conversion > 0 && zajem.sold === 0,
+    'den zájmu: hovor, dovoláno, zájem a konverze toho dne; prodáno ne (prodalo se jindy)', `${JSON.stringify(zajem)} / ${JSON.stringify(oZajem)}`);
+  const dNerel = denHovoru(2, 13, 'nerelevantni');
+  const nerel = await radekDne(mikulas, dNerel, 2);
+  const oNerel = ocekDne(2, dNerel);
+  over('D3', sedi(nerel, oNerel) && nerel.nerelevantni === 1, 'den nerelevantního hovoru (do dovoláno se nepočítá)',
+    `${JSON.stringify(nerel)} / ${JSON.stringify(oNerel)}`);
   const prodeje = (await api.statistikyVolani(petra)).vydelek.prodeje;
   const p20 = prodeje.find((x) => x.kontakt_id === 20);
   const denProdeje = P.prahaDen(p20.prodano_at);
+  // prodáno podle dne prodeje (kontakt_prodej), ne podle dne hovoru
   const prodejDen = await radekDne(mikulas, denProdeje, 2);
   over('D4', prodejDen && prodejDen.sold === 1, 'den prodeje Chalupy Na Vršku: prodáno 1', `${denProdeje} ${JSON.stringify(prodejDen)}`);
   // součet přes dny = celkem (hovory, zájem, nedovoláno, nerelevantní, přeplánováno i prodáno)
