@@ -7,6 +7,7 @@ import type {
   FlagKind,
   Kontakt,
   KontaktStatus,
+  Razeni,
   Segment,
 } from './api';
 import { CompassIcon, FlagIcon, HomeIcon } from './icons';
@@ -318,6 +319,39 @@ export function formatCekani(since: string | null | undefined): string {
   return `${m} ${m <= 4 ? 'měsíce' : 'měsíců'}`;
 }
 
+/* ---------------------------------------------------------------------------
+   Řazení seznamů podle poslední změny (migrace 056, Albert 27. 10. 2026: „sort them … from the newest to the oldest
+   updated client“). Poslední změna = sloupec „Změněno“ (updated_at): změna v appce (hovor, úprava, příznak, kalendář),
+   ne změna stavu od agenta. Kontakty pro každého, Moji klienti jen super admin (jako jejich filtry).
+   --------------------------------------------------------------------------- */
+
+export const RAZENI_LABELS: Record<Razeni, string> = {
+  zmena_nejnovejsi: 'Podle poslední změny (od nejnovější)',
+  zmena_nejstarsi: 'Podle poslední změny (od nejstarší)',
+};
+
+export const ALL_RAZENI = Object.keys(RAZENI_LABELS) as Razeni[];
+
+/** Výběr řazení seznamu; '' = výchozí pořadí serveru. */
+export function RazeniSelect({ value, onChange }: { value: Razeni | ''; onChange: (r: Razeni | '') => void }) {
+  return (
+    <select
+      className="razeni-select"
+      value={value}
+      onChange={(e) => onChange(e.target.value as Razeni | '')}
+      aria-label="Řazení"
+      title="Poslední změna = sloupec Změněno (hovor, úprava, příznak nebo kalendář v appce)"
+    >
+      <option value="">Řazení: výchozí</option>
+      {ALL_RAZENI.map((r) => (
+        <option key={r} value={r}>
+          {RAZENI_LABELS[r]}
+        </option>
+      ))}
+    </select>
+  );
+}
+
 /** Do kterého koše čekání spadá — stejné hranice jako v SQL (kontakt_kos). */
 export function kosOf(since: string | null | undefined): CekaniKos | null {
   if (!since) return null;
@@ -594,6 +628,11 @@ export function formatDatumPraha(iso: string | null | undefined): string {
 /** Nadpis dne v kalendáři: „pátek 24. 10.“ (YYYY-MM-DD). */
 export function formatDenNadpis(datum: string): string {
   return `${DNY_NAZEV[isoDen(datum) - 1]} ${denMesic(datum)}`;
+}
+
+/** Den i s rokem: „neděle 25. 10. 2026“ (YYYY-MM-DD; statistiky za jeden den, migrace 056). */
+export function formatDenSRokem(datum: string): string {
+  return `${formatDenNadpis(datum)} ${datum.slice(0, 4)}`;
 }
 
 /** Věta „dnes v 15:00“, „zítra v 9:00“, „ve čtvrtek 23. 10. v 15:00“ (dnes = YYYY-MM-DD v Praze). */

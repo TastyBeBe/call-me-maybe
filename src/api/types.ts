@@ -174,6 +174,32 @@ export interface UserStats extends MyStats {
   /** super admin, pod kterého člověk patří (migrace 023); super admin ho nemá */
   manager_id: number | null;
   manager_name: string | null;
+  /**
+   * Migrace 056 (Albert 27. 10. 2026): počty nerelevantních a přeplánovaných hovorů (jako statistiky_volani), s dnem
+   * (`allStats(token, den)`) jen toho dne. Server bez migrace 056 je neposílá.
+   */
+  nerelevantni?: number;
+  preplanovano?: number;
+}
+
+/**
+ * Řazení seznamů podle poslední změny kontaktu (migrace 056, Albert 27. 10. 2026: „sort them … from the newest to the
+ * oldest updated client“) = sloupec „Změněno“ (`updated_at`). null / chybí = výchozí pořadí serveru.
+ */
+export type Razeni = 'zmena_nejnovejsi' | 'zmena_nejstarsi';
+
+/**
+ * Filtry Moji klienti (migrace 056, Albert 27. 10. 2026: „the same like filters as we have in the contacts … this only
+ * applies for the super admins“). Appka je posílá jen za super admina; server je bere stejně jako list_kontakty nad
+ * klienty vybraného člověka. Prázdné (null) = beze změny, jako dřív.
+ */
+export interface MojiFiltry {
+  status?: string | null;
+  rating?: string | null;
+  search?: string | null;
+  cekani?: CekaniKind | null;
+  kos?: CekaniKos | null;
+  razeni?: Razeni | null;
 }
 
 export interface AdminMessage {
@@ -290,6 +316,8 @@ export interface ListKontaktyFilters {
   kos?: CekaniKos | null;
   /** segment (migrace 028); null / chybí = vše */
   segment?: Segment | null;
+  /** řazení podle poslední změny (migrace 056); null / chybí = výchozí pořadí; Volajícímu jen mezi jeho klienty */
+  razeni?: Razeni | null;
   limit?: number;
   offset?: number;
 }
@@ -573,8 +601,11 @@ export interface Api {
     args: ResolveCallArgs
   ): Promise<{ ok: boolean; kontakt_id: number; status: string }>;
   myStats(token: string): Promise<MyStats>;
-  /** Statistiky svoje a lidí pod sebou — jen super admin; Albert všech (migrace 023). */
-  allStats(token: string): Promise<UserStats[]>;
+  /**
+   * Statistiky svoje a lidí pod sebou — jen super admin; Albert všech (migrace 023). `den` (YYYY-MM-DD, den v Praze,
+   * migrace 056) = jen ten den; bez něj celé období. Server bez 056 den nezná (appka pak řekne, že to ještě neumí).
+   */
+  allStats(token: string, den?: string | null): Promise<UserStats[]>;
   /** Je přihlášený #1 prodejce? (Prokchop) — nevrací čísla ostatních (migrace 023); od 045 jen super admin. */
   topSeller(token: string): Promise<{ je_prvni: boolean }>;
   /** Celá databáze kontaktů: řádky vidí všichni (migrace 023), Volající u cizího kontaktu jen allowlist (skryto, 045,
@@ -587,7 +618,9 @@ export interface Api {
     offset?: number,
     userId?: number | null,
     /** segment (migrace 028); null / chybí = vše */
-    segment?: Segment | null
+    segment?: Segment | null,
+    /** filtry a řazení jako v Kontaktech (migrace 056); appka je posílá jen za super admina */
+    filtry?: MojiFiltry | null
   ): Promise<ListKontaktyResult>;
   /** Úprava kontaktu (admin) — obsah jen u vlastních klientů, příznak a zámek u všech (migrace 024). */
   updateKontakt(token: string, id: number, patch: Record<string, unknown>): Promise<Kontakt>;

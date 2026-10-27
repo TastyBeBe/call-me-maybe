@@ -14,6 +14,7 @@ import type {
   ListKontaktyFilters,
   ListKontaktyResult,
   MeInfo,
+  MojiFiltry,
   MyStats,
   ResolveCallArgs,
   Role,
@@ -32,6 +33,14 @@ import type {
   ZavolatPolozka,
   ZavolatSeznam,
 } from './types';
+
+/**
+ * Server bez migrace 056 (Albert 27. 10. 2026) nové parametry nezná a odpoví PGRST202. Appka je posílá jen, když je
+ * člověk zapne, takže všechno ostatní jede dál; tady jen řekne, co server ještě neumí (testy appky hlídají znění).
+ */
+export const BEZ_056_DEN = 'Statistiky za jeden den server ještě neumí (chybí na něm migrace 056). Statistiky celkem fungují dál.';
+export const BEZ_056_RAZENI = 'Řazení podle poslední změny server ještě neumí (chybí na něm migrace 056). Vyber výchozí řazení.';
+export const BEZ_056_FILTRY = 'Filtry a řazení v Moji klienti server ještě neumí (chybí na něm migrace 056). Zruš filtry a uvidíš všechny klienty.';
 
 /** Chyba z PostgREST i s kódem (`PGRST202` = funkce s těmi parametry na serveru není). */
 class RpcChyba extends Error {
@@ -146,8 +155,15 @@ export const supabaseApi: Api = {
     return rpc<MyStats>('my_stats', { p_token: token });
   },
 
-  async allStats(token: string): Promise<UserStats[]> {
-    return rpc<UserStats[]>('all_stats', { p_token: token });
+  async allStats(token: string, den: string | null = null): Promise<UserStats[]> {
+    // Migrace 056 (Albert 27. 10. 2026): p_den jen u statistik za jeden den, jinak se neposílá, takže výběr člověka
+    // a statistiky celkem fungují i proti serveru bez 056 (ten p_den nezná a celé volání by odmítl).
+    try {
+      return await rpc<UserStats[]>('all_stats', { p_token: token, ...(den ? { p_den: den } : {}) });
+    } catch (e) {
+      if (den && e instanceof RpcChyba && e.kod === 'PGRST202') throw new Error(BEZ_056_DEN);
+      throw e;
+    }
   },
 
   async topSeller(token: string): Promise<{ je_prvni: boolean }> {
@@ -155,19 +171,26 @@ export const supabaseApi: Api = {
   },
 
   async listKontakty(token: string, f: ListKontaktyFilters): Promise<ListKontaktyResult> {
-    return rpc<ListKontaktyResult>('list_kontakty', {
-      p_token: token,
-      p_status: f.status ?? null,
-      p_caller: f.caller ?? null,
-      p_rating: f.rating ?? null,
-      p_search: f.search ?? null,
-      p_cekani: f.cekani ?? null,
-      p_kos: f.kos ?? null,
-      p_limit: f.limit ?? 200,
-      p_offset: f.offset ?? 0,
-      // „vše" klíč vynechá (výchozí null na serveru)
-      ...(f.segment ? { p_segment: f.segment } : {}),
-    });
+    try {
+      return await rpc<ListKontaktyResult>('list_kontakty', {
+        p_token: token,
+        p_status: f.status ?? null,
+        p_caller: f.caller ?? null,
+        p_rating: f.rating ?? null,
+        p_search: f.search ?? null,
+        p_cekani: f.cekani ?? null,
+        p_kos: f.kos ?? null,
+        p_limit: f.limit ?? 200,
+        p_offset: f.offset ?? 0,
+        // „vše" klíč vynechá (výchozí null na serveru)
+        ...(f.segment ? { p_segment: f.segment } : {}),
+        // migrace 056: řazení jen když je zvolené (server bez 056 p_razeni nezná)
+        ...(f.razeni ? { p_razeni: f.razeni } : {}),
+      });
+    } catch (e) {
+      if (f.razeni && e instanceof RpcChyba && e.kod === 'PGRST202') throw new Error(BEZ_056_RAZENI);
+      throw e;
+    }
   },
 
   async myKontakty(
@@ -175,15 +198,32 @@ export const supabaseApi: Api = {
     limit = 200,
     offset = 0,
     userId: number | null = null,
-    segment: Segment | null = null
+    segment: Segment | null = null,
+    filtry: MojiFiltry | null = null
   ): Promise<ListKontaktyResult> {
-    return rpc<ListKontaktyResult>('my_kontakty', {
-      p_token: token,
-      p_limit: limit,
-      p_offset: offset,
-      p_user_id: userId,
-      ...(segment ? { p_segment: segment } : {}),
-    });
+    // Migrace 056 (Albert 27. 10. 2026): filtry a řazení Moji klienti (appka je posílá jen za super admina) jen když
+    // jsou zapnuté, jinak volání stejné jako dřív (i proti serveru bez 056).
+    const navic = {
+      ...(filtry?.status ? { p_status: filtry.status } : {}),
+      ...(filtry?.rating ? { p_rating: filtry.rating } : {}),
+      ...(filtry?.search ? { p_search: filtry.search } : {}),
+      ...(filtry?.cekani ? { p_cekani: filtry.cekani } : {}),
+      ...(filtry?.kos ? { p_kos: filtry.kos } : {}),
+      ...(filtry?.razeni ? { p_razeni: filtry.razeni } : {}),
+    };
+    try {
+      return await rpc<ListKontaktyResult>('my_kontakty', {
+        p_token: token,
+        p_limit: limit,
+        p_offset: offset,
+        p_user_id: userId,
+        ...(segment ? { p_segment: segment } : {}),
+        ...navic,
+      });
+    } catch (e) {
+      if (Object.keys(navic).length > 0 && e instanceof RpcChyba && e.kod === 'PGRST202') throw new Error(BEZ_056_FILTRY);
+      throw e;
+    }
   },
 
   async updateKontakt(token: string, id: number, patch: Record<string, unknown>): Promise<Kontakt> {
