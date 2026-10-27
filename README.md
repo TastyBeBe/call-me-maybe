@@ -26,7 +26,7 @@ npm install
 npm run dev      # dev server ⚠ bez DEMO jede proti ŽIVÉ DB, viz níž
 npm run build    # produkční build do dist/ (tsc -b, zapnuté noUnusedLocals, pak vite build)
 npm run preview  # náhled produkčního buildu
-npm test         # test chování segmentu a e-mailového příznaku nad demo mockem (bez sítě, bez živé DB)
+npm test         # test chování segmentu, e-mailového příznaku, volání, rozvrhu a od 056 filtrů nad demo mockem (bez sítě, bez živé DB)
 npm run test:e2e # zkouška stránek v DEMO v headless prohlížeči (viz níž)
 ```
 
@@ -184,6 +184,42 @@ arranged them yet“. ⚠ 22. 10. 2026 (Albert) NAHRAZUJE povinnou cenu webu i h
   „0“ uloží `null` a nesmaže stávající cenu, `cenaProServer`, známka povinná, výdělek `neznama`) a `npm run test:e2e`
   bloky A (zájem jen se známkou, Moji klienti, detail včetně napsaného „n/a“, Statistiky, 390 px) a C4 („n/a“ místo
   pomlčky).
+
+## Statistiky za den, filtry Moji klienti a řazení 056 (Albert 27. 10. 2026)
+
+Server: `../db/migration_056_statistiky_den_filtry.sql` (spouští se PŘED appkou; nová appka bez 056 jede dál a nové volby
+jen řeknou, že je server ještě neumí). Albert 27. 10. 2026: „for the super admins … when we can see anyone's statistics,
+we should also be able to see their statistics for a specific day“, v Moji klienti „the same like filters as we have in
+the contacts. this only applies for the super admins“ a k oběma seznamům „sort them … from the newest to the oldest updated
+client“.
+
+- **Statistiky** (jen super admin): pod výběrem člověka „Za jaké období“: Celkem (od začátku, jako dřív) nebo Jeden den
+  (výchozí dnes, šipky na předchozí a další den, tlačítko Dnes, nejvýš dnešek). Den je pražský (od půlnoci do půlnoci,
+  i v den změny času) jako na serveru. Za den jsou všechna čísla jen toho dne: hovory, dovoláno, zájem, odmítnuto,
+  nedovoláno, konverze, nerelevantní a přeplánováno (hovory z call_log toho dne) a prodáno (weby, které se ten den
+  prodaly, podle `kontakt_prodej` jako výdělek, a u kterých měl ten člověk zájem; ne podle dne hovoru, součet dnů je
+  celkem). Výdělek, dny jako #1 prodejce a Klienti podle stavu den nemají, v pohledu dne se neukazují. Server
+  `all_stats(p_token, p_den)` (dál jen super admin), appka posílá `p_den` jen za den (`allStats(token, den)`).
+- **Moji klienti** (jen super admin): nad klienty vybraného člověka stejné filtry jako Kontakty: stav s počty, známka,
+  čekání na odpověď s koši (zapnutí = koš „k zavolání“) a sloupcem Čeká, hledání na serveru (jméno, studio, telefon, web,
+  e-mail, město, IČO, poznámka) a řazení. Server `my_kontakty` s `p_status`, `p_rating`, `p_search`, `p_cekani`, `p_kos`
+  a `p_razeni` jako list_kontakty (hledání v poznámce přes masku jmen kolegů, osobní IČO jen celým číslem u kontaktu, který
+  smí upravit), total = počet po filtru, řádky s čekáním (`cekani_*`). Volající má Moji klienti beze změny (jen hledání
+  v načtených řádcích a výchozí pořadí, appka mu nové parametry neposílá).
+- **Řazení** (Kontakty každý, Moji klienti super admin): „Řazení: výchozí“, „Podle poslední změny (od nejnovější)“
+  a „Podle poslední změny (od nejstarší)“ (`RazeniSelect` v `src/ui.tsx`). Poslední změna = sloupec Změněno
+  (`updated_at`): posune ji hovor, úprava v detailu, příznak a kalendář v appce, změna stavu od agenta ne (automatizace
+  `updated_at` nepíše). Volajícímu server v Kontaktech řadí podle změny jen jeho klienty, cizí kontakty jsou dál za nimi
+  jen podle čísla (045: datum změny cizího kontaktu by prozradilo průběh); nápověda nad tabulkou to říká.
+- **Starý server** (bez 056): `p_den`, `p_razeni` a filtry Moji klienti jdou jen, když jsou zapnuté; na PGRST202 appka
+  řekne, co server ještě neumí (`BEZ_056_DEN`, `BEZ_056_RAZENI`, `BEZ_056_FILTRY` v `src/api/supabase.ts`). Stará appka
+  s 056 funguje beze změny (posílá jen staré parametry).
+- **Demo**: mock dělá totéž (den v Praze, prodáno podle dne prodeje, filtry a hledání s maskou jako server, řazení podle
+  `updated_at` a u Volajícího cizí jen podle čísla, stejná hláška „Neplatné řazení: …“).
+- **Testy**: `npm test` soubor `tests/filtry.test.mjs` (D den, F filtry a shoda s Kontakty, R řazení, S co appka posílá
+  serveru, U zapojení stránek) a `npm run test:e2e` bloky D056 (den, 1280 a 390 px, Volající výběr nemá), F056 (filtry
+  a řazení Moji klienti, 1280 a 390 px, Volající beze změny) a R056 (řazení Kontakty, Volající napřed svoji). Server:
+  `../db/tests/test_056_statistiky_den_filtry.sql`; kontrola 217 v repu webdomov.
 
 ## Účty a přihlášení (produkce)
 
@@ -388,10 +424,10 @@ který schvaluje Albert (u zprávy je vidět jeho stav).
 | `#/`          | všichni | domů — dlaždice podle role                                       |
 | `#/call`      | všichni | fronta hovorů: přepínač chaty / architekti (028), karta kontaktu + výsledky (nedovoláno/odmítnuto/zájem, od 050 i nerelevantní a přeplánovat; `?zavolat=<id>` = karta z kalendáře); kontakt, kterému Volající ještě nevolal, bez stavu, poznámek a příznaku (045, 20. 10. 2026). Poznámka k hovoru je **nepovinná** — zájem jde uložit i bez ní (Albert 2026-09-23; dřív se při prázdné poznámce otevíralo potvrzovací okno navíc); od migrace 051 (Albert 22. 10. 2026) i bez ceny webu a hostingu, povinná je jen známka (⚠ NAHRAZUJE povinné ceny z 1. 9. 2026) |
 | `#/kalendar`  | všichni | kalendář hovorů (050): svůj každý, super admin kohokoli nebo všech; Po termínu, Dnes, Nadcházející, Hotové a zrušené; Zavolat teď, Hotovo, Přesunout, Zrušit |
-| `#/stats`     | všichni | moje statistiky; super admin (i Albert) přes dropdown kohokoli (027) a trychtýř „Klienti podle stavu" (součty celé databáze) s filtrem segmentu (028); ⚠ trychtýř od 19. 10. 2026 a dlaždice „jako #1 prodejce“ od 20. 10. 2026 jen super admin (migrace 045, NAHRAZUJE „(admin)“): Volající vidí jen svoje čísla |
-| `#/moji`      | všichni | moji klienti (+ historie poznámek v detailu); super admin může vybrat kohokoli (027); filtr segmentu (028) |
+| `#/stats`     | všichni | moje statistiky; super admin (i Albert) přes dropdown kohokoli (027) a trychtýř „Klienti podle stavu" (součty celé databáze) s filtrem segmentu (028); ⚠ trychtýř od 19. 10. 2026 a dlaždice „jako #1 prodejce“ od 20. 10. 2026 jen super admin (migrace 045, NAHRAZUJE „(admin)“): Volající vidí jen svoje čísla; od migrace 056 (Albert 27. 10. 2026) super admin i statistiky za jeden den (Celkem / Jeden den, den v Praze) |
+| `#/moji`      | všichni | moji klienti (+ historie poznámek v detailu); super admin může vybrat kohokoli (027); filtr segmentu (028); od migrace 056 (Albert 27. 10. 2026) super admin stejné filtry jako Kontakty a řazení podle poslední změny, Volající beze změny |
 | `#/rozvrh`    | všichni | Rozvrh (042): týden po až ne, hodiny na den a cíl (hovorů za hodinu posílá server), plnění z hovorů, hláška pozadu / v plánu / napřed, poznámky ke dnům; Volající si ho nastaví jednou, super admin vidí přehled všech, mění a odemyká |
-| `#/admin`     | všichni | Kontakty: celá databáze s filtry (i segment, 028) a fulltextem (i studio, město, IČO; IČO jen admin a super admin, 038); upravovat smí admin a super admin; počty u stavů a košů a celkový počet jen super admin (045, Volající stránkuje bez počtu); Volající stav, známku, kdo volal, čekání a poznámky jen u svých klientů, filtr stavu a hledání v poznámce jen nad nimi (045, 20. 10. 2026) |
+| `#/admin`     | všichni | Kontakty: celá databáze s filtry (i segment, 028) a fulltextem (i studio, město, IČO; IČO jen admin a super admin, 038); upravovat smí admin a super admin; počty u stavů a košů a celkový počet jen super admin (045, Volající stránkuje bez počtu); Volající stav, známku, kdo volal, čekání a poznámky jen u svých klientů, filtr stavu a hledání v poznámce jen nad nimi (045, 20. 10. 2026); od migrace 056 řazení podle poslední změny (Volajícímu jen mezi jeho klienty, cizí za nimi podle čísla) |
 | `#/oznacene`  | admin   | označení klienti — admin svoji; super admin a Albert všichni (027); filtr segmentu (028) |
 | `#/zpravy`    | admin   | vlákna s AI agenty — admin svoje; super admin vlákna všech lidí (cizí jen ke čtení, 027); Albert i automatizaci; odznak architekta u hledaného kontaktu (028) |
 | `#/uzivatele` | super admin | super admin: všichni lidé, upravuje sebe a své lidi + nový Volající (027, 042); Albert: role (Volající / Super admin, 042) a nadřízení (⚠ od migrace 024 Volající stránku nemá) |

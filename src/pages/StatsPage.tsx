@@ -9,7 +9,9 @@ import {
   type Vydelek,
 } from '../api';
 import { useSession } from '../auth';
+import { ArrowLeftIcon, ArrowRightIcon } from '../icons';
 import { dayWord, topDaysFor } from '../pig/progress';
+import { posunDen, prahaDen } from '../praha';
 import { isSuperAdmin, roleLabel } from '../roles';
 import { datumKratce } from '../rozvrh';
 import {
@@ -24,6 +26,7 @@ import {
   errMsg,
   formatCastka,
   formatDatumPraha,
+  formatDenSRokem,
   formatEur,
   formatKc,
 } from '../ui';
@@ -71,6 +74,39 @@ export default function StatsPage() {
   // Server bez migrace 050 RPC nezná: karty a výdělek se pak neukážou, zbytek stránky jede dál.
   const [volani, setVolani] = useState<StatistikyVolani | null>(null);
   const volaniUid = selectedUser === 'me' ? null : selectedUser;
+  // Migrace 056 (Albert 27. 10. 2026: „when we can see anyone's statistics, we should also be able to see their
+  // statistics for a specific day“): super admin si vybere jeden den (v Praze, jako server); null = celkem jako dřív.
+  // Čísla dne jdou z all_stats s p_den (hovory a prodeje toho dne, i nerelevantní a přeplánované); výdělek, dny jako
+  // #1 prodejce a klienti podle stavu den nemají, v pohledu dne se neukazují.
+  const [den, setDen] = useState<string | null>(null);
+  const [denStats, setDenStats] = useState<UserStats[] | null>(null);
+  const [denChyba, setDenChyba] = useState('');
+  const [denNacita, setDenNacita] = useState(false);
+  const dnes = prahaDen(new Date());
+
+  useEffect(() => {
+    let alive = true;
+    setDenStats(null);
+    setDenChyba('');
+    setDenNacita(false);
+    if (!isSuper) return;
+    if (den === null) return;
+    setDenNacita(true);
+    getApi()
+      .allStats(session.token, den)
+      .then((x) => {
+        if (alive) setDenStats(x);
+      })
+      .catch((e) => {
+        if (alive) setDenChyba(errMsg(e));
+      })
+      .finally(() => {
+        if (alive) setDenNacita(false);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [session.token, isSuper, den]);
 
   useEffect(() => {
     let alive = true;
@@ -114,12 +150,24 @@ export default function StatsPage() {
     };
   }, [session.token, isSuper]);
 
-  const shown: MyStats | null =
-    selectedUser === 'me'
-      ? myStats
-      : (allStats?.find((u) => u.user_id === selectedUser) ?? null);
-
   const shownUid = selectedUser === 'me' ? session.user_id : selectedUser;
+  // 056: za jeden den řádek vybraného člověka (i sebe) z all_stats s p_den; celkem jako dřív
+  const denRadek: UserStats | null = den !== null ? (denStats?.find((u) => u.user_id === shownUid) ?? null) : null;
+  const shown: MyStats | null =
+    den !== null
+      ? denRadek
+      : selectedUser === 'me'
+        ? myStats
+        : (allStats?.find((u) => u.user_id === selectedUser) ?? null);
+  // karty Nerelevantní a Přeplánováno: celkem ze statistiky_volani (050), za den z řádku dne (056)
+  const dalsiKarty: { nerelevantni: number; preplanovano: number } | null =
+    den !== null
+      ? denRadek
+        ? { nerelevantni: denRadek.nerelevantni ?? 0, preplanovano: denRadek.preplanovano ?? 0 }
+        : null
+      : volani;
+  const nacitaDen = den !== null && denNacita;
+
   const topDays = topDaysFor(shownUid).days;
 
   const shownName =
@@ -155,16 +203,77 @@ export default function StatsPage() {
         </div>
       )}
 
-      <ErrorBox>{error}</ErrorBox>
-      {loading && <Spinner label="Počítám statistiky…" />}
+      {/* 056 (Albert 27. 10. 2026): období jen super admin (Volající vidí jen svoje čísla celkem, 045) */}
+      {isSuper && (
+        <div className="field stats-obdobi">
+          <label htmlFor="obdobi-select">Za jaké období</label>
+          <div className="den-picker">
+            <select
+              id="obdobi-select"
+              value={den === null ? 'celkem' : 'den'}
+              onChange={(e) => setDen(e.target.value === 'den' ? (den ?? dnes) : null)}
+            >
+              <option value="celkem">Celkem (od začátku)</option>
+              <option value="den">Jeden den</option>
+            </select>
+            {den !== null && (
+              <>
+                <button
+                  type="button"
+                  className="pill-btn sm den-predchozi"
+                  onClick={() => setDen(posunDen(den, -1))}
+                  aria-label="Předchozí den"
+                  title="Předchozí den"
+                >
+                  <ArrowLeftIcon size={16} />
+                </button>
+                <input
+                  id="den-datum"
+                  type="date"
+                  value={den}
+                  max={dnes}
+                  aria-label="Den"
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    if (/^\d{4}-\d{2}-\d{2}$/.test(v)) setDen(v > dnes ? dnes : v);
+                  }}
+                />
+                <button
+                  type="button"
+                  className="pill-btn sm den-dalsi"
+                  disabled={den >= dnes}
+                  onClick={() => setDen(posunDen(den, 1))}
+                  aria-label="Další den"
+                  title="Další den"
+                >
+                  <ArrowRightIcon size={16} />
+                </button>
+                <button type="button" className="pill-btn sm den-dnes" disabled={den === dnes} onClick={() => setDen(dnes)}>
+                  Dnes
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+      )}
 
-      {!loading && shown && (
+      <ErrorBox>{error || (den !== null ? denChyba : '')}</ErrorBox>
+      {(loading || nacitaDen) && <Spinner label={nacitaDen ? 'Počítám statistiky za den…' : 'Počítám statistiky…'} />}
+
+      {!loading && !nacitaDen && shown && (
         <>
-          <p className="muted" style={{ margin: '10px 0 0' }}>
-            {shownName} · Čísla nahoře jsou <strong>hovory</strong>, ne klienti: jeden
-            klient může mít víc hovorů a po projeveném zájmu se přesune dál podle toho,
-            jak daleko je jeho web.{isSuper && ' Kolik klientů je právě teď v jakém stavu, je níž.'}
-          </p>
+          {den === null ? (
+            <p className="muted" style={{ margin: '10px 0 0' }}>
+              {shownName} · Čísla nahoře jsou <strong>hovory</strong>, ne klienti: jeden
+              klient může mít víc hovorů a po projeveném zájmu se přesune dál podle toho,
+              jak daleko je jeho web.{isSuper && ' Kolik klientů je právě teď v jakém stavu, je níž.'}
+            </p>
+          ) : (
+            <p className="muted stats-den-popis" style={{ margin: '10px 0 0' }}>
+              {shownName} · <strong>{formatDenSRokem(den)}</strong> (den v Praze) · Čísla jsou <strong>hovory</strong> zapsané
+              ten den a prodáno = weby, které se ten den prodaly (klient je schválil).
+            </p>
+          )}
           {/* migrace 050 (Albert 21. 10. 2026): nerelevantní kontakty se do konverze nepočítají (ani jako odmítnutí)
               a přeplánovaný hovor taky ne; ⚠ NAHRAZUJE „dovoláno = odmítli + zájem“ bez vysvětlení */}
           <p className="muted" style={{ margin: '4px 0 0' }}>
@@ -181,28 +290,40 @@ export default function StatsPage() {
               <div className="stat-value">{shown.nedovolano}</div>
               <div className="stat-label">Nedovolaných pokusů</div>
             </div>
-            {volani && (
+            {dalsiKarty && (
               <>
                 <div className="card stat-card stat-nerelevantni">
-                  <div className="stat-value">{volani.nerelevantni}</div>
+                  <div className="stat-value">{dalsiKarty.nerelevantni}</div>
                   <div className="stat-label">Nerelevantní</div>
                 </div>
                 <div className="card stat-card stat-preplanovano">
-                  <div className="stat-value">{volani.preplanovano}</div>
+                  <div className="stat-value">{dalsiKarty.preplanovano}</div>
                   <div className="stat-label">Přeplánováno</div>
                 </div>
               </>
             )}
-            {/* kolik dní drží tenhle člověk korunu #1 prodejce (Prokchopovo počítadlo); jen super admin (045) */}
-            {isSuper && (
-              <div className="card stat-card">
-                <div className="stat-value">{topDays}</div>
-                <div className="stat-label">{dayWord(topDays)} jako #1 prodejce</div>
-              </div>
+            {/* kolik dní drží tenhle člověk korunu #1 prodejce (Prokchopovo počítadlo); jen super admin (045), den ho nemá (056) */}
+            {den === null && (
+              <>
+                {isSuper && (
+                  <div className="card stat-card">
+                    <div className="stat-value">{topDays}</div>
+                    <div className="stat-label">{dayWord(topDays)} jako #1 prodejce</div>
+                  </div>
+                )}
+              </>
             )}
           </div>
-          {volani && <Vydelano v={volani.vydelek} ja={selectedUser === 'me'} jmeno={shownName} jaSuper={isSuper} />}
-          {isSuper && <KlientiFunnel token={session.token} />}
+          {den === null ? (
+            <>
+              {volani && <Vydelano v={volani.vydelek} ja={selectedUser === 'me'} jmeno={shownName} jaSuper={isSuper} />}
+              {isSuper && <KlientiFunnel token={session.token} />}
+            </>
+          ) : (
+            <p className="muted stats-den-jen-celkem" style={{ margin: '14px 0 0' }}>
+              Výdělek, dny jako #1 prodejce a klienti podle stavu jsou jen v pohledu Celkem.
+            </p>
+          )}
         </>
       )}
     </div>

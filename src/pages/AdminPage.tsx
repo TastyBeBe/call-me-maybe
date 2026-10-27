@@ -5,6 +5,7 @@ import {
   type CekaniKind,
   type CekaniKos,
   type Kontakt,
+  type Razeni,
   type Segment,
 } from '../api';
 import { audio } from '../audio';
@@ -22,6 +23,7 @@ import {
   ErrorBox,
   FlagBadge,
   KOS_LABELS,
+  RazeniSelect,
   SegmentBadge,
   SegmentFilter,
   Skryto,
@@ -57,6 +59,9 @@ const PAGE_SIZE = 50;
 // vidí všichni“: Volající vidí všechny kontakty, ale u cizího (skryto) jen jméno a kontakt; stav, známka, kdo volal,
 // čekání a datum změny jsou u něj pomlčka, filtr stavu, známky a čekání a hledání v poznámce berou jen jeho klienty
 // a server řadí jeho klienty napřed (cizí podle id).
+// Migrace 056 (Albert 27. 10. 2026: „sort them … from the newest to the oldest updated client“): výběr řazení podle
+// poslední změny (sloupec Změněno, od nejnovější nebo nejstarší) pro každého; Volajícímu server podle změny řadí jen
+// jeho klienty, cizí kontakty jsou dál za nimi jen podle id (045). Výchozí pořadí beze změny.
 export default function AdminPage() {
   const session = useSession();
   const isAdmin = isAdminRole(session.role);
@@ -72,6 +77,9 @@ export default function AdminPage() {
   const [cekani, setCekani] = useState<CekaniKind | ''>('');
   const [kos, setKos] = useState<CekaniKos | ''>('');
   const [kosCounts, setKosCounts] = useState<Record<string, number>>({});
+  // Migrace 056 (Albert 27. 10. 2026: „sort them … from the newest to the oldest updated client“): řazení podle poslední
+  // změny (sloupec Změněno); '' = výchozí pořadí. Volajícímu server řadí podle změny jen jeho klienty, cizí jsou za nimi.
+  const [razeni, setRazeni] = useState<Razeni | ''>('');
   const [search, setSearch] = useState(searchParams.get('search') ?? '');
   const [debouncedSearch, setDebouncedSearch] = useState(search);
   const [page, setPage] = useState(0);
@@ -174,6 +182,7 @@ export default function AdminPage() {
         cekani: cekani || null,
         kos: cekani ? kos || null : null,
         segment: segment || null,
+        razeni: razeni || null,
         limit: PAGE_SIZE,
         offset: page * PAGE_SIZE,
       });
@@ -188,7 +197,7 @@ export default function AdminPage() {
     } finally {
       if (muj === posledniSeznam.current) setLoading(false);
     }
-  }, [session.token, segment, status, caller, rating, debouncedSearch, cekani, kos, page]);
+  }, [session.token, segment, status, caller, rating, debouncedSearch, cekani, kos, razeni, page]);
 
   useEffect(() => {
     void load();
@@ -294,6 +303,13 @@ export default function AdminPage() {
             </option>
           ))}
         </select>
+        <RazeniSelect
+          value={razeni}
+          onChange={(r) => {
+            setRazeni(r);
+            setPage(0);
+          }}
+        />
         <div className="search-wrap search-wide">
           <input
             className="search-input"
@@ -314,6 +330,7 @@ export default function AdminPage() {
       {!isSuper && (
         <p className="muted skryto-napoveda" style={{ fontSize: 13.5, margin: '0 0 10px' }}>
           {SKRYTO_NAPOVEDA} Filtr stavu, známky a čekání a hledání v poznámce berou jen tvoje klienty.
+          {razeni ? ' Podle poslední změny se řadí jen tvoji klienti, ostatní kontakty jsou za nimi.' : ''}
         </p>
       )}
 

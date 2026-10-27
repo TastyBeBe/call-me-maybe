@@ -22,9 +22,11 @@ import type {
   ListKontaktyFilters,
   ListKontaktyResult,
   MeInfo,
+  MojiFiltry,
   MyStats,
   PravidloStav,
   Rating,
+  Razeni,
   ResolveCallArgs,
   Role,
   Rozvrh,
@@ -1328,8 +1330,38 @@ function checkName(name: string, selfId: number | null): void {
   }
 }
 
-function statsFor(userId: number): MyStats {
-  const logs = callLog.filter((l) => l.user_id === userId);
+/**
+ * Řazení seznamů (migrace 056, Albert 27. 10. 2026): jen zmena_nejnovejsi a zmena_nejstarsi (podle updated_at), null =
+ * výchozí pořadí; jiná hodnota stejná chyba jako server (list_kontakty, my_kontakty).
+ */
+function checkRazeni(r: unknown): void {
+  if (r === null || r === undefined || r === 'zmena_nejnovejsi' || r === 'zmena_nejstarsi') return;
+  fail(`Neplatné řazení: ${String(r)}. Povolené: zmena_nejnovejsi, zmena_nejstarsi.`);
+}
+
+/** Porovnání podle poslední změny (migrace 056); 0 = stejně (pak výchozí pořadí). */
+function podleZmeny(razeni: Razeni | null | undefined, a: Kontakt, b: Kontakt): number {
+  if (!razeni) return 0;
+  const ua = new Date(a.updated_at).getTime();
+  const ub = new Date(b.updated_at).getTime();
+  if (ua === ub) return 0;
+  return razeni === 'zmena_nejnovejsi' ? ub - ua : ua - ub;
+}
+
+/**
+ * Den prodeje jako server (all_stats s p_den od migrace 056 a výdělek od 050): kontakt_prodej, jinak updated_at
+ * (status_changed_at mock nevede).
+ */
+function datumProdeje(c: Kontakt): string {
+  return kontaktProdej.get(c.id)?.prodano_at ?? c.updated_at;
+}
+
+/**
+ * my_stats / all_stats. `den` (YYYY-MM-DD, migrace 056) = jen hovory toho dne v Praze a prodáno = kontakty prodané
+ * toho dne (datumProdeje), u kterých má člověk zájem v hovoru kdykoli (stejná množina jako prodáno celkem).
+ */
+function statsFor(userId: number, den: string | null = null): MyStats {
+  const logs = callLog.filter((l) => l.user_id === userId && (den === null || denPraha(new Date(l.created_at)) === den));
   const calls = logs.length;
   // dovoláno = odmítli + zájem VÝSLOVNĚ jako my_stats na serveru (migrace 050, Albert 21. 10. 2026: nerelevantní ani
   // přeplánované hovory se do konverze nepočítají). ⚠ NAHRAZUJE „všechno kromě nedovolano“ (dřív jiné výsledky nebyly).
@@ -1337,13 +1369,14 @@ function statsFor(userId: number): MyStats {
   const zajem = logs.filter((l) => l.outcome === 'zajem').length;
   const odmitnuto = logs.filter((l) => l.outcome === 'odmitnuto').length;
   const nedovolano = logs.filter((l) => l.outcome === 'nedovolano').length;
-  // prodáno = klient web schválil a dál (migrace 022 — shodně se serverem)
+  // prodáno = klient web schválil a dál (migrace 022 — shodně se serverem); za den jen prodané toho dne (056)
   const soldIds = new Set(
     kontakty
       .filter(
         (c) =>
           ['schvaleno', 'faktura_odeslana', 'zaplaceno', 'domena_pripojena', 'hotovo'].includes(c.status) &&
-          callLog.some((l) => l.kontakt_id === c.id && l.user_id === userId && l.outcome === 'zajem')
+          callLog.some((l) => l.kontakt_id === c.id && l.user_id === userId && l.outcome === 'zajem') &&
+          (den === null || denPraha(new Date(datumProdeje(c))) === den)
       )
       .map((c) => c.id)
   );
@@ -2195,23 +2228,32 @@ const mockApiZaklad: Api = {
     return statsFor(user.id);
   },
 
-  async allStats(token: string): Promise<UserStats[]> {
+  async allStats(token: string, den: string | null = null): Promise<UserStats[]> {
     await delay();
     const me = auth(token);
     if (me.role !== 'super_admin') fail('Statistiky ostatních vidí jen super admin.');
+    // migrace 056: p_den je na serveru typ date, nečitelný text odmítne Postgres sám
+    if (den !== null && den !== undefined && !/^\d{4}-\d{2}-\d{2}$/.test(den)) fail(`invalid input syntax for type date: "${den}"`);
+    const d = den ?? null;
     const ids = visibleIds(me);
     return users
       .filter((u) => ids.includes(u.id))
-      .map((u) => ({
-        user_id: u.id,
-        username: u.username,
-        display_name: u.display_name,
-        role: u.role,
-        active: u.active,
-        manager_id: u.manager_id,
-        manager_name: users.find((m) => m.id === u.manager_id)?.display_name ?? null,
-        ...statsFor(u.id),
-      }))
+      .map((u) => {
+        // migrace 056: navíc nerelevantní a přeplánované hovory (jako statistiky_volani), s dnem jen toho dne
+        const hovory = callLog.filter((l) => l.user_id === u.id && (d === null || denPraha(new Date(l.created_at)) === d));
+        return {
+          user_id: u.id,
+          username: u.username,
+          display_name: u.display_name,
+          role: u.role,
+          active: u.active,
+          manager_id: u.manager_id,
+          manager_name: users.find((m) => m.id === u.manager_id)?.display_name ?? null,
+          ...statsFor(u.id, d),
+          nerelevantni: hovory.filter((l) => l.outcome === 'nerelevantni').length,
+          preplanovano: hovory.filter((l) => l.outcome === 'preplanovano').length,
+        };
+      })
       .sort((a, b) => b.calls - a.calls);
   },
 
@@ -2232,6 +2274,7 @@ const mockApiZaklad: Api = {
     // (forViewer, KLICE_CIZI), NAHRAZUJE „se stavy“; filtr podle volajícího jen sebe / své lidi.
     const me = auth(token);
     checkSegment(f.segment, true);
+    checkRazeni(f.razeni);
     if (f.caller && me.id !== OWNER_ID && !namesOf(visibleIds(me)).includes(f.caller)) {
       fail(`Podle volajícího můžete filtrovat jen sebe${me.role === 'super_admin' ? ' a své lidi' : ''}.`);
     }
@@ -2274,6 +2317,9 @@ const mockApiZaklad: Api = {
       // Volající: napřed jeho klienti, cizí jen podle id (stav, čekání ani datum změny cizího pořadí neurčují)
       if (skryty(a) !== skryty(b)) return skryty(a) ? 1 : -1;
       if (skryty(a)) return a.id - b.id;
+      // migrace 056: podle poslední změny (Volajícímu jen mezi jeho klienty, cizí výš jen podle id), shoda = výchozí pořadí
+      const zm = podleZmeny(f.razeni, a, b);
+      if (zm !== 0) return zm;
       // při filtru čekání: nejdéle čekající nahoře (Albert 2026-09-07)
       if (f.cekani) {
         const sa = cekaniOf(a).since ?? '';
@@ -2314,16 +2360,55 @@ const mockApiZaklad: Api = {
     limit = 200,
     offset = 0,
     userId: number | null = null,
-    segment: Segment | null = null
+    segment: Segment | null = null,
+    filtry: MojiFiltry | null = null
   ): Promise<ListKontaktyResult> {
     await delay();
     const user = auth(token);
     checkSegment(segment, true);
+    // migrace 056: řazení napřed (jako server), pak výběr člověka
+    checkRazeni(filtry?.razeni);
     mayPick(user, userId, 'Klienty');
     const ids = kontaktyOf([userId ?? user.id]);
+    // Migrace 056 (Albert 27. 10. 2026: v Moji klienti stejné filtry jako v Kontaktech): stav, známka, čekání, koš
+    // a hledání jako listKontakty nad klienty vybraného člověka. Řádky jsou celé (Volající jen svoje, super admin
+    // vidí všechny), hledání v poznámce ale přes stejnou masku jmen kolegů jako řádky (Volající jméno kolegy nenajde).
+    const f: MojiFiltry = filtry ?? {};
+    const search = (f.search ?? '').trim().toLowerCase();
+    const icoHledane = (f.search ?? '').replace(/\s/g, '');
+    const icoShoda = (c: Kontakt) =>
+      icoVidi(user.role) &&
+      ((!!c.ico_osobni && c.ico_osobni === icoHledane && canEdit(user, c.id)) ||
+        (!!c.ico_firma && c.ico_firma !== c.ico_osobni && c.ico_firma.toLowerCase().includes(search)));
+    const { cizi, vidi } = jmenaPro(user);
+    // jako server: poznámka sedí, když hledaný text má uložená poznámka i ta, kterou přihlášený vidí (maska jmen kolegů)
+    const poznamkaShoda = (c: Kontakt) =>
+      !!c.note &&
+      c.note.toLowerCase().includes(search) &&
+      (cizi.length === 0 || (poznamkaBezCizich(c.note, cizi, vidi) ?? '').toLowerCase().includes(search));
     const filtered = kontakty
-      .filter((c) => ids.has(c.id) && (!segment || segmentOf(c) === segment))
+      .filter(
+        (c) =>
+          ids.has(c.id) &&
+          (!segment || segmentOf(c) === segment) &&
+          (!f.status || c.status === f.status) &&
+          (!f.rating || c.rating === f.rating) &&
+          (!f.cekani || cekaniOf(c).kind === f.cekani) &&
+          (!f.kos || kosOfMock(cekaniOf(c).since) === f.kos) &&
+          (!search ||
+            icoShoda(c) ||
+            poznamkaShoda(c) ||
+            [c.name, c.phone, c.web, c.email, c.firma, c.mesto].some((v) => v && v.toLowerCase().includes(search)))
+      )
       .sort((a, b) => {
+        // migrace 056: podle poslední změny, pak s filtrem čekání nejdéle čekající nahoře (jako Kontakty)
+        const zm = podleZmeny(f.razeni, a, b);
+        if (zm !== 0) return zm;
+        if (f.cekani) {
+          const sa = cekaniOf(a).since ?? '';
+          const sb = cekaniOf(b).since ?? '';
+          if (sa !== sb) return !sa ? 1 : !sb ? -1 : sa < sb ? -1 : 1;
+        }
         const oa = STATUS_ORDER[a.status] ?? 40;
         const ob = STATUS_ORDER[b.status] ?? 40;
         if (oa !== ob) return oa - ob;
@@ -2336,7 +2421,11 @@ const mockApiZaklad: Api = {
     const lim = Math.max(limit, 1);
     return {
       total: filtered.length,
-      rows: filtered.slice(off, off + lim).map((c) => forList(user, c)),
+      // migrace 056: řádky nesou čekání jako v Kontaktech (sloupec Čeká při filtru čekání)
+      rows: filtered.slice(off, off + lim).map((c) => {
+        const cek = cekaniOf(c);
+        return { ...forList(user, c), cekani_kind: cek.kind, cekani_since: cek.since, cekani_kos: kosOfMock(cek.since) };
+      }),
     };
   },
 
@@ -3380,8 +3469,14 @@ function sDemoTestem(api: Api): Api {
       name: c.name,
       cena_web: c.cena_web,
       cena_hosting: c.cena_hosting,
+      // migrace 056 (27. 10. 2026): poslední změna, stav a známka pro e2e bloky F (filtry Moji klienti a řazení)
+      updated_at: c.updated_at,
+      rating: c.rating,
+      cekani_kind: cekaniOf(c).kind,
+      prodano_at: PRODANO_STAVY.includes(c.status) ? datumProdeje(c) : null,
     })),
-    callLog: callLog.map((l) => ({ kontakt_id: l.kontakt_id, user_id: l.user_id, outcome: l.outcome })),
+    // migrace 056: i čas hovoru (e2e blok D: statistiky za jeden den v Praze)
+    callLog: callLog.map((l) => ({ kontakt_id: l.kontakt_id, user_id: l.user_id, outcome: l.outcome, created_at: l.created_at })),
     vlakna: chatThreads.map((t) => ({ id: t.id, kontakt_id: t.kontakt_id, subject: t.subject })),
     // migrace 050: kalendář hovorů (e2e bloky N, P, K, H)
     zavolat: zavolatRadky.map((z) => ({ id: z.id, kontakt_id: z.kontakt_id, user_id: z.user_id, kdy: z.kdy, poznamka: z.poznamka, stav: z.stav, rezervace: z.rezervace })),
