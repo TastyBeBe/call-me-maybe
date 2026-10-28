@@ -211,6 +211,8 @@ client“.
   (`updated_at`): posune ji hovor, úprava v detailu, příznak a kalendář v appce, změna stavu od agenta ne (automatizace
   `updated_at` nepíše). Volajícímu server v Kontaktech řadí podle změny jen jeho klienty, cizí kontakty jsou dál za nimi
   jen podle čísla (045: datum změny cizího kontaktu by prozradilo průběh); nápověda nad tabulkou to říká.
+  ⚠ Od migrace 057 (oddíl níž) je poslední změna i změna od automatizace (`posledni_zmena`) a přibylo řazení podle
+  posledního hovoru (NAHRAZUJE „Poslední změna = `updated_at`, změna stavu od agenta ne“).
 - **Starý server** (bez 056): `p_den`, `p_razeni` a filtry Moji klienti jdou jen, když jsou zapnuté; na PGRST202 appka
   řekne, co server ještě neumí (`BEZ_056_DEN`, `BEZ_056_RAZENI`, `BEZ_056_FILTRY` v `src/api/supabase.ts`). Stará appka
   s 056 funguje beze změny (posílá jen staré parametry).
@@ -220,6 +222,34 @@ client“.
   serveru, U zapojení stránek) a `npm run test:e2e` bloky D056 (den, 1280 a 390 px, Volající výběr nemá), F056 (filtry
   a řazení Moji klienti, 1280 a 390 px, Volající beze změny) a R056 (řazení Kontakty, Volající napřed svoji). Server:
   `../db/tests/test_056_statistiky_den_filtry.sql`; kontrola 217 v repu webdomov.
+
+## Řazení podle poslední změny a posledního hovoru 057 (Albert 28. 10. 2026)
+
+Server: `../db/migration_057_razeni_zmena_hovor.sql` (spouští se PŘED appkou). Albert 28. 10. 2026: „I think there should be
+both filters. One for the latest change regarding anything like if we send them a proposal or status change, and the second
+one should be just the last time they were called, or the moment they were called, the day they were called.“
+
+- **Poslední změna** (sloupec Změněno, řazení „Podle poslední změny“): nejpozdější z úpravy v appce (`updated_at`), změny
+  stavu (i od automatizace: návrh odeslán, schváleno, faktura), odeslaného návrhu a naší odpovědi nebo odpovědi klienta
+  z pošty. Server ji posílá jako `posledni_zmena` (list_kontakty, my_kontakty); appka ukáže `zmenenoKdy` (novější
+  z `posledni_zmena` a `updated_at`, proti serveru bez 057 `updated_at`). Hodnoty řazení zůstaly `zmena_nejnovejsi`
+  a `zmena_nejstarsi`, takže stará appka s 057 řadí stejně jako nová.
+- **Poslední hovor** (nový sloupec s datem a časem, řazení „Podle posledního hovoru“ od nejnovějšího i nejstaršího,
+  `hovor_nejnovejsi`, `hovor_nejstarsi`): `posledni_hovor` z call_log, kontakty bez hovoru jsou v obou směrech na konci.
+  Super admin a Albert vidí hovory všech lidí. **Volající jen svoje**, i u svých klientů (045: o hovorech kolegů nezjistí
+  nic): sloupec se mu jmenuje „Můj poslední hovor“, řazení „Podle mého posledního hovoru“ a u cizího kontaktu je pomlčka
+  (server klíč nepošle). Kontakty: řazení pro každého (Volajícímu jen mezi jeho klienty, cizí dál za nimi podle čísla,
+  nápověda to říká); Moji klienti: sloupec pro každého, řazení jen super admin (jako filtry 056).
+- **Starý server** (bez 057): řazení podle hovoru server odmítne a appka řekne `BEZ_057_HOVOR` (`src/api/supabase.ts`);
+  sloupec posledního hovoru má pomlčky a Změněno ukazuje `updated_at`.
+- **Demo**: mock dělá totéž (`posledniZmena`, `posledniHovor`, `hovoryOd`, klíče před maskou jako server). Prodané demo
+  kontakty mají změnu stavu v den prodeje (`status_changed_at`, jako trigger na serveru), takže prodeje z tohoto týdne mají
+  poslední změnu novější než `updated_at`; změna stavu v mocku (`resolveCall`, `updateKontakt`) ji posune.
+- **Testy**: `npm test` soubor `tests/filtry.test.mjs` blok H (poslední změna z pěti sloupců, změna stavu od automatizace,
+  hovory všech u super admina, jen vlastní u Volajícího, cizí bez klíčů, hláška bez 057, stránky) a upravené bloky R a U;
+  `tests/segment.test.mjs` U9 (šest pomlček u cizího kontaktu); `npm run test:e2e` bloky R057 (1280 a 390 px: čtyři řazení,
+  Změněno z poslední změny, sloupec a řazení podle hovoru, Moji klienti super admina) a R057 petra („Můj poslední hovor“
+  jen z jeho hovorů) a U2 (pět pomlček). Server: `../db/tests/test_057_razeni_zmena_hovor.sql`; kontrola 217 v repu webdomov.
 
 ## Účty a přihlášení (produkce)
 
@@ -425,9 +455,9 @@ který schvaluje Albert (u zprávy je vidět jeho stav).
 | `#/call`      | všichni | fronta hovorů: přepínač chaty / architekti (028), karta kontaktu + výsledky (nedovoláno/odmítnuto/zájem, od 050 i nerelevantní a přeplánovat; `?zavolat=<id>` = karta z kalendáře); kontakt, kterému Volající ještě nevolal, bez stavu, poznámek a příznaku (045, 20. 10. 2026). Poznámka k hovoru je **nepovinná** — zájem jde uložit i bez ní (Albert 2026-09-23; dřív se při prázdné poznámce otevíralo potvrzovací okno navíc); od migrace 051 (Albert 22. 10. 2026) i bez ceny webu a hostingu, povinná je jen známka (⚠ NAHRAZUJE povinné ceny z 1. 9. 2026) |
 | `#/kalendar`  | všichni | kalendář hovorů (050): svůj každý, super admin kohokoli nebo všech; Po termínu, Dnes, Nadcházející, Hotové a zrušené; Zavolat teď, Hotovo, Přesunout, Zrušit |
 | `#/stats`     | všichni | moje statistiky; super admin (i Albert) přes dropdown kohokoli (027) a trychtýř „Klienti podle stavu" (součty celé databáze) s filtrem segmentu (028); ⚠ trychtýř od 19. 10. 2026 a dlaždice „jako #1 prodejce“ od 20. 10. 2026 jen super admin (migrace 045, NAHRAZUJE „(admin)“): Volající vidí jen svoje čísla; od migrace 056 (Albert 27. 10. 2026) super admin i statistiky za jeden den (Celkem / Jeden den, den v Praze) |
-| `#/moji`      | všichni | moji klienti (+ historie poznámek v detailu); super admin může vybrat kohokoli (027); filtr segmentu (028); od migrace 056 (Albert 27. 10. 2026) super admin stejné filtry jako Kontakty a řazení podle poslední změny, Volající beze změny |
+| `#/moji`      | všichni | moji klienti (+ historie poznámek v detailu); super admin může vybrat kohokoli (027); filtr segmentu (028); od migrace 056 (Albert 27. 10. 2026) super admin stejné filtry jako Kontakty a řazení podle poslední změny, Volající beze změny; od migrace 057 sloupec posledního hovoru (Volajícímu „Můj poslední hovor“) a super admin řadí i podle něj |
 | `#/rozvrh`    | všichni | Rozvrh (042): týden po až ne, hodiny na den a cíl (hovorů za hodinu posílá server), plnění z hovorů, hláška pozadu / v plánu / napřed, poznámky ke dnům; Volající si ho nastaví jednou, super admin vidí přehled všech, mění a odemyká |
-| `#/admin`     | všichni | Kontakty: celá databáze s filtry (i segment, 028) a fulltextem (i studio, město, IČO; IČO jen admin a super admin, 038); upravovat smí admin a super admin; počty u stavů a košů a celkový počet jen super admin (045, Volající stránkuje bez počtu); Volající stav, známku, kdo volal, čekání a poznámky jen u svých klientů, filtr stavu a hledání v poznámce jen nad nimi (045, 20. 10. 2026); od migrace 056 řazení podle poslední změny (Volajícímu jen mezi jeho klienty, cizí za nimi podle čísla) |
+| `#/admin`     | všichni | Kontakty: celá databáze s filtry (i segment, 028) a fulltextem (i studio, město, IČO; IČO jen admin a super admin, 038); upravovat smí admin a super admin; počty u stavů a košů a celkový počet jen super admin (045, Volající stránkuje bez počtu); Volající stav, známku, kdo volal, čekání a poznámky jen u svých klientů, filtr stavu a hledání v poznámce jen nad nimi (045, 20. 10. 2026); od migrace 056 řazení podle poslední změny (Volajícímu jen mezi jeho klienty, cizí za nimi podle čísla); od migrace 057 Změněno i se změnami od automatizace, sloupec a řazení podle posledního hovoru (Volajícímu jen jeho hovory) |
 | `#/oznacene`  | admin   | označení klienti — admin svoji; super admin a Albert všichni (027); filtr segmentu (028) |
 | `#/zpravy`    | admin   | vlákna s AI agenty — admin svoje; super admin vlákna všech lidí (cizí jen ke čtení, 027); Albert i automatizaci; odznak architekta u hledaného kontaktu (028) |
 | `#/uzivatele` | super admin | super admin: všichni lidé, upravuje sebe a své lidi + nový Volající (027, 042); Albert: role (Volající / Super admin, 042) a nadřízení (⚠ od migrace 024 Volající stránku nemá) |

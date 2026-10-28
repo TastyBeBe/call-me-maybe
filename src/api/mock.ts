@@ -117,6 +117,8 @@ function k(partial: Partial<Kontakt> & { id: number }): Kontakt {
     first_proposal_at: null,
     last_our_reply_at: null,
     last_client_reply_at: null,
+    // migrace 057: kdy se naposledy změnil stav (na serveru trigger z migrace 013; starý kontakt null)
+    status_changed_at: null,
     // migrace 028: segment + pole architekta (u chat prázdná, CHECK kontakty_architekt_pole_check)
     segment: 'chata',
     firma: null,
@@ -1331,29 +1333,83 @@ function checkName(name: string, selfId: number | null): void {
 }
 
 /**
- * Řazení seznamů (migrace 056, Albert 27. 10. 2026): jen zmena_nejnovejsi a zmena_nejstarsi (podle updated_at), null =
- * výchozí pořadí; jiná hodnota stejná chyba jako server (list_kontakty, my_kontakty).
+ * Řazení seznamů (migrace 056, Albert 27. 10. 2026; ⚠ migrace 057, Albert 28. 10. 2026, přidala hovor_nejnovejsi
+ * a hovor_nejstarsi): zmena_* podle poslední změny, hovor_* podle posledního hovoru, null = výchozí pořadí; jiná hodnota
+ * stejná chyba jako server (list_kontakty, my_kontakty).
  */
+const RAZENI_POVOLENA: readonly string[] = ['zmena_nejnovejsi', 'zmena_nejstarsi', 'hovor_nejnovejsi', 'hovor_nejstarsi'];
 function checkRazeni(r: unknown): void {
-  if (r === null || r === undefined || r === 'zmena_nejnovejsi' || r === 'zmena_nejstarsi') return;
-  fail(`Neplatné řazení: ${String(r)}. Povolené: zmena_nejnovejsi, zmena_nejstarsi.`);
-}
-
-/** Porovnání podle poslední změny (migrace 056); 0 = stejně (pak výchozí pořadí). */
-function podleZmeny(razeni: Razeni | null | undefined, a: Kontakt, b: Kontakt): number {
-  if (!razeni) return 0;
-  const ua = new Date(a.updated_at).getTime();
-  const ub = new Date(b.updated_at).getTime();
-  if (ua === ub) return 0;
-  return razeni === 'zmena_nejnovejsi' ? ub - ua : ua - ub;
+  if (r === null || r === undefined || RAZENI_POVOLENA.includes(String(r))) return;
+  fail(`Neplatné řazení: ${String(r)}. Povolené: zmena_nejnovejsi, zmena_nejstarsi, hovor_nejnovejsi, hovor_nejstarsi.`);
 }
 
 /**
- * Den prodeje jako server (all_stats s p_den od migrace 056 a výdělek od 050): kontakt_prodej, jinak updated_at
- * (status_changed_at mock nevede).
+ * Poslední změna kontaktu jako server od migrace 057 (Albert 28. 10. 2026: „the latest change regarding anything like if we
+ * send them a proposal or status change“): nejpozdější z updated_at, status_changed_at, first_proposal_at,
+ * last_our_reply_at a last_client_reply_at (greatest přeskočí null). ⚠ NAHRAZUJE „jen updated_at“ z 056.
+ */
+export function posledniZmena(c: Kontakt): string {
+  let nej = c.updated_at;
+  for (const cas of [c.status_changed_at, c.first_proposal_at, c.last_our_reply_at, c.last_client_reply_at]) {
+    if (cas && new Date(cas).getTime() > new Date(nej).getTime()) nej = cas;
+  }
+  return nej;
+}
+
+/**
+ * Poslední hovor kontaktu (migrace 057, Albert 28. 10. 2026: „the last time they were called“): nejpozdější created_at
+ * v call_log; `od` = čí hovory se počítají (null = všech lidí: super admin a Albert; jinak jen hovory toho člověka,
+ * Volajícímu i u jeho klientů, 045). null = žádný.
+ */
+function posledniHovor(kontaktId: number, od: number | null): string | null {
+  let nej: string | null = null;
+  for (const l of callLog) {
+    if (l.kontakt_id !== kontaktId || (od !== null && l.user_id !== od)) continue;
+    if (nej === null || new Date(l.created_at).getTime() > new Date(nej).getTime()) nej = l.created_at;
+  }
+  return nej;
+}
+
+/** Čí hovory se přihlášenému počítají do posledního hovoru (v_hovory_od na serveru, migrace 057). */
+function hovoryOd(u: MockUser): number | null {
+  return u.id === OWNER_ID || u.role === 'super_admin' ? null : u.id;
+}
+
+/**
+ * Kontakt s klíči posledni_zmena a posledni_hovor (migrace 057) PŘED maskou (forList, forViewer), jako server: u cizího
+ * kontaktu je Volající nedostane (nejsou v allowlistu KLICE_CIZI).
+ */
+function sPoslednimi(c: Kontakt, od: number | null): Kontakt {
+  return { ...c, posledni_zmena: posledniZmena(c), posledni_hovor: posledniHovor(c.id, od) };
+}
+
+/**
+ * Porovnání podle p_razeni (migrace 056 a 057); 0 = stejně (pak výchozí pořadí). Podle hovoru jsou kontakty bez hovoru
+ * v obou směrech na konci (nulls last jako server); `od` jako hovoryOd.
+ */
+function podleRazeni(razeni: Razeni | null | undefined, a: Kontakt, b: Kontakt, od: number | null): number {
+  if (!razeni) return 0;
+  if (razeni === 'zmena_nejnovejsi' || razeni === 'zmena_nejstarsi') {
+    const ua = new Date(posledniZmena(a)).getTime();
+    const ub = new Date(posledniZmena(b)).getTime();
+    if (ua === ub) return 0;
+    return razeni === 'zmena_nejnovejsi' ? ub - ua : ua - ub;
+  }
+  const ha = posledniHovor(a.id, od);
+  const hb = posledniHovor(b.id, od);
+  if (ha === null || hb === null) return ha === hb ? 0 : ha === null ? 1 : -1;
+  const ta = new Date(ha).getTime();
+  const tb = new Date(hb).getTime();
+  if (ta === tb) return 0;
+  return razeni === 'hovor_nejnovejsi' ? tb - ta : ta - tb;
+}
+
+/**
+ * Den prodeje jako server (all_stats s p_den od migrace 056 a výdělek od 050): kontakt_prodej, jinak status_changed_at,
+ * jinak updated_at (⚠ od 057 mock status_changed_at vede, NAHRAZUJE „status_changed_at mock nevede“).
  */
 function datumProdeje(c: Kontakt): string {
-  return kontaktProdej.get(c.id)?.prodano_at ?? c.updated_at;
+  return kontaktProdej.get(c.id)?.prodano_at ?? c.status_changed_at ?? c.updated_at;
 }
 
 /**
@@ -1858,7 +1914,7 @@ function vydelekPro(uid: number): Vydelek {
       return posledni?.user_id === uid;
     })
     .map((c) => {
-      const prodanoAt = kontaktProdej.get(c.id)?.prodano_at ?? c.updated_at;
+      const prodanoAt = kontaktProdej.get(c.id)?.prodano_at ?? c.status_changed_at ?? c.updated_at;
       const sleva = (slevy.get(c.id) ?? [])
         .filter((e) => e.created_at <= prodanoAt)
         .sort((a, b) => b.created_at.localeCompare(a.created_at))[0];
@@ -1948,6 +2004,13 @@ function vydelekPro(uid: number): Vydelek {
   kontaktProdej.set(22, { prodano_at: daysAgo(10), zdroj: 'demo' });
   kontaktProdej.set(23, { prodano_at: daysAgo(30), zdroj: 'demo' });
   kontaktProdej.set(24, { prodano_at: new Date(Math.max(Date.now() - 3 * 3600000, zacatekTydne + 120000)).toISOString(), zdroj: 'demo' });
+  // migrace 057 (Albert 28. 10. 2026): stav prodaného kontaktu změnila automatizace (schválení, platba) v den prodeje
+  // a appka kontakt od té doby nezměnila (updated_at před 5 dny); jako trigger na serveru je status_changed_at den
+  // prodeje, takže prodeje z tohoto týdne (20, 24) mají poslední změnu novější než updated_at (sloupec Změněno)
+  for (const [kid, p] of kontaktProdej) {
+    const c = kontakty.find((x) => x.id === kid);
+    if (c) c.status_changed_at = p.prodano_at;
+  }
   slevy.set(22, [{ detail: '3 500 Kč místo 7 000 Kč', created_at: daysAgo(11) }]);
 })();
 
@@ -2158,6 +2221,8 @@ const mockApiZaklad: Api = {
 
     // preplanovano -> nedovolano (zůstává ve frontě, drží ho kalendář), ostatní výsledky = stav (050)
     const novyStav: KontaktStatus = outcome === 'preplanovano' ? 'nedovolano' : (outcome as KontaktStatus);
+    // migrace 057: změna stavu posune status_changed_at jako trigger na serveru (migrace 013)
+    if (kontakt.status !== novyStav) kontakt.status_changed_at = now();
     kontakt.status = novyStav;
     kontakt.last_caller = user.display_name;
     kontakt.lock_by = null;
@@ -2296,6 +2361,8 @@ const mockApiZaklad: Api = {
     const moje = myKontaktIds(me);
     const skryty = (c: Kontakt) => jenSvoje && !moje.has(c.id);
     const filtrStavu = !!(f.status || f.rating || f.cekani || f.kos);
+    // migrace 057: čí hovory se počítají do posledního hovoru (super admin a Albert všech, Volající jen svoje)
+    const od = hovoryOd(me);
     const poznamkaVHledani = (c: Kontakt) => (skryty(c) ? null : poznamkaBezCizich(c.note, cizi, vidi));
     // migrace 048 (audit soukromí 20. 10. 2026): e-mail cizí chaty Volající nevyhledá (jako poznámku), architekta ano
     const emailVHledani = (c: Kontakt) => (skryty(c) && segmentOf(c) === 'chata' ? null : c.email);
@@ -2317,8 +2384,9 @@ const mockApiZaklad: Api = {
       // Volající: napřed jeho klienti, cizí jen podle id (stav, čekání ani datum změny cizího pořadí neurčují)
       if (skryty(a) !== skryty(b)) return skryty(a) ? 1 : -1;
       if (skryty(a)) return a.id - b.id;
-      // migrace 056: podle poslední změny (Volajícímu jen mezi jeho klienty, cizí výš jen podle id), shoda = výchozí pořadí
-      const zm = podleZmeny(f.razeni, a, b);
+      // migrace 056 a 057: podle poslední změny nebo posledního hovoru (Volajícímu jen mezi jeho klienty a jen jeho hovory,
+      // cizí výš jen podle id), shoda = výchozí pořadí
+      const zm = podleRazeni(f.razeni, a, b, od);
       if (zm !== 0) return zm;
       // při filtru čekání: nejdéle čekající nahoře (Albert 2026-09-07)
       if (f.cekani) {
@@ -2342,11 +2410,13 @@ const mockApiZaklad: Api = {
       total: vidiCisla ? filtered.length : null,
       dalsi: filtered.length > offset + limit,
       rows: filtered.slice(offset, offset + limit).map((c) => {
+        // migrace 057: posledni_zmena a posledni_hovor před maskou (cizí kontakt Volajícího je nedostane, jako server)
+        const cc = sPoslednimi(c, od);
         // cizí kontakt Volajícího bez čekání (je to průběh), jako server (cekani_* nejsou v allowlistu)
-        if (skryty(c)) return forList(me, c);
+        if (skryty(c)) return forList(me, cc);
         const cek = cekaniOf(c);
         return {
-          ...forList(me, c),
+          ...forList(me, cc),
           cekani_kind: cek.kind,
           cekani_since: cek.since,
           cekani_kos: kosOfMock(cek.since),
@@ -2381,6 +2451,8 @@ const mockApiZaklad: Api = {
       ((!!c.ico_osobni && c.ico_osobni === icoHledane && canEdit(user, c.id)) ||
         (!!c.ico_firma && c.ico_firma !== c.ico_osobni && c.ico_firma.toLowerCase().includes(search)));
     const { cizi, vidi } = jmenaPro(user);
+    // migrace 057: čí hovory se počítají do posledního hovoru (super admin a Albert všech, Volající jen svoje)
+    const od = hovoryOd(user);
     // jako server: poznámka sedí, když hledaný text má uložená poznámka i ta, kterou přihlášený vidí (maska jmen kolegů)
     const poznamkaShoda = (c: Kontakt) =>
       !!c.note &&
@@ -2401,8 +2473,8 @@ const mockApiZaklad: Api = {
             [c.name, c.phone, c.web, c.email, c.firma, c.mesto].some((v) => v && v.toLowerCase().includes(search)))
       )
       .sort((a, b) => {
-        // migrace 056: podle poslední změny, pak s filtrem čekání nejdéle čekající nahoře (jako Kontakty)
-        const zm = podleZmeny(f.razeni, a, b);
+        // migrace 056 a 057: podle poslední změny nebo posledního hovoru, pak s filtrem čekání nejdéle čekající nahoře
+        const zm = podleRazeni(f.razeni, a, b, od);
         if (zm !== 0) return zm;
         if (f.cekani) {
           const sa = cekaniOf(a).since ?? '';
@@ -2424,7 +2496,8 @@ const mockApiZaklad: Api = {
       // migrace 056: řádky nesou čekání jako v Kontaktech (sloupec Čeká při filtru čekání)
       rows: filtered.slice(off, off + lim).map((c) => {
         const cek = cekaniOf(c);
-        return { ...forList(user, c), cekani_kind: cek.kind, cekani_since: cek.since, cekani_kos: kosOfMock(cek.since) };
+        // migrace 057: posledni_zmena a posledni_hovor před maskou (jako server)
+        return { ...forList(user, sPoslednimi(c, od)), cekani_kind: cek.kind, cekani_since: cek.since, cekani_kos: kosOfMock(cek.since) };
       }),
     };
   },
@@ -2555,6 +2628,8 @@ const mockApiZaklad: Api = {
       }
     }
     kontakt.updated_at = now();
+    // migrace 057: změna stavu posune status_changed_at jako trigger na serveru (migrace 013)
+    if (kontakt.status !== stavPred) kontakt.status_changed_at = now();
     // migrace 050: trigger trg_kontakty_prodano (kdy se kontakt prodal, pro výdělek „tento týden“)
     if ('status' in patch) zapisProdej(kontakt, stavPred);
     return forList(me, kontakt); // bez osobního IČO, když nesmí upravit (028, 036)
@@ -3471,6 +3546,9 @@ function sDemoTestem(api: Api): Api {
       cena_hosting: c.cena_hosting,
       // migrace 056 (27. 10. 2026): poslední změna, stav a známka pro e2e bloky F (filtry Moji klienti a řazení)
       updated_at: c.updated_at,
+      // migrace 057 (28. 10. 2026): změna stavu a poslední změna (e2e blok R057)
+      status_changed_at: c.status_changed_at ?? null,
+      posledni_zmena: posledniZmena(c),
       rating: c.rating,
       cekani_kind: cekaniOf(c).kind,
       prodano_at: PRODANO_STAVY.includes(c.status) ? datumProdeje(c) : null,

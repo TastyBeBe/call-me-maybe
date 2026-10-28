@@ -1,5 +1,9 @@
 // Test chování: migrace 056 (Albert 27. 10. 2026): statistiky za jeden den (super admin), v Moji klienti stejné filtry
 // jako v Kontaktech (jen super admin) a řazení podle poslední změny v obou seznamech.
+// ⚠ Migrace 057 (Albert 28. 10. 2026: „both filters. One for the latest change regarding anything … and the second one
+// should be just the last time they were called“): poslední změna = nejpozdější z updated_at, status_changed_at,
+// first_proposal_at, last_our_reply_at a last_client_reply_at (klíč posledni_zmena, sloupec Změněno) a řazení podle
+// posledního hovoru (posledni_hovor; Volajícímu jen jeho hovory). Blok H; bloky R, S a U upravené (čtyři hodnoty řazení).
 //
 // Měří DEMO mock (src/api/mock.ts), který musí zrcadlit server (db/migration_056_statistiky_den_filtry.sql, test
 // db/tests/test_056_statistiky_den_filtry.sql), a to, co src/api/supabase.ts posílá serveru (fetch je podstrčený, nic
@@ -47,7 +51,7 @@ let bundle;
     stdin: {
       contents: [
         "export { mockApi } from './src/api/mock.ts';",
-        "export { supabaseApi, BEZ_056_DEN, BEZ_056_RAZENI, BEZ_056_FILTRY } from './src/api/supabase.ts';",
+        "export { supabaseApi, BEZ_056_DEN, BEZ_056_RAZENI, BEZ_056_FILTRY, BEZ_057_HOVOR } from './src/api/supabase.ts';",
         "export * as prahaModul from './src/praha.ts';",
         "export * as uiModul from './src/ui.tsx';",
       ].join('\n'),
@@ -71,7 +75,7 @@ let bundle;
   bundle = createRequire(import.meta.url)(f);
   rmSync(dir, { recursive: true, force: true });
 }
-const { mockApi: api, supabaseApi, BEZ_056_DEN, BEZ_056_RAZENI, BEZ_056_FILTRY, prahaModul: P, uiModul: U } = bundle;
+const { mockApi: api, supabaseApi, BEZ_056_DEN, BEZ_056_RAZENI, BEZ_056_FILTRY, BEZ_057_HOVOR, prahaModul: P, uiModul: U } = bundle;
 
 let pocet = 0;
 let chyby = 0;
@@ -232,7 +236,8 @@ await blok('F', async () => {
 
 /* ---------------- R) řazení podle poslední změny (list_kontakty a my_kontakty s p_razeni) ---------------- */
 await blok('R', async () => {
-  const cas = (r) => new Date(r.updated_at).getTime();
+  // ⚠ migrace 057: poslední změna je posledni_zmena (nejpozdější z pěti sloupců), NAHRAZUJE updated_at z 056
+  const cas = (r) => new Date(r.posledni_zmena ?? r.updated_at).getTime();
   const nerostouci = (rows) => rows.every((r, i) => i === 0 || cas(rows[i - 1]) >= cas(r));
   const neklesajici = (rows) => rows.every((r, i) => i === 0 || cas(rows[i - 1]) <= cas(r));
   // úprava v appce posune poslední změnu: kontakt 4 (klient Petry, upravit smí Albert)
@@ -260,10 +265,10 @@ await blok('R', async () => {
   const lps = await api.listKontakty(petra, { razeni: 'zmena_nejstarsi', limit: 200 });
   const svojeS = lps.rows.filter((r) => !r.skryto);
   over('R6', neklesajici(svojeS) && svojeS[svojeS.length - 1].id === 4, 'Volající od nejstarší: svoji podle změny, upravený poslední z nich');
-  await chyba('R7', () => api.listKontakty(albert, { razeni: 'nahodne', limit: 5 }), presne('Neplatné řazení: nahodne. Povolené: zmena_nejnovejsi, zmena_nejstarsi.'),
-    'neplatné řazení v Kontaktech odmítne hláškou serveru');
-  await chyba('R8', () => api.myKontakty(albert, 5, 0, 2, null, { razeni: 'nahodne' }), presne('Neplatné řazení: nahodne. Povolené: zmena_nejnovejsi, zmena_nejstarsi.'),
-    'neplatné řazení v Moji klienti odmítne hláškou serveru');
+  // ⚠ migrace 057: hláška se čtyřmi hodnotami (jako server 057)
+  const NEPLATNE = 'Neplatné řazení: nahodne. Povolené: zmena_nejnovejsi, zmena_nejstarsi, hovor_nejnovejsi, hovor_nejstarsi.';
+  await chyba('R7', () => api.listKontakty(albert, { razeni: 'nahodne', limit: 5 }), presne(NEPLATNE), 'neplatné řazení v Kontaktech odmítne hláškou serveru');
+  await chyba('R8', () => api.myKontakty(albert, 5, 0, 2, null, { razeni: 'nahodne' }), presne(NEPLATNE), 'neplatné řazení v Moji klienti odmítne hláškou serveru');
   // Honza (Volající) si svoje klienty seřadí taky (server to smí, appka mu výběr nedává)
   const hz = await api.myKontakty(honza, 2000, 0, null, null, { razeni: 'zmena_nejnovejsi' });
   over('R9', nerostouci(hz.rows) && hz.total === hz.rows.length, 'Volající svoje klienty podle změny (server i mock stejně)');
@@ -321,9 +326,106 @@ await blok('U', async () => {
     'Moji klienti: Volajícímu původní hledání beze změny');
   const admin = readFileSync(join(ROOT, 'src/pages/AdminPage.tsx'), 'utf8');
   over('U5', /<RazeniSelect\s+value=\{razeni\}/.test(admin) && /razeni: razeni \|\| null,/.test(admin), 'Kontakty: výběr řazení jde do list_kontakty');
+  // ⚠ migrace 057: čtyři volby (NAHRAZUJE „dvě volby“ z 056)
   over('U6', U.RAZENI_LABELS.zmena_nejnovejsi === 'Podle poslední změny (od nejnovější)' && U.RAZENI_LABELS.zmena_nejstarsi === 'Podle poslední změny (od nejstarší)'
-    && U.ALL_RAZENI.length === 2, 'popisky řazení česky, dvě volby');
+    && U.RAZENI_LABELS.hovor_nejnovejsi === 'Podle posledního hovoru (od nejnovějšího)' && U.RAZENI_LABELS.hovor_nejstarsi === 'Podle posledního hovoru (od nejstaršího)'
+    && U.ALL_RAZENI.length === 4, 'popisky řazení česky, čtyři volby');
   over('U7', U.formatDenSRokem('2026-10-25') === 'neděle 25. 10. 2026', 'den s rokem česky', U.formatDenSRokem('2026-10-25'));
+});
+
+/* ---------------- H) migrace 057: poslední změna i od automatizace a řazení podle posledního hovoru ---------------- */
+await blok('H', async () => {
+  const stav = () => globalThis.__volackaDemoTest.stav();
+  const ms = (x) => (x ? new Date(x).getTime() : null);
+  const nejpozdeji = (r) => Math.max(...[r.updated_at, r.status_changed_at, r.first_proposal_at, r.last_our_reply_at, r.last_client_reply_at]
+    .filter(Boolean).map((x) => new Date(x).getTime()));
+  const hovorVsech = (kid) => {
+    const h = stav().callLog.filter((l) => l.kontakt_id === kid).map((l) => ms(l.created_at));
+    return h.length ? Math.max(...h) : null;
+  };
+  const hovorKoho = (kid, uid) => {
+    const h = stav().callLog.filter((l) => l.kontakt_id === kid && l.user_id === uid).map((l) => ms(l.created_at));
+    return h.length ? Math.max(...h) : null;
+  };
+  // H1: super admin, Kontakty od nejnovější změny: každý řádek má posledni_zmena = nejpozdější z pěti sloupců, řazení podle ní
+  const lz = await api.listKontakty(albert, { razeni: 'zmena_nejnovejsi', limit: 1000 });
+  const spatne = lz.rows.filter((r) => ms(r.posledni_zmena) !== nejpozdeji(r)).map((r) => r.id);
+  over('H1', lz.rows.length > 10 && spatne.length === 0 && lz.rows.every((r, i) => i === 0 || ms(lz.rows[i - 1].posledni_zmena) >= ms(r.posledni_zmena)),
+    'poslední změna = nejpozdější z updated_at, změny stavu, návrhu a odpovědí; řazení podle ní', JSON.stringify(spatne));
+  // H2: Chalupa Na Vršku (20) schválená tento týden automatizací (změna stavu), appka ji naposledy změnila před 5 dny:
+  // poslední změna je změna stavu a v řazení je před všemi, které se naposledy změnily dřív
+  const r20 = lz.rows.find((r) => r.id === 20);
+  const s20 = stav().kontakty.find((c) => c.id === 20);
+  over('H2', !!r20 && ms(r20.posledni_zmena) === ms(s20.status_changed_at) && ms(r20.updated_at) < ms(r20.posledni_zmena)
+    && lz.rows.slice(lz.rows.indexOf(r20) + 1).every((r) => ms(r.posledni_zmena) <= ms(r20.posledni_zmena)),
+    'změna stavu od automatizace (bez updated_at) je poslední změnou a posune kontakt nahoru', JSON.stringify(r20 && [r20.updated_at, r20.posledni_zmena]));
+  // H3, H4: super admin podle posledního hovoru (hovory všech): s hovorem napřed (od nejnovějšího, od nejstaršího), bez hovoru na konci
+  const lh = await api.listKontakty(albert, { razeni: 'hovor_nejnovejsi', limit: 1000 });
+  const sH = lh.rows.filter((r) => r.posledni_hovor);
+  const hranice = lh.rows.findIndex((r) => !r.posledni_hovor);
+  over('H3', sH.length >= 10 && hranice === sH.length && lh.rows.slice(hranice).every((r) => r.posledni_hovor === null)
+    && sH.every((r, i) => i === 0 || ms(sH[i - 1].posledni_hovor) >= ms(r.posledni_hovor)) && lh.rows.every((r) => ms(r.posledni_hovor) === hovorVsech(r.id)),
+    'super admin od posledního hovoru: hovory všech lidí, od nejnovějšího, kontakty bez hovoru na konci', JSON.stringify(lh.rows.map((r) => r.id)).slice(0, 200));
+  const ls = await api.listKontakty(albert, { razeni: 'hovor_nejstarsi', limit: 1000 });
+  const sS = ls.rows.filter((r) => r.posledni_hovor);
+  over('H4', sS.length === sH.length && ls.rows.findIndex((r) => !r.posledni_hovor) === sS.length
+    && sS.every((r, i) => i === 0 || ms(sS[i - 1].posledni_hovor) <= ms(r.posledni_hovor)),
+    'od nejstaršího hovoru: s hovorem napřed od nejstaršího, bez hovoru taky na konci');
+  // H5: Volající Petra v Kontaktech podle hovoru: napřed svoji podle JEJÍHO posledního hovoru (hovor kolegy se nepočítá:
+  // kontakt 2 jí Honza volal později než ona), cizí za nimi jen podle id a bez klíčů posledni_zmena a posledni_hovor (045)
+  const lp = await api.listKontakty(petra, { razeni: 'hovor_nejnovejsi', limit: 200 });
+  const svoje = lp.rows.filter((r) => !r.skryto);
+  const cizi = lp.rows.filter((r) => r.skryto);
+  const r2 = svoje.find((r) => r.id === 2);
+  const sHovorem = svoje.filter((r) => r.posledni_hovor);
+  over('H5', !!r2 && ms(r2.posledni_hovor) === hovorKoho(2, 2) && hovorVsech(2) > hovorKoho(2, 2)
+    && svoje.every((r) => ms(r.posledni_hovor) === hovorKoho(r.id, 2))
+    && sHovorem.every((r, i) => i === 0 || ms(sHovorem[i - 1].posledni_hovor) >= ms(r.posledni_hovor))
+    && lp.rows.slice(0, svoje.length).every((r) => !r.skryto) && cizi.length > 0
+    && cizi.every((r, i) => (i === 0 || cizi[i - 1].id < r.id) && !('posledni_hovor' in r) && !('posledni_zmena' in r)),
+    'Volající: do posledního hovoru jen jeho hovory, svoji napřed, cizí jen podle id a bez času změny i hovoru',
+    JSON.stringify({ r2: r2 && r2.posledni_hovor, poradi: lp.rows.map((r) => r.id).slice(0, 30) }));
+  // H6: Moji klienti: Volající (sám) jen svoje hovory, super admin pro Petru hovory všech (kontakt 2 s Honzovým hovorem)
+  const mp = await api.myKontakty(petra, 2000, 0, null, null, { razeni: 'hovor_nejnovejsi' });
+  const mm = await api.myKontakty(mikulas, 2000, 0, 2, null, { razeni: 'hovor_nejnovejsi' });
+  const m2p = mp.rows.find((r) => r.id === 2);
+  const m2m = mm.rows.find((r) => r.id === 2);
+  over('H6', !!m2p && !!m2m && ms(m2p.posledni_hovor) === hovorKoho(2, 2) && ms(m2m.posledni_hovor) === hovorVsech(2)
+    && mp.rows.every((r) => ms(r.posledni_hovor) === hovorKoho(r.id, 2)) && mm.rows.every((r) => ms(r.posledni_hovor) === hovorVsech(r.id))
+    && mm.rows.every((r) => ms(r.posledni_zmena) === nejpozdeji(r)),
+    'Moji klienti: Volající jen svoje hovory, super admin hovory všech; poslední změna jako v Kontaktech',
+    JSON.stringify([m2p?.posledni_hovor, m2m?.posledni_hovor]));
+  // H7: co appka posílá (hovor_* jen zvolené) a server bez 057 (056 hovor_* odmítne, bez 056 PGRST202): srozumitelná hláška
+  odpoved = { status: 200, telo: '{"total":0,"rows":[]}' };
+  odeslano.length = 0;
+  await supabaseApi.listKontakty('t', { limit: 5, razeni: 'hovor_nejnovejsi' });
+  await supabaseApi.myKontakty('t', 2000, 0, 3, null, { razeni: 'hovor_nejstarsi' });
+  over('H7', odeslano[0]?.body.p_razeni === 'hovor_nejnovejsi' && odeslano[1]?.body.p_razeni === 'hovor_nejstarsi', 'hovor_* jde na server jako p_razeni');
+  odpoved = { status: 400, telo: '{"code":"P0001","message":"Neplatné řazení: hovor_nejnovejsi. Povolené: zmena_nejnovejsi, zmena_nejstarsi."}' };
+  await chyba('H8', () => supabaseApi.listKontakty('t', { limit: 5, razeni: 'hovor_nejnovejsi' }), presne(BEZ_057_HOVOR), 'server 056: řazení podle hovoru řekne, že ho server ještě neumí');
+  odpoved = { status: 400, telo: '{"code":"P0001","message":"Neplatné řazení: hovor_nejstarsi. Povolené: zmena_nejnovejsi, zmena_nejstarsi."}' };
+  await chyba('H8', () => supabaseApi.myKontakty('t', 5, 0, 3, null, { razeni: 'hovor_nejstarsi' }), presne(BEZ_057_HOVOR), 'server 056: v Moji klienti taky');
+  odpoved = { status: 404, telo: '{"code":"PGRST202","message":"Could not find the function public.list_kontakty in the schema cache"}' };
+  await chyba('H8', () => supabaseApi.listKontakty('t', { limit: 5, razeni: 'hovor_nejnovejsi' }), presne(BEZ_057_HOVOR), 'server bez 056: řazení podle hovoru stejná hláška');
+  await chyba('H8', () => supabaseApi.listKontakty('t', { limit: 5, razeni: 'zmena_nejnovejsi' }), presne(BEZ_056_RAZENI), 'server bez 056: řazení podle změny dál hláška 056');
+  odpoved = { status: 400, telo: '{"code":"P0001","message":"Podle volajícího můžete filtrovat jen sebe."}' };
+  await chyba('H8', () => supabaseApi.listKontakty('t', { limit: 5, razeni: 'hovor_nejnovejsi', caller: 'X' }), /^Podle volajícího/, 'jiná chyba serveru zůstane');
+  odpoved = { status: 200, telo: '[]' };
+  over('H9', /057/.test(BEZ_057_HOVOR), 'hláška jmenuje migraci 057');
+  // H10: pomocníci a stránky
+  over('H10', U.zmenenoKdy({ updated_at: '2026-10-20T10:00:00Z', posledni_zmena: '2026-10-25T10:00:00Z' }) === '2026-10-25T10:00:00Z'
+    && U.zmenenoKdy({ updated_at: '2026-10-20T10:00:00Z' }) === '2026-10-20T10:00:00Z'
+    && U.zmenenoKdy({ updated_at: '2026-10-28T10:00:00Z', posledni_zmena: '2026-10-25T10:00:00Z' }) === '2026-10-28T10:00:00Z'
+    && U.hovorNadpis(true) === 'Můj poslední hovor' && U.hovorNadpis(false) === 'Poslední hovor'
+    && U.RAZENI_LABELS_MOJE.hovor_nejnovejsi === 'Podle mého posledního hovoru (od nejnovějšího)',
+    'Změněno = posledni_zmena (jinak updated_at, novější vyhraje), popisky sloupce a řazení pro Volajícího');
+  const admin = readFileSync(join(ROOT, 'src/pages/AdminPage.tsx'), 'utf8');
+  const moji = readFileSync(join(ROOT, 'src/pages/MojiPage.tsx'), 'utf8');
+  over('H11', /jenMojeHovory=\{!isSuper\}/.test(admin) && /\{jenZaklad\(r\) \? <Skryto \/> : formatDateTime\(zmenenoKdy\(r\)\)\}/.test(admin)
+    && /\{jenZaklad\(r\) \? <Skryto \/> : formatDateTime\(r\.posledni_hovor \?\? null\)\}/.test(admin) && /\{hovorNadpis\(!isSuper\)\}/.test(admin),
+    'Kontakty: Změněno z posledni_zmena, sloupec posledního hovoru (u cizího pomlčka), Volajícímu „Můj poslední hovor“');
+  over('H12', /\{formatDateTime\(zmenenoKdy\(r\)\)\}/.test(moji) && /\{formatDateTime\(r\.posledni_hovor \?\? null\)\}/.test(moji)
+    && /\{hovorNadpis\(!isSuper\)\}/.test(moji), 'Moji klienti: Změněno z posledni_zmena a sloupec posledního hovoru');
 });
 
 if (chyby === 0) {

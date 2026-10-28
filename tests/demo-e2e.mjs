@@ -799,8 +799,9 @@ for (const [kdo, superAdmin, sirka] of [['petra', false, 1280], ['petra', false,
   const radek = page.locator('table.kontakty tbody tr').first();
   const pomlcky = await radek.locator('.skryto').count();
   const odznak = await radek.locator('.badge').allInnerTexts();
-  over(`U2 ${kdo} ${sirka}`, superAdmin ? pomlcky === 0 && odznak.some((o) => /Mají zájem/.test(o)) : pomlcky === 4 && !odznak.some((o) => /Mají zájem/.test(o)),
-    `${kdo}: u cizího kontaktu 3 ${superAdmin ? 'stav vidí' : 'stav, známku, kdo volal a datum změny nevidí'}`, `pomlček ${pomlcky}, odznaky ${odznak.join(',')}`);
+  // ⚠ migrace 057 (Albert 28. 10. 2026): přibyl sloupec posledního hovoru, u cizího kontaktu taky pomlčka (5, NAHRAZUJE 4)
+  over(`U2 ${kdo} ${sirka}`, superAdmin ? pomlcky === 0 && odznak.some((o) => /Mají zájem/.test(o)) : pomlcky === 5 && !odznak.some((o) => /Mají zájem/.test(o)),
+    `${kdo}: u cizího kontaktu 3 ${superAdmin ? 'stav vidí' : 'stav, známku, kdo volal, datum změny a poslední hovor nevidí'}`, `pomlček ${pomlcky}, odznaky ${odznak.join(',')}`);
   await radek.click();
   await klid(page, 500);
   const drawer = await page.locator('.drawer').innerText();
@@ -1646,6 +1647,99 @@ await blok050('R056 petra', async () => {
   const napoveda = txt(await page.locator('.skryto-napoveda').innerText().catch(() => ''));
   over('R56c', prvniSkryty > 0 && skryte.slice(prvniSkryty).every(Boolean) && /Podle poslední změny se řadí jen tvoji klienti/.test(napoveda),
     'Volající: podle změny napřed svoji klienti, cizí kontakty za nimi, nápověda to říká', `${JSON.stringify(skryte.slice(0, 20))} | ${napoveda.slice(0, 80)}`);
+  await ctx.close();
+});
+
+/* ============ 057 (Albert 28. 10. 2026): poslední změna i od automatizace a řazení podle posledního hovoru ============ */
+// „I think there should be both filters. One for the latest change regarding anything like if we send them a proposal or
+// status change, and the second one should be just the last time they were called, or the moment they were called, the day
+// they were called.“ Bloky R057 (Kontakty a Moji klienti super admina, obě šířky) a R057 petra (Volající: jen jeho hovory).
+// Očekávané hodnoty se počítají z dat mocku (háček __volackaDemoTest), čas se porovnává ve formátu sloupce (formatDateTime).
+const casCs = (page, iso) => page.evaluate((x) => (x ? new Date(x).toLocaleString('cs-CZ', {
+  day: 'numeric', month: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—'), iso);
+const hovorMs = (s, kid, uid = null) => {
+  const h = s.callLog.filter((l) => l.kontakt_id === kid && (uid === null || l.user_id === uid)).map((l) => new Date(l.created_at).getTime());
+  return h.length ? Math.max(...h) : null;
+};
+const sloupce = (page) => page.locator('table.kontakty thead th').evaluateAll((t) => t.map((x) => x.textContent.trim()));
+const bunkySloupce = (page, i) => page.locator('table.kontakty tbody tr').evaluateAll((rs, j) => rs.map((r) => r.children[j]?.textContent.trim() ?? ''), i);
+for (const sirka of [1280, 390]) {
+  await blok050(`R057 ${sirka}`, async () => {
+    const { ctx, page } = await novaStranka('admin', { sirka, vyska: sirka < 768 ? 844 : 900 });
+    await jdi(page, '#/admin', 700);
+    const sel = page.locator('.filter-bar select[aria-label="Řazení"]');
+    const volby = await sel.locator('option').evaluateAll((os) => os.map((o) => o.value));
+    const hl = await sloupce(page);
+    over(`R57a ${sirka}`, JSON.stringify(volby) === JSON.stringify(['', 'zmena_nejnovejsi', 'zmena_nejstarsi', 'hovor_nejnovejsi', 'hovor_nejstarsi'])
+      && hl.includes('Změněno') && hl.includes('Poslední hovor'), 'Kontakty: čtyři řazení a sloupec Poslední hovor', JSON.stringify({ volby, hl }));
+    // od nejnovější změny: první je kontakt s nejpozdější poslední změnou (prodej z tohoto týdne, stav změnila automatizace,
+    // appka ho naposledy upravila před 5 dny) a Změněno ukazuje poslední změnu, ne updated_at
+    await sel.selectOption('zmena_nejnovejsi');
+    await klid(page, 600);
+    const s = await stav(page);
+    const nej = [...s.kontakty].sort((a, b) => new Date(b.posledni_zmena) - new Date(a.posledni_zmena))[0];
+    const radky = page.locator('table.kontakty tbody tr');
+    const zm = await bunkySloupce(page, hl.indexOf('Změněno'));
+    over(`R57b ${sirka}`, (await jmenoRadku(radky.first())).includes(nej.name) && zm[0] === (await casCs(page, nej.posledni_zmena))
+      && new Date(nej.updated_at) < new Date(nej.posledni_zmena) && zm[0] !== (await casCs(page, nej.updated_at)),
+      'od nejnovější změny: první kontakt změněný automatizací, Změněno ukazuje poslední změnu (ne updated_at)',
+      JSON.stringify({ prvni: await jmenoRadku(radky.first()), nej: nej.name, zm: zm[0], pz: nej.posledni_zmena, upd: nej.updated_at }));
+    // od posledního hovoru: první má nejnovější hovor (kohokoli), sloupec ukazuje jeho datum a čas, bez hovoru na konci
+    await sel.selectOption('hovor_nejnovejsi');
+    await klid(page, 600);
+    const hov = await bunkySloupce(page, hl.indexOf('Poslední hovor'));
+    const maxH = Math.max(...s.kontakty.map((k) => hovorMs(s, k.id) ?? 0));
+    const sHovorem = s.kontakty.filter((k) => hovorMs(s, k.id) !== null).length;
+    const v = (await volani(page)).filter((x) => x.fn === 'listKontakty' && x.args[0]?.limit === 50).pop();
+    over(`R57c ${sirka}`, hov[0] === (await casCs(page, new Date(maxH).toISOString())) && hov.slice(0, sHovorem).every((x) => x !== '—')
+      && hov.slice(sHovorem).every((x) => x === '—') && v?.args[0]?.razeni === 'hovor_nejnovejsi',
+      'od posledního hovoru: nejnovější hovor první s datem a časem, kontakty bez hovoru na konci, řazení jde na server',
+      JSON.stringify({ hov: hov.slice(0, 4), sHovorem, razeni: v?.args[0]?.razeni }));
+    // Moji klienti Petry (super admin): sloupec Poslední hovor s hovory všech (kontakt 2: Honza volal později než Petra)
+    await jdi(page, '#/moji', 700);
+    await page.selectOption('#person-picker', String(UID.petra));
+    await klid(page, 700);
+    const hlM = await sloupce(page);
+    const k2 = s.kontakty.find((k) => k.id === 2);
+    const radek2 = page.locator('table.kontakty tbody tr', { hasText: k2.name }).first();
+    const b2 = txt(await radek2.locator('td').nth(hlM.indexOf('Poslední hovor')).innerText());
+    const volbyM = await page.locator('.moji-filtry select[aria-label="Řazení"] option').evaluateAll((os) => os.map((o) => o.value));
+    over(`R57d ${sirka}`, hlM.includes('Poslední hovor') && b2 === (await casCs(page, new Date(hovorMs(s, 2)).toISOString())) && hovorMs(s, 2) > hovorMs(s, 2, UID.petra)
+      && volbyM.includes('hovor_nejnovejsi') && volbyM.includes('hovor_nejstarsi'),
+      'Moji klienti super admina: poslední hovor kohokoli (i kolegy), řazení podle hovoru', JSON.stringify({ hlM, b2, volbyM }));
+    if (sirka < 768) {
+      const w = await page.evaluate(() => document.documentElement.scrollWidth);
+      over(`R57e ${sirka}`, w <= sirka, 'sloupec posledního hovoru se na telefonu vejde (tabulka se posouvá uvnitř rámečku)', `scrollWidth ${w}`);
+    }
+    await ctx.close();
+  });
+}
+await blok050('R057 petra', async () => {
+  const { ctx, page } = await novaStranka('petra');
+  await jdi(page, '#/admin', 700);
+  const hl = await sloupce(page);
+  const popisky = await page.locator('.filter-bar select[aria-label="Řazení"] option').evaluateAll((os) => os.map((o) => o.textContent.trim()));
+  await page.selectOption('.filter-bar select[aria-label="Řazení"]', 'hovor_nejnovejsi');
+  await klid(page, 600);
+  const s = await stav(page);
+  const k2 = s.kontakty.find((k) => k.id === 2);
+  const iHov = hl.indexOf('Můj poslední hovor');
+  const radek2 = page.locator('table.kontakty tbody tr', { hasText: k2.name }).first();
+  const b2 = txt(await radek2.locator('td').nth(iHov).innerText());
+  const skryte = await page.locator('table.kontakty tbody tr').evaluateAll((rs, j) => rs.map((r) => [r.querySelector('td:nth-child(3) .skryto') !== null,
+    r.children[j]?.querySelector('.skryto') !== null]), iHov);
+  const prvniCizi = skryte.findIndex(([c]) => c);
+  const napoveda = txt(await page.locator('.skryto-napoveda').innerText().catch(() => ''));
+  over('R57f', iHov >= 0 && !hl.includes('Poslední hovor') && popisky.includes('Podle mého posledního hovoru (od nejnovějšího)')
+    && b2 === (await casCs(page, new Date(hovorMs(s, 2, UID.petra)).toISOString())) && hovorMs(s, 2) > hovorMs(s, 2, UID.petra)
+    && prvniCizi > 0 && skryte.slice(prvniCizi).every(([c, h]) => c && h) && /počítají se jen tvoje hovory/.test(napoveda),
+    'Volající: sloupec „Můj poslední hovor“ jen z jeho hovorů (pozdější hovor kolegy ne), svoji napřed, u cizích pomlčka, nápověda',
+    JSON.stringify({ hl, b2, prvniCizi, napoveda: napoveda.slice(0, 80) }));
+  await jdi(page, '#/moji', 700);
+  const hlM = await sloupce(page);
+  const b2m = txt(await page.locator('table.kontakty tbody tr', { hasText: k2.name }).first().locator('td').nth(hlM.indexOf('Můj poslední hovor')).innerText());
+  over('R57g', hlM.includes('Můj poslední hovor') && b2m === b2 && (await page.locator('select[aria-label="Řazení"]').count()) === 0,
+    'Volající v Moji klienti: „Můj poslední hovor“ jen z jeho hovorů, výběr řazení nemá (jako filtry 056)', JSON.stringify({ hlM, b2m }));
   await ctx.close();
 });
 
