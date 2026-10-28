@@ -392,7 +392,8 @@ await blok('U', async () => {
   over('U8b', /if \(t\.kontakt_id !== null && !moje\.has\(t\.kontakt_id\)\) out\.delete\(t\.id\);/.test(mockSrc), 'mock skrývá vlákna o cizím klientovi jako app_vlakna_viditelna');
   // stránky: Kontakty, detail a karta ve volání ukazují u cizího kontaktu jen základ
   const adminSrc = readFileSync(join(ROOT, 'src/pages/AdminPage.tsx'), 'utf8');
-  over('U9', (adminSrc.match(/jenZaklad\(r\) \? <Skryto \/> :/g) ?? []).length === 5, 'Kontakty: stav, známka, kdo volal, čekání a datum změny cizího kontaktu jsou pomlčka');
+  // ⚠ migrace 057 (Albert 28. 10. 2026): přibyl sloupec posledního hovoru, u cizího kontaktu taky pomlčka (6, NAHRAZUJE 5)
+  over('U9', (adminSrc.match(/jenZaklad\(r\) \? <Skryto \/> :/g) ?? []).length === 6, 'Kontakty: stav, známka, kdo volal, čekání, datum změny a poslední hovor cizího kontaktu jsou pomlčka');
   const drawerSrc = readFileSync(join(ROOT, 'src/components/KontaktDrawer.tsx'), 'utf8');
   over('U9b', /if \(jenZaklad\(kontakt\)\) \{\s*return \(/.test(drawerSrc), 'detail cizího kontaktu jen se základními údaji (bez stavu, poznámek, příznaku, zámku a vláken)');
   const callSrc = readFileSync(join(ROOT, 'src/pages/CallPage.tsx'), 'utf8');

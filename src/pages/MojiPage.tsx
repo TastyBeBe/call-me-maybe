@@ -17,6 +17,9 @@
 // (my_kontakty s p_status, p_rating, p_search, p_cekani, p_kos, p_razeni). Ostatním se nic nemění: jen klientské hledání
 // v načtených řádcích a výchozí pořadí, appka jim nové parametry neposílá. ⚠ NAHRAZUJE pro super admina „Fulltext filtr
 // je čistě klientský“ (výš).
+// Migrace 057 (Albert 28. 10. 2026): Změněno ukazuje posledni_zmena (i změny od automatizace; proti serveru bez 057
+// updated_at), nový sloupec s datem a časem posledního hovoru (všem; Volajícímu „Můj poslední hovor“, jen jeho hovory)
+// a super admin řadí i podle posledního hovoru (hovory všech lidí).
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -54,8 +57,11 @@ import {
   errMsg,
   formatCekani,
   formatDateTime,
+  hovorNadpis,
+  hovorNapoveda,
   jenZaklad,
   kontaktJmeno,
+  zmenenoKdy,
 } from '../ui';
 import { SearchIcon } from '../icons';
 
@@ -263,7 +269,11 @@ export default function MojiPage() {
       ? 'naposledy změnění nahoře'
       : razeni === 'zmena_nejstarsi'
         ? 'nejdéle nezměnění nahoře'
-        : 'nejdůležitější nahoře';
+        : razeni === 'hovor_nejnovejsi'
+          ? 'naposledy volaní nahoře'
+          : razeni === 'hovor_nejstarsi'
+            ? 'nejdéle nevolaní nahoře'
+            : 'nejdůležitější nahoře';
 
   return (
     <div>
@@ -401,6 +411,7 @@ export default function MojiPage() {
                 <th>Cena</th>
                 {isSuper && cekani ? <th>Čeká</th> : null}
                 <th>Změněno</th>
+                <th title={hovorNapoveda(!isSuper)}>{hovorNadpis(!isSuper)}</th>
               </tr>
             </thead>
             <tbody>
@@ -428,7 +439,10 @@ export default function MojiPage() {
                     </td>
                   ) : null}
                   <td style={{ whiteSpace: 'nowrap' }} className="muted zmeneno-cell">
-                    {formatDateTime(r.updated_at)}
+                    {formatDateTime(zmenenoKdy(r))}
+                  </td>
+                  <td style={{ whiteSpace: 'nowrap' }} className="muted hovor-cell">
+                    {formatDateTime(r.posledni_hovor ?? null)}
                   </td>
                 </tr>
               ))}

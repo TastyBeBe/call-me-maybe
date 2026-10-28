@@ -320,32 +320,80 @@ export function formatCekani(since: string | null | undefined): string {
 }
 
 /* ---------------------------------------------------------------------------
-   Řazení seznamů podle poslední změny (migrace 056, Albert 27. 10. 2026: „sort them … from the newest to the oldest
-   updated client“). Poslední změna = sloupec „Změněno“ (updated_at): změna v appce (hovor, úprava, příznak, kalendář),
-   ne změna stavu od agenta. Kontakty pro každého, Moji klienti jen super admin (jako jejich filtry).
+   Řazení seznamů (migrace 056, Albert 27. 10. 2026: „sort them … from the newest to the oldest updated client“;
+   ⚠ migrace 057, Albert 28. 10. 2026: „both filters. One for the latest change regarding anything like if we send them a
+   proposal or status change, and the second one should be just the last time they were called“). Poslední změna = sloupec
+   „Změněno“ (posledni_zmena: nejpozdější z úpravy v appce, změny stavu, odeslaného návrhu a odpovědí, i od automatizace;
+   ⚠ NAHRAZUJE „updated_at, ne změna stavu od agenta“ z 056). Poslední hovor = sloupec s datem a časem posledního hovoru
+   (posledni_hovor; Volajícímu jen jeho vlastní hovory, 045). Kontakty pro každého, Moji klienti jen super admin.
    --------------------------------------------------------------------------- */
 
 export const RAZENI_LABELS: Record<Razeni, string> = {
   zmena_nejnovejsi: 'Podle poslední změny (od nejnovější)',
   zmena_nejstarsi: 'Podle poslední změny (od nejstarší)',
+  hovor_nejnovejsi: 'Podle posledního hovoru (od nejnovějšího)',
+  hovor_nejstarsi: 'Podle posledního hovoru (od nejstaršího)',
+};
+
+/** Volajícímu se do posledního hovoru počítají jen jeho hovory (migrace 057, 045): popisky to říkají. */
+export const RAZENI_LABELS_MOJE: Record<Razeni, string> = {
+  ...RAZENI_LABELS,
+  hovor_nejnovejsi: 'Podle mého posledního hovoru (od nejnovějšího)',
+  hovor_nejstarsi: 'Podle mého posledního hovoru (od nejstaršího)',
 };
 
 export const ALL_RAZENI = Object.keys(RAZENI_LABELS) as Razeni[];
 
-/** Výběr řazení seznamu; '' = výchozí pořadí serveru. */
-export function RazeniSelect({ value, onChange }: { value: Razeni | ''; onChange: (r: Razeni | '') => void }) {
+/** Nadpis sloupce s posledním hovorem (migrace 057): Volajícímu „Můj poslední hovor“ (počítají se jen jeho hovory). */
+export function hovorNadpis(jenMojeHovory: boolean): string {
+  return jenMojeHovory ? 'Můj poslední hovor' : 'Poslední hovor';
+}
+
+/** Nápověda ke sloupci s posledním hovorem (title). */
+export function hovorNapoveda(jenMojeHovory: boolean): string {
+  return jenMojeHovory
+    ? 'Kdy jsi klientovi naposledy volal/a ty (hovory kolegů se nepočítají).'
+    : 'Kdy klientovi naposledy kdokoli volal (datum a čas hovoru).';
+}
+
+/**
+ * Čas pro sloupec „Změněno“ (migrace 057): posledni_zmena od serveru; když chybí (server bez 057, řádek z úpravy v detailu)
+ * nebo je starší, updated_at (úprava v appce ho posune hned, seznam se pak načte znovu).
+ */
+export function zmenenoKdy(k: Pick<Kontakt, 'updated_at' | 'posledni_zmena'>): string {
+  const z = k.posledni_zmena;
+  if (!z) return k.updated_at;
+  return new Date(z).getTime() >= new Date(k.updated_at).getTime() ? z : k.updated_at;
+}
+
+/**
+ * Výběr řazení seznamu; '' = výchozí pořadí serveru. `jenMojeHovory` = Volající: do posledního hovoru se mu počítají jen
+ * jeho hovory (migrace 057), popisky to říkají.
+ */
+export function RazeniSelect({
+  value,
+  onChange,
+  jenMojeHovory = false,
+}: {
+  value: Razeni | '';
+  onChange: (r: Razeni | '') => void;
+  jenMojeHovory?: boolean;
+}) {
+  const popisky = jenMojeHovory ? RAZENI_LABELS_MOJE : RAZENI_LABELS;
   return (
     <select
       className="razeni-select"
       value={value}
       onChange={(e) => onChange(e.target.value as Razeni | '')}
       aria-label="Řazení"
-      title="Poslední změna = sloupec Změněno (hovor, úprava, příznak nebo kalendář v appce)"
+      title={`Poslední změna = sloupec Změněno (úprava v appce, změna stavu, odeslaný návrh nebo odpověď, i od automatizace). Poslední hovor = ${
+        jenMojeHovory ? 'kdy jsi klientovi naposledy volal/a ty' : 'kdy klientovi naposledy kdokoli volal'
+      }.`}
     >
       <option value="">Řazení: výchozí</option>
       {ALL_RAZENI.map((r) => (
         <option key={r} value={r}>
-          {RAZENI_LABELS[r]}
+          {popisky[r]}
         </option>
       ))}
     </select>

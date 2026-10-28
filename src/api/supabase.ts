@@ -41,6 +41,17 @@ import type {
 export const BEZ_056_DEN = 'Statistiky za jeden den server ještě neumí (chybí na něm migrace 056). Statistiky celkem fungují dál.';
 export const BEZ_056_RAZENI = 'Řazení podle poslední změny server ještě neumí (chybí na něm migrace 056). Vyber výchozí řazení.';
 export const BEZ_056_FILTRY = 'Filtry a řazení v Moji klienti server ještě neumí (chybí na něm migrace 056). Zruš filtry a uvidíš všechny klienty.';
+/**
+ * Migrace 057 (Albert 28. 10. 2026): řazení podle posledního hovoru (hovor_nejnovejsi, hovor_nejstarsi) server bez 057
+ * odmítne hláškou „Neplatné řazení: …“ (056 zná jen zmena_*), server bez 056 PGRST202. Appka hodnoty posílá jen, když je
+ * člověk zvolí, a řekne, že to server ještě neumí. Řazení podle poslední změny jede proti serveru 056 dál (jen podle
+ * updated_at) a sloupec Změněno pak ukáže updated_at (zmenenoKdy v ui.tsx).
+ */
+export const BEZ_057_HOVOR = 'Řazení podle posledního hovoru server ještě neumí (chybí na něm migrace 057). Vyber jiné řazení.';
+/** Server odmítl řazení podle hovoru, protože ho nezná (bez 057 „Neplatné řazení“, bez 056 PGRST202). */
+const hovorNezna = (razeni: string | null | undefined, e: unknown): boolean =>
+  !!razeni && razeni.startsWith('hovor_') && e instanceof RpcChyba
+  && (e.kod === 'PGRST202' || e.message.startsWith(`Neplatné řazení: ${razeni}.`));
 
 /** Chyba z PostgREST i s kódem (`PGRST202` = funkce s těmi parametry na serveru není). */
 class RpcChyba extends Error {
@@ -188,6 +199,8 @@ export const supabaseApi: Api = {
         ...(f.razeni ? { p_razeni: f.razeni } : {}),
       });
     } catch (e) {
+      // migrace 057: řazení podle hovoru na serveru bez 057 (nebo bez 056) srozumitelně, ostatní řazení jako u 056
+      if (hovorNezna(f.razeni, e)) throw new Error(BEZ_057_HOVOR);
       if (f.razeni && e instanceof RpcChyba && e.kod === 'PGRST202') throw new Error(BEZ_056_RAZENI);
       throw e;
     }
@@ -221,6 +234,8 @@ export const supabaseApi: Api = {
         ...navic,
       });
     } catch (e) {
+      // migrace 057: řazení podle hovoru na serveru bez 057 srozumitelně (jako v Kontaktech)
+      if (hovorNezna(filtry?.razeni, e)) throw new Error(BEZ_057_HOVOR);
       if (Object.keys(navic).length > 0 && e instanceof RpcChyba && e.kod === 'PGRST202') throw new Error(BEZ_056_FILTRY);
       throw e;
     }

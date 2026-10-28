@@ -52,6 +52,7 @@ import {
   formatKdyVeta,
   formatRelativne,
   pravidloPopisek,
+  zmenenoKdy,
 } from '../ui';
 import { usePeople } from './PersonPicker';
 import ZavolatModal from './ZavolatModal';
@@ -726,7 +727,8 @@ export default function KontaktDrawer({
           <SegmentBadge kontakt={kontakt} />
         </p>
         <p className="meta-line">
-          naposledy volal/a: {kontakt.last_caller || '—'} · změněno {formatDateTime(kontakt.updated_at)}
+          {/* migrace 057: změněno = poslední změna jako sloupec Změněno v seznamu (z něj, jinak updated_at) */}
+          naposledy volal/a: {kontakt.last_caller || '—'} · změněno {formatDateTime(zmenenoKdy(kontakt))}
         </p>
         {kontakt.web && (
           <p className="meta-line">

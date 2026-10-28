@@ -103,10 +103,29 @@ export interface Kontakt {
   first_proposal_at: string | null;
   last_our_reply_at: string | null;
   last_client_reply_at: string | null;
+  /**
+   * kdy se naposledy změnil stav (trigger z migrace 013, i změna od automatizace: návrh odeslán, schváleno, faktura …);
+   * server ho v řádku posílá odjakživa (k.*), u starých kontaktů null. Migrace 057 z něj skládá poslední změnu.
+   */
+  status_changed_at?: string | null;
   /** odvozeno v list_kontakty — na koho se čeká a od kdy */
   cekani_kind?: CekaniKind | null;
   cekani_since?: string | null;
   cekani_kos?: CekaniKos | null;
+  /**
+   * Migrace 057 (Albert 28. 10. 2026: „One for the latest change regarding anything like if we send them a proposal or
+   * status change“): poslední změna = nejpozdější z updated_at, status_changed_at, first_proposal_at, last_our_reply_at
+   * a last_client_reply_at (sloupec Změněno, řazení zmena_*). Posílají ho jen list_kontakty a my_kontakty; u cizího
+   * kontaktu Volajícího chybí (allowlist, 045); server bez 057 ho neposílá a appka ukáže updated_at (zmenenoKdy v ui.tsx).
+   */
+  posledni_zmena?: string | null;
+  /**
+   * Migrace 057 („the second one should be just the last time they were called … the day they were called“): čas
+   * posledního hovoru z call_log (řazení hovor_*). Super admin a Albert hovory všech lidí, Volající JEN SVOJE, i u svých
+   * klientů (045: o hovorech kolegů nezjistí nic); null = žádný hovor, který se počítá. Jen list_kontakty a my_kontakty;
+   * u cizího kontaktu Volajícího chybí.
+   */
+  posledni_hovor?: string | null;
   /** migrace 023: kontakt patří přihlášenému (volal mu / je last_caller) */
   je_muj?: boolean;
   /**
@@ -184,9 +203,13 @@ export interface UserStats extends MyStats {
 
 /**
  * Řazení seznamů podle poslední změny kontaktu (migrace 056, Albert 27. 10. 2026: „sort them … from the newest to the
- * oldest updated client“) = sloupec „Změněno“ (`updated_at`). null / chybí = výchozí pořadí serveru.
+ * oldest updated client“) = sloupec „Změněno“. null / chybí = výchozí pořadí serveru.
+ * ⚠ Migrace 057 (Albert 28. 10. 2026: „both filters. One for the latest change regarding anything … and the second one
+ * should be just the last time they were called“): poslední změna = posledni_zmena (i změna stavu, odeslaný návrh
+ * a odpovědi od automatizace; NAHRAZUJE „updated_at“ z 056) a navíc hovor_* podle posledního hovoru (posledni_hovor,
+ * kontakty bez hovoru na konci). Server bez 057 hovor_* odmítne („Neplatné řazení“, appka řekne BEZ_057_HOVOR).
  */
-export type Razeni = 'zmena_nejnovejsi' | 'zmena_nejstarsi';
+export type Razeni = 'zmena_nejnovejsi' | 'zmena_nejstarsi' | 'hovor_nejnovejsi' | 'hovor_nejstarsi';
 
 /**
  * Filtry Moji klienti (migrace 056, Albert 27. 10. 2026: „the same like filters as we have in the contacts … this only
@@ -316,7 +339,8 @@ export interface ListKontaktyFilters {
   kos?: CekaniKos | null;
   /** segment (migrace 028); null / chybí = vše */
   segment?: Segment | null;
-  /** řazení podle poslední změny (migrace 056); null / chybí = výchozí pořadí; Volajícímu jen mezi jeho klienty */
+  /** řazení podle poslední změny (migrace 056) nebo posledního hovoru (057); null / chybí = výchozí pořadí; Volajícímu jen mezi
+   *  jeho klienty (a do posledního hovoru jen jeho hovory) */
   razeni?: Razeni | null;
   limit?: number;
   offset?: number;

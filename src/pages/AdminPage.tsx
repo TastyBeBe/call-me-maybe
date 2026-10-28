@@ -34,8 +34,11 @@ import {
   errMsg,
   formatCekani,
   formatDateTime,
+  hovorNadpis,
+  hovorNapoveda,
   jenZaklad,
   kontaktJmeno,
+  zmenenoKdy,
 } from '../ui';
 import {
   ArrowLeftIcon,
@@ -62,6 +65,11 @@ const PAGE_SIZE = 50;
 // Migrace 056 (Albert 27. 10. 2026: „sort them … from the newest to the oldest updated client“): výběr řazení podle
 // poslední změny (sloupec Změněno, od nejnovější nebo nejstarší) pro každého; Volajícímu server podle změny řadí jen
 // jeho klienty, cizí kontakty jsou dál za nimi jen podle id (045). Výchozí pořadí beze změny.
+// Migrace 057 (Albert 28. 10. 2026: „both filters. One for the latest change regarding anything … and the second one should
+// be just the last time they were called“): Změněno ukazuje posledni_zmena (i změna stavu, návrh a odpovědi od
+// automatizace; ⚠ NAHRAZUJE updated_at z 056, proti serveru bez 057 dál updated_at) a nový sloupec poslední hovor s datem
+// a časem (posledni_hovor); řazení i podle posledního hovoru. Volajícímu se do něj počítají jen jeho hovory (045), sloupec
+// se mu jmenuje „Můj poslední hovor“ a u cizího kontaktu je pomlčka.
 export default function AdminPage() {
   const session = useSession();
   const isAdmin = isAdminRole(session.role);
@@ -309,6 +317,7 @@ export default function AdminPage() {
             setRazeni(r);
             setPage(0);
           }}
+          jenMojeHovory={!isSuper}
         />
         <div className="search-wrap search-wide">
           <input
@@ -330,7 +339,11 @@ export default function AdminPage() {
       {!isSuper && (
         <p className="muted skryto-napoveda" style={{ fontSize: 13.5, margin: '0 0 10px' }}>
           {SKRYTO_NAPOVEDA} Filtr stavu, známky a čekání a hledání v poznámce berou jen tvoje klienty.
-          {razeni ? ' Podle poslední změny se řadí jen tvoji klienti, ostatní kontakty jsou za nimi.' : ''}
+          {razeni
+            ? razeni.startsWith('hovor_')
+              ? ' Podle posledního hovoru se řadí jen tvoji klienti a počítají se jen tvoje hovory, ostatní kontakty jsou za nimi.'
+              : ' Podle poslední změny se řadí jen tvoji klienti, ostatní kontakty jsou za nimi.'
+            : ''}
         </p>
       )}
 
@@ -390,6 +403,7 @@ export default function AdminPage() {
                 <th>Web</th>
                 {cekani ? <th>Čeká</th> : null}
                 <th>Změněno</th>
+                <th title={hovorNapoveda(!isSuper)}>{hovorNadpis(!isSuper)}</th>
               </tr>
             </thead>
             <tbody>
@@ -426,8 +440,11 @@ export default function AdminPage() {
                       {jenZaklad(r) ? <Skryto /> : formatCekani(r.cekani_since)}
                     </td>
                   ) : null}
-                  <td style={{ whiteSpace: 'nowrap' }} className="muted">
-                    {jenZaklad(r) ? <Skryto /> : formatDateTime(r.updated_at)}
+                  <td style={{ whiteSpace: 'nowrap' }} className="muted zmeneno-cell">
+                    {jenZaklad(r) ? <Skryto /> : formatDateTime(zmenenoKdy(r))}
+                  </td>
+                  <td style={{ whiteSpace: 'nowrap' }} className="muted hovor-cell">
+                    {jenZaklad(r) ? <Skryto /> : formatDateTime(r.posledni_hovor ?? null)}
                   </td>
                 </tr>
               ))}
