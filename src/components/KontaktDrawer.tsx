@@ -34,6 +34,7 @@ import {
   ErrorBox,
   FLAG_COLORS,
   FLAG_LABELS,
+  STATUS_DUVOD_MAX,
   STATUS_LABELS,
   SegmentBadge,
   SKRYTO_NAPOVEDA,
@@ -52,6 +53,7 @@ import {
   formatKdyVeta,
   formatRelativne,
   pravidloPopisek,
+  stavChceDuvod,
   zmenenoKdy,
 } from '../ui';
 import { usePeople } from './PersonPicker';
@@ -582,6 +584,11 @@ export default function KontaktDrawer({
   // řádek vloží) dostane osobní IČO jen, když kontakt smí upravit (audit APP-5).
   const onSaved = (updated: Kontakt) => predatStrance?.(bezCizihoIco(updated));
   const [status, setStatus] = useState<KontaktStatus>(kontakt.status);
+  // Migrace 059 (Albert 30. 10. 2026): změna stavu chce krátký důvod (server ho bez něj odmítne; Albert ho mít nemusí).
+  // Pole se ukáže, jen když se stav v rozbalovacím seznamu změní; důvod jde serveru jako status_duvod.
+  const [duvod, setDuvod] = useState('');
+  const stavZmenen = status !== kontakt.status;
+  const duvodChybi = stavZmenen && stavChceDuvod(session.user_id) && duvod.trim() === '';
   const [email, setEmail] = useState(kontakt.email ?? '');
   const [note, setNote] = useState(kontakt.note ?? '');
   const [cenaWeb, setCenaWeb] = useState(kontakt.cena_web ?? '');
@@ -630,7 +637,11 @@ export default function KontaktDrawer({
 
   const save = async () => {
     const patch: Record<string, unknown> = {};
-    if (status !== kontakt.status) patch.status = status;
+    if (status !== kontakt.status) {
+      patch.status = status;
+      // migrace 059: důvod jen ke změně stavu (status_duvod bez status server odmítne)
+      if (duvod.trim()) patch.status_duvod = duvod.trim();
+    }
     if (email !== (kontakt.email ?? '')) patch.email = email.trim() || null;
     if (note !== (kontakt.note ?? '')) patch.note = note || null;
     // migrace 051 (po revizi DB 22. 10. 2026): prázdné nebo zástupné pole („n/a“, „x“, „0“) = null, ne text „n/a“;
@@ -651,6 +662,7 @@ export default function KontaktDrawer({
       // napsané „n/a“ se uložilo jako null: pole ukáže uloženou cenu (prázdné s nápovědou „n/a“), ne rozepsaný text
       if ('cena_web' in patch) setCenaWeb(updated.cena_web ?? '');
       if ('cena_hosting' in patch) setCenaHosting(updated.cena_hosting ?? '');
+      if ('status' in patch) setDuvod('');
       setSavedFlash(true);
       setTimeout(() => setSavedFlash(false), 1500);
     } catch (e) {
@@ -817,6 +829,25 @@ export default function KontaktDrawer({
                 ))}
               </select>
             </div>
+            {stavZmenen && (
+              <div className="field duvod-stavu">
+                <label htmlFor="duvod-stavu">
+                  Proč měníš stav{stavChceDuvod(session.user_id) ? '' : ' (nepovinné)'}
+                </label>
+                <textarea
+                  id="duvod-stavu"
+                  rows={2}
+                  maxLength={STATUS_DUVOD_MAX}
+                  value={duvod}
+                  placeholder="Krátce, třeba „nechce web, řekl v telefonu“"
+                  onChange={(e) => setDuvod(e.target.value)}
+                />
+                <p className="muted" style={{ fontSize: 13.5, margin: '6px 0 0' }}>
+                  Z „{STATUS_LABELS[kontakt.status] ?? kontakt.status}“ na „{STATUS_LABELS[status] ?? status}“. Důvod si
+                  přečte automatizace a podle něj pokračuje (třeba u „Odmítnuto“ po návrhu pošle jednu nabídku poloviční ceny).
+                </p>
+              </div>
+            )}
             <div className="field">
               <label>Známka zájmu</label>
               <select value={rating} onChange={(e) => setRating(e.target.value)}>
@@ -860,7 +891,8 @@ export default function KontaktDrawer({
 
         {!obsahJenCteni && (
           <div style={{ display: 'flex', gap: 10 }}>
-            <button className="pill-btn go" onClick={() => void save()} disabled={busy || !dirty}>
+            <button className="pill-btn go" onClick={() => void save()} disabled={busy || !dirty || duvodChybi}
+              title={duvodChybi ? 'Napiš krátce, proč stav měníš' : undefined}>
               {busy ? 'Ukládám…' : 'Uložit změny'}
             </button>
             <button className="pill-btn" onClick={onClose} disabled={busy}>

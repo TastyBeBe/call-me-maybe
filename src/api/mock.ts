@@ -136,7 +136,9 @@ function k(partial: Partial<Kontakt> & { id: number }): Kontakt {
 /** Čekání na odpověď (migrace 014) — stejná pravidla jako SQL kontakt_cekani/kontakt_kos. */
 function cekaniOf(c: Kontakt): { kind: CekaniKind | null; since: string | null } {
   // migrace 050 (Albert 21. 10. 2026): nerelevantni nikdy nečeká, jako odmitnuto
-  if (['zaplaceno', 'domena_pripojena', 'hotovo', 'odmitnuto', 'pozastaveno', 'nerelevantni'].includes(c.status))
+  // migrace 059 (Albert 30. 10. 2026): ani nekontaktovat, bez_odpovedi a pozdeji (má vlastní budík); sleva_nabidnuta čeká
+  if (['zaplaceno', 'domena_pripojena', 'hotovo', 'odmitnuto', 'pozastaveno', 'nerelevantni',
+       'nekontaktovat', 'bez_odpovedi', 'pozdeji'].includes(c.status))
     return { kind: null, since: null };
   if (c.last_client_reply_at && c.last_our_reply_at && c.last_our_reply_at > c.last_client_reply_at)
     return { kind: 'ceka_po_odpovedi', since: c.last_our_reply_at };
@@ -1447,6 +1449,9 @@ function statsFor(userId: number, den: string | null = null): MyStats {
   };
 }
 
+// Pořadí jako list_kontakty a my_kontakty na serveru (migrace 059, Albert 30. 10. 2026): nové stavy vedle příbuzných
+// (sleva_nabidnuta za navrh_odeslan, pozdeji za ceka_na_klienta, bez_odpovedi a nekontaktovat za odmitnuto), pořadí
+// dosavadních stavů mezi sebou beze změny; nerelevantni poslední (server: else 40)
 const STATUS_ORDER: Record<string, number> = {
   eskalace: 0,
   zajem: 1,
@@ -1455,16 +1460,20 @@ const STATUS_ORDER: Record<string, number> = {
   upravy_ve_vyrobe: 4,
   web_ve_vyrobe: 5,
   navrh_odeslan: 6,
-  faktura_odeslana: 7,
-  ceka_na_klienta: 8,
-  domena_pripojena: 9,
-  hotovo: 10,
-  pozastaveno: 11,
+  sleva_nabidnuta: 7,
+  faktura_odeslana: 8,
+  ceka_na_klienta: 9,
+  pozdeji: 10,
+  domena_pripojena: 11,
+  hotovo: 12,
+  pozastaveno: 13,
   nedovolano: 20,
   nekontaktovano: 21,
   odmitnuto: 30,
-  // migrace 050: nerelevantní hned za odmítnutými (konečný stav, nevolá se)
-  nerelevantni: 31,
+  bez_odpovedi: 31,
+  nekontaktovat: 32,
+  // migrace 050: nerelevantní na konci, za odmítnutými (konečný stav, nevolá se; server else 40)
+  nerelevantni: 40,
 };
 
 function startOfToday(): number {
@@ -2515,6 +2524,8 @@ const mockApiZaklad: Api = {
       'lovable_project_id', 'live_url', 'clear_lock',
       'flag_kind', 'flag_note',
       'firma', 'mesto', 'ico_osobni', 'ico_firma', 'dph_osobni', 'dph_firma',
+      // migrace 059: důvod ruční změny stavu (jen se status)
+      'status_duvod',
     ];
     if (!patch || Object.keys(patch).length === 0) fail('Prázdný patch — není co měnit.');
     for (const key of Object.keys(patch)) {
@@ -2541,6 +2552,19 @@ const mockApiZaklad: Api = {
       if (v && me.id !== OWNER_ID && !namesOf(ownPeopleIds(me)).includes(v)) {   // migrace 027: jen na SVÉ lidi
         fail('Kontakt můžete přeřadit jen sobě nebo svým lidem.');
       }
+    }
+    // Migrace 059 (Albert 30. 10. 2026): změna stavu chce krátký důvod (status_duvod, nejvýš 500 znaků), Albert ne; server
+    // zapíše událost stav_rucne se starým a novým stavem a důvodem (mock události nevede). Stejné hlášky jako server.
+    if ('status_duvod' in patch && !('status' in patch)) {
+      fail('Důvod změny stavu (status_duvod) patří jen ke změně stavu (status).');
+    }
+    if ('status' in patch) {
+      const novy = patch.status === null || patch.status === undefined ? null : String(patch.status);
+      const duvod = String(patch.status_duvod ?? '').replace(/\s+/g, ' ').trim();
+      if (novy !== kontakt.status && duvod === '' && me.id !== OWNER_ID) {
+        fail(`Napište krátce důvod změny stavu (z ${kontakt.status} na ${novy}). Bez důvodu stav změnit nejde.`);
+      }
+      if (novy !== kontakt.status && duvod.length > 500) fail('Důvod změny stavu je moc dlouhý: nejvýš 500 znaků.');
     }
     const target = kontakt as unknown as Record<string, unknown>;
     // migrace 045 (recenze 20. 10. 2026): poznámku a poznámku příznaku dostal Volající maskovanou; řádky kolegů jsou
@@ -2607,6 +2631,7 @@ const mockApiZaklad: Api = {
     }
     const stavPred = kontakt.status;
     for (const [key, value] of Object.entries(patch)) {
+      if (key === 'status_duvod') continue;   // migrace 059: důvod není sloupec kontaktu
       if (key === 'flag_kind') {
         kontakt.flag_kind = druh as FlagKind | null;
       } else if (key === 'flag_note') {
