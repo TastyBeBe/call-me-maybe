@@ -539,7 +539,7 @@ await blok('N', async () => {
   const moji = (await api.myKontakty(petra, 500, 0)).rows.map((x) => x.status);
   const iOdm = moji.lastIndexOf('odmitnuto');
   const iNer = moji.indexOf('nerelevantni');
-  over('N9', iOdm >= 0 && iNer > iOdm && moji.slice(iNer).every((s) => s === 'nerelevantni'), 'Moji klienti: nerelevantní na konci, za odmítnutými (STATUS_ORDER 31)', moji.join());
+  over('N9', iOdm >= 0 && iNer > iOdm && moji.slice(iNer).every((s) => s === 'nerelevantni'), 'Moji klienti: nerelevantní na konci, za odmítnutými (STATUS_ORDER 40 jako server od migrace 059; dřív 31)', moji.join());
 });
 
 /* ---------------- P) přeplánovat: čas, kalendář, fronta, uzavření a cizí hovor ---------------- */
@@ -925,6 +925,78 @@ await blok('D', async () => {
   over('D10', /patch\.cena_web = cenaProServer\(cenaWeb\);/.test(drawer) && /patch\.cena_hosting = cenaProServer\(cenaHosting\);/.test(drawer)
     && (drawer.match(/placeholder=\{CENA_NA\}/g) ?? []).length === 2,
     'detail: obě pole cen se ukládají přes cenaProServer („n/a“ = null) a mají nápovědu „n/a“');
+});
+
+/* ---------------- X) stavy z migrace 059 (Albert 30. 10. 2026): popisky, barvy, čekání, pořadí, důvod ruční změny stavu ---------------- */
+// Server: db/migration_059_stavy_skutecnost.sql (test db/tests/test_059_stavy_skutecnost.sql); mock musí hlásit totéž.
+await blok('X', async () => {
+  const NOVE = { sleva_nabidnuta: 'Nabídnuta sleva', bez_odpovedi: 'Neodpověděl', pozdeji: 'Ozve se později', nekontaktovat: 'Nekontaktovat' };
+  over('X1', Object.entries(NOVE).every(([s, l]) => U.STATUS_LABELS[s] === l && U.ALL_STATUSES.includes(s)) && U.ALL_STATUSES.length === 20,
+    'čtyři nové stavy mají české popisky a jsou ve výběru (20 stavů)', U.ALL_STATUSES.join());
+  const barvy = U.ALL_STATUSES.map((s) => U.STATUS_COLORS[s]?.bg);
+  over('X2', Object.keys(NOVE).every((s) => U.STATUS_COLORS[s]?.bg && U.STATUS_COLORS[s]?.fg) && new Set(barvy).size === barvy.length,
+    'každý stav má vlastní barvu (nové nejsou stejné jako jiný stav)', barvy.join());
+  over('X3', U.stavChceDuvod(2) === true && U.stavChceDuvod(1) === false && U.STATUS_DUVOD_MAX === 500,
+    'důvod změny stavu chce každý kromě Alberta (users.id 1), nejvýš 500 znaků');
+  // vlastní klient Petry (smí ho upravit) pro změny stavu
+  const mojiRows = (await api.myKontakty(petra, 500, 0)).rows.filter((r) => r.smi_upravit !== false);
+  const k = mojiRows.find((r) => r.status === 'navrh_odeslan') ?? mojiRows[0];
+  if (!k) { over('X0', false, 'Petra nemá vlastního klienta, test by nic neměřil'); return; }
+  const stary = k.status;
+  const cil = stary === 'odmitnuto' ? 'pozdeji' : 'odmitnuto';
+  await chyba('X4', () => api.updateKontakt(petra, k.id, { status: cil }),
+    presne(`Napište krátce důvod změny stavu (z ${stary} na ${cil}). Bez důvodu stav změnit nejde.`), 'Volající bez důvodu stav nezmění (hláška jako server)');
+  await chyba('X5', () => api.updateKontakt(petra, k.id, { status: cil, status_duvod: '  \n\t ' }),
+    /^Napište krátce důvod změny stavu/, 'důvod jen z mezer je jako žádný');
+  await chyba('X6', () => api.updateKontakt(petra, k.id, { status: cil, status_duvod: 'a'.repeat(501) }),
+    presne('Důvod změny stavu je moc dlouhý: nejvýš 500 znaků.'), 'důvod delší než 500 znaků neprojde');
+  await chyba('X7', () => api.updateKontakt(petra, k.id, { status_duvod: 'jen důvod' }),
+    presne('Důvod změny stavu (status_duvod) patří jen ke změně stavu (status).'), 'důvod bez změny stavu neprojde');
+  over('X8', (await radek(k.id)).status === stary, 'odmítnutá změna stav nezměnila');
+  const ok = await api.updateKontakt(petra, k.id, { status: cil, status_duvod: 'nechce web, řekl v telefonu' });
+  over('X9', ok.status === cil && (await radek(k.id)).status === cil && !('status_duvod' in (await radek(k.id))),
+    's důvodem projde, důvod se do kontaktu neuloží (server ho píše do události stav_rucne)');
+  await api.updateKontakt(petra, k.id, { status: cil });
+  over('X10', (await radek(k.id)).status === cil, 'stejný stav bez důvodu projde (žádná změna stavu)');
+  await api.updateKontakt(albert, k.id, { status: stary });
+  over('X11', (await radek(k.id)).status === stary, 'Albert změní stav i bez důvodu');
+  // čekání (kontakt_cekani 059): nekontaktovat, bez_odpovedi a pozdeji nečekají, sleva_nabidnuta čeká
+  const ceka = async () => (await api.listKontakty(albert, { cekani: 'ceka_prvni', limit: 1000 })).rows.map((x) => x.id);
+  const pred = await ceka();
+  const vzor = pred[0];
+  if (vzor === undefined) { over('X12', false, 'žádný kontakt nečeká na první odpověď, test by nic neměřil'); return; }
+  const puvodni = (await radek(vzor)).status;
+  const vysl = {};
+  for (const s of ['sleva_nabidnuta', 'bez_odpovedi', 'pozdeji', 'nekontaktovat']) {
+    await api.updateKontakt(albert, vzor, { status: s });
+    vysl[s] = (await ceka()).includes(vzor);
+  }
+  await api.updateKontakt(albert, vzor, { status: puvodni });
+  over('X12', vysl.sleva_nabidnuta === true && vysl.bez_odpovedi === false && vysl.pozdeji === false && vysl.nekontaktovat === false
+    && (await ceka()).includes(vzor), 'čekání: sleva_nabidnuta čeká, bez_odpovedi, pozdeji a nekontaktovat ne (jako server)', JSON.stringify(vysl));
+  // pořadí v seznamech jako server: sleva_nabidnuta za navrh_odeslan, pozdeji za ceka_na_klienta, bez_odpovedi a nekontaktovat
+  // za odmitnuto, nerelevantni poslední (Petřiny klienti, Albert jim stavy nastaví a pak vrátí)
+  const sady = ['navrh_odeslan', 'sleva_nabidnuta', 'ceka_na_klienta', 'pozdeji', 'odmitnuto', 'bez_odpovedi', 'nekontaktovat', 'nerelevantni'];
+  const vybrani = mojiRows.slice(0, sady.length);
+  if (vybrani.length < sady.length) { over('X13', false, `Petra má jen ${vybrani.length} vlastních klientů, test pořadí by nic neměřil`); return; }
+  const puvodniStavy = vybrani.map((r) => r.status);
+  for (let i = 0; i < sady.length; i += 1) await api.updateKontakt(albert, vybrani[i].id, { status: sady[i] });
+  const poradi = (await api.myKontakty(petra, 500, 0)).rows.filter((r) => vybrani.some((v) => v.id === r.id)).map((r) => r.status);
+  for (let i = 0; i < sady.length; i += 1) await api.updateKontakt(albert, vybrani[i].id, { status: puvodniStavy[i] });
+  over('X13', JSON.stringify(poradi.filter((s) => s !== 'eskalace' && s !== 'zajem')) === JSON.stringify(sady),
+    'Moji klienti řadí nové stavy vedle příbuzných a nerelevantní na konec (STATUS_ORDER jako server 059)', poradi.join());
+  // supabase.ts pošle důvod serveru v p_patch beze změny
+  const pred2 = odeslano.length;
+  await supabaseApi.updateKontakt('t', 7, { status: 'odmitnuto', status_duvod: 'nechce' }).catch(() => null);
+  const posl = odeslano.slice(pred2).find((o) => o.url.includes('/rpc/update_kontakt'));
+  over('X14', posl?.body?.p_patch?.status === 'odmitnuto' && posl?.body?.p_patch?.status_duvod === 'nechce',
+    'supabase.ts posílá status_duvod v p_patch update_kontakt', JSON.stringify(posl?.body ?? null));
+  // detail kontaktu (klikání měří e2e): pole důvodu jen při změně stavu, bez důvodu tlačítko neuloží (kromě Alberta)
+  const drawer = readFileSync(join(ROOT, 'src/components/KontaktDrawer.tsx'), 'utf8');
+  over('X15', /const duvodChybi = stavZmenen && stavChceDuvod\(session\.user_id\) && duvod\.trim\(\) === '';/.test(drawer)
+    && /if \(duvod\.trim\(\)\) patch\.status_duvod = duvod\.trim\(\);/.test(drawer) && /disabled=\{busy \|\| !dirty \|\| duvodChybi\}/.test(drawer)
+    && /\{stavZmenen && \(/.test(drawer) && /maxLength=\{STATUS_DUVOD_MAX\}/.test(drawer),
+    'detail: pole důvodu jen při změně stavu, nejvýš 500 znaků, bez důvodu nejde uložit, důvod jde jako status_duvod');
 });
 
 if (chyby === 0) {

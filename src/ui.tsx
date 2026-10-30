@@ -13,6 +13,7 @@ import type {
 import { CompassIcon, FlagIcon, HomeIcon } from './icons';
 import { isoDen, posunDen, prahaCas, prahaDen } from './praha';
 import { SEGMENTY, segmentOf } from './segment';
+import { OWNER_USER_ID } from './roles';
 
 /** České popisky statusů kontaktu. */
 export const STATUS_LABELS: Record<KontaktStatus, string> = {
@@ -21,10 +22,18 @@ export const STATUS_LABELS: Record<KontaktStatus, string> = {
   odmitnuto: 'Odmítnuto',
   // migrace 050 (Albert 21. 10. 2026): kontakt není relevantní (starší člověk, není majitel); nevolá se, nepíše se
   nerelevantni: 'Nerelevantní',
+  // migrace 059 (Albert 30. 10. 2026): nechce, abychom mu psali nebo volali; automatizace mu nic nepošle
+  nekontaktovat: 'Nekontaktovat',
   zajem: 'Mají zájem',
   web_ve_vyrobe: 'Web ve výrobě',
   navrh_odeslan: 'Návrh odeslán',
+  // migrace 059: odešla jednorázová nabídka poloviční ceny a čeká se na odpověď
+  sleva_nabidnuta: 'Nabídnuta sleva',
   ceka_na_klienta: 'Čeká na klienta',
+  // migrace 059: klient si řekl o čas
+  pozdeji: 'Ozve se později',
+  // migrace 059: návrh i nabídka odešly, klient do lhůty nenapsal
+  bez_odpovedi: 'Neodpověděl',
   upravy_ve_vyrobe: 'Úpravy ve výrobě',
   schvaleno: 'Schváleno',
   faktura_odeslana: 'Faktura odeslána',
@@ -37,6 +46,15 @@ export const STATUS_LABELS: Record<KontaktStatus, string> = {
 
 export const ALL_STATUSES = Object.keys(STATUS_LABELS) as KontaktStatus[];
 
+/**
+ * Důvod ruční změny stavu (migrace 059, Albert 30. 10. 2026): server (update_kontakt) změnu stavu bez krátkého důvodu
+ * odmítne; Albert (users.id 1) ho mít nemusí. Nejvýš 500 znaků, mezery a konce řádků server sloučí.
+ */
+export const STATUS_DUVOD_MAX = 500;
+export function stavChceDuvod(userId: number): boolean {
+  return userId !== OWNER_USER_ID;
+}
+
 /** Barvy status badge — výrazné, rozlišitelné, v paletě appky. */
 export const STATUS_COLORS: Record<KontaktStatus, { bg: string; fg: string }> = {
   nekontaktovano: { bg: '#fdf6e9', fg: '#7b7695' },
@@ -44,6 +62,14 @@ export const STATUS_COLORS: Record<KontaktStatus, { bg: string; fg: string }> = 
   odmitnuto: { bg: '#b9b3a7', fg: '#221e33' },
   // klidná šedofialová: konečný stav jako odmítnuto, ale jiná barva (nepočítá se jako odmítnutí)
   nerelevantni: { bg: '#c9c0e0', fg: '#221e33' },
+  // migrace 059 (Albert 30. 10. 2026): tmavá vínová = nepsat, nevolat (jiná než eskalace a odmítnuto)
+  nekontaktovat: { bg: '#7a2e3a', fg: '#fdf6e9' },
+  // světle lososová vedle Návrh odeslán: nabídka odešla, čeká se
+  sleva_nabidnuta: { bg: '#f3b49b', fg: '#221e33' },
+  // klidná modrá: ozve se později (má vlastní budík)
+  pozdeji: { bg: '#9fc6dc', fg: '#221e33' },
+  // světlá teplá šedá vedle Odmítnuto: neodpověděl
+  bez_odpovedi: { bg: '#e3dccf', fg: '#221e33' },
   zajem: { bg: '#3ea45c', fg: '#fdf6e9' },
   web_ve_vyrobe: { bg: '#d95b32', fg: '#fdf6e9' },
   navrh_odeslan: { bg: '#e4926f', fg: '#221e33' },

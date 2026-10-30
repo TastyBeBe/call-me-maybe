@@ -33,7 +33,20 @@ export type KontaktStatus =
    * Migrace 050 (Albert 21. 10. 2026): volající zjistil, že kontakt není relevantní (starší člověk, není majitel,
    * objekt neexistuje). Konečný stav jako odmitnuto (nevolá se, nepíše se), do statistik se nepočítá jako odmítnutí.
    */
-  | 'nerelevantni';
+  | 'nerelevantni'
+  /*
+   * Migrace 059 (Albert 30. 10. 2026: „make sure that the status which is displayed next to each client truly reflects on
+   * what's going on with that client“; docs/PLAYBOOK.md [2026-10-30]):
+   *   sleva_nabidnuta  odešla jednorázová nabídka poloviční ceny, čeká se na odpověď (po 14 dnech bez odpovědi tick
+   *                    nastaví odmitnuto, po připomínce kampaně bez_odpovedi)
+   *   bez_odpovedi     návrh i nabídka odešly, klient do lhůty nenapsal
+   *   pozdeji          klient si řekl o čas („ozvu se později“)
+   *   nekontaktovat    nechce, abychom mu psali nebo volali; konečný jako nerelevantni, automatizace mu nic nepošle
+   */
+  | 'sleva_nabidnuta'
+  | 'bez_odpovedi'
+  | 'pozdeji'
+  | 'nekontaktovat';
 
 export type Rating = 'A' | 'B' | 'C';
 
