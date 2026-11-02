@@ -25,12 +25,14 @@ import {
   useOkno,
 } from '../ui';
 import ZavolatModal, { PREPLANOVAT_NEJDRIV_MIN } from '../components/ZavolatModal';
+import PrehledPanel from '../components/PrehledPanel';
 import {
   AlarmIcon,
   ArrowDownIcon,
   CheckIcon,
   CompassIcon,
   FlagIcon,
+  HvezdaIcon,
   PartyIcon,
   PhoneOffIcon,
   StarIcon,
@@ -156,6 +158,9 @@ export default function CallPage() {
   const [cenaHosting, setCenaHosting] = useState('');
   const [email, setEmail] = useState('');
   const [rating, setRating] = useState<Rating | ''>('');
+  // migrace 060 (Albert 1. 11. 2026: „callers star at the first call“): hvězda „velký zájem“ se dá až po uloženém zájmu
+  // (nastav_hvezdu za resolve_call; nejde-li, hovor je uložený a appka to řekne)
+  const [hvezda, setHvezda] = useState(false);
   const [note, setNote] = useState('');
   // Kliknul na číslo (tel:). Karta je pak rozdělaná: přepnutí segmentu ji tiše nevrátí
   // a „Přepnout hned“ nabídne zapsat Nedovoláno (audit APP-3).
@@ -189,6 +194,7 @@ export default function CallPage() {
     setCenaWeb('');
     setCenaHosting('');
     setRating('');
+    setHvezda(false);
     setNote('');
     setVytoceno(false);
     let next: Kontakt | null = null;
@@ -373,7 +379,17 @@ export default function CallPage() {
         ...(outcome === 'preplanovano' ? { kdy: extra.kdy ?? null } : {}),
       });
       audio.play('success');
-      await loadNext();
+      // migrace 060: hvězda až po uloženém zájmu (kontakt je teď volajícího, smí ji dát); chyba hovor nevrací, jen se ukáže
+      let hlaska = '';
+      if (outcome === 'zajem' && hvezda) {
+        try {
+          await getApi().nastavHvezdu(session.token, kontakt.id, true, null);
+        } catch (e) {
+          hlaska = `Zájem je uložený, ale hvězdu se nepodařilo dát (${errMsg(e)}). Dej ji v detailu klienta v Moji klienti.`;
+          audio.play('error');
+        }
+      }
+      await loadNext(hlaska);
       return null;
     } catch (e) {
       const msg = errMsg(e);
@@ -601,6 +617,10 @@ export default function CallPage() {
           </div>
         )}
 
+        {/* Migrace 060 (Albert 1. 11. 2026): přehled klienta nad poznámkami jen u vlastního klienta (opakovaný hovor,
+            karta z kalendáře); karta kontaktu, kterému Volající ještě nevolal, ho nemá (045). Bez faktů navíc se neukáže. */}
+        {!jenZaklad(kontakt) && <PrehledPanel kontakt={kontakt} naKarte />}
+
         {kontakt.note && (
           <>
             <div className="call-row" style={{ marginTop: 10 }}>
@@ -692,6 +712,12 @@ export default function CallPage() {
               <span className="muted" style={{ fontSize: 12.5 }}>
                 A = žhaví · B = zájem · C = chtějí, ale vlažně
               </span>
+              {/* migrace 060 (Albert 1. 11. 2026): hvězda = velký zájem nad známkou, bez ohledu na ni; jiný obrázek než
+                  tlačítko „Mají zájem“ */}
+              <label className="zajem-hvezda">
+                <input type="checkbox" checked={hvezda} disabled={busy} onChange={(e) => setHvezda(e.target.checked)} />{' '}
+                <HvezdaIcon size={17} plna={hvezda} /> Velký zájem (hvězda)
+              </label>
             </div>
             <div className="field">
               <label>Poznámka (nepovinná)</label>

@@ -83,3 +83,47 @@ export function zacatekDnePraha(datum: string): number {
   const iso = prahaNaIso(datum, '00:00');
   return iso ? new Date(iso).getTime() : NaN;
 }
+
+/* ---------------------------------------------------------------------------
+   PRACOVNÍ DNY (migrace 060, Albert 1. 11. 2026: „more than 5 business days“). Server má svátky v tabulce public.svatky
+   a funkce je_pracovni_den, pracovni_dny_mezi a pracovni_den_po; appka počty dostává od serveru (mlci_pd, ozn_lhuta_do)
+   a tyhle funkce používá jen DEMO mock a testy, aby počítaly stejně. Měnit jen spolu se serverem (test_060).
+   --------------------------------------------------------------------------- */
+
+/**
+ * České státní svátky 2026 až 2028 (stejné řádky jako public.svatky): 1. 1., Velký pátek, Velikonoční pondělí, 1. 5.,
+ * 8. 5., 5. 7., 6. 7., 28. 9., 28. 10., 17. 11., 24. až 26. 12. Velikonoce: 2026 pá 3. 4. a po 6. 4., 2027 pá 26. 3.
+ * a po 29. 3., 2028 pá 14. 4. a po 17. 4.
+ */
+export const SVATKY: readonly string[] = [2026, 2027, 2028].flatMap((rok) => {
+  const velikonoce: Record<number, [string, string]> = { 2026: ['04-03', '04-06'], 2027: ['03-26', '03-29'], 2028: ['04-14', '04-17'] };
+  return ['01-01', ...velikonoce[rok], '05-01', '05-08', '07-05', '07-06', '09-28', '10-28', '11-17', '12-24', '12-25', '12-26'].map(
+    (md) => `${rok}-${md}`
+  );
+});
+const SVATKY_MNOZINA = new Set(SVATKY);
+
+/** Pracovní den (je_pracovni_den): pondělí až pátek a ne státní svátek. `datum` = YYYY-MM-DD. */
+export function jePracovniDen(datum: string): boolean {
+  return isoDen(datum) <= 5 && !SVATKY_MNOZINA.has(datum);
+}
+
+/**
+ * Kolik celých pracovních dní uplynulo mezi dny `od` a `doDne` (pracovni_dny_mezi): počítají se dny d s od < d < doDne,
+ * tedy ani den odeslání, ani dnešek. Odesláno v pondělí 2. 11. 2026, dnes úterý 10. 11. = 5 (út 3. až po 9.).
+ */
+export function pracovniDnyMezi(od: string, doDne: string): number {
+  let n = 0;
+  for (let d = posunDen(od, 1); d < doDne; d = posunDen(d, 1)) if (jePracovniDen(d)) n += 1;
+  return n;
+}
+
+/** n-tý pracovní den po dni `datum` (pracovni_den_po, n ≥ 1): lhůta na zavolání. */
+export function pracovniDenPo(datum: string, n: number): string {
+  let d = datum;
+  for (let i = 0; i < Math.max(1, n); ) {
+    d = posunDen(d, 1);
+    if (jePracovniDen(d)) i += 1;
+  }
+  return d;
+}

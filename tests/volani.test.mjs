@@ -930,7 +930,9 @@ await blok('D', async () => {
 /* ---------------- X) stavy z migrace 059 (Albert 30. 10. 2026): popisky, barvy, čekání, pořadí, důvod ruční změny stavu ---------------- */
 // Server: db/migration_059_stavy_skutecnost.sql (test db/tests/test_059_stavy_skutecnost.sql); mock musí hlásit totéž.
 await blok('X', async () => {
-  const NOVE = { sleva_nabidnuta: 'Nabídnuta sleva', bez_odpovedi: 'Neodpověděl', pozdeji: 'Ozve se později', nekontaktovat: 'Nekontaktovat' };
+  // ⚠ migrace 060 (Albert 1. 11. 2026: „you don't close them, you archive them“): bez_odpovedi = „Archiv – neodpověděl“
+  // (NAHRAZUJE „Neodpověděl“ z 059)
+  const NOVE = { sleva_nabidnuta: 'Nabídnuta sleva', bez_odpovedi: 'Archiv – neodpověděl', pozdeji: 'Ozve se později', nekontaktovat: 'Nekontaktovat' };
   over('X1', Object.entries(NOVE).every(([s, l]) => U.STATUS_LABELS[s] === l && U.ALL_STATUSES.includes(s)) && U.ALL_STATUSES.length === 20,
     'čtyři nové stavy mají české popisky a jsou ve výběru (20 stavů)', U.ALL_STATUSES.join());
   const barvy = U.ALL_STATUSES.map((s) => U.STATUS_COLORS[s]?.bg);
@@ -997,6 +999,41 @@ await blok('X', async () => {
     && /if \(duvod\.trim\(\)\) patch\.status_duvod = duvod\.trim\(\);/.test(drawer) && /disabled=\{busy \|\| !dirty \|\| duvodChybi\}/.test(drawer)
     && /\{stavZmenen && \(/.test(drawer) && /maxLength=\{STATUS_DUVOD_MAX\}/.test(drawer),
     'detail: pole důvodu jen při změně stavu, nejvýš 500 znaků, bez důvodu nejde uložit, důvod jde jako status_duvod');
+});
+
+/* ---------------- Y) migrace 060 (Albert 1. 11. 2026): dovolání označeného klienta není nový hovor ---------------- */
+// „A follow-up call is NOT a new call in statistics: that should not count as two separate calls … as one call and as one
+// client still“. zapis_hovor nepíše call_log: statistiky, Rozvrh, výdělek ani fronta volání se nemění. Označení klienti
+// (návrh odeslán, čeká na klienta, nabídnutá sleva) ve frontě volání nejsou. Hvězda ve formuláři zájmu jde až po uloženém
+// zájmu (CallPage, klikání měří e2e blok O060).
+await blok('Y', async () => {
+  const stavY = () => globalThis.__volackaDemoTest?.stav?.();
+  const pred = {
+    stats: JSON.stringify(await api.myStats(petra)),
+    rozvrh: JSON.stringify((await api.rozvrh(petra)).souhrn),
+    vydelek: JSON.stringify((await api.statistikyVolani(petra)).vydelek),
+  };
+  const oznP = (await api.listOznacene(petra, {})).filter((r) => r.ozn_kategorie);
+  if (oznP.length === 0) { over('Y0', false, 'Petra nemá žádné označení k zavolání, test by nic neměřil'); return; }
+  const k = oznP[0];
+  await api.zapisHovor(petra, k.id, 'nedovolano');
+  await api.zapisHovor(petra, k.id, 'mluvili', 'chce víc fotek');
+  over('Y1', JSON.stringify(await api.myStats(petra)) === pred.stats && JSON.stringify((await api.rozvrh(petra)).souhrn) === pred.rozvrh
+    && JSON.stringify((await api.statistikyVolani(petra)).vydelek) === pred.vydelek,
+    'dovolání nezmění statistiky, Rozvrh ani výdělek (do call_log se nepíše)');
+  // označení klienti jsou ve stavech mimo frontu (fronta nabízí jen nekontaktovano a nedovolano), resolve_call je odmítne
+  const oznaceni = (await api.listKontakty(albert, { limit: 1000, kategorie: ['navrh', 'zmeny'] })).rows;
+  over('Y2', oznaceni.length >= 3 && oznaceni.every((r) => ['navrh_odeslan', 'ceka_na_klienta', 'sleva_nabidnuta'].includes(r.status)),
+    'označení klienti jsou jen ve stavech návrh odeslán, čeká na klienta a nabídnutá sleva (mimo frontu volání)', oznaceni.map((r) => `${r.id}:${r.status}`).join());
+  let odmitnuto = '';
+  try { await api.resolveCall(petra, { kontakt_id: oznaceni[0].id, outcome: 'nedovolano' }); } catch (e) { odmitnuto = e.message; }
+  over('Y2b', /^Tenhle kontakt teď nemáte přidělený|^Kontakt už není ve frontě volání/.test(odmitnuto),
+    'zápis výsledku hovoru (resolve_call, call_log) označený klient mimo frontu nedostane; dovolání jde přes zapis_hovor', odmitnuto);
+  const call = readFileSync(join(ROOT, 'src/pages/CallPage.tsx'), 'utf8');
+  over('Y3', /const \[hvezda, setHvezda\] = useState\(false\);/.test(call) && /setHvezda\(false\);/.test(call)
+    && /if \(outcome === 'zajem' && hvezda\)/.test(call) && /const submitZajem = \(\) => \{\s*if \(!zajemValid\) return;\s*void resolve\('zajem'\);\s*\};/.test(call),
+    've volání: hvězda se s novou kartou vynuluje a dá se až po uloženém zájmu (submitZajem beze změny)');
+  void stavY;
 });
 
 if (chyby === 0) {

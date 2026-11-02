@@ -13,6 +13,10 @@
 // Migrace 050 (Albert 21. 10. 2026: „they should be able to plan a call for any client, Moji klienti or Kontakty“):
 // tlačítko „Naplánovat hovor“ / „Přesunout hovor“ (sdílené okno ZavolatModal). Po recenzi 21. 10. 2026 Volající jen
 // u svého klienta (cizímu kontaktu, ani volnému z fronty, hovor naplánovat nesmí), super admin komukoli a vybere, kdo zavolá.
+// Migrace 060 (Albert 1. 11. 2026): u vlastního klienta přehled (PrehledPanel: fakta a text od automatizace, u otevřeného
+// označení „Zavolal/a jsem“, super admin i „Zrušit označení“) a hvězda „velký zájem“ hned bez „Uložit změny“ (kdo smí
+// upravit; ostatní jen odznak). Větev jenZaklad (cizí kontakt Volajícího) nemá ani jedno. Příznak `neodpovida` už nejde
+// vybrat (nahradilo ho označení k zavolání).
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
@@ -29,11 +33,11 @@ import { useSession } from '../auth';
 import { JINY_VOLAJICI, isSuperAdmin, roleLabel } from '../roles';
 import { bezCizihoIco, icoVidi, segmentOf } from '../segment';
 import {
-  ALL_FLAGS,
   ALL_STATUSES,
   ErrorBox,
   FLAG_COLORS,
   FLAG_LABELS,
+  HvezdaOdznak,
   STATUS_DUVOD_MAX,
   STATUS_LABELS,
   SegmentBadge,
@@ -54,8 +58,11 @@ import {
   formatRelativne,
   pravidloPopisek,
   stavChceDuvod,
+  VOLITELNE_FLAGS,
   zmenenoKdy,
 } from '../ui';
+import { HvezdaPrepinac } from './Hvezda';
+import PrehledPanel from './PrehledPanel';
 import { usePeople } from './PersonPicker';
 import ZavolatModal from './ZavolatModal';
 import {
@@ -122,15 +129,17 @@ function FlagPanel({
   onSaved?: (updated: Kontakt) => void;
 }) {
   const session = useSession();
+  // migrace 060: starý příznak neodpovida vybrat nejde (server ho odmítne); úprava takového příznaku začne na „jine“
+  const vychoziDruh = (k: FlagKind | null): FlagKind => (k && VOLITELNE_FLAGS.includes(k) ? k : 'jine');
   const [editing, setEditing] = useState(false);
-  const [kind, setKind] = useState<FlagKind>(kontakt.flag_kind ?? 'jine');
+  const [kind, setKind] = useState<FlagKind>(vychoziDruh(kontakt.flag_kind));
   const [note, setNote] = useState(kontakt.flag_note ?? '');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
   useEffect(() => {
     setEditing(false);
-    setKind(kontakt.flag_kind ?? 'jine');
+    setKind(vychoziDruh(kontakt.flag_kind));
     setNote(kontakt.flag_note ?? '');
     setError('');
   }, [kontakt.id, kontakt.flag_kind, kontakt.flag_note]);
@@ -220,7 +229,7 @@ function FlagPanel({
           <div className="field">
             <label>Co je špatně</label>
             <select value={kind} onChange={(e) => setKind(e.target.value as FlagKind)}>
-              {ALL_FLAGS.map((f) => (
+              {VOLITELNE_FLAGS.map((f) => (
                 <option key={f} value={f}>
                   {FLAG_LABELS[f]}
                 </option>
@@ -570,11 +579,17 @@ export default function KontaktDrawer({
   onClose,
   onSaved: predatStrance,
   readOnly = false,
+  onDovolano,
 }: {
   kontakt: Kontakt;
   onClose: () => void;
   onSaved?: (updated: Kontakt) => void;
   readOnly?: boolean;
+  /**
+   * Migrace 060: po zápisu hovoru s označeným klientem nebo zrušení označení v přehledu. Stránka detail zavře, načte
+   * seznam znovu a ukáže větu (stav i poznámku mohl změnit server, rozepsaný detail by je ukazoval staré).
+   */
+  onDovolano?: (veta: string) => void;
 }) {
   const session = useSession();
   // Bez masky seznamu vrací řádek jen oznacit_za_sveho (volajícímu od 037 bez IČO architekta);
@@ -781,6 +796,16 @@ export default function KontaktDrawer({
 
         <ZavolatBlok kontakt={kontakt} />
 
+        {/* migrace 060: přehled jen u vlastního klienta (tahle větev; cizí kontakt Volajícího jde výš přes jenZaklad) */}
+        <PrehledPanel
+          kontakt={kontakt}
+          smiZapsat
+          onDovolano={(veta) => {
+            if (onDovolano) onDovolano(veta);
+            else onClose();
+          }}
+        />
+
         <FlagPanel kontakt={kontakt} readOnly={readOnly} onSaved={onSaved} />
 
         {cizi && (
@@ -800,6 +825,13 @@ export default function KontaktDrawer({
                 <>
                   {' '}
                   · známka: <span className="badge rating">{kontakt.rating}</span>
+                </>
+              )}
+              {/* migrace 060: hvězda jen ke čtení (měnit ji smí, kdo smí upravit obsah) */}
+              {kontakt.hvezda_at && (
+                <>
+                  {' '}
+                  · <HvezdaOdznak kontakt={kontakt} /> velký zájem
                 </>
               )}
             </p>
@@ -856,6 +888,10 @@ export default function KontaktDrawer({
                 <option value="B">B</option>
                 <option value="C">C — chtějí, ale vlažně</option>
               </select>
+              {/* migrace 060 (Albert 1. 11. 2026): hvězda nad známkou, ukládá se hned (nastav_hvezdu), ne tlačítkem níž */}
+              <div className="hvezda-detail">
+                <HvezdaPrepinac kontakt={kontakt} velka onZmena={onSaved} />
+              </div>
             </div>
             <div className="field">
               <label>E-mail</label>

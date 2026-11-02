@@ -280,6 +280,23 @@ export function StarIcon(props: IconProps) {
   );
 }
 
+/**
+ * Hvězda „velký zájem“ (migrace 060, Albert 1. 11. 2026): plná zlatá hvězda v kroužku, schválně jiná než obrysová
+ * StarIcon na tlačítku „Mají zájem“ ve volání. `plna` false = prázdný obrys (hvězda zatím není).
+ */
+export function HvezdaIcon({ plna = true, ...props }: IconProps & { plna?: boolean }) {
+  return (
+    <Icon {...props}>
+      <circle cx="12" cy="12" r="10.5" fill={plna ? '#f6cd5e' : 'none'} />
+      <polygon
+        points="12 5.2 13.9 9.4 18.4 9.8 15 12.8 16 17.2 12 14.9 8 17.2 9 12.8 5.6 9.8 10.1 9.4 12 5.2"
+        fill={plna ? 'currentColor' : 'none'}
+        strokeWidth={1.6}
+      />
+    </Icon>
+  );
+}
+
 export function ThumbsDownIcon(props: IconProps) {
   return (
     <Icon {...props}>

@@ -40,6 +40,9 @@ export default function PersonPicker({
   onChange,
   label,
   allOption,
+  bezVolajiciho,
+  bezVybrano = false,
+  onBezVolajiciho,
 }: {
   people: UserStats[];
   value: number | null;
@@ -47,6 +50,13 @@ export default function PersonPicker({
   label: string;
   /** popisek volby „bez výběru" (value null); když chybí, výběr je vždy jeden člověk */
   allOption?: string;
+  /**
+   * Migrace 060 (Označené, Albert 1. 11. 2026): volba „bez volajícího“ (klienti, jejichž označení nepatří nikomu); jen
+   * super admin, jako celý výběr. Vybraná je, když `bezVybrano`; zvolení zavolá `onBezVolajiciho`.
+   */
+  bezVolajiciho?: string;
+  bezVybrano?: boolean;
+  onBezVolajiciho?: () => void;
 }) {
   const session = useSession();
   if (!isSuperAdmin(session.role) || people.length === 0) return null;
@@ -58,10 +68,14 @@ export default function PersonPicker({
       <label htmlFor="person-picker">{label}</label>
       <select
         id="person-picker"
-        value={value === null ? '' : String(value)}
-        onChange={(e) => onChange(e.target.value === '' ? null : Number(e.target.value))}
+        value={bezVybrano ? 'bez' : value === null ? '' : String(value)}
+        onChange={(e) => {
+          if (e.target.value === 'bez' && onBezVolajiciho) onBezVolajiciho();
+          else onChange(e.target.value === '' ? null : Number(e.target.value));
+        }}
       >
         {allOption && <option value="">{allOption}</option>}
+        {bezVolajiciho && onBezVolajiciho && <option value="bez">{bezVolajiciho}</option>}
         <option value={String(session.user_id)}>Já ({session.display_name})</option>
         {others.map((u) => (
           <option key={u.user_id} value={u.user_id}>
