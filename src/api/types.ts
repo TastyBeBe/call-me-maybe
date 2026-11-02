@@ -68,7 +68,11 @@ export type DphStav = 'platce' | 'neplatce' | 'identifikovana_osoba' | 'neoveren
  * chybi_info     = nevíme vůbec, o jaký objekt jde
  * chybi_email    = nemáme e-mail, není kam poslat návrh
  * email_neoveren = e-mail jsme dohledali, ale není potvrzený od klienta
- * info_neoverene = informace/fotky pocházejí z internetu, klient je nepotvrdil
+ * info_neoverene = informace/fotky pocházejí z internetu, klient je nepotvrdil („Údaje z internetu“). ⚠ Od migrace 061
+ *                  (Albert 2. 11. 2026: „only the super admins will see this flag“) jen pro super adminy a Alberta:
+ *                  Volajícímu ho server neposílá (flag_kind, flag_note, flagged_at, flagged_by null; list_flagged
+ *                  a list_oznacene bez řádků jen kvůli němu), clear_flag a update_kontakt mu ho odmítnou („Tenhle
+ *                  příznak řeší super admin.“), setFlag ho jeho vlastním příznakem nahradí. Appka ho Volajícímu nenabízí.
  * jine           = cokoli dalšího, popsané v poznámce
  * neodpovida     = ⚠ jen historie: od migrace 060 (Albert 1. 11. 2026) ho nahradilo označení k zavolání
  *                  (OznaceniKategorie); migrace staré příznaky zrušila a set_flag i update_kontakt ho odmítnou
@@ -102,8 +106,17 @@ export type CekaniKos = 'cerstve' | 'k_zavolani' | 'vlazne' | 'vychladle';
  */
 export type OznaceniKategorie = 'navrh' | 'zmeny';
 
-/** Výsledek dovolání označeného klienta (zapis_hovor, migrace 060). Do call_log se nepíše (není to nový hovor). */
-export type VysledekDovolani = 'nedovolano' | 'nechce' | 'nekontaktovat' | 'mluvili';
+/**
+ * Výsledek dovolání označeného klienta (zapis_hovor, migrace 060). Do call_log se nepíše (není to nový hovor).
+ *   nedovolano     „Nedovolal/a jsem se“: označení zůstává otevřené (i s poznámkou), jen pokus + 1
+ *   nechce         „Nechce web“ (stav odmitnuto), nekontaktovat „Nechce, abychom ho kontaktovali“ (stav nekontaktovat)
+ *   mluvili        „Mluvili jsme – co klient chce“ (povinná poznámka)
+ *   jine           „Nic z toho výše“ (migrace 061, Albert 2. 11. 2026; povinná poznámka): hovor proběhl, ale nesedí nic
+ *                  ze čtyř; uzavře označení a počítá se jako úspěšné dovolání jako mluvili
+ * Poznámka (od migrace 061 u KAŽDÉHO výsledku, „Poznámka pro automatizaci“) jde s právem kontakt upravit automatizaci:
+ * řádek v poznámce kontaktu a vzkaz do vlákna. nechce a nekontaktovat nejvýš 450 znaků, ostatní 2 000.
+ */
+export type VysledekDovolani = 'nedovolano' | 'nechce' | 'nekontaktovat' | 'mluvili' | 'jine';
 
 /** Známka ve filtru seznamů (migrace 060): A, B, C, nebo bez známky (rating null). */
 export type ZnamkaFiltr = Rating | 'bez';
@@ -472,8 +485,14 @@ export interface ZapisHovoruVysledek {
   /** má kontakt po zápisu hvězdu, a změnila se */
   hvezda?: boolean;
   hvezda_zmena?: boolean | null;
-  /** vlákno, kam šel vzkaz agentovi („Mluvili jsme“), jinak null */
+  /** vlákno, kam šel vzkaz agentovi s poznámkou (od migrace 061 u každého výsledku s poznámkou), jinak null */
   vlakno_id?: number | null;
+  /**
+   * Migrace 061: kam šla poznámka. true = automatizaci (řádek v poznámce kontaktu a vzkaz „Dovolání (jméno): …“ do vlákna),
+   * false = jen do události dovolani, kterou appka nikde neukazuje (kdo kontakt upravit nesmí, smí jen „Nedovolal/a jsem
+   * se“), null = bez poznámky. Chybí (undefined) = server bez migrace 061: poznámku k nedovolání tam dostane jen událost.
+   */
+  poznamka_predana?: boolean | null;
 }
 
 /** Položka „Co klient chce / napsal“ přehledu (automatizace, migrace 060); zdroj e-mail, hovor nebo zpráva v appce. */
@@ -856,7 +875,9 @@ export interface Api {
   listOznacene(token: string, filtry: OznaceneFiltry): Promise<Kontakt[]>;
   /**
    * Zápis dovolání označeného klienta: Volající jen u SVÉHO otevřeného označení, super admin a Albert u každého.
-   * Do call_log se nepíše. `hvezda` true/false hvězdu dá/odebere (null = beze změny).
+   * Do call_log se nepíše. `hvezda` true/false hvězdu dá/odebere (null = beze změny). Od migrace 061 pět výsledků
+   * (i jine) a `poznamka` u každého (povinná u mluvili a jine); kam šla, říká `poznamka_predana`. Server bez 061 jine
+   * odmítne (BEZ_061_JINE).
    */
   zapisHovor(
     token: string,

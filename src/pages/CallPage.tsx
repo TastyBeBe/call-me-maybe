@@ -22,8 +22,10 @@ import {
   jenZaklad,
   kontaktJmeno,
   obratArchitekta,
+  priznakVidi,
   useOkno,
 } from '../ui';
+import { isSuperAdmin } from '../roles';
 import ZavolatModal, { PREPLANOVAT_NEJDRIV_MIN } from '../components/ZavolatModal';
 import PrehledPanel from '../components/PrehledPanel';
 import {
@@ -532,7 +534,8 @@ export default function CallPage() {
           </div>
         )}
 
-        {kontakt.flag_kind && (
+        {/* migrace 061 (Albert 2. 11. 2026: „only the super admins will see this flag“): „Údaje z internetu“ Volajícímu ne */}
+        {kontakt.flag_kind && priznakVidi(kontakt.flag_kind, isSuperAdmin(session.role)) && (
           <div className="call-flag">
             <div className="call-flag-head">
               <FlagIcon size={16} /> <strong>{FLAG_LABELS[kontakt.flag_kind]}</strong>

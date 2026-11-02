@@ -157,6 +157,15 @@ await blok('M', async () => {
   await api.resolveCall(petra, { kontakt_id: k4, ...ZAJEM, email: 'info@example.invalid' });
   r = await radek(k4);
   over('M4', r && r.flag_kind === 'info_neoverene', 'zapsaný e-mail neruší jiný příznak', r && r.flag_kind);
+  // migrace 061 (Albert 2. 11. 2026: „only the super admins will see this flag, but the callers don't need to see the
+  // [flag]“): Petra (Volající) k4 volala, je to její klient, ale příznak info_neoverene nevidí ani nezruší; Albert ano
+  const rp = (await api.listKontakty(petra, { limit: 1000 })).rows.find((x) => x.id === k4);
+  over('M4b', rp && rp.skryto === false && rp.flag_kind === null && rp.flag_note === null && rp.flagged_at === null && rp.flagged_by === null,
+    'Volající příznak info_neoverene svého klienta nedostane (řádek jako bez příznaku)', rp && `${rp.flag_kind} ${rp.flag_note}`);
+  let hlaskaInfo = '';
+  try { await api.clearFlag(petra, k4); } catch (e) { hlaskaInfo = e.message; }
+  over('M4c', hlaskaInfo === 'Tenhle příznak řeší super admin.' && (await radek(k4))?.flag_kind === 'info_neoverene',
+    'Volající info_neoverene nezruší (řeší ho super admin), příznak zůstane', hlaskaInfo);
 
   const k5 = await kontaktSPriznakem('email_neoveren');
   await api.resolveCall(petra, { kontakt_id: k5, outcome: 'nedovolano' });

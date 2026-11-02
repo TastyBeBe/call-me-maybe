@@ -56,6 +56,8 @@ let bundle;
         "export { mockApi } from './src/api/mock.ts';",
         "export { supabaseApi, BEZ_056_DEN, BEZ_056_RAZENI, BEZ_056_FILTRY, BEZ_057_HOVOR } from './src/api/supabase.ts';",
         "export { BEZ_060_FILTRY, BEZ_060_RAZENI, BEZ_060_OZNACENE, BEZ_060_HOVOR, BEZ_060_HVEZDA, BEZ_060_PREHLED } from './src/api/supabase.ts';",
+        // migrace 061: pátý výsledek dovolání proti serveru bez 061
+        "export { BEZ_061_JINE } from './src/api/supabase.ts';",
         "export * as prahaModul from './src/praha.ts';",
         "export * as uiModul from './src/ui.tsx';",
         // migrace 060: stav filtrů a jeho převod na parametry serveru, okno Zavolal/a jsem
@@ -84,6 +86,7 @@ let bundle;
 }
 const { mockApi: api, supabaseApi, BEZ_056_DEN, BEZ_056_RAZENI, BEZ_056_FILTRY, BEZ_057_HOVOR, prahaModul: P, uiModul: U } = bundle;
 const { BEZ_060_FILTRY, BEZ_060_RAZENI, BEZ_060_OZNACENE, BEZ_060_HOVOR, BEZ_060_HVEZDA, BEZ_060_PREHLED, filtryModul: FM, dovolaniModul: DM } = bundle;
+const { BEZ_061_JINE } = bundle;
 
 let pocet = 0;
 let chyby = 0;
@@ -558,10 +561,21 @@ await blok('O', async () => {
   // O7 Označené (list_oznacene)
   const lo = async (tok, fl = {}) => api.listOznacene(tok, fl);
   const oP = await lo(petra);
+  // ⚠ migrace 061 (Albert 2. 11. 2026: „only the super admins will see this flag“): příznak info_neoverene u 94 Petra
+  // nevidí (řádek s jejím označením bez příznaku); NAHRAZUJE „94 v Označených Volajícího s info_neoverene“ z 060
+  const r94P = oP.find((r) => r.id === 94);
   over('O7', stejne(serazene(oP.map((r) => r.id)), [93, 94, 302]) && oP.every((r) => !('ozn_volajici' in r) && !('ozn_volajici_id' in r))
-    && oP.find((r) => r.id === 302)?.ozn_kategorie === null && oP.find((r) => r.id === 94)?.flag_kind === 'info_neoverene' && oP[0]?.id === 93,
-    'Volající: jeho označení (93, 94) a jeho klienti s příznakem (302); jméno volajícího u označení nevidí; hvězda první',
+    && oP.find((r) => r.id === 302)?.ozn_kategorie === null && oP.find((r) => r.id === 302)?.flag_kind === 'chybi_email'
+    && r94P?.ozn_kategorie === 'zmeny' && r94P?.flag_kind === null && r94P?.flag_note === null && r94P?.flagged_at === null && r94P?.flagged_by === null
+    && oP[0]?.id === 93 && !JSON.stringify(oP).includes('info_neoverene'),
+    'Volající: jeho označení (93, 94 bez příznaku info_neoverene) a jeho klienti s příznakem (302); jméno volajícího u označení nevidí; hvězda první',
     JSON.stringify(oP.map((r) => [r.id, r.ozn_kategorie, r.flag_kind])));
+  const sPriznakem = async (tok, fl) => serazene((await lo(tok, fl)).map((r) => r.id));
+  over('O7h', stejne(await sPriznakem(petra, { druhy: ['info_neoverene'] }), []) && stejne(await sPriznakem(petra, { druhy: ['info_neoverene', 'chybi_email'] }), [302])
+    && (await sPriznakem(albert, { druhy: ['info_neoverene'] })).includes(94) && (await sPriznakem(albert, { druhy: ['info_neoverene'] })).includes(92)
+    && !(await api.listFlagged(petra, null, null)).some((r) => r.flag_kind === 'info_neoverene' || r.id === 94)
+    && (await api.listFlagged(petra, 'info_neoverene', null)).length === 0 && (await api.listFlagged(albert, 'info_neoverene', null)).some((r) => r.id === 94),
+    'druh info_neoverene: Volajícímu filtr nic nenajde ani list_flagged nic nevrátí, super admin a Albert ano (061)');
   const oA = await lo(albert);
   const flagged = stavO().kontakty.filter((k) => k.flag_kind).map((k) => k.id);
   over('O7b', stejne(serazene(oA.map((r) => r.id)), serazene([...new Set([...Object.keys(cekane).map(Number), ...flagged])]))
@@ -617,7 +631,11 @@ await blok('O', async () => {
   await chyba('O9', () => api.zapisHovor(petra, 95, 'nedovolano'), presne(NENI), 'Volající u svého klienta bez označení: stejná věta');
   await chyba('O9', () => api.zapisHovor(albert, 95, 'nedovolano'), /^Kontakt id=95 nemá otevřené označení k zavolání/, 'super admin bez označení: hláška s číslem');
   await chyba('O9', () => api.zapisHovor(petra, 93, 'mluvili', '   '), /^Napište, co klient chce/, 'mluvili bez textu ne');
-  await chyba('O9', () => api.zapisHovor(petra, 93, 'zavolano'), /^Neplatný výsledek dovolání: zavolano\./, 'neplatný výsledek');
+  await chyba('O9', () => api.zapisHovor(petra, 93, 'zavolano'), presne('Neplatný výsledek dovolání: zavolano. Povolené: nedovolano, nechce, nekontaktovat, mluvili, jine.'),
+    'neplatný výsledek (od 061 pět povolených)');
+  // migrace 061 (Albert 2. 11. 2026): pátý výsledek „Nic z toho výše“ jen s poznámkou
+  await chyba('O9', () => api.zapisHovor(petra, 93, 'jine', '  \n '), presne('Napište, jak hovor dopadl. Bez toho „Nic z toho výše“ zapsat nejde.'), 'jine bez poznámky ne');
+  await chyba('O9', () => api.zapisHovor(petra, 93, 'jine', 'x'.repeat(2001)), presne('Poznámka k dovolání je moc dlouhá: nejvýš 2 000 znaků.'), 'jine s poznámkou přes 2 000 znaků ne');
   // recenze 2. 11. 2026: naplánovaný hovor vyřídí dovolání jako hovor z fronty (vlastní hotovo, cizí zrušený), po nedovolání zůstane
   const zitra = new Date(Date.now() + 86400000).toISOString();
   await api.zavolatNaplanovat(petra, 93, zitra, 'zkusit znovu');
@@ -632,6 +650,21 @@ await blok('O', async () => {
     'super admin bez práva kontakt upravit „mluvili“ nezapíše');
   await chyba('O9c', () => api.zapisHovor(mikulas, 93, 'nedovolano', null, false), /^Tohle není váš klient — upravit ho může/, 'ani hvězdu');
   over('O9c', (await api.zapisHovor(mikulas, 93, 'nedovolano')).pokusy === 2, 'super admin „nedovolal/a jsem se“ zapíše i u cizího označení');
+  // migrace 061: poznámka u nedovolání jde automatizaci (poznámka kontaktu a vzkaz do vlákna), označení ZŮSTÁVÁ otevřené
+  // (Albert 2. 11. 2026: „it shouldn't be removing the mark“); bez práva kontakt upravit (Mikuláš) jen do historie
+  const poznamka93 = stavO().kontakty.find((k) => k.id === 93).note;
+  const n3 = await api.zapisHovor(petra, 93, 'nedovolano', 'nebere, zkusím zítra ráno');
+  const s93 = stavO();
+  over('O9j', n3.otevrene === true && n3.pokusy === 3 && !!oznaceniKontaktu(93) && n3.poznamka_predana === true && n3.vlakno_id !== null
+    && s93.kontakty.find((k) => k.id === 93).note === `${poznamka93}\n[${dnes} Petra] Dovolání: Nedovolal/a jsem se: nebere, zkusím zítra ráno`
+    && s93.zpravy.some((z) => z.thread_id === n3.vlakno_id && z.sender_type === 'admin' && z.body === 'Dovolání (Petra): Nedovolal/a jsem se: nebere, zkusím zítra ráno'),
+    'nedovolal/a jsem se s poznámkou: označení otevřené, pokus +1, poznámka a vzkaz automatizaci s výsledkem napřed', JSON.stringify(n3));
+  const n4 = await api.zapisHovor(mikulas, 93, 'nedovolano', 'Mikuláš: nebere');
+  over('O9j', n4.otevrene === true && n4.pokusy === 4 && n4.poznamka_predana === false && n4.vlakno_id === null
+    && !stavO().kontakty.find((k) => k.id === 93).note.includes('Mikuláš: nebere') && !stavO().zpravy.some((z) => z.body.includes('Mikuláš: nebere')),
+    'bez práva kontakt upravit jde poznámka jen do historie (ne do poznámky kontaktu ani do vlákna)', JSON.stringify(n4));
+  const n5 = await api.zapisHovor(petra, 93, 'nedovolano');
+  over('O9j', n5.otevrene === true && n5.poznamka_predana === null && n5.vlakno_id === null, 'nedovolání bez poznámky: nic automatizaci, označení otevřené', JSON.stringify(n5));
   const text = 'web se mu líbí, chce jinou úvodní fotku';
   const m1 = await api.zapisHovor(petra, 94, 'mluvili', `  ${text}\nhned  `, true);
   const s94 = stavO();
@@ -642,13 +675,32 @@ await blok('O', async () => {
     && s94.zpravy.some((z) => z.thread_id === vlakno.id && z.sender_type === 'admin' && z.body === `Dovolání (Petra): ${text} hned`)
     && !!k94.hvezda_at && m1.hvezda === true && m1.hvezda_zmena === true,
     'mluvili: označení uzavřené (hovor), řádek „[den Petra] Dovolání: …“ v poznámce, vzkaz agentovi do vlákna kontaktu, hvězda', JSON.stringify(m1));
-  over('O9e', !(await lo(petra)).some((r) => r.id === 94 && r.ozn_kategorie) && (await lo(petra)).some((r) => r.id === 94 && r.flag_kind),
-    'po dovolání 94 v Označených už jen kvůli příznaku, bez označení');
+  // ⚠ migrace 061: 94 má jen příznak info_neoverene, který Petra nevidí; po dovolání ho v Označených nemá vůbec, Albert
+  // ano (kvůli příznaku). NAHRAZUJE „94 v Označených Volajícího už jen kvůli příznaku“ z 060
+  over('O9e', !(await lo(petra)).some((r) => r.id === 94) && (await lo(albert)).some((r) => r.id === 94 && !r.ozn_kategorie && r.flag_kind === 'info_neoverene'),
+    'po dovolání 94 Volající v Označených nemá (zbyl jen skrytý příznak), Albert ano kvůli příznaku, bez označení');
   const h1 = await api.zapisHovor(honza, 5, 'nechce', 'chalupu prodává');
   const h2 = await api.zapisHovor(honza, 303, 'nekontaktovat');
   over('O9f', h1.status === 'odmitnuto' && h2.status === 'nekontaktovat' && (await radekA(5))?.status === 'odmitnuto' && (await radekA(303))?.status === 'nekontaktovat'
     && !oznaceniKontaktu(5) && !oznaceniKontaktu(303),
     'nechce = Odmítnuto, nekontaktovat = Nekontaktovat; označení uzavřená');
+  // migrace 061: důvod u nechce jde automatizaci i jako poznámka a vzkaz s výsledkem; bez poznámky nic
+  const s5 = stavO();
+  over('O9f2', h1.poznamka_predana === true && s5.kontakty.find((k) => k.id === 5).note?.endsWith(`[${dnes} Honza] Dovolání: Nechce web: chalupu prodává`)
+    && s5.zpravy.some((z) => z.thread_id === h1.vlakno_id && z.body === 'Dovolání (Honza): Nechce web: chalupu prodává')
+    && h2.poznamka_predana === null && h2.vlakno_id === null,
+    'nechce s poznámkou: řádek „… Dovolání: Nechce web: …“ a vzkaz do vlákna; nekontaktovat bez poznámky nic', JSON.stringify([h1, h2]));
+  // migrace 061: „Nic z toho výše“ (jine) s poznámkou: označení uzavřené hovorem, kontakt beze změny stavu, poznámka
+  // a vzkaz automatizaci; je to úspěšné dovolání, tatáž epizoda ani nový návrh se znovu neoznačí
+  const stav96 = (await radekA(96))?.status;
+  const j96 = await api.zapisHovor(honza, 96, 'jine', 'manželka říká, že jsou do prosince v zahraničí');
+  await lk(albert, {});
+  const s96 = stavO();
+  over('O9k', j96.otevrene === false && j96.vysledek === 'jine' && j96.status === stav96 && j96.poznamka_predana === true
+    && s96.oznaceni.find((o) => o.kontakt_id === 96 && o.vysledek === 'jine')?.uzavreno_duvod === 'hovor' && !oznaceniKontaktu(96)
+    && s96.kontakty.find((k) => k.id === 96).note?.endsWith(`[${dnes} Honza] Dovolání: Nic z toho výše: manželka říká, že jsou do prosince v zahraničí`)
+    && s96.zpravy.some((z) => z.thread_id === j96.vlakno_id && z.sender_type === 'admin' && z.body === 'Dovolání (Honza): Nic z toho výše: manželka říká, že jsou do prosince v zahraničí'),
+    'jine: uzavře označení (hovor), stav beze změny, poznámka a vzkaz „Nic z toho výše: …“, po obnově se neoznačí znovu', JSON.stringify(j96));
   const a97 = await api.zapisHovor(albert, 97, 'mluvili', 'zavolá v pondělí', true);
   over('O9g', a97.hvezda === true && stavO().kontakty.find((k) => k.id === 97).hvezda_kdo === 'Albert', 'Albert u kteréhokoli označení, i s hvězdou');
   over('O9i', zav(93) === 'ceka: ' && zav(94) === 'hotovo: dovolání: mluvili' && zav(97) === 'zruseno: hovor vyřídilo dovolání v Označených',
@@ -735,6 +787,18 @@ await blok('O', async () => {
     && o[4][1].p_hvezda === false && o[5][0] === 'nastav_hvezdu' && o[5][1].p_hvezda === true && o[5][1].p_duvod === 'velký zájem'
     && o[6][0] === 'oznaceni_zavrit' && o[6][1].p_duvod === 'domluveno' && o[7][0] === 'kontakt_prehled' && o[7][1].p_kontakt_id === 7,
     'list_oznacene jen zapnuté parametry; zapis_hovor, nastav_hvezdu, oznaceni_zavrit a kontakt_prehled s parametry podle serveru', JSON.stringify(o).slice(0, 400));
+  // migrace 061: poznámka u každého výsledku (i nedovolano a jine), prázdná jako null; server s 060 jine odmítne srozumitelně
+  odeslano.length = 0;
+  await supabaseApi.zapisHovor('t', 7, 'nedovolano', 'nebere, zkusím ráno');
+  await supabaseApi.zapisHovor('t', 7, 'jine', 'volala manželka');
+  await supabaseApi.zapisHovor('t', 7, 'nechce', '   ');
+  const o61 = odeslano.map((x) => x.body);
+  over('O13d', o61[0].p_vysledek === 'nedovolano' && o61[0].p_poznamka === 'nebere, zkusím ráno' && o61[1].p_vysledek === 'jine' && o61[1].p_poznamka === 'volala manželka'
+    && o61[2].p_poznamka === null, 'zapis_hovor pošle poznámku u každého výsledku, jen mezery jako null', JSON.stringify(o61));
+  odpoved = { status: 400, telo: '{"code":"P0001","message":"Neplatný výsledek dovolání: jine. Povolené: nedovolano, nechce, nekontaktovat, mluvili."}' };
+  await chyba('O13d', () => supabaseApi.zapisHovor('t', 7, 'jine', 'x'), presne(BEZ_061_JINE), 'server bez 061: Nic z toho výše');
+  odpoved = { status: 400, telo: '{"code":"P0001","message":"Napište, jak hovor dopadl. Bez toho „Nic z toho výše“ zapsat nejde."}' };
+  await chyba('O13d', () => supabaseApi.zapisHovor('t', 7, 'jine', ' '), /^Napište, jak hovor dopadl/, 'jiná chyba serveru u jine zůstane');
 
   // O14 stav filtrů (src/filtry.ts): jeden stav a jedna známka jdou starými parametry, jinak pole
   const S = (patch) => ({ ...FM.PRAZDNE_FILTRY, ...patch });
@@ -756,15 +820,17 @@ await blok('O', async () => {
     && U.mlciOd({ mlci_pd: 6, ozn_kategorie: null, ozn_mlci_od: null, first_proposal_at: '2026-10-01T10:00:00Z', last_our_reply_at: '2026-10-20T10:00:00Z' }) === '2026-10-20T10:00:00Z'
     && U.mlciOd({ mlci_pd: null, ozn_kategorie: null, ozn_mlci_od: null, first_proposal_at: 'x', last_our_reply_at: 'y' }) === null,
     'popisky: archiv, dvě kategorie, pracovní dny, lhůta (ve stage 1 bez slibu e-mailu), mlčí od');
-  over('O15b', stejne(DM.DOVOLANI_VOLBY.map((x) => x.v), ['nedovolano', 'nechce', 'nekontaktovat', 'mluvili'])
-    && stejne(DM.DOVOLANI_VOLBY.map((x) => x.text), ['Nedovolal/a jsem se', 'Nechce web', 'Nechce, abychom ho kontaktovali', 'Mluvili jsme – co klient chce'])
+  // ⚠ migrace 061 (Albert 2. 11. 2026: „these four options. Plus … one more option which says none of it above“): pět
+  // výsledků, pátý „Nic z toho výše“ (jine); NAHRAZUJE „čtyři výsledky ze zadání“ z 060
+  over('O15b', stejne(DM.DOVOLANI_VOLBY.map((x) => x.v), ['nedovolano', 'nechce', 'nekontaktovat', 'mluvili', 'jine'])
+    && stejne(DM.DOVOLANI_VOLBY.map((x) => x.text), ['Nedovolal/a jsem se', 'Nechce web', 'Nechce, abychom ho kontaktovali', 'Mluvili jsme – co klient chce', 'Nic z toho výše'])
     && DM.DOVOLANI_MAX === 2000 && !DM.DOVOLANI_VOLBY.some((x) => /e-mail(em)? (mu )?p[ůu]jde|připomínk/i.test(x.co)),
-    'okno Zavolal/a jsem: čtyři výsledky ze zadání, poznámka nejvýš 2 000 znaků, žádný slib e-mailu (ve stage 1 neplatí)');
+    'okno Zavolal/a jsem: pět výsledků ze zadání (061), poznámka nejvýš 2 000 znaků, žádný slib e-mailu (ve stage 1 neplatí)');
   // recenze 2. 11. 2026: bez práva kontakt upravit jen „Nedovolal/a jsem se“ (server ostatní odmítne), důvod nechce
-  // a nekontaktovat nejvýš 450 znaků jako server
-  over('O15c', stejne(DM.volbyDovolani(false).map((x) => x.v), ['nedovolano']) && stejne(DM.volbyDovolani(true).map((x) => x.v), ['nedovolano', 'nechce', 'nekontaktovat', 'mluvili'])
+  // a nekontaktovat nejvýš 450 znaků jako server; jine jako mluvili 2 000 (061)
+  over('O15c', stejne(DM.volbyDovolani(false).map((x) => x.v), ['nedovolano']) && stejne(DM.volbyDovolani(true).map((x) => x.v), ['nedovolano', 'nechce', 'nekontaktovat', 'mluvili', 'jine'])
     && DM.DOVOLANI_DUVOD_MAX === 450 && DM.dovolaniMax('nechce') === 450 && DM.dovolaniMax('nekontaktovat') === 450
-    && DM.dovolaniMax('mluvili') === 2000 && DM.dovolaniMax(null) === 2000
+    && DM.dovolaniMax('mluvili') === 2000 && DM.dovolaniMax('jine') === 2000 && DM.dovolaniMax('nedovolano') === 2000 && DM.dovolaniMax(null) === 2000
     && /smiUpravit=\{okno\.k\.smi_upravit !== false\}/.test(readFileSync(join(ROOT, 'src/pages/OznacenePage.tsx'), 'utf8'))
     && /smiUpravit=\{kontakt\.smi_upravit !== false\}/.test(readFileSync(join(ROOT, 'src/components/PrehledPanel.tsx'), 'utf8')),
     'okno Zavolal/a jsem: bez práva úprav jen nedovolání, důvod odmítnutí nejvýš 450 znaků, obě místa okna předávají smi_upravit');
@@ -781,8 +847,10 @@ await blok('O', async () => {
     'Kontakty: sdílený řádek filtrů, šest pomlček jenZaklad zůstává, sloupec Mlčí, hvězda u jména, nové filtry do list_kontakty');
   over('O16b', /<SeznamFiltry\s/.test(moji) && /<MlceniBunka kontakt=\{r\} \/>/.test(moji) && /<HvezdaPrepinac kontakt=\{r\}/.test(moji),
     'Moji klienti: sdílený řádek filtrů pro každého, sloupec Mlčí, hvězda');
+  // ⚠ migrace 061 (Albert 2. 11. 2026, kompaktní řádek): „Zrušit označení“ je v řádku vedle „Vyřešeno“, proto
+  // {jaSuper && r.ozn_kategorie && (…)}; NAHRAZUJE kotvu {jaSuper && (<button …> uvnitř {r.ozn_kategorie && …} z 060
   over('O16c', /getApi\(\)\.listOznacene\(session\.token, filtry\)/.test(ozn) && /if \(errMsg\(e\) !== BEZ_060_OZNACENE\) throw e;\s*\/\/[^\n]*\n\s*r = await getApi\(\)\.listFlagged\(/.test(ozn)
-    && /<DovolaniOkno/.test(ozn) && /<ZrusitOznaceniOkno/.test(ozn) && /\{jaSuper && \(\s*<button/.test(ozn) && /lhutaText\(r\.ozn_lhuta_do\)/.test(ozn)
+    && /<DovolaniOkno/.test(ozn) && /<ZrusitOznaceniOkno/.test(ozn) && /\{jaSuper && r\.ozn_kategorie && \(\s*<button/.test(ozn) && /lhutaText\(r\.ozn_lhuta_do\)/.test(ozn)
     && !/E-mail mu půjde/.test(ozn) && /bezVolajiciho="Bez volajícího"/.test(ozn) && /kategorie=\{false\}/.test(ozn),
     'Označené: list_oznacene (list_flagged jen proti serveru bez 060), okno Zavolal/a jsem, zrušení jen super admin, lhůta bez slibu e-mailu, bez volajícího');
   const vetevCizi = /if \(jenZaklad\(kontakt\)\) \{\s*return \(([\s\S]*?)\n    \);\n  \}/.exec(drawer)?.[1] ?? '';
