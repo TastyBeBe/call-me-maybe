@@ -2798,6 +2798,15 @@ table.kontakty tbody tr.selected .cena-hosting {
   gap: 4px;
 }
 
+/* „e-mail se vrátil“ hned za skupinou označení (audit 2. 11. 2026, STUCK-9): světlý s růžovým okrajem jako příznak
+   Chybí e-mail, tmavé písmo kvůli kontrastu */
+.badge.ozn-odraz {
+  background: var(--cream);
+  color: var(--ink);
+  border-color: var(--pink);
+  box-shadow: 0 2px 0 var(--pink);
+}
+
 .mlceni-bunka {
   display: inline-flex;
   flex-direction: column;

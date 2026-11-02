@@ -2202,6 +2202,97 @@ await blok050('O061e mikulas', async () => {
   await ctx.close();
 });
 
+/* ============ AU (audit soudržnosti 2. 11. 2026): „e-mail se vrátil“ u označení (F10) a věta u důvodu stavu (F11) ============ */
+// F10 (nález STUCK-9): označený klient s příznakem „Chybí e-mail“ (náš e-mail se mu vrátil) návrh nejspíš neviděl; řádek
+// Označených má hned za skupinou „e-mail se vrátil“, řádek zůstává kompaktní a bez posunu do strany (1920 až 360 px).
+// Příznak dá člověk v detailu jako odraz od automatizace (demo žádného označeného klienta s Chybí e-mail nemá). F11 (nález
+// R4): u změny stavu detail říká, kdy důvod automatizace čte, a posílá pokyn do Vzkazů agentovi.
+/** Dá klientovi z řádku Označených příznak Chybí e-mail v detailu a detail zavře. */
+async function odrazVDetailu(page, jmeno) {
+  await page.locator('table.kontakty tbody tr', { hasText: jmeno }).first().locator('.kompakt-jmeno').click();
+  await klid(page, 500);
+  await page.locator('.drawer button.flag-add-btn').click();
+  await page.locator('.drawer .flag-panel select').selectOption('chybi_email');
+  await page.locator('.drawer .flag-panel textarea').fill('E-mail nefunguje: náš e-mail s návrhem se nedoručil.');
+  await page.locator('.drawer .flag-panel').getByRole('button', { name: 'Uložit příznak' }).click();
+  await klid(page, 500);
+  await page.locator('.drawer-close').click();
+  await klid(page, 300);
+}
+/** „e-mail se vrátil“ v řádku: pořadí odznaků v buňce Co je potřeba, text, nápověda a poloha vedle skupiny. */
+const odrazVRadku = (r) => r.locator('td.oznacene-co').evaluate((td) => {
+  const sk = td.querySelector('.oznaceni-badge')?.getBoundingClientRect();
+  const od = td.querySelector('.ozn-odraz');
+  const rc = od?.getBoundingClientRect();
+  return {
+    poradi: [...td.children].map((e) => String(e.className).split(' ').find((c) => c !== 'badge') ?? ''),
+    text: od?.textContent ?? null,
+    title: od?.getAttribute('title') ?? '',
+    // vedle skupiny: na stejném řádku hned za ní, nebo (úzký telefon) první na dalším řádku buňky
+    vedle: !!(sk && rc) && ((Math.abs(rc.top - sk.top) < 3 && rc.left >= sk.right - 0.5 && rc.left - sk.right < 16) || rc.top >= sk.bottom - 0.5),
+  };
+});
+await blok050('AU petra', async () => {
+  const { ctx, page } = await novaStranka('petra');
+  await jdi(page, '#/oznacene', 700);
+  const pred = await page.locator('.ozn-odraz').count();
+  await odrazVDetailu(page, 'U Rybníka');
+  const r93 = page.locator('table.kontakty tbody tr', { hasText: 'U Rybníka' }).first();
+  const r302 = page.locator('table.kontakty tbody tr', { hasText: 'Jana Vzorová' }).first();
+  const m = await odrazVRadku(r93);
+  over('AU10a', pred === 0 && JSON.stringify(m.poradi) === JSON.stringify(['oznaceni-badge', 'ozn-odraz', 'flag-badge']) && m.text === 'e-mail se vrátil'
+    && /klient návrh webu nejspíš neviděl/.test(m.title) && m.vedle
+    && (await page.locator('.ozn-odraz').count()) === 1 && (await r302.locator('.ozn-odraz').count()) === 0 && (await r302.locator('.flag-badge').count()) === 1,
+    'Volající: označený klient 93 s příznakem Chybí e-mail má „e-mail se vrátil“ hned za „Neodpověděl na návrh“ (před příznakem); 302 s příznakem bez označení ne',
+    JSON.stringify({ pred, ...m }));
+  // bez posunu do strany i s odznakem navíc, odznak vždy vidět vedle skupiny
+  const spatne = [];
+  for (const [w, h] of SIRKY_061) {
+    await page.setViewportSize({ width: w, height: h });
+    await page.waitForTimeout(150);
+    const z = await page.evaluate(zmer061);
+    if (z.ven.length) spatne.push(`${w} px: ${z.ven.slice(0, 2).join('; ')}`);
+    const mw = await odrazVRadku(r93);
+    if (mw.text !== 'e-mail se vrátil' || !mw.vedle) spatne.push(`${w} px: odznak ${mw.text === null ? 'chybí' : 'není vedle skupiny'}`);
+  }
+  await page.setViewportSize({ width: 1280, height: 900 });
+  over('AU10b', spatne.length === 0, 'Označené s „e-mail se vrátil“ bez posunu do strany na 1920 až 360 px, odznak vždy vedle skupiny', spatne.slice(0, 4).join(' | '));
+  // F11: změna stavu v detailu (bez uložení)
+  await r93.locator('.kompakt-jmeno').click();
+  await klid(page, 500);
+  await page.locator('.drawer .field:has(> label:text-is("Status")) > select').selectOption('odmitnuto');
+  const veta = txt(await page.locator('.drawer .duvod-stavu-napoveda').innerText());
+  const detail = await page.locator('.drawer').innerText();
+  over('AU11a', veta === 'Z „Návrh odeslán“ na „Odmítnuto“. Důvod čte automatizace jen u Odmítnuto (u architekta i u Nekontaktovat). Pokyn pro agenta napište do Vzkazů agentovi.'
+    && !/přečte automatizace|podle něj pokračuje/.test(detail) && /Vzkazy agentovi/i.test(detail),
+    'detail: u změny stavu věta, kdy důvod automatizace čte, a pokyn do Vzkazů agentovi (ty jsou v detailu níž)', veta);
+  await page.locator('.drawer-close').click();
+  await klid(page, 300);
+  over('AU11b', !(await volani(page)).some((v) => v.fn === 'updateKontakt') && (await stav(page)).kontakty.find((k) => k.id === 93)?.status === 'navrh_odeslan',
+    'zavřený detail bez uložení stav nezmění');
+  await ctx.close();
+});
+await blok050('AU mikulas', async () => {
+  // super admin má ve 2. řádku navíc „volá X“ / „bez volajícího“: i s odznakem bez posunu do strany
+  const { ctx, page } = await novaStranka('mikulas');
+  await jdi(page, '#/oznacene', 700);
+  await odrazVDetailu(page, 'Tichá');
+  const r90 = page.locator('table.kontakty tbody tr', { hasText: 'Tichá' }).first();
+  const spatne = [];
+  for (const [w, h] of SIRKY_061) {
+    await page.setViewportSize({ width: w, height: h });
+    await page.waitForTimeout(150);
+    const z = await page.evaluate(zmer061);
+    if (z.ven.length) spatne.push(`${w} px: ${z.ven.slice(0, 2).join('; ')}`);
+    const mw = await odrazVRadku(r90);
+    if (mw.text !== 'e-mail se vrátil' || !mw.vedle) spatne.push(`${w} px: odznak ${mw.text === null ? 'chybí' : 'není vedle skupiny'}`);
+  }
+  await page.setViewportSize({ width: 1280, height: 900 });
+  over('AU10c', spatne.length === 0 && (await page.locator('.ozn-odraz').count()) === 1,
+    'super admin: označení 90 bez volajícího s příznakem Chybí e-mail má „e-mail se vrátil“, bez posunu do strany na 1920 až 360 px', spatne.slice(0, 4).join(' | '));
+  await ctx.close();
+});
+
 await browser.close();
 server.close();
 rmSync(OUT, { recursive: true, force: true });

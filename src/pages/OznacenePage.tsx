@@ -27,6 +27,9 @@
 // (Albert 2. 11. 2026: „it shouldn't be removing the mark“). Příznak „Údaje z internetu“ (info_neoverene) vidí jen super admin
 // a Albert (Albert 2. 11. 2026: „This should be exclusive to the super admins“): Volajícímu ho appka zahodí (priznakProRoli,
 // pojistka k serveru 061), řádek jen s tímto příznakem nemá a pilulku taky ne.
+// Audit soudržnosti 2. 11. 2026 (nález STUCK-9): označený klient s příznakem „Chybí e-mail“ (náš e-mail se mu vrátil, klient
+// návrh nejspíš neviděl) má hned vedle skupiny „e-mail se vrátil“ (EmailSeVratil v ui.tsx), ať „Neodpověděl na návrh“
+// volajícího nesplete. Řádek zůstává kompaktní, bez posunu do strany.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getApi, type Kontakt, type OznaceneFiltry } from '../api';
@@ -44,6 +47,7 @@ import { segmentOf } from '../segment';
 import {
   ALL_FLAGS,
   ALL_OZNACENI,
+  EmailSeVratil,
   ErrorBox,
   FLAG_COLORS,
   FLAG_LABELS,
@@ -417,9 +421,9 @@ export default function OznacenePage() {
                         </button>
                       )}
                     </td>
-                    {/* 2. řádek: údaje, zalomí se podle šířky */}
+                    {/* 2. řádek: údaje, zalomí se podle šířky; „e-mail se vrátil“ hned za skupinou (audit 2. 11. 2026) */}
                     <td role="cell" className="oznacene-co">
-                      <OznaceniBadge kategorie={r.ozn_kategorie} /> <FlagBadge kontakt={r} />
+                      <OznaceniBadge kategorie={r.ozn_kategorie} /> <EmailSeVratil kontakt={r} /> <FlagBadge kontakt={r} />
                     </td>
                     <td role="cell" className="ozn-status">
                       <StatusBadge status={r.status} />
