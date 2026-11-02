@@ -59,6 +59,8 @@ Obě cesty jedou proti živé DB, dokud DEMO není nastavené:
   (`PLAYWRIGHT_MODULE` nebo `~/webdomov/architect-templates/node_modules`) a prohlížeč
   (`PLAYWRIGHT_BROWSERS_PATH` nebo `~/webdomov-nastroje/pw`); bez nich skončí
   „NEJDE ZMĚŘIT" s kódem 2.
+  Od migrace 061 (Albert 2. 11. 2026) měří blok O61 i to, že se Označené, Moji klienti a Kontakty na šířkách 1920 až
+  360 px nikde neposouvají do strany (Volající i super admin), a okno „Zavolal/a jsem“ na telefonu i z detailu.
 - **Ručně:** produkční build `npm run build` a `npx vite preview --port 5178 --strictPort`
   (bez StrictMode), nebo náhled `call-me-maybe` z `.claude/launch.json` (dev server).
   V obou případech nejdřív, **před prvním přihlášením**, `volacka_supabase_url = ' '`
@@ -96,6 +98,9 @@ odmítl a dostal slevu (neoznačí se, rozhodnutí 2). Označení mají i 5 a 30
 označit, mlčí aspoň 15 kalendářních dní, tedy v každý den aspoň 7 pracovních (i přes Vánoce): testy nezávisí na dni.
 ⚠ Chata 92 má místo příznaku `neodpovida` příznak `info_neoverene` od automatizace (migrace 060 příznaky `neodpovida`
 zrušila); NAHRAZUJE „92 má příznak neodpovídá“ z migrace 014.
+Od migrace 061 (Albert 2. 11. 2026, oddíl Kompaktní seznamy 061 níž) vidí příznak `info_neoverene` (92 a 94) jen super admin
+a Albert: Mikuláš i Albert mají v Označených pilulku „Údaje z internetu (2)“, Petra u svého klienta 94 příznak nevidí nikde
+(mock ho Volajícímu nepošle jako server 061 a appka ho navíc sama zahodí).
 
 ## Volání 050: nerelevantní, přeplánovat, kalendář hovorů, výdělek (Albert 21. 10. 2026)
 
@@ -107,7 +112,8 @@ v den hovoru a ve statistikách kolik volající vydělal celkem a tento týden 
 - **Moji klienti**: sloupce Známka (A, B, C) a Cena: čistá částka jako „7 000 Kč“, jiný text tak, jak ho kdo zapsal
   (dlouhý zkrácený, celý v nápovědě), pod ní menší „hosting …“; „x“, „-“ a podobné = nezadáno (`cenaText` v `src/ui.tsx`).
   ⚠ 22. 10. 2026 (Albert, migrace 051) NAHRAZUJE pomlčku u nezadané ceny: nedohodnutá cena je „n/a“ (viz oddíl Cena 051).
-  Na telefonu se do strany posouvá jen tabulka v rámečku.
+  Na telefonu se do strany posouvá jen tabulka v rámečku. ⚠ NAHRAZENO 2. 11. 2026 (Albert, migrace 061, oddíl Kompaktní
+  seznamy 061): Moji klienti, Kontakty i Označené mají řádky o dvou řádcích bez posunu do strany na každé šířce.
 - **Volání**: pod třemi hlavními tlačítky menší **Nerelevantní** (okno s povinným důvodem: rychlé „starší člověk“,
   „není majitel“, „objekt neexistuje / nepronajímá“ nebo vlastní text; kontakt se už nevolá ani nepíše a do konverze se
   nepočítá) a **Přeplánovat** (výběr času: Za hodinu, Dnes 18:00, Zítra 9:00, Zítra 14:00, Za týden nebo den a čas;
@@ -289,9 +295,10 @@ filtry, přehled jen ke čtení); připomínku e-mailem a zápis přehledu přid
   poslední zpráva, Klient naposledy (datum nebo „nikdy“), Lhůta, u super admina Volající.
 - **Označené** (`#/oznacene`, `list_oznacene`): otevřená označení k zavolání, která přihlášený vidí (Volající jen svá),
   a klienti s příznakem jako dřív; s hvězdou nahoře. „Zavolal/a jsem“ otevře okno (`src/components/DovolaniOkno.tsx`) se
-  čtyřmi výsledky: „Nedovolal/a jsem se“ (označení zůstává, počítá pokusy), „Nechce web“ (stav odmítnuto), „Nechce, abychom ho
-  kontaktovali“ (stav nekontaktovat) a „Mluvili jsme – co klient chce“ (text povinný: jde do poznámky a jako vzkaz
-  automatizaci do vlákna kontaktu), a s „Velký zájem (hvězda)“; `zapis_hovor` nikdy nepíše call_log (statistiky, Rozvrh,
+  čtyřmi výsledky (⚠ NAHRAZENO 2. 11. 2026, Albert, migrace 061: pět výsledků, pátý „Nic z toho výše“, a poznámka pro
+  automatizaci u každého, oddíl Kompaktní seznamy 061 níž): „Nedovolal/a jsem se“ (označení zůstává, počítá pokusy), „Nechce
+  web“ (stav odmítnuto), „Nechce, abychom ho kontaktovali“ (stav nekontaktovat) a „Mluvili jsme – co klient chce“ (text
+  povinný: jde do poznámky a jako vzkaz automatizaci do vlákna kontaktu), a s „Velký zájem (hvězda)“; `zapis_hovor` nikdy nepíše call_log (statistiky, Rozvrh,
   výdělek ani fronta se nemění) a naplánovaný hovor vyřídí jako hovor z fronty (vlastní hotovo, cizí zrušený). Kdo kontakt
   nesmí upravit (`smi_upravit` false, třeba super admin cizího týmu), dostane v okně jen „Nedovolal/a jsem se“ (server
   ostatní odmítne); důvod u „Nechce web“ a „Nechce, abychom ho kontaktovali“ nejvýš 450 znaků jako server (recenze
@@ -321,6 +328,58 @@ filtry, přehled jen ke čtení); připomínku e-mailem a zápis přehledu přid
   a hvězdy), `tests/priznak.test.mjs` H7 a M7 (`neodpovida`), `tests/volani.test.mjs` blok Y (dovolání mimo call_log,
   hvězda ve volání) a `npm run test:e2e` bloky O060 (Označené 1280 a 390 px, okno a hvězda, přehled, super admin, filtry
   Kontaktů Volajícího, hvězda ve volání) a upravené F056, R057, U5. Server: `../db/tests/test_060_oznaceni.sql`.
+
+## Kompaktní seznamy, příznak z internetu jen super adminům a pátý výsledek dovolání 061 (Albert 2. 11. 2026)
+
+Server: `../db/migration_061_internet_jen_super_dovolani.sql` (spouští se PŘED appkou; nová appka proti serveru bez 061 jede
+dál, jen „Nic z toho výše“ server odmítne a appka to řekne hláškou `BEZ_061_JINE`). Albert 2. 11. 2026: „you have to slide …
+to the side and it's super inconvenient … make it a little bit more compact … or just fits into the screen without sliding
+anywhere, and that includes the buttons“, „these four options. Plus … one more option which says none of it above. And plus
+there should be a note“, u „Nedovolal/a jsem se“ „it shouldn't be removing the mark“ a k příznaku z internetu „only the super
+admins will see this flag, but the callers don't need to see the [flag]“.
+
+- **Kompaktní řádky** (`table.kontakty.kompakt` v `src/styles.css`; Označené, Moji klienti, Kontakty): ⚠ NAHRAZUJE širokou
+  tabulku, která se posouvala do strany v rámečku (1 364 až 1 427 px v rámečku 1 180 px, poslední sloupec nebyl vidět na
+  žádné šířce). Každý klient je řádek o dvou řádcích bez vodorovného posunu na každé šířce od 360 px, pro Volajícího i super
+  admina. Nahoře hvězda, segment, jméno a telefon (v Označených telefon jako odkaz k vytočení a akce), pod tím ostatní údaje
+  s malým popiskem (jen v CSS, `data-label`), které se na úzké obrazovce zalomí. Tabulka zůstává tabulkou (role v TSX, protože
+  se mění `display`), hlavička je jen pro čtečky; prázdná buňka se nevykreslí a buňku jen s pomlčkou cizího kontaktu (`Skryto`)
+  CSS schová (nápověda nad Kontakty to vysvětluje). Obsah buněk Moji klienti a Kontaktů se nemění; klepnutí na řádek dál
+  otevře detail, telefon tam zůstává obyčejný text.
+- **Řádek Označených**: 1. řádek hvězda, segment, jméno (tlačítko, otevře detail i z klávesnice), telefon jako odkaz
+  k vytočení a akce „Zavolal/a jsem“ (označení), „Vyřešeno“ (příznak, který přihlášený smí zrušit, stejná práva jako
+  v detailu: super admin každý, Volající u svého klienta) a super adminovi „Zrušit označení“. 2. řádek Co je potřeba, stav,
+  mlčení („6 prac. dní od naší zprávy“ a „mlčí od …“), naše zpráva, klient naposledy, lhůta s „nedovoláno N×“, super adminovi
+  „volá X“ nebo „bez volajícího“ a poznámka příznaku na dva řádky (celá v nápovědě a v detailu). „Vyřešeno“ v řádku zavolá
+  `clear_flag` bez potvrzení (jako detail) a detail neotevře: bez označení řádek zmizí, s označením zůstane bez příznaku;
+  věta o tom je v živé oblasti (`role="status"`). Na telefonu jsou akce na vlastním řádku přes celou šířku a větší.
+- **Okno „Zavolal/a jsem“** (`src/components/DovolaniOkno.tsx`): pět výsledků, pátý „Nic z toho výše“ (`jine`: hovor
+  proběhl, ale nesedí nic ze čtyř; označení se uzavře a počítá se jako úspěšné dovolání jako „Mluvili jsme“). Pod nimi vždy,
+  i před výběrem, pole „Poznámka pro automatizaci“: povinná u „Mluvili jsme“ a „Nic z toho výše“ (`poznamkaPovinna`), jinak
+  nepovinná; nejvýš 450 znaků u „Nechce web“ a „Nechce, abychom ho kontaktovali“ (server ji dává i do důvodu změny stavu),
+  jinak 2 000; počítadlo „N / max“ zčervená, když je poznámka moc dlouhá (i po přepnutí na kratší výsledek). Poznámka jde
+  serveru u každého výsledku (i „Nedovolal/a jsem se“, které dál označení neruší, jen přičte pokus). S právem kontakt upravit
+  ji automatizace dostane jako u „Mluvili jsme“: řádek „[den jméno] Dovolání: <výsledek>: <poznámka>“ v poznámce kontaktu
+  a vzkaz „Dovolání (jméno): <výsledek>: <poznámka>“ do vlákna. Kdo kontakt upravit nesmí (jen „Nedovolal/a jsem se“), toho
+  poznámka zůstane jen v události `dovolani`, kterou appka nikde neukazuje; okno to řekne pod polem a po zápisu („Poznámka
+  se uložila jen k záznamu pokusu, v appce ji nikdo neuvidí.“, `poznamka_predana` false; recenze 2. 11. 2026 ⚠ NAHRAZUJE
+  slib historie, kterou appka nemá). Detail kontaktu má na telefonu pod sloupcem prasátka vlastní pruh vlevo jako stránka
+  (`body.pig-layer .drawer`, obsah od 70 px), pilulky „Nerelevantní“ a „⏰ Přeplánovat“ ve volání nejsou užší než text
+  a na úzkém telefonu se zalomí pod sebe. Okno i „Zrušit označení“ jdou přes `createPortal` do `body` nad sloupec prasátka (z detailu by
+  jinak byla pod ním); okno je sloupec, posouvá se jen jeho tělo, chyba serveru a tlačítka zůstávají vidět.
+- **Příznak „Údaje z internetu“ (`info_neoverene`) jen super adminům a Albertovi**: server 061 ho Volajícímu neposílá,
+  appka ho navíc zahodí sama (`JEN_SUPER_FLAGS`, `priznakVidi`, `priznakProRoli` v `src/ui.tsx`): Volající nemá pilulku,
+  odznak, počet, řádek jen s tímto příznakem, kartu ve volání, panel v detailu ani volbu ve výběru příznaku; skrytý příznak
+  je pro něj jako žádný a „Označit klienta“ ho nahradí jeho vlastním (061 to dovolí). Super admin beze změny.
+- **Demo**: chaty 92 a 94 mají `info_neoverene`: Petra (Volající) u svého klienta 94 příznak nevidí, Mikuláš a Albert ano
+  („Údaje z internetu (2)“).
+- **Testy**: `npm test` `tests/volani.test.mjs` blok W (pomocníci D1, pět výsledků, poznámka u každého výsledku, zapojení
+  stránek), `tests/filtry.test.mjs` O15b, O15c a O16c, `tests/priznak.test.mjs` M4b a M4c; `npm run test:e2e` blok O61
+  (O61a bez posunu do strany: Petra, Mikuláš a Albert × Označené, Moji klienti, Kontakty × 1920, 1440, 1280, 1024, 768, 390
+  a 360 px, stránka, rámeček i každá buňka a tlačítko; O61b okno na 360×640, 390×844 a 1280×900 z řádku a 390×844 z detailu;
+  O61c nedovolání s poznámkou nechá označení a „nedovoláno 1×“, „Nic z toho výše“ ho uzavře s poznámkou a vzkazem; O61d
+  „Vyřešeno“ v řádku Volajícího i super admina; O61e „Údaje z internetu“ Volající nikde, super admin ano) a upravené L3a,
+  O60e, O60h (⚠ O60k nahradil O61a). Server: `../db/tests/test_061_internet_jen_super_dovolani.sql`.
 
 ## Účty a přihlášení (produkce)
 
@@ -526,10 +585,10 @@ který schvaluje Albert (u zprávy je vidět jeho stav).
 | `#/call`      | všichni | fronta hovorů: přepínač chaty / architekti (028), karta kontaktu + výsledky (nedovoláno/odmítnuto/zájem, od 050 i nerelevantní a přeplánovat; `?zavolat=<id>` = karta z kalendáře); kontakt, kterému Volající ještě nevolal, bez stavu, poznámek a příznaku (045, 20. 10. 2026). Poznámka k hovoru je **nepovinná** — zájem jde uložit i bez ní (Albert 2026-09-23; dřív se při prázdné poznámce otevíralo potvrzovací okno navíc); od migrace 051 (Albert 22. 10. 2026) i bez ceny webu a hostingu, povinná je jen známka (⚠ NAHRAZUJE povinné ceny z 1. 9. 2026); od migrace 060 (Albert 1. 11. 2026) u zájmu „Velký zájem (hvězda)“ a u svého klienta přehled klienta (`kontakt_prehled`) |
 | `#/kalendar`  | všichni | kalendář hovorů (050): svůj každý, super admin kohokoli nebo všech; Po termínu, Dnes, Nadcházející, Hotové a zrušené; Zavolat teď, Hotovo, Přesunout, Zrušit |
 | `#/stats`     | všichni | moje statistiky; super admin (i Albert) přes dropdown kohokoli (027) a trychtýř „Klienti podle stavu" (součty celé databáze) s filtrem segmentu (028); ⚠ trychtýř od 19. 10. 2026 a dlaždice „jako #1 prodejce“ od 20. 10. 2026 jen super admin (migrace 045, NAHRAZUJE „(admin)“): Volající vidí jen svoje čísla; od migrace 056 (Albert 27. 10. 2026) super admin i statistiky za jeden den (Celkem / Jeden den, den v Praze) |
-| `#/moji`      | všichni | moji klienti (+ historie poznámek v detailu); super admin může vybrat kohokoli (027); filtr segmentu (028); od migrace 056 (Albert 27. 10. 2026) super admin stejné filtry jako Kontakty a řazení podle poslední změny, Volající beze změny; od migrace 057 sloupec posledního hovoru (Volajícímu „Můj poslední hovor“) a super admin řadí i podle něj; ⚠ od migrace 060 (Albert 1. 11. 2026) filtry, hledání na serveru a řazení i Volající nad svými klienty (NAHRAZUJE „Volající beze změny“), sloupec Mlčí, hvězda, „Zavolal/a jsem“ v přehledu detailu |
+| `#/moji`      | všichni | moji klienti (+ historie poznámek v detailu); super admin může vybrat kohokoli (027); filtr segmentu (028); od migrace 056 (Albert 27. 10. 2026) super admin stejné filtry jako Kontakty a řazení podle poslední změny, Volající beze změny; od migrace 057 sloupec posledního hovoru (Volajícímu „Můj poslední hovor“) a super admin řadí i podle něj; ⚠ od migrace 060 (Albert 1. 11. 2026) filtry, hledání na serveru a řazení i Volající nad svými klienty (NAHRAZUJE „Volající beze změny“), sloupec Mlčí, hvězda, „Zavolal/a jsem“ v přehledu detailu; ⚠ od migrace 061 (Albert 2. 11. 2026) řádky o dvou řádcích bez posunu do strany (NAHRAZUJE tabulku posouvanou v rámečku) |
 | `#/rozvrh`    | všichni | Rozvrh (042): týden po až ne, hodiny na den a cíl (hovorů za hodinu posílá server), plnění z hovorů, hláška pozadu / v plánu / napřed, poznámky ke dnům; Volající si ho nastaví jednou, super admin vidí přehled všech, mění a odemyká |
-| `#/admin`     | všichni | Kontakty: celá databáze s filtry (i segment, 028) a fulltextem (i studio, město, IČO; IČO jen admin a super admin, 038); upravovat smí admin a super admin; počty u stavů a košů a celkový počet jen super admin (045, Volající stránkuje bez počtu); Volající stav, známku, kdo volal, čekání a poznámky jen u svých klientů, filtr stavu a hledání v poznámce jen nad nimi (045, 20. 10. 2026); od migrace 056 řazení podle poslední změny (Volajícímu jen mezi jeho klienty, cizí za nimi podle čísla); od migrace 057 Změněno i se změnami od automatizace, sloupec a řazení podle posledního hovoru (Volajícímu jen jeho hovory); od migrace 060 (Albert 1. 11. 2026) spojitelné filtry (víc stavů a známek, hvězda, označení, mlčení v pracovních dnech), sloupec Mlčí a hvězda u svých klientů (Volajícímu jen nad jeho klienty) |
-| `#/oznacene`  | admin   | označení klienti — admin svoji; super admin a Albert všichni (027); filtr segmentu (028); ⚠ od migrace 060 (Albert 1. 11. 2026) „Označené k zavolání“ (`list_oznacene`): klienti, kteří víc než 5 pracovních dní mlčí (Neodpověděl na návrh, na změny), Volajícímu jen jeho, a klienti s příznakem; okno „Zavolal/a jsem“ (`zapis_hovor`, nikdy call_log), „Lhůta na zavolání do …“, stejné filtry jako Kontakty, super admin sloupec Volající, „bez volajícího“ a „Zrušit označení“ (NAHRAZUJE „jen příznaky přes list_flagged“) |
+| `#/admin`     | všichni | Kontakty: celá databáze s filtry (i segment, 028) a fulltextem (i studio, město, IČO; IČO jen admin a super admin, 038); upravovat smí admin a super admin; počty u stavů a košů a celkový počet jen super admin (045, Volající stránkuje bez počtu); Volající stav, známku, kdo volal, čekání a poznámky jen u svých klientů, filtr stavu a hledání v poznámce jen nad nimi (045, 20. 10. 2026); od migrace 056 řazení podle poslední změny (Volajícímu jen mezi jeho klienty, cizí za nimi podle čísla); od migrace 057 Změněno i se změnami od automatizace, sloupec a řazení podle posledního hovoru (Volajícímu jen jeho hovory); od migrace 060 (Albert 1. 11. 2026) spojitelné filtry (víc stavů a známek, hvězda, označení, mlčení v pracovních dnech), sloupec Mlčí a hvězda u svých klientů (Volajícímu jen nad jeho klienty); ⚠ od migrace 061 (Albert 2. 11. 2026) řádky o dvou řádcích bez posunu do strany (NAHRAZUJE tabulku posouvanou v rámečku) a Volající nevidí příznak „Údaje z internetu“ |
+| `#/oznacene`  | admin   | označení klienti — admin svoji; super admin a Albert všichni (027); filtr segmentu (028); ⚠ od migrace 060 (Albert 1. 11. 2026) „Označené k zavolání“ (`list_oznacene`): klienti, kteří víc než 5 pracovních dní mlčí (Neodpověděl na návrh, na změny), Volajícímu jen jeho, a klienti s příznakem; okno „Zavolal/a jsem“ (`zapis_hovor`, nikdy call_log), „Lhůta na zavolání do …“, stejné filtry jako Kontakty, super admin sloupec Volající, „bez volajícího“ a „Zrušit označení“ (NAHRAZUJE „jen příznaky přes list_flagged“); ⚠ od migrace 061 (Albert 2. 11. 2026) řádky o dvou řádcích bez posunu do strany s akcemi přímo v řádku („Zavolal/a jsem“, „Vyřešeno“ u příznaku, super admin „Zrušit označení“), okno s pěti výsledky (i „Nic z toho výše“) a poznámkou pro automatizaci u každého, příznak „Údaje z internetu“ jen super admin |
 | `#/zpravy`    | admin   | vlákna s AI agenty — admin svoje; super admin vlákna všech lidí (cizí jen ke čtení, 027); Albert i automatizaci; odznak architekta u hledaného kontaktu (028) |
 | `#/uzivatele` | super admin | super admin: všichni lidé, upravuje sebe a své lidi + nový Volající (027, 042); Albert: role (Volající / Super admin, 042) a nadřízení (⚠ od migrace 024 Volající stránku nemá) |
 | `#/automatizace` | Albert | vypínač automatizace a přepínač účtu Claude                    |

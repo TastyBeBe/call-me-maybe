@@ -527,8 +527,9 @@ for (const kdo of ['petra', 'mikulas']) {
   const ma302 = (await radek302.count()) === 1;
   over('L3a', ma302 && (await page.locator('table tbody tr').count()) >= 2, 'Petra má označenou architektku i chatu (jinak scénář nic neměří)');
   if (ma302) {
-    await radek302.click();
-    await page.getByRole('button', { name: 'Vyřešeno' }).click();
+    // ⚠ migrace 061 (Albert 2. 11. 2026, kompaktní řádek): „Vyřešeno“ je přímo v řádku; NAHRAZUJE klik na řádek a tlačítko
+    // v detailu (getByRole přes celou stránku by teď našlo dvě tlačítka Vyřešeno)
+    await radek302.locator('button.vyreseno-btn').click();
     await klid(page, 300);
   }
   await filtr(page, 'architekti').click();
@@ -1793,9 +1794,11 @@ await blok050('R057 petra', async () => {
 });
 
 /* ============ 060 (Albert 1. 11. 2026): Označené s označením k zavolání, okno Zavolal/a jsem, hvězda, přehled, filtry ============ */
-// Klient, který víc než 5 pracovních dní neodpověděl, je v Označených pro SVÉHO volajícího; „Zavolal/a jsem“ má čtyři výsledky
+// Klient, který víc než 5 pracovních dní neodpověděl, je v Označených pro SVÉHO volajícího; „Zavolal/a jsem“ má výsledky
 // a hvězdu; zápis nejde do call_log; lhůta ve stage 1 „Lhůta na zavolání do …“ bez slibu e-mailu. Volající vidí jen svoje
 // označení (96 je Petřin klient, ale označení je Honzovo), super admin všechna, „bez volajícího“ a „Zrušit označení“.
+// ⚠ Migrace 061 (Albert 2. 11. 2026) NAHRAZUJE „čtyři výsledky“ (O60e: pět, pátý „Nic z toho výše“) a O60k (posun stránky
+// jen na dvou šířkách; měří ho celý blok O61a bez posunu stránky i rámečku na sedmi šířkách).
 for (const sirka of [1280, 390]) {
   await blok050(`O060 petra ${sirka}`, async () => {
     const { ctx, page } = await novaStranka('petra', { sirka, vyska: sirka < 768 ? 844 : 900 });
@@ -1818,14 +1821,14 @@ for (const sirka of [1280, 390]) {
     over(`O60d ${sirka}`, (await radky.count()) === 1 && /Na Kopci/.test(await radky.first().innerText()), 'pilulka „Neodpověděl na změny“ nechá jen 94');
     await page.locator('.oznacene-druhy button', { hasText: /^Vše/ }).click();
     await page.waitForTimeout(150);
-    // okno Zavolal/a jsem u 93: čtyři výsledky, „Mluvili jsme“ chce text, hvězda je zaškrtnutá (93 hvězdu má)
+    // okno Zavolal/a jsem u 93: pět výsledků (061), „Mluvili jsme“ chce text, hvězda je zaškrtnutá (93 hvězdu má)
     const s0 = await stav(page);
     await radky.first().locator('button.zavolal-btn').click();
     const okno = page.locator('.dovolani-okno');
     await okno.waitFor({ timeout: 4000 });
     const volby = (await okno.locator('.dovolani-volby button').allInnerTexts()).map(txt);
-    over(`O60e ${sirka}`, JSON.stringify(volby) === JSON.stringify(['Nedovolal/a jsem se', 'Nechce web', 'Nechce, abychom ho kontaktovali', 'Mluvili jsme – co klient chce'])
-      && /Lhůta na zavolání do/.test(await okno.innerText()), 'okno Zavolal/a jsem: čtyři výsledky a lhůta', volby.join(' | '));
+    over(`O60e ${sirka}`, JSON.stringify(volby) === JSON.stringify(['Nedovolal/a jsem se', 'Nechce web', 'Nechce, abychom ho kontaktovali', 'Mluvili jsme – co klient chce', 'Nic z toho výše'])
+      && /Lhůta na zavolání do/.test(await okno.innerText()), 'okno Zavolal/a jsem: pět výsledků (pátý „Nic z toho výše“, migrace 061) a lhůta', volby.join(' | '));
     await okno.getByRole('radio', { name: 'Mluvili jsme – co klient chce' }).click();
     const zapsat = okno.getByRole('button', { name: 'Zapsat hovor' });
     const hvezdaBox = okno.locator('.dovolani-hvezda input');
@@ -1840,7 +1843,8 @@ for (const sirka of [1280, 390]) {
       && !s1.oznaceni.some((o) => o.kontakt_id === 93 && o.uzavreno_at === null) && !(await radky.allInnerTexts()).some((r) => /U Rybníka/.test(r)),
       'zápis „Mluvili jsme“: poznámka, označení uzavřené, řádek zmizí, call_log beze změny, hvězda zůstala');
     // detail 94: přehled s označením, lhůtou, textem automatizace a tlačítkem Zavolal/a jsem; hvězda hned bez Uložit
-    await page.locator('table.kontakty tbody tr', { hasText: 'Na Kopci' }).first().click();
+    // (migrace 061: detail otevře jméno, prostředek kompaktního řádku může být na telefonu tlačítko nebo číslo k vytočení)
+    await page.locator('table.kontakty tbody tr', { hasText: 'Na Kopci' }).first().locator('.kompakt-jmeno').click();
     await klid(page, 500);
     const panel = page.locator('.drawer .prehled-panel');
     const textPanelu = txt(await panel.innerText().catch(() => ''));
@@ -1861,9 +1865,7 @@ for (const sirka of [1280, 390]) {
     await klid(page, 600);
     const sHvezdou = await radky.allInnerTexts();
     over(`O60j ${sirka}`, sHvezdou.length === 1 && /Na Kopci/.test(sHvezdou[0]), 'jen s hvězdou: 94', sHvezdou.map((r) => r.slice(0, 40)).join(' | '));
-    // i na počítači: absolutně umístěný prvek v rámečku tabulky (třeba .sr-only) roztáhne stránku do šířky
-    const w = await page.evaluate(() => document.documentElement.scrollWidth);
-    over(`O60k ${sirka}`, w <= sirka, 'Označené se vejdou bez vodorovného posunu stránky (tabulka se posouvá v rámečku)', `scrollWidth ${w}`);
+    // ⚠ O60k (stránka bez vodorovného posunu, tabulka se posouvá v rámečku) NAHRADIL blok O61a (migrace 061)
     await ctx.close();
   });
 }
@@ -1937,6 +1939,266 @@ await blok050('O060 volani', async () => {
   const k = (await stav(page)).kontakty.find((x) => x.id === id);
   over('O60s', iResolve >= 0 && iHvezda > iResolve && k.status === 'zajem' && k.hvezda_kdo === 'Eva',
     've volání: hvězda po uloženém zájmu (nastav_hvezdu za resolve_call), kontakt ji má', JSON.stringify({ iResolve, iHvezda, kdo: k?.hvezda_kdo }));
+  await ctx.close();
+});
+
+/* ============ 061 (Albert 2. 11. 2026): kompaktní seznamy, okno Zavolal/a jsem s pěti výsledky a poznámkou, „Vyřešeno“ v řádku,
+   „Údaje z internetu“ jen super adminům ============ */
+// „make it a little bit more compact … or just fits into the screen without sliding anywhere, and that includes the buttons to
+// remove the mark or to say that they called“, „these four options. Plus … one more option which says none of it above. And
+// plus there should be a note“, „it shouldn't be removing the mark“ a „only the super admins will see this flag, but the
+// callers don't need to see the [flag]“. Každý blok ve vlastní stránce (vlastní mock v paměti).
+const SIRKY_061 = [[1920, 1080], [1440, 900], [1280, 900], [1024, 768], [768, 1024], [390, 844], [360, 780]];
+const STRANKY_061 = [['Označené', '#/oznacene'], ['Moji klienti', '#/moji'], ['Kontakty', '#/admin']];
+const VOLBY_061 = ['Nedovolal/a jsem se', 'Nechce web', 'Nechce, abychom ho kontaktovali', 'Mluvili jsme – co klient chce', 'Nic z toho výše'];
+const POVINNA_061 = ['Mluvili jsme – co klient chce', 'Nic z toho výše'];
+
+/** Bez posunu do strany (běží ve stránce): stránka, rámeček seznamu a každá buňka, tlačítko, odkaz a odznak řádků v rámečku. */
+function zmer061() {
+  const ven = [];
+  const de = document.documentElement;
+  if (de.scrollWidth > innerWidth) ven.push(`stránka ${de.scrollWidth} > ${innerWidth}`);
+  const wrap = document.querySelector('.table-wrap');
+  if (!wrap) return { ven, radky: 0, prazdno: !!document.querySelector('.empty-state'), akce: [] };
+  if (wrap.scrollWidth > wrap.clientWidth) ven.push(`rámeček ${wrap.scrollWidth} > ${wrap.clientWidth}`);
+  const wr = wrap.getBoundingClientRect();
+  const fl = wr.left + wrap.clientLeft;
+  const fr = fl + wrap.clientWidth;
+  const pig = document.querySelector('.pig-col')?.getBoundingClientRect() ?? null;
+  const rows = [...wrap.querySelectorAll('tbody tr')];
+  const akce = [];
+  for (const r of rows) {
+    const rr = r.getBoundingClientRect();
+    for (const el of r.querySelectorAll('td, button, a, .badge')) {
+      if (getComputedStyle(el).display === 'none') continue;
+      const rc = el.getBoundingClientRect();
+      if (rc.width === 0 && rc.height === 0) continue;
+      if (rc.left < fl - 0.5 || rc.right > fr + 0.5) {
+        ven.push(`${el.tagName.toLowerCase()}.${String(el.className).split(' ')[0]} ${Math.round(rc.left)}–${Math.round(rc.right)} mimo rámeček ${Math.round(fl)}–${Math.round(fr)}`);
+      }
+    }
+    const tl = [...r.querySelectorAll('.oznacene-akce button')];
+    for (const b of tl) {
+      const rc = b.getBoundingClientRect();
+      if (rc.width === 0 || rc.left < rr.left - 0.5 || rc.right > rr.right + 0.5 || rc.top < rr.top - 0.5 || rc.bottom > rr.bottom + 0.5) {
+        ven.push(`„${b.textContent.trim()}“ mimo svůj řádek`);
+      }
+      if (pig && rc.left < pig.right - 0.5) ven.push(`„${b.textContent.trim()}“ vlevo pod sloupcem prasátka`);
+    }
+    akce.push({
+      text: r.innerText.replace(/\s+/g, ' ').trim().slice(0, 60),
+      oznaceni: !!r.querySelector('.oznaceni-badge'),
+      zavolal: !!r.querySelector('.oznacene-akce .zavolal-btn'),
+      vyreseno: !!r.querySelector('.oznacene-akce .vyreseno-btn'),
+      zrusit: !!r.querySelector('.oznacene-akce .zrusit-ozn-btn'),
+    });
+  }
+  return { ven, radky: rows.length, prazdno: false, akce };
+}
+
+// O61a: bez posunu do strany pro Volající i super admina na všech třech seznamech a sedmi šířkách; akce v řádku vždy vidět
+for (const kdo of ['petra', 'mikulas', 'admin']) {
+  await blok050(`O061a ${kdo}`, async () => {
+    const { ctx, page } = await novaStranka(kdo);
+    for (const [nazev, hash] of STRANKY_061) {
+      await jdi(page, hash, 700);
+      const spatne = [];
+      let radku = 0;
+      for (const [w, h] of SIRKY_061) {
+        await page.setViewportSize({ width: w, height: h });
+        await page.waitForTimeout(150);
+        const m = await page.evaluate(zmer061);
+        radku = Math.max(radku, m.radky);
+        if (m.ven.length) spatne.push(`${w} px: ${m.ven.slice(0, 2).join('; ')}${m.ven.length > 2 ? ` (+${m.ven.length - 2})` : ''}`);
+        if (hash === '#/oznacene') {
+          const superAdmin = kdo !== 'petra';
+          for (const a of m.akce) {
+            if (a.oznaceni !== a.zavolal) spatne.push(`${w} px: „${a.text}“ ${a.oznaceni ? 'bez' : 'navíc s'} „Zavolal/a jsem“`);
+            if (a.zrusit !== (superAdmin && a.oznaceni)) spatne.push(`${w} px: „${a.text}“ ${a.zrusit ? 'navíc s' : 'bez'} „Zrušit označení“`);
+          }
+          if (kdo === 'petra' && !m.akce.some((a) => /Vzorová/.test(a.text) && a.vyreseno)) spatne.push(`${w} px: řádek 302 (Vzorová) bez „Vyřešeno“`);
+        }
+      }
+      // řádky musí být (jinak se nic nezměřilo): Označené a Kontakty každý, Moji klienti Petra
+      if (radku === 0 && (hash !== '#/moji' || kdo === 'petra')) spatne.push('žádné řádky, nejde změřit');
+      await page.setViewportSize({ width: 1280, height: 900 });
+      over(`O61a ${kdo} ${nazev}`, spatne.length === 0,
+        `${nazev} (${kdo}) bez posunu do strany na 1920 až 360 px: stránka, rámeček i každá buňka, tlačítko, odkaz a odznak; akce v řádku a vpravo od sloupce prasátka`,
+        spatne.slice(0, 4).join(' | '));
+    }
+    await ctx.close();
+  });
+}
+
+// O61b: okno Zavolal/a jsem na telefonu i počítači, z řádku i z detailu: pět výsledků, poznámka vždy, povinná u dvou, délka
+for (const [w, h, odkud] of [[360, 640, 'řádek'], [390, 844, 'řádek'], [1280, 900, 'řádek'], [390, 844, 'detail']]) {
+  await blok050(`O061b ${w}x${h} ${odkud}`, async () => {
+    const id = `O61b ${w}x${h} ${odkud}`;
+    const { ctx, page } = await novaStranka('petra', { sirka: w, vyska: h });
+    await jdi(page, '#/oznacene', 700);
+    if (odkud === 'řádek') {
+      await page.locator('table.kontakty tbody tr', { hasText: 'U Rybníka' }).first().locator('button.zavolal-btn').click();
+    } else {
+      await page.locator('table.kontakty tbody tr', { hasText: 'Na Kopci' }).first().locator('.kompakt-jmeno').click();
+      await klid(page, 500);
+      await page.locator('.drawer .prehled-panel button.zavolal-btn').click();
+    }
+    const okno = page.locator('.dovolani-okno');
+    await okno.waitFor({ timeout: 4000 });
+    const predVyberem = (await okno.locator('label[for="dovolani-text"]').isVisible()) && (await okno.locator('#dovolani-text').isVisible())
+      && /^Poznámka pro automatizaci$/.test(txt(await okno.locator('label[for="dovolani-text"]').innerText()));
+    const spatne = [];
+    for (const v of VOLBY_061) {
+      await okno.getByRole('radio', { name: v }).click();
+      await page.waitForTimeout(60);
+      await okno.locator('.dovolani-volby button').first().scrollIntoViewIfNeeded();
+      const m = await page.evaluate(() => {
+        const o = document.querySelector('.dovolani-okno');
+        const orc = o.getBoundingClientRect();
+        const tl = [...o.querySelectorAll('.modal-actions button')].map((b) => b.getBoundingClientRect());
+        const prvni = o.querySelector('.dovolani-volby button').getBoundingClientRect();
+        const nahore = document.elementFromPoint(prvni.left + 4, prvni.top + prvni.height / 2);
+        return {
+          vOkne: orc.top >= -0.5 && orc.left >= -0.5 && orc.bottom <= innerHeight + 0.5 && orc.right <= innerWidth + 0.5,
+          sirka: o.scrollWidth <= o.clientWidth,
+          tlacitka: tl.length === 2 && tl.every((r) => r.top >= -0.5 && r.bottom <= innerHeight + 0.5 && r.left >= orc.left - 0.5 && r.right <= orc.right + 0.5
+            && r.top >= orc.top - 0.5 && r.bottom <= orc.bottom + 0.5),
+          volbaNahore: !!nahore?.closest('.dovolani-volby'),
+          stitek: o.querySelector('label[for="dovolani-text"]')?.textContent ?? '',
+          zapsat: [...o.querySelectorAll('.modal-actions button')].pop()?.disabled ?? null,
+        };
+      });
+      const povinna = POVINNA_061.includes(v);
+      if (!m.vOkne) spatne.push(`${v}: okno přesahuje obrazovku`);
+      if (!m.sirka) spatne.push(`${v}: okno se posouvá do strany`);
+      if (!m.tlacitka) spatne.push(`${v}: Zpět nebo Zapsat hovor není vidět v okně`);
+      if (!m.volbaNahore) spatne.push(`${v}: první volbu něco zakrývá`);
+      if (/\(povinná\)/.test(m.stitek) !== povinna || (!povinna && !/\(nepovinná\)/.test(m.stitek))) spatne.push(`${v}: štítek „${txt(m.stitek)}“`);
+      if (m.zapsat !== povinna) spatne.push(`${v}: Zapsat hovor ${m.zapsat ? 'vypnuté' : 'zapnuté'} bez poznámky`);
+    }
+    // 500 znaků u „Mluvili jsme“, pak „Nechce web“ (nejvýš 450): zapsat nejde, počítadlo „500 / 450“ červeně
+    await okno.getByRole('radio', { name: 'Mluvili jsme – co klient chce' }).click();
+    await okno.locator('#dovolani-text').fill('x'.repeat(500));
+    await okno.getByRole('radio', { name: 'Nechce web' }).click();
+    const pocet = txt(await okno.locator('#dovolani-text-pocet').innerText());
+    const moc = await okno.locator('#dovolani-text-pocet').evaluate((e) => e.classList.contains('moc'));
+    const vypnuto = await okno.getByRole('button', { name: 'Zapsat hovor' }).isDisabled();
+    over(id, predVyberem && spatne.length === 0 && pocet === '500 / 450' && moc && vypnuto,
+      'okno: poznámka vidět už před výběrem, pět výsledků bez přesahu a posunu, tlačítka vždy vidět, nic nezakrývá volby, povinná jen u Mluvili jsme a Nic z toho výše, 500 znaků u Nechce web nejde zapsat',
+      `${spatne.slice(0, 3).join(' | ')}${predVyberem ? '' : ' | pole poznámky není vidět před výběrem'} | ${pocet} moc=${moc} vypnuto=${vypnuto}`);
+    await ctx.close();
+  });
+}
+
+// O61c: „Nedovolal/a jsem se“ s poznámkou označení neruší (Albert 2. 11. 2026, otázka 3), „Nic z toho výše“ ho uzavře
+await blok050('O061c petra', async () => {
+  const { ctx, page } = await novaStranka('petra');
+  await jdi(page, '#/oznacene', 700);
+  const r93 = page.locator('table.kontakty tbody tr', { hasText: 'U Rybníka' });
+  const okno = page.locator('.dovolani-okno');
+  await r93.first().locator('button.zavolal-btn').click();
+  await okno.waitFor({ timeout: 4000 });
+  await okno.getByRole('radio', { name: 'Nedovolal/a jsem se' }).click();
+  await okno.locator('#dovolani-text').fill('nebral to');
+  await okno.getByRole('button', { name: 'Zapsat hovor' }).click();
+  await klid(page, 700);
+  const v1 = (await volani(page)).filter((x) => x.fn === 'zapisHovor').pop();
+  const s1 = await stav(page);
+  const otevrene = s1.oznaceni.find((o) => o.kontakt_id === 93 && o.uzavreno_at === null);
+  const lhuta = (await r93.count()) === 1 ? txt(await r93.first().locator('.lhuta-cell').innerText()) : '';
+  over('O61c1', JSON.stringify(v1?.args.slice(0, 3)) === JSON.stringify([93, 'nedovolano', 'nebral to']) && v1?.ok === true
+    && (await r93.count()) === 1 && otevrene?.pokusy === 1 && /nedovoláno 1×/.test(lhuta),
+    '„Nedovolal/a jsem se“ s poznámkou: zapis_hovor ji dostane, označení zůstane otevřené a řádek ukáže „nedovoláno 1×“',
+    JSON.stringify({ args: v1?.args, pokusy: otevrene?.pokusy, lhuta }));
+  const POZN = 'chalupu prodává, ozve se nový majitel v lednu';
+  await r93.first().locator('button.zavolal-btn').click();
+  await okno.waitFor({ timeout: 4000 });
+  await okno.getByRole('radio', { name: 'Nic z toho výše' }).click();
+  const zapsat = okno.getByRole('button', { name: 'Zapsat hovor' });
+  const bezPoznamky = await zapsat.isDisabled();
+  await okno.locator('#dovolani-text').fill(POZN);
+  await zapsat.click();
+  await klid(page, 700);
+  const s2 = await stav(page);
+  const k93 = s2.kontakty.find((k) => k.id === 93);
+  const uzavrene = s2.oznaceni.filter((o) => o.kontakt_id === 93 && o.uzavreno_at !== null).pop();
+  const vzkaz = s2.zpravy.some((m) => m.sender_type === 'admin' && m.body === `Dovolání (Petra): Nic z toho výše: ${POZN}`);
+  over('O61c2', bezPoznamky && !s2.oznaceni.some((o) => o.kontakt_id === 93 && o.uzavreno_at === null) && uzavrene?.vysledek === 'jine'
+    && (await r93.count()) === 0 && (k93?.note ?? '').endsWith(`Dovolání: Nic z toho výše: ${POZN}`) && vzkaz,
+    '„Nic z toho výše“: bez poznámky nejde zapsat; s ní označení uzavřené (jine), řádek zmizí, poznámka klienta i vzkaz agentovi',
+    JSON.stringify({ vysledek: uzavrene?.vysledek, note: (k93?.note ?? '').slice(-80), vzkaz }));
+  await ctx.close();
+});
+
+// O61d: „Vyřešeno“ přímo v řádku (stejná práva jako v detailu), detail se neotevře
+await blok050('O061d petra', async () => {
+  const { ctx, page } = await novaStranka('petra');
+  await jdi(page, '#/oznacene', 700);
+  const r302 = page.locator('table.kontakty tbody tr', { hasText: 'Jana Vzorová' });
+  await r302.first().locator('button.vyreseno-btn').click();
+  await klid(page, 500);
+  const v = (await volani(page)).filter((x) => x.fn === 'clearFlag').pop();
+  const info = txt(await page.locator('.dovolani-info').innerText().catch(() => ''));
+  over('O61d1', v?.args[0] === 302 && v?.ok === true && (await r302.count()) === 0 && /^Příznak „.+“ u klienta .*Vzorová.* je vyřešený\.$/.test(info)
+    && (await page.locator('.drawer').count()) === 0, 'Volající: „Vyřešeno“ v řádku zruší příznak 302, řádek zmizí, věta o tom, detail se neotevře', info);
+  await ctx.close();
+});
+await blok050('O061d mikulas', async () => {
+  const { ctx, page } = await novaStranka('mikulas');
+  await jdi(page, '#/oznacene', 700);
+  const r94 = page.locator('table.kontakty tbody tr', { hasText: 'Na Kopci' }).first();
+  const pred = await r94.locator('.flag-badge').count();
+  await r94.locator('button.vyreseno-btn').click();
+  await klid(page, 500);
+  const tl = (await r94.locator('.oznacene-akce button').allInnerTexts()).map(txt);
+  over('O61d2', pred === 1 && (await page.locator('table.kontakty tbody tr', { hasText: 'Na Kopci' }).count()) === 1 && (await r94.locator('.flag-badge').count()) === 0
+    && (await r94.locator('.oznaceni-badge').count()) === 1 && JSON.stringify(tl) === JSON.stringify(['Zavolal/a jsem', 'Zrušit označení'])
+    && (await page.locator('.drawer').count()) === 0,
+    'super admin: „Vyřešeno“ u 94 zruší jen příznak, řádek zůstane s označením a akcemi Zavolal/a jsem a Zrušit označení', tl.join(' | '));
+  await ctx.close();
+});
+
+// O61e: „Údaje z internetu“ (info_neoverene u 92 a 94) Volající nevidí nikde, super admin ano
+await blok050('O061e petra', async () => {
+  const { ctx, page } = await novaStranka('petra');
+  const kde = [];
+  const vidi = async (misto) => {
+    const text = /Údaje z internetu/.test(await page.locator('body').innerText());
+    const atributy = await page.locator('[title*="Údaje z internetu"], [aria-label*="Údaje z internetu"]').count();
+    if (text || atributy > 0) kde.push(misto);
+  };
+  const ma94 = [];
+  for (const [nazev, hash] of STRANKY_061) {
+    await jdi(page, hash, 700);
+    if ((await page.locator('table.kontakty tbody tr', { hasText: 'Na Kopci' }).count()) === 1) ma94.push(nazev);
+    await vidi(nazev);
+  }
+  await jdi(page, '#/oznacene', 700);
+  await page.locator('table.kontakty tbody tr', { hasText: 'Na Kopci' }).first().locator('.kompakt-jmeno').click();
+  await klid(page, 500);
+  await vidi('detail 94');
+  const pridat = page.locator('.drawer button.flag-add-btn');
+  const maPridat = (await pridat.count()) === 1;
+  let moznosti = [];
+  if (maPridat) {
+    await pridat.click();
+    moznosti = (await page.locator('.drawer .flag-panel select option').allTextContents()).map(txt);
+    if (moznosti.some((x) => /Údaje z internetu/.test(x))) kde.push('výběr příznaku v detailu 94');
+  }
+  over('O61e1', kde.length === 0 && maPridat && moznosti.length >= 3 && ma94.length === 3,
+    'Volající (Petra) nevidí „Údaje z internetu“ v Označených, Moji klienti, Kontaktech, detailu 94 ani ve výběru příznaku (94 je její klient a v seznamech je)',
+    `vidí: ${kde.join(', ') || '—'}; 94 v ${ma94.join(', ')}; Označit klienta ${maPridat}; volby ${moznosti.join(' | ')}`);
+  await ctx.close();
+});
+await blok050('O061e mikulas', async () => {
+  const { ctx, page } = await novaStranka('mikulas');
+  await jdi(page, '#/oznacene', 700);
+  const pilulky = (await page.locator('.oznacene-druhy button').allInnerTexts()).map(txt);
+  over('O61e2', pilulky.includes('Údaje z internetu (2)'), 'super admin (Mikuláš) má pilulku „Údaje z internetu (2)“ (92 a 94)', pilulky.join(' | '));
+  // super admin navíc ve 2. řádku, kdo volá: server u označení bez vlastníka pošle místo jména rovnou „bez volajícího“
+  const volajici = (await page.locator('table.kontakty tbody tr .ozn-volajici').allInnerTexts()).map(txt);
+  over('O61e3', volajici.includes('volá Petra') && volajici.includes('bez volajícího') && !volajici.some((t) => /volá bez/.test(t)),
+    'super admin: u označení „volá <jméno>“ nebo „bez volajícího“, nikdy „volá bez volajícího“', volajici.join(' | '));
   await ctx.close();
 });
 

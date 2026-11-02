@@ -38,6 +38,7 @@ import {
   hovorNapoveda,
   jenZaklad,
   kontaktJmeno,
+  priznakProRoli,
   zmenenoKdy,
 } from '../ui';
 import {
@@ -77,6 +78,13 @@ const PAGE_SIZE = 50;
 // p_status a p_rating, víc přes p_statusy a p_znamky). Volajícímu berou všechny filtry jen jeho klienty (045, hlídá server).
 // Nový sloupec Mlčí (MlceniBunka: označení, pracovní dny, naše poslední zpráva, klient naposledy; u cizího pomlčka uvnitř
 // buňky) a hvězda u jména (jen u vlastního řádku). Šest pomlček jenZaklad níž zůstává (kontrola 193).
+// ⚠ Migrace 061 (Albert 2. 11. 2026: „make it a little bit more compact … or just fits into the screen without sliding
+// anywhere“; řekl to k Označeným, tabulka tady měla 1 364 až 1 427 px v rámečku 1 180 px a poslední sloupec nebyl vidět na
+// žádné šířce) NAHRAZUJE „tabulka se posouvá do strany“ v rámečku table-wrap: řádek kontaktu má dva řádky bez vodorovného
+// posunu (table.kontakty.kompakt v styles.css, jako Označené a Moji klienti): nahoře hvězda, příznak, segment, jméno a telefon,
+// pod tím ostatní buňky s malým popiskem (data-label v CSS). Obsah buněk se nemění; buňku jen s pomlčkou cizího kontaktu
+// (Skryto) CSS schová, nápověda nad tabulkou to vysvětluje. Příznak „Údaje z internetu“ Volající nevidí (priznakProRoli,
+// Albert 2. 11. 2026: „only the super admins will see this flag“).
 export default function AdminPage() {
   const session = useSession();
   const isAdmin = isAdminRole(session.role);
@@ -384,42 +392,48 @@ export default function AdminPage() {
           </p>
         </div>
       ) : (
-        <div className="table-wrap">
-          <table className="kontakty">
-            <thead>
-              <tr>
-                <th>Jméno</th>
-                <th>Telefon</th>
-                <th>Status</th>
-                <th>Známka</th>
-                <th title="Kolik pracovních dní klient mlčí od naší poslední zprávy; naše poslední zpráva a kdy klient napsal naposledy">Mlčí</th>
-                <th>Volal/a</th>
-                <th>Web</th>
-                {cekani ? <th>Čeká</th> : null}
-                <th>Změněno</th>
-                <th title={hovorNapoveda(!isSuper)}>{hovorNadpis(!isSuper)}</th>
+        // migrace 061: kompaktní řádky jako Označené (role v TSX, protože display se v CSS mění; hlavička jen pro čtečky).
+        // Buňku jen s pomlčkou cizího kontaktu (Skryto) CSS schová, vysvětlí to nápověda nad tabulkou (skryto-napoveda).
+        <div className="table-wrap kompakt-wrap">
+          <table className="kontakty kompakt" role="table">
+            <thead role="rowgroup">
+              <tr role="row">
+                <th role="columnheader">Jméno</th>
+                <th role="columnheader">Telefon</th>
+                <th role="columnheader">Status</th>
+                <th role="columnheader">Známka</th>
+                <th role="columnheader" title="Kolik pracovních dní klient mlčí od naší poslední zprávy; naše poslední zpráva a kdy klient napsal naposledy">Mlčí</th>
+                <th role="columnheader">Volal/a</th>
+                <th role="columnheader">Web</th>
+                {cekani ? <th role="columnheader">Čeká</th> : null}
+                <th role="columnheader">Změněno</th>
+                <th role="columnheader" title={hovorNapoveda(!isSuper)}>{hovorNadpis(!isSuper)}</th>
               </tr>
             </thead>
-            <tbody>
+            <tbody role="rowgroup">
               {rows.map((r) => (
                 <tr
+                  role="row"
                   key={r.id}
                   className={selected?.id === r.id ? 'selected' : ''}
                   onClick={() => setSelected(r)}
                 >
-                  <td className="row-name">
-                    <HvezdaPrepinac kontakt={r} onZmena={onHvezda} /> <FlagBadge kontakt={r} compact />{' '}
+                  {/* 1. řádek: jméno a telefon (obyčejný text, klepnutí na řádek tak vždy otevře detail) */}
+                  <td role="cell" className="row-name kompakt-hlavni">
+                    {/* migrace 061: příznak „Údaje z internetu“ jen super adminovi */}
+                    <HvezdaPrepinac kontakt={r} onZmena={onHvezda} /> <FlagBadge kontakt={priznakProRoli(r, isSuper)} compact />{' '}
                     <SegmentBadge kontakt={r} compact /> {kontaktJmeno(r)}
                   </td>
-                  <td style={{ whiteSpace: 'nowrap' }}>{r.phone || '—'}</td>
-                  <td>{jenZaklad(r) ? <Skryto /> : <StatusBadge status={r.status} />}</td>
-                  <td>{jenZaklad(r) ? <Skryto /> : r.rating ? <span className="badge rating">{r.rating}</span> : '—'}</td>
+                  <td role="cell" className="kompakt-hlavni tel-cell">{r.phone || '—'}</td>
+                  {/* 2. řádek: údaje s malým popiskem (data-label), zalomí se podle šířky */}
+                  <td role="cell">{jenZaklad(r) ? <Skryto /> : <StatusBadge status={r.status} />}</td>
+                  <td role="cell" data-label="známka">{jenZaklad(r) ? <Skryto /> : r.rating ? <span className="badge rating">{r.rating}</span> : '—'}</td>
                   {/* migrace 060: u cizího kontaktu pomlčka uvnitř MlceniBunka (server klíče mlčení ani označení nepošle) */}
-                  <td className="mlci-cell">
+                  <td role="cell" className="mlci-cell">
                     <MlceniBunka kontakt={r} />
                   </td>
-                  <td>{jenZaklad(r) ? <Skryto /> : r.last_caller || '—'}</td>
-                  <td>
+                  <td role="cell" data-label="volal/a">{jenZaklad(r) ? <Skryto /> : r.last_caller || '—'}</td>
+                  <td role="cell" data-label="web">
                     {r.web ? (
                       <a
                         href={r.web}
@@ -434,14 +448,14 @@ export default function AdminPage() {
                     )}
                   </td>
                   {cekani ? (
-                    <td style={{ whiteSpace: 'nowrap' }} className="ceka-cell">
+                    <td role="cell" style={{ whiteSpace: 'nowrap' }} className="ceka-cell" data-label="čeká">
                       {jenZaklad(r) ? <Skryto /> : formatCekani(r.cekani_since)}
                     </td>
                   ) : null}
-                  <td style={{ whiteSpace: 'nowrap' }} className="muted zmeneno-cell">
+                  <td role="cell" style={{ whiteSpace: 'nowrap' }} className="muted zmeneno-cell" data-label="změněno">
                     {jenZaklad(r) ? <Skryto /> : formatDateTime(zmenenoKdy(r))}
                   </td>
-                  <td style={{ whiteSpace: 'nowrap' }} className="muted hovor-cell">
+                  <td role="cell" style={{ whiteSpace: 'nowrap' }} className="muted hovor-cell" data-label={hovorNadpis(!isSuper).toLowerCase()}>
                     {jenZaklad(r) ? <Skryto /> : formatDateTime(r.posledni_hovor ?? null)}
                   </td>
                 </tr>

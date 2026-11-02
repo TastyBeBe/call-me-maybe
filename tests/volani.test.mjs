@@ -1,6 +1,8 @@
 // Test chování: volání 050 (Albert 21. 10. 2026): nerelevantní kontakt, přeplánovaný hovor, kalendář hovorů, výdělek
 // volajícího a sloupce v Moji klienti. Od migrace 051 (Albert 22. 10. 2026) i blok D: cena při „Mají zájem“ nepovinná,
-// nedohodnutá cena = „n/a“ (db/migration_051_cena_na.sql, test db/tests/test_051_cena_na.sql).
+// nedohodnutá cena = „n/a“ (db/migration_051_cena_na.sql, test db/tests/test_051_cena_na.sql). Od migrace 061 (Albert
+// 2. 11. 2026) i blok W: příznak „Údaje z internetu“ jen super adminům (priznakVidi, priznakProRoli) a okno Zavolal/a jsem
+// s pátým výsledkem a poznámkou u každého výsledku.
 //
 // Měří DEMO mock (src/api/mock.ts), který musí zrcadlit server (db/migration_050_volani_kalendar_vydelek.sql, test
 // db/tests/test_050_volani_kalendar_vydelek.sql), pomocníky v src/ui.tsx, src/praha.ts, src/zavolat.tsx
@@ -49,6 +51,7 @@ let bundle;
         "export * as prahaModul from './src/praha.ts';",
         "export * as zavolatModul from './src/zavolat.tsx';",
         "export * as oknoModul from './src/components/ZavolatModal.tsx';",
+        "export * as dovolaniOknoModul from './src/components/DovolaniOkno.tsx';",
       ].join('\n'),
       resolveDir: ROOT,
       loader: 'ts',
@@ -70,7 +73,7 @@ let bundle;
   bundle = createRequire(import.meta.url)(f);
   rmSync(dir, { recursive: true, force: true });
 }
-const { mockApi: api, cenaCist, cenaNezadanaMock, maVlastniWeb, vrstvaFronty, supabaseApi, uiModul: U, prahaModul: P, zavolatModul: Z, oknoModul: O } = bundle;
+const { mockApi: api, cenaCist, cenaNezadanaMock, maVlastniWeb, vrstvaFronty, supabaseApi, uiModul: U, prahaModul: P, zavolatModul: Z, oknoModul: O, dovolaniOknoModul: DO } = bundle;
 
 let pocet = 0;
 let chyby = 0;
@@ -1034,6 +1037,46 @@ await blok('Y', async () => {
     && /if \(outcome === 'zajem' && hvezda\)/.test(call) && /const submitZajem = \(\) => \{\s*if \(!zajemValid\) return;\s*void resolve\('zajem'\);\s*\};/.test(call),
     've volání: hvězda se s novou kartou vynuluje a dá se až po uloženém zájmu (submitZajem beze změny)');
   void stavY;
+});
+
+/* ---------------- W) migrace 061 (Albert 2. 11. 2026): „Údaje z internetu“ jen super adminům, pátý výsledek a poznámka ---------------- */
+// „only the super admins will see this flag, but the callers don't need to see the [flag]“ a „these four options. Plus … one
+// more option which says none of it above. And plus there should be a note“. Pojistka appky k serveru 061 (priznakProRoli,
+// priznakVidi) a pravidla okna Zavolal/a jsem; klikání měří tests/demo-e2e.mjs (blok O61).
+await blok('W', async () => {
+  const skryty = { id: 7, flag_kind: 'info_neoverene', flag_note: 'z inzerátu', flagged_at: '2026-11-01T10:00:00Z', flagged_by: 'automatizace' };
+  const ciziPriznak = { id: 8, flag_kind: 'chybi_email', flag_note: 'není e-mail', flagged_at: '2026-11-01T10:00:00Z', flagged_by: 'Petra' };
+  const proVolajiciho = U.priznakProRoli(skryty, false);
+  over('W1', JSON.stringify(U.JEN_SUPER_FLAGS) === '["info_neoverene"]' && !U.priznakVidi('info_neoverene', false) && U.priznakVidi('info_neoverene', true)
+    && U.priznakVidi('chybi_email', false) && !U.priznakVidi(null, true) && !U.priznakVidi(undefined, false),
+    'priznakVidi: „Údaje z internetu“ jen super admin, ostatní druhy každý, bez příznaku nic');
+  over('W2', proVolajiciho.id === 7 && proVolajiciho.flag_kind === null && proVolajiciho.flag_note === null && proVolajiciho.flagged_at === null
+    && proVolajiciho.flagged_by === null && skryty.flag_kind === 'info_neoverene'
+    && U.priznakProRoli(skryty, true) === skryty && U.priznakProRoli(ciziPriznak, false) === ciziPriznak,
+    'priznakProRoli: Volajícímu skrytý příznak zmizí i s poznámkou, časem a autorem (kopie, originál zůstane); jinak řádek beze změny');
+  over('W3', DO.poznamkaPovinna('mluvili') && DO.poznamkaPovinna('jine') && !DO.poznamkaPovinna('nedovolano') && !DO.poznamkaPovinna('nechce')
+    && !DO.poznamkaPovinna('nekontaktovat') && !DO.poznamkaPovinna(null)
+    && DO.DOVOLANI_VOLBY.find((x) => x.v === 'jine')?.text === 'Nic z toho výše' && DO.DOVOLANI_VOLBY.length === 5,
+    'okno Zavolal/a jsem: pět výsledků, poznámka povinná jen u „Mluvili jsme“ a „Nic z toho výše“');
+  const src = (p) => readFileSync(join(ROOT, p), 'utf8');
+  const okno = src('src/components/DovolaniOkno.tsx');
+  over('W4', /\n\s*text\.trim\(\) \|\| null,\n/.test(okno) && !/vysledek === 'nedovolano' \? null/.test(okno)
+    && (okno.match(/return createPortal\(/g) ?? []).length === 2 && /Poznámka pro automatizaci/.test(okno)
+    && /v\?\.poznamka_predana === false \? ' Poznámka se uložila jen k záznamu pokusu, v appce ji nikdo neuvidí\.'/.test(okno)
+    // recenze 2. 11. 2026: appka žádnou historii dovolání nemá (poznámka bez práva úprav je jen v události dovolani)
+    && !/histori[ei] dovolání/.test(okno),
+    'okno: poznámka jde serveru u každého výsledku (i nedovolano), obě okna přes createPortal, bez práva úprav věta, že ji v appce nikdo neuvidí (žádná „historie dovolání“)');
+  const ozn = src('src/pages/OznacenePage.tsx');
+  const moji = src('src/pages/MojiPage.tsx');
+  const admin = src('src/pages/AdminPage.tsx');
+  const call = src('src/pages/CallPage.tsx');
+  const drawer = src('src/components/KontaktDrawer.tsx');
+  over('W5', /setRows\(r\.map\(\(x\) => priznakProRoli\(x, jaSuper\)\)\.filter\(\(x\) => x\.ozn_kategorie \|\| x\.flag_kind\)\);/.test(ozn)
+    && /const novy = priznakProRoli\(/.test(ozn) && /ALL_FLAGS\.filter\(\(f\) => priznakVidi\(f, jaSuper\)\)/.test(ozn)
+    && /<FlagBadge kontakt=\{priznakProRoli\(r, isSuper\)\} compact \/>/.test(moji) && /<FlagBadge kontakt=\{priznakProRoli\(r, isSuper\)\} compact \/>/.test(admin)
+    && /\{kontakt\.flag_kind && priznakVidi\(kontakt\.flag_kind, isSuperAdmin\(session\.role\)\) && \(/.test(call)
+    && /<FlagPanel kontakt=\{priznakProRoli\(kontakt, isSuperAdmin\(session\.role\)\)\}/.test(drawer) && /priznakVidi\(f, jaSuper\) \? \(/.test(drawer),
+    'stránky: Označené, Moji klienti, Kontakty, karta ve volání a detail berou příznak přes priznakProRoli / priznakVidi');
 });
 
 if (chyby === 0) {

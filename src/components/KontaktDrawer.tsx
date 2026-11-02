@@ -17,6 +17,9 @@
 // označení „Zavolal/a jsem“, super admin i „Zrušit označení“) a hvězda „velký zájem“ hned bez „Uložit změny“ (kdo smí
 // upravit; ostatní jen odznak). Větev jenZaklad (cizí kontakt Volajícího) nemá ani jedno. Příznak `neodpovida` už nejde
 // vybrat (nahradilo ho označení k zavolání).
+// Migrace 061 (Albert 2. 11. 2026: „only the super admins will see this flag, but the callers don't need to see the [flag]“):
+// příznak „Údaje z internetu“ (info_neoverene) Volající v detailu nevidí (panel příznaku dostane řádek přes priznakProRoli)
+// a výběr druhu mu ho nenabízí; super admin a Albert beze změny.
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
@@ -57,6 +60,8 @@ import {
   formatKdyVeta,
   formatRelativne,
   pravidloPopisek,
+  priznakProRoli,
+  priznakVidi,
   stavChceDuvod,
   VOLITELNE_FLAGS,
   zmenenoKdy,
@@ -129,6 +134,10 @@ function FlagPanel({
   onSaved?: (updated: Kontakt) => void;
 }) {
   const session = useSession();
+  // migrace 061 (Albert 2. 11. 2026: „only the super admins will see this flag“): Volající „Údaje z internetu“ ve výběru nemá
+  // (příznak, který by pak sám neviděl); skrytý příznak mu sem jde jako žádný (priznakProRoli níž) a „Označit klienta“ ho
+  // nahradí jeho vlastním, jak 061 dovolí
+  const jaSuper = isSuperAdmin(session.role);
   // migrace 060: starý příznak neodpovida vybrat nejde (server ho odmítne); úprava takového příznaku začne na „jine“
   const vychoziDruh = (k: FlagKind | null): FlagKind => (k && VOLITELNE_FLAGS.includes(k) ? k : 'jine');
   const [editing, setEditing] = useState(false);
@@ -229,11 +238,14 @@ function FlagPanel({
           <div className="field">
             <label>Co je špatně</label>
             <select value={kind} onChange={(e) => setKind(e.target.value as FlagKind)}>
-              {VOLITELNE_FLAGS.map((f) => (
-                <option key={f} value={f}>
-                  {FLAG_LABELS[f]}
-                </option>
-              ))}
+              {/* jen druhy, které přihlášený vidí (migrace 061: Volající bez „Údaje z internetu“) */}
+              {VOLITELNE_FLAGS.map((f) =>
+                priznakVidi(f, jaSuper) ? (
+                  <option key={f} value={f}>
+                    {FLAG_LABELS[f]}
+                  </option>
+                ) : null
+              )}
             </select>
           </div>
           <div className="field">
@@ -806,7 +818,8 @@ export default function KontaktDrawer({
           }}
         />
 
-        <FlagPanel kontakt={kontakt} readOnly={readOnly} onSaved={onSaved} />
+        {/* migrace 061: příznak „Údaje z internetu“ jen super adminovi (Volajícímu jako bez příznaku, pojistka k serveru) */}
+        <FlagPanel kontakt={priznakProRoli(kontakt, isSuperAdmin(session.role))} readOnly={readOnly} onSaved={onSaved} />
 
         {cizi && (
           <p className="muted" style={{ fontSize: 13.5, margin: '12px 0 0' }}>

@@ -184,6 +184,29 @@ export function flagHintDetail(kind: FlagKind, readOnly: boolean, segment?: stri
 export const ALL_FLAGS = Object.keys(FLAG_LABELS) as FlagKind[];
 
 /**
+ * Příznaky jen pro super adminy a Alberta (migrace 061, Albert 2. 11. 2026: „This should be exclusive to the super admins …
+ * only the super admins will see this flag, but the callers don't need to see the [flag]“): „Údaje z internetu“. Volající
+ * je nevidí nikde (pilulka, odznak, počet, karta ve volání, detail ani výběr druhu v detailu). Server 061 mu je neposílá,
+ * tohle je druhá pojistka v appce.
+ */
+export const JEN_SUPER_FLAGS: FlagKind[] = ['info_neoverene'];
+
+/** Vidí přihlášený tenhle druh příznaku? Super admin a Albert všechny, Volající všechny kromě JEN_SUPER_FLAGS. */
+export function priznakVidi(kind: FlagKind | null | undefined, jaSuper: boolean): boolean {
+  return !!kind && (jaSuper || !JEN_SUPER_FLAGS.includes(kind));
+}
+
+/**
+ * Řádek pro přihlášeného: příznak, který nesmí vidět, zmizí i s poznámkou, časem a autorem (jako app_kontakt_ven od 061),
+ * takže je řádek jako bez příznaku. Volající takový příznak v detailu nahradí vlastním („Označit klienta“), jak 061 dovolí.
+ */
+export function priznakProRoli<T extends Pick<Kontakt, 'flag_kind'>>(k: T, jaSuper: boolean): T {
+  return k.flag_kind && !priznakVidi(k.flag_kind, jaSuper)
+    ? { ...k, flag_kind: null, flag_note: null, flagged_at: null, flagged_by: null }
+    : k;
+}
+
+/**
  * Příznaky, které jde v detailu nasadit (migrace 060, Albert 1. 11. 2026): bez `neodpovida`, ten nahradilo označení
  * k zavolání a server ho odmítne. ALL_FLAGS zůstává na popisky a počty (starý server ho může poslat).
  */
