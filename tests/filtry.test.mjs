@@ -7,6 +7,8 @@
 // ⚠ Migrace 060 (Albert 1. 11. 2026: označení k zavolání, hvězda, stejné kombinovatelné filtry v Kontaktech, Moji klienti
 // i Označených, přehled klienta): blok O měří mock proti db/migration_060_oznaceni_hvezda.sql (test db/tests/test_060_oznaceni.sql),
 // co supabase.ts posílá a stránky; bloky R a U upravené (šest hodnot řazení, filtry Moji klienti pro každého).
+// Migrace 061 (Albert 1. 11. 2026, druhá etapa): blok P (hvězda od automatizace, odeslaná připomínka po lhůtě v Označených
+// a v přehledu) proti db/migration_061_oznaceni_etapa2.sql; v bloku O upravené O2, O3e a O3g (ukázková data druhé etapy).
 //
 // Měří DEMO mock (src/api/mock.ts), který musí zrcadlit server (db/migration_056_statistiky_den_filtry.sql, test
 // db/tests/test_056_statistiky_den_filtry.sql), a to, co src/api/supabase.ts posílá serveru (fetch je podstrčený, nic
@@ -449,7 +451,7 @@ await blok('H', async () => {
 // v Praze se svátky, označení jen pro toho, kdo opravdu neodpověděl (odmítnutí se slevou ne, nabídka z připomínky kampaně
 // ano), vlastník = poslední zájem, Volající jen svoje označení a filtry jen nad svými klienty (cizí kontakt nikdy nesedí
 // a nové klíče nenese), dovolání mimo call_log. Demo klienti k označení mlčí aspoň 15 dní, takže test nezávisí na dni.
-// Běží poslední (mění data: dovolání, hvězdy, zrušené označení).
+// Běží po ostatních blocích, před blokem P (mění data: dovolání, hvězdy, zrušené označení).
 await blok('O', async () => {
   const stavO = () => globalThis.__volackaDemoTest.stav();
   const dnes = P.prahaDen(new Date());
@@ -471,10 +473,14 @@ await blok('O', async () => {
     94: ['zmeny', 2], 96: ['navrh', 3], 97: ['navrh', 4] };
   const o0 = otevrena();
   const ids0 = o0.map((o) => o.kontakt_id).sort((a, b) => a - b);
+  // ⚠ migrace 061 (ukázková data druhé etapy): 96 má označení už z doby před prvním během (před 16 dny, lhůta 5 pracovních
+  // dní minula) s odeslanou připomínkou; první běh mu jen obnoví vlastníka. NAHRAZUJE „všechna z prvního běhu“.
   over('O2', JSON.stringify(ids0) === JSON.stringify(Object.keys(cekane).map(Number).sort((a, b) => a - b))
-    && o0.every((o) => o.kategorie === cekane[o.kontakt_id][0] && o.volajici_id === cekane[o.kontakt_id][1] && o.zavadeci === true
-      && o.lhuta_do === P.pracovniDenPo(dnes, 10) && o.pokusy === 0),
-    'první běh: označení 90, 91, 92, 5, 303, 93, 94, 96, 97 se správnou kategorií, vlastníkem a lhůtou 10 pracovních dní',
+    && o0.every((o) => o.kategorie === cekane[o.kontakt_id][0] && o.volajici_id === cekane[o.kontakt_id][1] && o.pokusy === 0
+      && (o.kontakt_id === 96
+        ? o.zavadeci === false && o.lhuta_do < dnes && o.pripominka_job !== null && !!o.pripominka_at
+        : o.zavadeci === true && o.lhuta_do === P.pracovniDenPo(dnes, 10) && o.pripominka_job === null && o.pripominka_at === null)),
+    'první běh: označení 90, 91, 92, 5, 303, 93, 94, 97 se správnou kategorií, vlastníkem a lhůtou 10 pracovních dní; 96 starší s odeslanou připomínkou',
     JSON.stringify(o0.map((o) => [o.kontakt_id, o.kategorie, o.volajici_id, o.lhuta_do])));
   over('O2b', !oznaceniKontaktu(95) && !oznaceniKontaktu(98) && oznaceniKontaktu(96)?.volajici_id === 3,
     'neoznačený: 95 (návrh před 2 dny), 98 (odmítl, sleva); 96 patří Honzovi (poslední zájem), i když mu volala i Petra');
@@ -508,7 +514,8 @@ await blok('O', async () => {
   over('O3d', stejne(await idsF(albert, { mlci_min: 5 }), mlciRadky(5, null)) && stejne(await idsF(albert, { mlci_min: 0, mlci_max: 3 }), mlciRadky(0, 3))
     && (await idsF(albert, { mlci_min: 0, mlci_max: 3 })).includes(95) && !(await idsF(albert, { mlci_min: 0 })).includes(1),
     'mlčení od a do včetně; nemlčící se zapnutou mezí nesedí');
-  over('O3e', stejne(await idsF(albert, { jen_hvezda: true }), [93]) && stejne(await idsF(albert, { jen_hvezda: true, kategorie: ['zmeny'] }), [])
+  // ⚠ migrace 061: 24 má hvězdu od automatizace (ukázková data druhé etapy); NAHRAZUJE „jen 93“
+  over('O3e', stejne(await idsF(albert, { jen_hvezda: true }), [24, 93]) && stejne(await idsF(albert, { jen_hvezda: true, kategorie: ['zmeny'] }), [])
     && stejne(await idsF(albert, { kategorie: ['navrh'], znamky: ['B'], segment: 'architekt' }), [303])
     && stejne(await idsF(albert, { jen_hvezda: false }), serazene(vsechny.map((r) => r.id))),
     'hvězda a kombinace filtrů (A ZÁROVEŇ); jen_hvezda false = bez filtru');
@@ -518,7 +525,8 @@ await blok('O', async () => {
   over('O3f', sMlcenim.length > 5 && mlc.slice(0, sMlcenim.length).every((r) => r.mlci_pd !== null) && sMlcenim.every((r, i) => i === 0 || sMlcenim[i - 1].mlci_pd >= r.mlci_pd),
     'řazení nejdéle bez odpovědi: mlčící od nejdelšího, nemlčící na konci');
   const hv = (await lk(albert, { razeni: 'hvezda' })).rows;
-  over('O3g', hv[0]?.id === 93 && hv.slice(1).every((r) => !r.hvezda_at), 'řazení hvězda nejdřív: 93 (jediná hvězda) první', hv.slice(0, 3).map((r) => r.id).join());
+  // ⚠ migrace 061: dvě hvězdy (93 od Petry, 24 od automatizace, nemlčí); NAHRAZUJE „93 jediná hvězda“
+  over('O3g', hv[0]?.id === 93 && hv[1]?.id === 24 && hv.slice(2).every((r) => !r.hvezda_at), 'řazení hvězda nejdřív: 93 (mlčí nejdéle) a 24, pak bez hvězdy', hv.slice(0, 3).map((r) => r.id).join());
 
   // O4 Volající (Petra): nové filtry jen nad jejími klienty, jen její označení; cizí kontakt bez nových klíčů
   const vseP = await lk(petra, {});
@@ -795,6 +803,115 @@ await blok('O', async () => {
     'volání: hvězda až po uloženém zájmu (chyba se ukáže), jiný obrázek než Mají zájem, přehled jen u vlastního klienta');
   const hint = U.FLAG_HINTS.neodpovida;
   over('O16f', !/zmiz\p{L}*\s+s[aá]m|zavol[aá]\s*$/iu.test(hint) && /starý příznak/i.test(hint), 'nápověda neodpovida nic neslibuje (hovor mimo frontu se dřív nedal zapsat)', hint);
+});
+
+/* ---------------- P) migrace 061: hvězda od automatizace, odeslaná připomínka po lhůtě (Albert 1. 11. 2026, druhá etapa) ---------------- */
+// Server: db/migration_061_oznaceni_etapa2.sql (test db/tests/test_061_oznaceni_etapa2.sql). Mock musí jako server: klíč
+// ozn_pripominka_at v Označených jen u označení, které přihlášený vidí (vlastník, jeho super admin, Albert; kolega u společného
+// klienta ne), fakta.pripominka_oznaceni v přehledu z označení, která přihlášený vidí (i uzavřených), hvězda od automatizace
+// bez masky (není to jméno kolegy) a služební pravidla (háček): hvězdu člověka nikdy nepřepíše, po vzetí člověkem od poslední
+// zprávy klienta ji nedá, připomínka se zapíše jen k otevřenému označení s jobem a jen jednou. Ukázková data: 96 (Honzovo
+// označení po lhůtě, připomínka před 2 dny; volala mu i Petra), 24 (Honzův klient s hvězdou od automatizace).
+// Běží poslední (po bloku O, který mění data: 96 tam Petra hvězdu dala a vzala, 94 a 97 mají hvězdu od lidí).
+await blok('P', async () => {
+  const H = globalThis.__volackaDemoTest;
+  const stavP = () => H.stav();
+  const lo = async (tok, fl = {}) => api.listOznacene(tok, fl);
+  const p96 = stavP().oznaceni.find((o) => o.kontakt_id === 96 && o.uzavreno_at === null);
+  const cas96 = p96?.pripominka_at;
+
+  // P1 Označené: ozn_pripominka_at vlastníkovi (Honza), jeho super adminovi (Mikuláš) a Albertovi; Petra 96 v Označených nemá
+  const oH = await lo(honza);
+  const r96 = oH.find((r) => r.id === 96);
+  over('P1', !!cas96 && r96?.ozn_pripominka_at === cas96 && r96?.ozn_kategorie === 'navrh' && oH.every((r) => 'ozn_pripominka_at' in r)
+    && oH.filter((r) => r.id !== 96).every((r) => r.ozn_pripominka_at === null),
+    'Honza: u 96 čas odeslané připomínky, ostatní řádky klíč s null', JSON.stringify(oH.map((r) => [r.id, r.ozn_pripominka_at])));
+  const oM = await lo(mikulas);
+  const oA = await lo(albert);
+  over('P1b', oM.find((r) => r.id === 96)?.ozn_pripominka_at === cas96 && oA.find((r) => r.id === 96)?.ozn_pripominka_at === cas96
+    && oA.find((r) => r.id === 96)?.ozn_volajici === 'Honza', 'super admin Honzy a Albert čas připomínky vidí');
+  const oP = await lo(petra);
+  over('P1c', !oP.some((r) => r.id === 96) && oP.every((r) => r.ozn_pripominka_at === null),
+    'Petra (volala 96, ale označení je Honzovo): 96 v Označených nemá a žádný čas připomínky nevidí');
+
+  // P2 přehled: fakta.pripominka_oznaceni vlastníkovi a super adminům, kolegovi null; bez připomínky null
+  const prH = await api.kontaktPrehled(honza, 96);
+  const prP = await api.kontaktPrehled(petra, 96);
+  const prA = await api.kontaktPrehled(albert, 96);
+  const prBez = await api.kontaktPrehled(honza, 5);
+  over('P2', prH.fakta.pripominka_oznaceni === cas96 && prA.fakta.pripominka_oznaceni === cas96 && prP.fakta.pripominka_oznaceni === null
+    && prP.fakta.oznaceni === null && 'pripominka_oznaceni' in prBez.fakta && prBez.fakta.pripominka_oznaceni === null,
+    'přehled: připomínka vlastníkovi a Albertovi, Petře (kolegyni) null, bez připomínky null',
+    JSON.stringify([prH.fakta.pripominka_oznaceni, prP.fakta.pripominka_oznaceni, prBez.fakta.pripominka_oznaceni]));
+
+  // P3 hvězda od automatizace (24): Honza i jeho super admin vidí „automatizace“ a důvod, Petře cizí kontakt klíče nenese
+  const k24 = stavP().kontakty.find((k) => k.id === 24);
+  const r24 = (await api.myKontakty(honza, 2000, 0)).rows.find((r) => r.id === 24);
+  const p24 = (await api.listKontakty(petra, { limit: 1000 })).rows.find((r) => r.id === 24);
+  const pr24 = await api.kontaktPrehled(mikulas, 24);
+  over('P3', k24?.hvezda_kdo === 'automatizace' && !!k24.hvezda_duvod && r24?.hvezda_kdo === 'automatizace' && r24?.hvezda_duvod === k24.hvezda_duvod
+    && pr24.fakta.hvezda?.kdo === 'automatizace' && pr24.fakta.hvezda?.duvod === k24.hvezda_duvod
+    && p24?.skryto === true && !('hvezda_kdo' in p24) && !('hvezda_at' in p24),
+    'hvězda od automatizace: vlastník a super admin vidí kdo a důvod beze změny, cizí kontakt Volajícího bez klíčů hvězdy');
+  over('P3b', U.hvezdaPopis({ hvezda_at: '2026-11-02T09:00:00Z', hvezda_kdo: 'automatizace', hvezda_duvod: 'Ptá se, jak zaplatit.' })
+      === 'Velký zájem (hvězda) · dala ji automatizace 2. 11. 2026 · Ptá se, jak zaplatit.'
+    && U.hvezdaPopis({ hvezda_at: '2026-11-02T09:00:00Z', hvezda_kdo: 'Petra', hvezda_duvod: null }) === 'Velký zájem (hvězda) · dal/a Petra 2. 11. 2026'
+    && U.hvezdaKdoText('automatizace') === 'dala ji automatizace' && U.HVEZDA_AUTOMATIZACE === 'automatizace'
+    && U.pripominkaOdeslanaText('2026-11-18T10:00:00Z') === 'Připomínka odeslána 18. 11. 2026' && U.pripominkaOdeslanaText(null) === '',
+    'popisky: hvězda od automatizace „dala ji automatizace … · důvod“, člověk „dal/a …“, „Připomínka odeslána <den>“');
+
+  // P4 služební pravidla hvězdy (háček = hvezda_automatizace serveru): hvězdu člověka nepřepíše, po vzetí ji nedá, jinak ano a jen jednou
+  const k93 = stavP().kontakty.find((k) => k.id === 93);
+  const a93 = H.hvezdaAutomatizace(93, 'Chce web hned.');
+  const k93b = stavP().kontakty.find((k) => k.id === 93);
+  const a96 = H.hvezdaAutomatizace(96, 'Chce web hned.');
+  const a95 = H.hvezdaAutomatizace(95, '  Poslal   vlastní fotky.  ');
+  const a95b = H.hvezdaAutomatizace(95, 'Znovu.');
+  const k95 = stavP().kontakty.find((k) => k.id === 95);
+  over('P4', a93.nastaveno === false && k93b.hvezda_kdo === k93.hvezda_kdo && k93b.hvezda_at === k93.hvezda_at && k93b.hvezda_duvod === k93.hvezda_duvod
+    && a96.nastaveno === false && /^Hvězdu vzal\/a Petra /.test(a96.proc) && stavP().kontakty.find((k) => k.id === 96).hvezda_at === null
+    && a95.nastaveno === true && a95b.nastaveno === false && k95.hvezda_kdo === 'automatizace' && k95.hvezda_duvod === 'Poslal vlastní fotky.',
+    'hvězda od automatizace: hvězdu Petry (93) nepřepíše, po vzetí Petrou (96, klient nikdy nenapsal) ji nedá, 95 ano (mezery sloučené) a podruhé nic',
+    JSON.stringify([a93, a96, a95, a95b]));
+  let e1 = '';
+  try { H.hvezdaAutomatizace(95, '   '); } catch (e) { e1 = e.message; }
+  let e2 = '';
+  try { H.hvezdaAutomatizace(1, 'x'.repeat(301)); } catch (e) { e2 = e.message; }
+  over('P4b', e1 === 'Hvězda od automatizace potřebuje důvod: jednu větu, proč má klient velký zájem.' && e2 === 'Důvod hvězdy je moc dlouhý: nejvýš 300 znaků.',
+    'důvod povinný a nejvýš 300 znaků (hlášky jako server)', `${e1} | ${e2}`);
+
+  // P5 zápis odeslané připomínky (háček = tick + oznaceni_pripominka_odeslana): jen otevřené označení s jobem, jednou
+  const z96 = H.pripominkaOdeslana(96);
+  const z93bez = H.pripominkaOdeslana(93);
+  const z1 = H.pripominkaOdeslana(1);
+  const zar = H.zaradPripominku(93, 777);
+  const zarZnovu = H.zaradPripominku(93, 778);
+  const z93 = H.pripominkaOdeslana(93);
+  const o93 = stavP().oznaceni.find((o) => o.kontakt_id === 93 && o.uzavreno_at === null);
+  const zav = stavP().oznaceni.find((o) => o.kontakt_id === 94 && o.uzavreno_at !== null);
+  const z94 = H.pripominkaOdeslana(94);
+  over('P5', z96.zapsano === false && z96.pripominka_at === cas96 && z93bez.zapsano === false && /nemá zařazenou připomínku/.test(z93bez.proc)
+    && z1.zapsano === false && z1.oznaceni_id === null && zar === true && zarZnovu === false && z93.zapsano === true && o93?.pripominka_job === 777
+    && o93?.pripominka_at === z93.pripominka_at && !!zav && z94.zapsano === false && stavP().oznaceni.find((o) => o.id === zav.id).pripominka_at === null,
+    'připomínka: podruhé nic (96), bez jobu nic (93), bez označení nic (1), tick zařadí job jednou, pak zápis; uzavřené označení (94) nikdy',
+    JSON.stringify([z96.zapsano, z93bez.zapsano, z1.zapsano, zar, zarZnovu, z93.zapsano, z94.zapsano]));
+  over('P5b', (await lo(petra)).find((r) => r.id === 93)?.ozn_pripominka_at === z93.pripominka_at
+    && (await api.kontaktPrehled(petra, 93)).fakta.pripominka_oznaceni === z93.pripominka_at,
+    'po zápisu: Petra (vlastnice 93) vidí čas v Označených i v přehledu');
+  let e3 = '';
+  try { H.pripominkaOdeslana(999999); } catch (e) { e3 = e.message; }
+  over('P5c', e3 === 'Kontakt id=999999 neexistuje.', 'neexistující kontakt = chyba jako server', e3);
+
+  // P6 stránky: Označené ukazuje čas pod lhůtou, přehled řádek faktů, hvězda od automatizace popisek v detailu
+  const src = (p) => readFileSync(join(ROOT, p), 'utf8');
+  const ozn = src('src/pages/OznacenePage.tsx');
+  const pp = src('src/components/PrehledPanel.tsx');
+  const hv = src('src/components/Hvezda.tsx');
+  over('P6', /\{r\.ozn_pripominka_at \? <span className="pripominka-odeslana">\{pripominkaOdeslanaText\(r\.ozn_pripominka_at\)\}<\/span> : null\}/.test(ozn)
+    && /lhutaText\(r\.ozn_lhuta_do\)/.test(ozn)
+    && /if \(f\.pripominka_oznaceni\) r\.push\(\{ klic: 'připomínka po lhůtě', text: `odeslána \$\{datum\(f\.pripominka_oznaceni\)\}` \}\);/.test(pp)
+    && /hvezdaKdoText\(f\.hvezda\.kdo\)/.test(pp) && /HVEZDA_AUTOMATIZACE \? ' Hvězda od automatizace'/.test(hv),
+    'Označené: „Připomínka odeslána“ pod lhůtou; přehled: řádek připomínky po lhůtě a kdo dal hvězdu; detail: „Hvězda od automatizace“');
 });
 
 if (chyby === 0) {

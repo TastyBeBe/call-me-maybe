@@ -37,6 +37,7 @@ import {
   ErrorBox,
   FLAG_COLORS,
   FLAG_LABELS,
+  HVEZDA_AUTOMATIZACE,
   HvezdaOdznak,
   STATUS_DUVOD_MAX,
   STATUS_LABELS,
@@ -831,7 +832,7 @@ export default function KontaktDrawer({
               {kontakt.hvezda_at && (
                 <>
                   {' '}
-                  · <HvezdaOdznak kontakt={kontakt} /> velký zájem
+                  · <HvezdaOdznak kontakt={kontakt} /> velký zájem{kontakt.hvezda_kdo === HVEZDA_AUTOMATIZACE ? ' (od automatizace)' : ''}
                 </>
               )}
             </p>

@@ -242,6 +242,11 @@ export interface Kontakt {
   ozn_zavadeci?: boolean | null;
   ozn_volajici_id?: number | null;
   ozn_volajici?: string | null;
+  /**
+   * jen list_oznacene, migrace 061 (Albert 1. 11. 2026, druhá etapa): kdy po lhůtě na zavolání ověřeně odešla připomínka
+   * e-mailem (oznaceni.pripominka_at otevřeného označení, které přihlášený vidí); null = ještě ne, server bez 061 klíč nepošle
+   */
+  ozn_pripominka_at?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -521,6 +526,11 @@ export interface PrehledFakta {
   /** poslední nabídka poloviční ceny: kdy odešla, poslední den platnosti (+14 dní), z kampaně, archiv (+30 dní od naší zprávy) */
   nabidka?: { odeslana_at: string; konci_dne: string | null; kampan: boolean; archiv_dne: string | null } | null;
   pripominka_kampane?: string | null;
+  /**
+   * migrace 061 (Albert 1. 11. 2026, druhá etapa): kdy naposledy odešla připomínka po lhůtě na zavolání (nejnovější
+   * oznaceni.pripominka_at z označení, která přihlášený vidí, i uzavřených: Volajícímu jen z jeho); null = žádná
+   */
+  pripominka_oznaceni?: string | null;
   /** spící budík smazání náhledu (architekt po 8A) */
   nahled_smazani?: string | null;
   zavolat?: { id: number; kdy: string; poznamka: string | null; muj: boolean; volajici?: string | null } | null;

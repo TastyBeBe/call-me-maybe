@@ -276,7 +276,8 @@ const kontakty: Kontakt[] = [
     last_caller: 'Honza',
     live_url: 'https://chata-na-samote.example.app',
     first_proposal_at: daysAgo(20),
-    last_our_reply_at: daysAgo(20),
+    // migrace 061: naše poslední zpráva je připomínka po lhůtě na zavolání (označení 96 níž, ukázková data druhé etapy)
+    last_our_reply_at: daysAgo(2),
   }),
   k({
     id: 97,
@@ -2188,6 +2189,9 @@ interface MockOznaceni {
   zavolano_kdo: number | null;
   vysledek: 'nechce' | 'nekontaktovat' | 'mluvili' | null;
   poznamka: string | null;
+  /** migrace 061: job připomínky po lhůtě (zařadil tick) a kdy ověřeně odešla (oznaceni_pripominka_odeslana) */
+  pripominka_job: number | null;
+  pripominka_at: string | null;
   uzavreno_at: string | null;
   uzavreno_duvod: 'odpovedel' | 'hovor' | 'stav' | 'archiv' | 'rucne' | null;
 }
@@ -2350,6 +2354,8 @@ function obnovOznaceni(lhutaPd = 5, zavadeci = false): void {
       zavolano_kdo: null,
       vysledek: null,
       poznamka: null,
+      pripominka_job: null,
+      pripominka_at: null,
       uzavreno_at: null,
       uzavreno_duvod: null,
     });
@@ -2433,9 +2439,89 @@ function zapisHvezdu(c: Kontakt, kdo: MockUser, hvezda: boolean, duvod: string |
     c.hvezda_at = null;
     c.hvezda_kdo = null;
     c.hvezda_duvod = null;
+    // migrace 061: kdo a kdy hvězdu vzal (automatizace ji pak znovu nedá, dokud klient znovu nenapíše)
+    hvezdyVzate.set(c.id, [...(hvezdyVzate.get(c.id) ?? []), { kdo: kdo.display_name, at: now() }]);
   }
   c.updated_at = now();
   return true;
+}
+
+/* ---- druhá etapa (migrace 061, Albert 1. 11. 2026): hvězda od automatizace a zápis odeslané připomínky po lhůtě ----
+   Na serveru obojí volá jen služba (worker přes lib.sh hvezda_nastav_auto a oznaceni_pripominka_odeslana), appka nikdy;
+   mock tím zakládá ukázková data a test (háček __volackaDemoTest) ověřuje, že pravidla sedí se serverem. */
+
+/** Kdo a kdy hvězdu vzal (na serveru událost hvezda „Hvězda: ano (…) → ne.“ od člověka). */
+const hvezdyVzate = new Map<number, { kdo: string; at: string }[]>();
+const HVEZDA_AUTO = 'automatizace';
+
+/**
+ * hvezda_automatizace: hvězda s hvezda_kdo „automatizace“, důvod povinný (mezery sloučené) a nejvýš 300 znaků. Jen kontaktu
+ * bez hvězdy, kterému ji žádný člověk od poslední zprávy klienta nevzal (klient nikdy nenapsal = kdykoli). Hvězdu nikdy
+ * nepřepíše ani nevezme, updated_at nemění.
+ */
+function hvezdaOdAutomatizace(kid: number, duvod: string | null): { nastaveno: boolean; proc: string } {
+  const d = oriznoutMezery(String(duvod ?? '').replace(/\s+/g, ' ')) || null;
+  if (d === null) fail('Hvězda od automatizace potřebuje důvod: jednu větu, proč má klient velký zájem.');
+  if ([...d].length > 300) fail('Důvod hvězdy je moc dlouhý: nejvýš 300 znaků.');
+  const c = kontakty.find((x) => x.id === kid);
+  if (!c) fail(`Kontakt id=${kid} neexistuje.`);
+  if (c.hvezda_at) {
+    return { nastaveno: false, proc: `Kontakt už hvězdu má (dal/a ji ${c.hvezda_kdo ?? '(neznámo)'} ${denPraha(new Date(c.hvezda_at))}); automatizace ji nemění.` };
+  }
+  const klient = casMs(c.last_client_reply_at);
+  const vzal = (hvezdyVzate.get(kid) ?? []).filter((v) => v.kdo !== HVEZDA_AUTO && (klient === null || (casMs(v.at) ?? 0) >= klient)).pop();
+  if (vzal) {
+    return {
+      nastaveno: false,
+      proc: `Hvězdu vzal/a ${vzal.kdo} ${denPraha(new Date(vzal.at))}, po poslední zprávě klienta; automatizace ji znovu nedá, dokud klient znovu nenapíše.`,
+    };
+  }
+  c.hvezda_at = now();
+  c.hvezda_kdo = HVEZDA_AUTO;
+  c.hvezda_duvod = d;
+  return { nastaveno: true, proc: 'Hvězda od automatizace dána: klient jasně ukázal velký zájem.' };
+}
+
+/** Tick zařadí připomínku po lhůtě (na serveru PATCH oznaceni?id=eq.<id>&pripominka_job=is.null): jen otevřené označení bez jobu. */
+function zaradPripominkuOznaceni(kid: number, job: number): boolean {
+  const o = otevreneOznaceni(kid);
+  if (!o || o.pripominka_job !== null) return false;
+  o.pripominka_job = job;
+  return true;
+}
+
+/**
+ * oznaceni_pripominka_odeslana: pripominka_at = teď jen u OTEVŘENÉHO označení s pripominka_job a prázdným pripominka_at;
+ * jinak nic a proč (uzavřené označení nikdy, podruhé nic). Neexistující kontakt = chyba.
+ */
+function pripominkaOznaceniOdeslana(kid: number): { zapsano: boolean; oznaceni_id: number | null; pripominka_at: string | null; proc: string } {
+  if (!kontakty.some((x) => x.id === kid)) fail(`Kontakt id=${kid} neexistuje.`);
+  const o = otevreneOznaceni(kid);
+  if (!o) {
+    return { zapsano: false, oznaceni_id: null, pripominka_at: null,
+      proc: 'Kontakt nemá otevřené označení k zavolání (mezitím napsal, někdo se mu dovolal, změnil se stav nebo je v archivu); připomínka se k žádnému označení nezapíše.' };
+  }
+  if (o.pripominka_job === null) {
+    return { zapsano: false, oznaceni_id: o.id, pripominka_at: null,
+      proc: `Označení ${o.id} nemá zařazenou připomínku (pripominka_job je prázdné): připomínku po lhůtě zařazuje jen tick, zapíše se jen ta.` };
+  }
+  if (o.pripominka_at !== null) {
+    return { zapsano: false, oznaceni_id: o.id, pripominka_at: o.pripominka_at, proc: `Připomínka k označení ${o.id} už je zapsaná; druhá se nezapisuje.` };
+  }
+  o.pripominka_at = now();
+  return { zapsano: true, oznaceni_id: o.id, pripominka_at: o.pripominka_at, proc: 'Připomínka po lhůtě na zavolání zapsaná k otevřenému označení.' };
+}
+
+/**
+ * kontakt_prehled fakta.pripominka_oznaceni (migrace 061): nejnovější pripominka_at z označení kontaktu, která přihlášený
+ * vidí (`od` null = super admin a Albert všechna, jinak jen s jeho volajici_id), otevřených i uzavřených.
+ */
+function pripominkaOznaceniPro(kid: number, od: number | null): string | null {
+  const casy = oznaceniRadky
+    .filter((x) => x.kontakt_id === kid && x.pripominka_at !== null && (od === null || x.volajici_id === od))
+    .map((x) => x.pripominka_at as string)
+    .sort();
+  return casy.length > 0 ? casy[casy.length - 1] : null;
 }
 
 const NENI_VAS_HVEZDA_CIZI =
@@ -2466,6 +2552,34 @@ const NENI_VASE_OZNACENI =
       pozor: [],
     },
   });
+  // migrace 061 (druhá etapa): 96 je Honzovo označení z doby před 16 dny, lhůta 5 pracovních dní už minula a po ní odešla
+  // připomínka (před 2 dny, je to i naše poslední zpráva); Petra, která mu taky volala, označení ani čas připomínky nevidí.
+  // 24 (schválil web a ptá se na platbu) má hvězdu od automatizace.
+  const k96 = kontakty.find((k) => k.id === 96);
+  if (k96?.first_proposal_at) {
+    oznaceniRadky.push({
+      id: nextOznaceniId++,
+      kontakt_id: 96,
+      kategorie: 'navrh',
+      od: k96.first_proposal_at,
+      mlci_od: k96.first_proposal_at,
+      oznaceno_at: daysAgo(16),
+      lhuta_do: pracovniDenPo(denPraha(new Date(daysAgo(16))), 5),
+      zavadeci: false,
+      volajici_id: 3,
+      pokusy: 0,
+      posledni_pokus_at: null,
+      zavolano_at: null,
+      zavolano_kdo: null,
+      vysledek: null,
+      poznamka: null,
+      pripominka_job: 4242,
+      pripominka_at: k96.last_our_reply_at,
+      uzavreno_at: null,
+      uzavreno_duvod: null,
+    });
+  }
+  hvezdaOdAutomatizace(24, 'Klient web schválil a ptá se, jak zaplatit fakturu.');
   obnovOznaceni(10, true);
 })();
 
@@ -3310,6 +3424,8 @@ const mockApiZaklad: Api = {
         ozn_pokusy: o ? o.pokusy : null,
         ozn_posledni_pokus_at: o?.posledni_pokus_at ?? null,
         ozn_zavadeci: o ? o.zavadeci : null,
+        // migrace 061: kdy odešla připomínka po lhůtě (jen u označení, které přihlášený vidí)
+        ozn_pripominka_at: o?.pripominka_at ?? null,
         ...(vse
           ? {
               ozn_volajici_id: o?.volajici_id ?? null,
@@ -3510,6 +3626,8 @@ const mockApiZaklad: Api = {
           }
         : null,
       pripominka_kampane: pripominkyKampane.get(c.id) ?? null,
+      // migrace 061: poslední připomínka po lhůtě z označení, která přihlášený vidí (i uzavřených)
+      pripominka_oznaceni: pripominkaOznaceniPro(c.id, vse ? null : me.id),
       // spící job smazat_nahled mock nevede
       nahled_smazani: null,
       zavolat: zVidi
@@ -4312,12 +4430,19 @@ interface DemoTestHacek {
   zpozdeni?: (fn: string, args: unknown[]) => number;
   volani?: { fn: string; args: unknown[]; ok?: boolean; id?: number | null; chyba?: string }[];
   stav?: () => unknown;
+  /** migrace 061: služební cesty serveru (worker, tick), appka je nevolá; test jimi ověřuje pravidla mocku */
+  hvezdaAutomatizace?: (kid: number, duvod: string | null) => unknown;
+  zaradPripominku?: (kid: number, job: number) => boolean;
+  pripominkaOdeslana?: (kid: number) => unknown;
 }
 
 function sDemoTestem(api: Api): Api {
   const hacek = (globalThis as { __volackaDemoTest?: DemoTestHacek }).__volackaDemoTest;
   if (!hacek || typeof hacek !== 'object') return api;
   hacek.volani = hacek.volani ?? [];
+  hacek.hvezdaAutomatizace = hvezdaOdAutomatizace;
+  hacek.zaradPripominku = zaradPripominkuOznaceni;
+  hacek.pripominkaOdeslana = pripominkaOznaceniOdeslana;
   hacek.stav = () => ({
     kontakty: kontakty.map((c) => ({
       id: c.id,
@@ -4344,6 +4469,8 @@ function sDemoTestem(api: Api): Api {
       // migrace 060 (1. 11. 2026): hvězda, mlčení a časy pošty (e2e bloky O060)
       hvezda_at: c.hvezda_at ?? null,
       hvezda_kdo: c.hvezda_kdo ?? null,
+      // migrace 061: důvod hvězdy (u hvězdy od automatizace ho píše worker)
+      hvezda_duvod: c.hvezda_duvod ?? null,
       mlci_pd: mlciPd(c),
       first_proposal_at: c.first_proposal_at,
       last_our_reply_at: c.last_our_reply_at,

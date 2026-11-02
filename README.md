@@ -94,6 +94,9 @@ odpovědi, s příznakem a přehledem od automatizace; 95 Petra, návrh před 2 
 zapsal Honza (označení je Honzovo, Petra ho nevidí); 97 nabídka z připomínky kampaně bez odpovědi (označená, Mikuláš); 98
 odmítl a dostal slevu (neoznačí se, rozhodnutí 2). Označení mají i 5 a 303 (Honza) a 90 až 92 (bez volajícího). Kdo se má
 označit, mlčí aspoň 15 kalendářních dní, tedy v každý den aspoň 7 pracovních (i přes Vánoce): testy nezávisí na dni.
+Od migrace 061 (Albert 1. 11. 2026, druhá etapa, oddíl Označení 061 níž): 96 má Honzovo označení už z doby před 16 dny,
+lhůta 5 pracovních dní minula a před 2 dny mu odešla připomínka e-mailem (naše poslední zpráva; Petra označení ani čas
+nevidí); 24 (Honza, schválil web) má hvězdu od automatizace s důvodem.
 ⚠ Chata 92 má místo příznaku `neodpovida` příznak `info_neoverene` od automatizace (migrace 060 příznaky `neodpovida`
 zrušila); NAHRAZUJE „92 má příznak neodpovídá“ z migrace 014.
 
@@ -272,7 +275,10 @@ Server: `../db/migration_060_oznaceni_hvezda.sql` (spouští se PŘED appkou; no
 že je server ještě neumí). Albert 1. 11. 2026: klient, který na naši zprávu víc než 5 pracovních dní neodpověděl, je označený
 pro svého volajícího, „the caller always sees only the clients he called and are marked, not other callers' clients“, a
 dovolání „should not count as two separate calls … as one call and as one client still“. Tohle je stage 1 (označení, hvězda,
-filtry, přehled jen ke čtení); připomínku e-mailem a zápis přehledu přidá automatizace ve stage 2.
+filtry, přehled jen ke čtení); připomínku e-mailem, hvězdu a zápis přehledu od automatizace přidala stage 2 (oddíl 061 níž;
+⚠ 2. 11. 2026 NAHRAZUJE „přidá automatizace ve stage 2“): přehled a hvězdu píše worker po jobu s klientem, připomínky po
+lhůtě a doplnění přehledů ostatním klientům tick zařadí až po zapnutí přepínačů `PRIPOMINKY_OZNACENI` a `PREHLED_DOPLNIT`
+(zapíná je koordinující session po Albertově ano).
 
 - **Filtry** (`src/components/SeznamFiltry.tsx`, stav filtrů `src/filtry.ts`): jeden řádek filtrů v Kontaktech, Moji klienti
   a Označených: segment, Stav (víc najednou), Známka (A, B, C, bez známky, víc najednou), Jen s hvězdou, Neodpověděl (na
@@ -295,8 +301,9 @@ filtry, přehled jen ke čtení); připomínku e-mailem a zápis přehledu přid
   výdělek ani fronta se nemění) a naplánovaný hovor vyřídí jako hovor z fronty (vlastní hotovo, cizí zrušený). Kdo kontakt
   nesmí upravit (`smi_upravit` false, třeba super admin cizího týmu), dostane v okně jen „Nedovolal/a jsem se“ (server
   ostatní odmítne); důvod u „Nechce web“ a „Nechce, abychom ho kontaktovali“ nejvýš 450 znaků jako server (recenze
-  2. 11. 2026). Lhůta: „Lhůta na zavolání do <den>“ (ve stage 1 bez slibu e-mailu; „Připomínka e-mailem
-  po <den>“ až se stage 2). Super admin a Albert ještě „Zrušit označení“ s povinným důvodem (`oznaceni_zavrit`).
+  2. 11. 2026). Lhůta: „Lhůta na zavolání do <den>“ (bez slibu e-mailu; ⚠ etapa 2, migrace 061: zůstává tak, ať je
+  přepínač připomínek zapnutý, nebo ne, NAHRAZUJE „Připomínka e-mailem po <den> až se stage 2“; odeslanou připomínku
+  ukáže řádek pod lhůtou, oddíl 061). Super admin a Albert ještě „Zrušit označení“ s povinným důvodem (`oznaceni_zavrit`).
 - **Hvězda** (velký zájem nad známkou, `src/components/Hvezda.tsx`, ikona `HvezdaIcon`, jiná než u „Mají zájem“): ve
   volání zaškrtávátko „Velký zájem (hvězda)“ u zájmu (`nastav_hvezdu` až po uloženém `resolve_call`; když hvězda selže,
   zájem zůstane a appka řekne, ať ji dá v detailu), v detailu přepínač hned bez „Uložit změny“, v seznamech u svých klientů.
@@ -321,6 +328,29 @@ filtry, přehled jen ke čtení); připomínku e-mailem a zápis přehledu přid
   a hvězdy), `tests/priznak.test.mjs` H7 a M7 (`neodpovida`), `tests/volani.test.mjs` blok Y (dovolání mimo call_log,
   hvězda ve volání) a `npm run test:e2e` bloky O060 (Označené 1280 a 390 px, okno a hvězda, přehled, super admin, filtry
   Kontaktů Volajícího, hvězda ve volání) a upravené F056, R057, U5. Server: `../db/tests/test_060_oznaceni.sql`.
+
+## Označení, druhá etapa 061 (Albert 1. 11. 2026)
+
+Server: `../db/migration_061_oznaceni_etapa2.sql` (spouští se PŘED větví automatizace; appka bez 061 jede dál, nové klíče jen
+nepřijdou a nic navíc se neukáže). Albert 1. 11. 2026: po lhůtě na zavolání pošle automatizace sama jednu připomínku e-mailem
+a hvězdu dává i automatizace, když klient jasně ukáže velký zájem (bez ohledu na známku). Připomínky a hvězdy píše jen
+automatizace (služba), appka je jen ukazuje. Připomínky po lhůtě tick zařadí až po zapnutí přepínače `PRIPOMINKY_OZNACENI`
+v `config.env` (do té doby ostrá appka řádek „Připomínka odeslána“ neukáže nikomu; demo ho má u kontaktu 96):
+- **Označené**: pod lhůtou „Připomínka odeslána <den>“, když řádek nese `ozn_pripominka_at` (server ho dá jen u označení,
+  které přihlášený vidí: vlastníkovi, super adminům a Albertovi, kolegovi u společného klienta ne). Lhůta sama zůstává
+  „Lhůta na zavolání do <den>“ (platí, ať je přepínač připomínek zapnutý, nebo ne).
+- **Přehled klienta**: řádek faktů „připomínka po lhůtě: odeslána <den>“ z `fakta.pripominka_oznaceni` (poslední připomínka
+  z označení, která přihlášený vidí, i po archivu).
+- **Hvězda od automatizace** (`hvezda_kdo` = „automatizace“, `HVEZDA_AUTOMATIZACE` v `src/ui.tsx`): popisek hvězdy
+  „dala ji automatizace <den> · <důvod>“, v detailu tlačítko „Hvězda od automatizace“, u kontaktu jen ke čtení
+  „velký zájem (od automatizace)“, v přehledu kdo a proč. Není to jméno kolegy, maska ho nemění. Odebrat ji smí člověk jako
+  každou jinou; automatizace ji pak znovu nedá, dokud klient znovu nenapíše (server).
+- **Demo**: mock zrcadlí obě služební funkce (`hvezdaOdAutomatizace`, `pripominkaOznaceniOdeslana` a zařazení jobu
+  připomínky tickem v `src/api/mock.ts`; háček `__volackaDemoTest` je dává testům), klíče a fakta stejně jako server.
+- **Testy**: `npm test` soubor `tests/filtry.test.mjs` blok P (čas připomínky jen u viditelného označení, fakta, hvězda od
+  automatizace bez masky, pravidla služebních funkcí jako server, popisky) a upravené O2, O3e, O3g; `npm run test:e2e` bloky
+  E061 (Označené a přehled super admina, Petra nic nevidí, hvězda od automatizace v Moji klienti a v detailu). Server:
+  `../db/tests/test_061_oznaceni_etapa2.sql`.
 
 ## Účty a přihlášení (produkce)
 
@@ -529,7 +559,7 @@ který schvaluje Albert (u zprávy je vidět jeho stav).
 | `#/moji`      | všichni | moji klienti (+ historie poznámek v detailu); super admin může vybrat kohokoli (027); filtr segmentu (028); od migrace 056 (Albert 27. 10. 2026) super admin stejné filtry jako Kontakty a řazení podle poslední změny, Volající beze změny; od migrace 057 sloupec posledního hovoru (Volajícímu „Můj poslední hovor“) a super admin řadí i podle něj; ⚠ od migrace 060 (Albert 1. 11. 2026) filtry, hledání na serveru a řazení i Volající nad svými klienty (NAHRAZUJE „Volající beze změny“), sloupec Mlčí, hvězda, „Zavolal/a jsem“ v přehledu detailu |
 | `#/rozvrh`    | všichni | Rozvrh (042): týden po až ne, hodiny na den a cíl (hovorů za hodinu posílá server), plnění z hovorů, hláška pozadu / v plánu / napřed, poznámky ke dnům; Volající si ho nastaví jednou, super admin vidí přehled všech, mění a odemyká |
 | `#/admin`     | všichni | Kontakty: celá databáze s filtry (i segment, 028) a fulltextem (i studio, město, IČO; IČO jen admin a super admin, 038); upravovat smí admin a super admin; počty u stavů a košů a celkový počet jen super admin (045, Volající stránkuje bez počtu); Volající stav, známku, kdo volal, čekání a poznámky jen u svých klientů, filtr stavu a hledání v poznámce jen nad nimi (045, 20. 10. 2026); od migrace 056 řazení podle poslední změny (Volajícímu jen mezi jeho klienty, cizí za nimi podle čísla); od migrace 057 Změněno i se změnami od automatizace, sloupec a řazení podle posledního hovoru (Volajícímu jen jeho hovory); od migrace 060 (Albert 1. 11. 2026) spojitelné filtry (víc stavů a známek, hvězda, označení, mlčení v pracovních dnech), sloupec Mlčí a hvězda u svých klientů (Volajícímu jen nad jeho klienty) |
-| `#/oznacene`  | admin   | označení klienti — admin svoji; super admin a Albert všichni (027); filtr segmentu (028); ⚠ od migrace 060 (Albert 1. 11. 2026) „Označené k zavolání“ (`list_oznacene`): klienti, kteří víc než 5 pracovních dní mlčí (Neodpověděl na návrh, na změny), Volajícímu jen jeho, a klienti s příznakem; okno „Zavolal/a jsem“ (`zapis_hovor`, nikdy call_log), „Lhůta na zavolání do …“, stejné filtry jako Kontakty, super admin sloupec Volající, „bez volajícího“ a „Zrušit označení“ (NAHRAZUJE „jen příznaky přes list_flagged“) |
+| `#/oznacene`  | admin   | označení klienti — admin svoji; super admin a Albert všichni (027); filtr segmentu (028); ⚠ od migrace 060 (Albert 1. 11. 2026) „Označené k zavolání“ (`list_oznacene`): klienti, kteří víc než 5 pracovních dní mlčí (Neodpověděl na návrh, na změny), Volajícímu jen jeho, a klienti s příznakem; okno „Zavolal/a jsem“ (`zapis_hovor`, nikdy call_log), „Lhůta na zavolání do …“, stejné filtry jako Kontakty, super admin sloupec Volající, „bez volajícího“ a „Zrušit označení“ (NAHRAZUJE „jen příznaky přes list_flagged“); od migrace 061 pod lhůtou „Připomínka odeslána <den>“, když po lhůtě odešla připomínka e-mailem |
 | `#/zpravy`    | admin   | vlákna s AI agenty — admin svoje; super admin vlákna všech lidí (cizí jen ke čtení, 027); Albert i automatizaci; odznak architekta u hledaného kontaktu (028) |
 | `#/uzivatele` | super admin | super admin: všichni lidé, upravuje sebe a své lidi + nový Volající (027, 042); Albert: role (Volající / Super admin, 042) a nadřízení (⚠ od migrace 024 Volající stránku nemá) |
 | `#/automatizace` | Albert | vypínač automatizace a přepínač účtu Claude                    |

@@ -13,6 +13,9 @@
 // U označení „Zavolal/a jsem“ (okno se čtyřmi výsledky a hvězdou, zapis_hovor) a lhůta na zavolání (ve stage 1 bez slibu
 // e-mailu); super admin a Albert i „Zrušit označení“ a výběr volajícího včetně „bez volajícího“. Server bez 060: jen příznaky
 // přes list_flagged a hláška BEZ_060_OZNACENE.
+// Migrace 061 (Albert 1. 11. 2026, druhá etapa: po lhůtě na zavolání pošle automatizace jednu připomínku e-mailem): pod lhůtou
+// „Připomínka odeslána <den>“, když ji řádek nese (ozn_pripominka_at, jen u označení, které přihlášený vidí). Lhůta sama dál
+// „Lhůta na zavolání do …“: platí, ať je přepínač připomínek zapnutý, nebo ne.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getApi, type Kontakt, type OznaceneFiltry } from '../api';
@@ -48,6 +51,7 @@ import {
   kontaktJmeno,
   lhutaText,
   mlciOd,
+  pripominkaOdeslanaText,
 } from '../ui';
 import { AlarmIcon, CheckIcon, FlagIcon } from '../icons';
 
@@ -319,6 +323,8 @@ export default function OznacenePage() {
                         <>
                           {lhutaText(r.ozn_lhuta_do)}
                           {r.ozn_pokusy ? <span className="muted"> · nedovoláno {r.ozn_pokusy}×</span> : null}
+                          {/* migrace 061: po lhůtě odešla připomínka e-mailem (jen u označení, které přihlášený vidí) */}
+                          {r.ozn_pripominka_at ? <span className="pripominka-odeslana">{pripominkaOdeslanaText(r.ozn_pripominka_at)}</span> : null}
                         </>
                       ) : r.flagged_at ? (
                         <span className="muted">příznak od {formatDateTime(r.flagged_at)}</span>

@@ -1940,6 +1940,61 @@ await blok050('O060 volani', async () => {
   await ctx.close();
 });
 
+/* ============ 061 (Albert 1. 11. 2026, druhá etapa): odeslaná připomínka po lhůtě a hvězda od automatizace ============ */
+// Ukázková data mocku: 96 je Honzovo označení, lhůta na zavolání minula a připomínka e-mailem odešla (volala mu i Petra, ta
+// označení ani čas připomínky nevidí); 24 (Honzův klient) má hvězdu od automatizace s důvodem.
+const denCz = (iso) => {
+  const [y, m, d] = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Prague', year: 'numeric', month: '2-digit', day: '2-digit' })
+    .format(new Date(iso)).split('-').map(Number);
+  return `${d}. ${m}. ${y}`;
+};
+await blok050('E061 mikulas', async () => {
+  const { ctx, page } = await novaStranka('mikulas');
+  await jdi(page, '#/oznacene', 700);
+  const cas = (await stav(page)).oznaceni.find((o) => o.kontakt_id === 96 && o.uzavreno_at === null)?.pripominka_at;
+  const r96 = page.locator('table.kontakty tbody tr', { hasText: 'Na Samotě' }).first();
+  const lhuta96 = txt(await r96.locator('.lhuta-cell').innerText());
+  const r93 = txt(await page.locator('table.kontakty tbody tr', { hasText: 'U Rybníka' }).first().locator('.lhuta-cell').innerText());
+  over('E61a', !!cas && /^Lhůta na zavolání do \d{1,2}\. \d{1,2}\. \d{4}/.test(lhuta96) && lhuta96.endsWith(`Připomínka odeslána ${denCz(cas)}`)
+    && !/Připomínka odeslána/.test(r93),
+    'Označené (super admin): u 96 pod lhůtou „Připomínka odeslána <den>“, u označení bez připomínky ne', `${lhuta96} | ${r93}`);
+  await r96.click();
+  await klid(page, 500);
+  const panel = txt(await page.locator('.drawer .prehled-panel').innerText().catch(() => ''));
+  over('E61b', panel.includes(`připomínka po lhůtě: odeslána ${denCz(cas)}`) && /Neodpověděl na návrh/.test(panel),
+    'přehled v detailu 96: řádek „připomínka po lhůtě: odeslána <den>“', panel.slice(0, 300));
+  await ctx.close();
+});
+await blok050('E061 petra', async () => {
+  const { ctx, page } = await novaStranka('petra');
+  await jdi(page, '#/oznacene', 700);
+  const oznacene = await page.locator('body').innerText();
+  await jdi(page, '#/moji', 700);
+  await page.locator('table.kontakty tbody tr', { hasText: 'Na Samotě' }).first().click();
+  await klid(page, 500);
+  const panel = txt(await page.locator('.drawer .prehled-panel').innerText().catch(() => ''));
+  over('E61c', !/Připomínka odeslána/.test(oznacene) && panel.length > 0 && !/připomínka po lhůtě/.test(panel) && !/Neodpověděl na návrh/.test(panel),
+    'Petra (volala 96, označení je Honzovo): čas připomínky ani označení nevidí v Označených ani v přehledu', panel.slice(0, 200));
+  await ctx.close();
+});
+await blok050('E061 honza', async () => {
+  const { ctx, page } = await novaStranka('honza');
+  await jdi(page, '#/moji', 700);
+  const k24 = (await stav(page)).kontakty.find((k) => k.id === 24);
+  const r24 = page.locator('table.kontakty tbody tr', { hasText: 'U Studánky' }).first();
+  const titul = (await r24.locator('.hvezda-prepinac').getAttribute('title')) ?? '';
+  over('E61d', k24?.hvezda_kdo === 'automatizace' && titul.includes('dala ji automatizace') && titul.includes(k24.hvezda_duvod ?? '§'),
+    'Moji klienti: hvězda od automatizace má v popisku „dala ji automatizace“ a důvod', titul);
+  await r24.click();
+  await klid(page, 500);
+  const tlacitko = txt(await page.locator('.drawer .hvezda-detail button.hvezda-prepinac').innerText().catch(() => ''));
+  const panel = txt(await page.locator('.drawer .prehled-panel').innerText().catch(() => ''));
+  over('E61e', tlacitko === 'Hvězda od automatizace' && /hvězda: velký zájem, dala ji automatizace \d{1,2}\. \d{1,2}\. \d{4} · /.test(panel)
+    && panel.includes(k24?.hvezda_duvod ?? '§'),
+    'detail 24: „Hvězda od automatizace“ a v přehledu kdo a proč', `${tlacitko} | ${panel.slice(0, 200)}`);
+  await ctx.close();
+});
+
 await browser.close();
 server.close();
 rmSync(OUT, { recursive: true, force: true });

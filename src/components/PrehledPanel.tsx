@@ -4,6 +4,8 @@
 // (stav, hvězda, označení, návrh, poslední zprávy, nabídka, připomínka kampaně, smazání náhledu, naplánovaný hovor, cena)
 // a jsou vždy; text od automatizace (Teď a další krok, Co klient chce, Co jsme poslali, Pozor) jen když už je (ve stage 1
 // ho nic nepíše, panel pak řekne, že ho automatizace doplní). Poznámky volajících zůstávají pod ním beze změny.
+// Migrace 061 (Albert 1. 11. 2026, druhá etapa): řádek faktů „připomínka po lhůtě: odeslána <den>“ (fakta.pripominka_oznaceni)
+// a u hvězdy od automatizace „dala ji automatizace <den> · <důvod>“.
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { getApi, type Kontakt, type KontaktPrehled, type PrehledFakta } from '../api';
@@ -19,6 +21,7 @@ import {
   formatDatumPraha,
   formatKdyVeta,
   formatMlci,
+  hvezdaKdoText,
   lhutaText,
 } from '../ui';
 import DovolaniOkno, { ZrusitOznaceniOkno } from './DovolaniOkno';
@@ -37,9 +40,10 @@ function radkyFaktu(f: PrehledFakta, kratce: boolean): { klic: string; text: str
     r.push({ klic: 'stav', text: `${STATUS_LABELS[f.stav] ?? f.stav}${f.stav_od ? ` od ${datum(f.stav_od)}` : ''}` });
   }
   if (f.hvezda?.at) {
+    // migrace 061: hvězda od automatizace „dala ji automatizace … · důvod“ (důvod napsal worker podle zprávy klienta)
     r.push({
       klic: 'hvězda',
-      text: `velký zájem, dal/a ${f.hvezda.kdo || '—'} ${datum(f.hvezda.at)}${f.hvezda.duvod ? ` · ${f.hvezda.duvod}` : ''}`,
+      text: `velký zájem, ${hvezdaKdoText(f.hvezda.kdo)} ${datum(f.hvezda.at)}${f.hvezda.duvod ? ` · ${f.hvezda.duvod}` : ''}`,
     });
   }
   if (f.prvni_navrh || f.nase_posledni || f.klient_naposledy) {
@@ -59,6 +63,8 @@ function radkyFaktu(f: PrehledFakta, kratce: boolean): { klic: string; text: str
     });
   }
   if (f.pripominka_kampane) r.push({ klic: 'připomínka', text: `připomínka kampaně odešla ${datum(f.pripominka_kampane)}` });
+  // migrace 061 (Albert 1. 11. 2026): obyčejná připomínka e-mailem po lhůtě na zavolání (jedna na mlčení)
+  if (f.pripominka_oznaceni) r.push({ klic: 'připomínka po lhůtě', text: `odeslána ${datum(f.pripominka_oznaceni)}` });
   if (f.nahled_smazani) r.push({ klic: 'náhled', text: `náhled webu se smaže ${datum(f.nahled_smazani)}` });
   if (f.zavolat) {
     r.push({
