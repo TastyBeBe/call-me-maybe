@@ -9,13 +9,16 @@ import type {
   AutomationStatus,
   ChatMessage,
   ChatThread,
+  FiltryMlceni,
   FlagKind,
   Kontakt,
+  KontaktPrehled,
   ListKontaktyFilters,
   ListKontaktyResult,
   MeInfo,
   MojiFiltry,
   MyStats,
+  OznaceneFiltry,
   ResolveCallArgs,
   Role,
   Rozvrh,
@@ -30,6 +33,8 @@ import type {
   UpdatedUser,
   UpdateUserArgs,
   UserStats,
+  VysledekDovolani,
+  ZapisHovoruVysledek,
   ZavolatPolozka,
   ZavolatSeznam,
 } from './types';
@@ -52,6 +57,39 @@ export const BEZ_057_HOVOR = 'Řazení podle posledního hovoru server ještě n
 const hovorNezna = (razeni: string | null | undefined, e: unknown): boolean =>
   !!razeni && razeni.startsWith('hovor_') && e instanceof RpcChyba
   && (e.kod === 'PGRST202' || e.message.startsWith(`Neplatné řazení: ${razeni}.`));
+
+/**
+ * Migrace 060 (Albert 1. 11. 2026): kombinovatelné filtry seznamů (stav víc najednou, známka, hvězda, označení k zavolání,
+ * mlčení v pracovních dnech), řazení mlceni a hvezda, Označené přes list_oznacene, zápis dovolání, hvězda a přehled
+ * klienta. Nové parametry jdou jen zapnuté (stará DB bez 060 dál funguje, jako u 056 a 057); na PGRST202 nebo „Neplatné
+ * řazení“ appka řekne, co server ještě neumí (testy appky hlídají znění).
+ */
+export const BEZ_060_FILTRY =
+  'Filtry stavů, známek, hvězdy, označení a mlčení server ještě neumí (chybí na něm migrace 060). Zruš je a uvidíš seznam jako dřív.';
+export const BEZ_060_RAZENI = 'Řazení podle mlčení a hvězdy server ještě neumí (chybí na něm migrace 060). Vyber jiné řazení.';
+export const BEZ_060_OZNACENE =
+  'Označení k zavolání server ještě neumí (chybí na něm migrace 060). Níž jsou jen klienti s příznakem jako dřív.';
+export const BEZ_060_HOVOR = 'Zápis hovoru s označeným klientem server ještě neumí (chybí na něm migrace 060).';
+export const BEZ_060_HVEZDA = 'Hvězdu server ještě neumí (chybí na něm migrace 060).';
+export const BEZ_060_PREHLED = 'Přehled klienta server ještě neumí (chybí na něm migrace 060).';
+/** Server odmítl řazení mlceni nebo hvezda, protože ho nezná (bez 060 „Neplatné řazení“, bez 056 PGRST202). */
+const razeni060Nezna = (razeni: string | null | undefined, e: unknown): boolean =>
+  (razeni === 'mlceni' || razeni === 'hvezda') && e instanceof RpcChyba
+  && (e.kod === 'PGRST202' || e.message.startsWith(`Neplatné řazení: ${razeni}.`));
+/** Funkce s těmi parametry na serveru není (PGRST202): nová funkce nebo nový parametr na serveru bez migrace. */
+const neniNaServeru = (e: unknown): boolean => e instanceof RpcChyba && e.kod === 'PGRST202';
+
+/** Filtry z migrace 060 jen zapnuté: prázdné pole, false a null se serveru neposílají (server bez 060 je nezná). */
+function filtry060(f: FiltryMlceni | null | undefined): Record<string, unknown> {
+  return {
+    ...(f?.statusy?.length ? { p_statusy: f.statusy } : {}),
+    ...(f?.znamky?.length ? { p_znamky: f.znamky } : {}),
+    ...(f?.jen_hvezda ? { p_jen_hvezda: true } : {}),
+    ...(f?.kategorie?.length ? { p_kategorie: f.kategorie } : {}),
+    ...(typeof f?.mlci_min === 'number' ? { p_mlci_min: f.mlci_min } : {}),
+    ...(typeof f?.mlci_max === 'number' ? { p_mlci_max: f.mlci_max } : {}),
+  };
+}
 
 /** Chyba z PostgREST i s kódem (`PGRST202` = funkce s těmi parametry na serveru není). */
 class RpcChyba extends Error {
@@ -182,6 +220,8 @@ export const supabaseApi: Api = {
   },
 
   async listKontakty(token: string, f: ListKontaktyFilters): Promise<ListKontaktyResult> {
+    // migrace 060: nové filtry jen zapnuté (server bez 060 je nezná)
+    const nove = filtry060(f);
     try {
       return await rpc<ListKontaktyResult>('list_kontakty', {
         p_token: token,
@@ -197,8 +237,12 @@ export const supabaseApi: Api = {
         ...(f.segment ? { p_segment: f.segment } : {}),
         // migrace 056: řazení jen když je zvolené (server bez 056 p_razeni nezná)
         ...(f.razeni ? { p_razeni: f.razeni } : {}),
+        ...nove,
       });
     } catch (e) {
+      // migrace 060: server bez 060 nové filtry nezná (PGRST202) a řazení mlceni a hvezda odmítne
+      if (Object.keys(nove).length > 0 && neniNaServeru(e)) throw new Error(BEZ_060_FILTRY);
+      if (razeni060Nezna(f.razeni, e)) throw new Error(BEZ_060_RAZENI);
       // migrace 057: řazení podle hovoru na serveru bez 057 (nebo bez 056) srozumitelně, ostatní řazení jako u 056
       if (hovorNezna(f.razeni, e)) throw new Error(BEZ_057_HOVOR);
       if (f.razeni && e instanceof RpcChyba && e.kod === 'PGRST202') throw new Error(BEZ_056_RAZENI);
@@ -214,8 +258,10 @@ export const supabaseApi: Api = {
     segment: Segment | null = null,
     filtry: MojiFiltry | null = null
   ): Promise<ListKontaktyResult> {
-    // Migrace 056 (Albert 27. 10. 2026): filtry a řazení Moji klienti (appka je posílá jen za super admina) jen když
-    // jsou zapnuté, jinak volání stejné jako dřív (i proti serveru bez 056).
+    // Migrace 056 (Albert 27. 10. 2026): filtry a řazení Moji klienti jen když jsou zapnuté, jinak volání stejné jako
+    // dřív (i proti serveru bez 056). ⚠ Od migrace 060 (Albert 1. 11. 2026) je appka posílá i za Volajícího (filtry nad
+    // jeho klienty), NAHRAZUJE „appka je posílá jen za super admina“; nové filtry 060 taky jen zapnuté.
+    const nove = filtry060(filtry);
     const navic = {
       ...(filtry?.status ? { p_status: filtry.status } : {}),
       ...(filtry?.rating ? { p_rating: filtry.rating } : {}),
@@ -232,8 +278,12 @@ export const supabaseApi: Api = {
         p_user_id: userId,
         ...(segment ? { p_segment: segment } : {}),
         ...navic,
+        ...nove,
       });
     } catch (e) {
+      // migrace 060: nové filtry a řazení mlceni a hvezda na serveru bez 060 srozumitelně (jako v Kontaktech)
+      if (Object.keys(nove).length > 0 && neniNaServeru(e)) throw new Error(BEZ_060_FILTRY);
+      if (razeni060Nezna(filtry?.razeni, e)) throw new Error(BEZ_060_RAZENI);
       // migrace 057: řazení podle hovoru na serveru bez 057 srozumitelně (jako v Kontaktech)
       if (hovorNezna(filtry?.razeni, e)) throw new Error(BEZ_057_HOVOR);
       if (Object.keys(navic).length > 0 && e instanceof RpcChyba && e.kod === 'PGRST202') throw new Error(BEZ_056_FILTRY);
@@ -272,6 +322,84 @@ export const supabaseApi: Api = {
         p_user_id: userId ?? null,
       })) ?? []
     );
+  },
+
+  /* ---- označení k zavolání, hvězda a přehled (migrace 060, Albert 1. 11. 2026) ---- */
+
+  async listOznacene(token: string, f: OznaceneFiltry): Promise<Kontakt[]> {
+    // jen zapnuté filtry (výchozí null na serveru); server bez 060 funkci nezná (PGRST202)
+    const hledat = (f.hledat ?? '').trim();
+    try {
+      return (
+        (await rpc<Kontakt[]>('list_oznacene', {
+          p_token: token,
+          ...(f.druhy?.length ? { p_druhy: f.druhy } : {}),
+          ...(f.segment ? { p_segment: f.segment } : {}),
+          ...filtry060(f),
+          ...(typeof f.user_id === 'number' ? { p_user_id: f.user_id } : {}),
+          ...(f.bez_volajiciho ? { p_bez_volajiciho: true } : {}),
+          ...(hledat ? { p_hledat: hledat } : {}),
+          ...(f.razeni ? { p_razeni: f.razeni } : {}),
+        })) ?? []
+      );
+    } catch (e) {
+      if (neniNaServeru(e)) throw new Error(BEZ_060_OZNACENE);
+      throw e;
+    }
+  },
+
+  async zapisHovor(
+    token: string,
+    kontaktId: number,
+    vysledek: VysledekDovolani,
+    poznamka: string | null = null,
+    hvezda: boolean | null = null
+  ): Promise<ZapisHovoruVysledek> {
+    try {
+      return await rpc<ZapisHovoruVysledek>('zapis_hovor', {
+        p_token: token,
+        p_kontakt_id: kontaktId,
+        p_vysledek: vysledek,
+        p_poznamka: poznamka,
+        // hvězda jen když se mění (null = beze změny)
+        ...(typeof hvezda === 'boolean' ? { p_hvezda: hvezda } : {}),
+      });
+    } catch (e) {
+      if (neniNaServeru(e)) throw new Error(BEZ_060_HOVOR);
+      throw e;
+    }
+  },
+
+  async oznaceniZavrit(token: string, kontaktId: number, duvod: string): Promise<{ ok: boolean; kontakt_id: number; oznaceni_id?: number }> {
+    // tlačítko je jen u otevřeného označení, které posílá jen server s 060 (bez něj by ho appka neukázala)
+    return rpc<{ ok: boolean; kontakt_id: number; oznaceni_id?: number }>('oznaceni_zavrit', {
+      p_token: token,
+      p_kontakt_id: kontaktId,
+      p_duvod: duvod,
+    });
+  },
+
+  async nastavHvezdu(token: string, kontaktId: number, hvezda: boolean, duvod: string | null = null): Promise<Kontakt> {
+    try {
+      return await rpc<Kontakt>('nastav_hvezdu', {
+        p_token: token,
+        p_kontakt_id: kontaktId,
+        p_hvezda: hvezda,
+        p_duvod: duvod,
+      });
+    } catch (e) {
+      if (neniNaServeru(e)) throw new Error(BEZ_060_HVEZDA);
+      throw e;
+    }
+  },
+
+  async kontaktPrehled(token: string, kontaktId: number): Promise<KontaktPrehled> {
+    try {
+      return await rpc<KontaktPrehled>('kontakt_prehled', { p_token: token, p_kontakt_id: kontaktId });
+    } catch (e) {
+      if (neniNaServeru(e)) throw new Error(BEZ_060_PREHLED);
+      throw e;
+    }
   },
 
   async createUser(

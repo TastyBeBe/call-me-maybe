@@ -371,7 +371,8 @@ await blok('U', async () => {
   await chyba('U6d', () => api.updateKontakt(petra, 3, { flag_kind: 'jine', flag_note: 'x' }), /^Tohle není váš klient/, 'Volající nezmění příznak cizího kontaktu přes update_kontakt');
   const po3 = (await api.listKontakty(albert, { search: jm, limit: 5 })).rows.find((r) => r.id === 3);
   const po92 = (await api.listFlagged(albert)).find((r) => r.id === 92);
-  over('U6e', po3?.flag_kind === pred3?.flag_kind && po3?.flag_note === pred3?.flag_note && po92?.flag_kind === 'neodpovida', 'odmítnuté úpravy nechají data beze změny');
+  // ⚠ migrace 060 (Albert 1. 11. 2026): příznak neodpovida je pryč, 92 má od automatizace info_neoverene (NAHRAZUJE 'neodpovida')
+  over('U6e', po3?.flag_kind === pred3?.flag_kind && po3?.flag_note === pred3?.flag_note && po92?.flag_kind === 'info_neoverene', 'odmítnuté úpravy nechají data beze změny');
   const fs = await api.setFlag(mikulas, 3, 'jine', 'super admin smí');
   over('U6f', fs.flagged_by === 'Mikuláš', 'super admin dál smí dát příznak i kontaktu, který upravit nesmí (pravidlo 24. 9. 2026)');
   await api.clearFlag(albert, 3);
@@ -398,6 +399,27 @@ await blok('U', async () => {
   over('U9b', /if \(jenZaklad\(kontakt\)\) \{\s*return \(/.test(drawerSrc), 'detail cizího kontaktu jen se základními údaji (bez stavu, poznámek, příznaku, zámku a vláken)');
   const callSrc = readFileSync(join(ROOT, 'src/pages/CallPage.tsx'), 'utf8');
   over('U9c', /\{!jenZaklad\(kontakt\) && \(\s*<div className="call-row">\s*<span className="k">status<\/span>/.test(callSrc), 'karta ve volání ukáže stav jen u vlastního klienta');
+  // Migrace 060 (Albert 1. 11. 2026: „never revealing anything about other callers“): hvězda, mlčení a označení jen u svých
+  // klientů. Cizí kontakt žádný nový klíč nenese (allowlist beze změny), nový filtr ho nikdy nevrátí, karta ve volání u cizího
+  // kontaktu hvězdu nemá; přehled a hvězda v detailu jen mimo větev jenZaklad.
+  const NOVE = ['hvezda_at', 'hvezda_kdo', 'hvezda_duvod', 'mlci_pd', 'ozn_kategorie', 'ozn_mlci_od', 'ozn_lhuta_do', 'ozn_pokusy', 'prehled', 'prehled_at'];
+  const vse060 = await api.listKontakty(petra, { limit: 200 });
+  const cizi060 = vse060.rows.filter((r) => r.skryto);
+  over('U10', cizi060.length >= 5 && cizi060.every((r) => NOVE.every((k) => !(k in r))) && vse060.rows.filter((r) => !r.skryto).every((r) => 'mlci_pd' in r && 'hvezda_at' in r && 'prehled_at' in r && !('prehled' in r)),
+    'Volající: cizí kontakt bez hvězdy, mlčení a označení; vlastní s nimi i s prehled_at (jako server, recenze 2. 11. 2026), přehled v seznamu nikdo');
+  for (const fl of [{ jen_hvezda: true }, { kategorie: ['navrh', 'zmeny'] }, { mlci_min: 0 }, { znamky: ['A', 'B', 'C', 'bez'] }, { statusy: ['navrh_odeslan'] }]) {
+    const r = await api.listKontakty(petra, { ...fl, limit: 200 });
+    over('U10b', r.rows.every((x) => !x.skryto && x.je_muj === true), `nový filtr ${JSON.stringify(fl)} vrátí Volajícímu jen jeho klienty`, r.rows.map((x) => x.id).join());
+  }
+  const ozn060 = await api.listOznacene(petra, {});
+  over('U10c', ozn060.length > 0 && ozn060.every((r) => r.je_muj === true && !r.skryto && !('ozn_volajici' in r)), 'Označené: Volajícímu jen jeho klienti, bez jména volajícího');
+  const karta060 = await api.nextContact(petra, 'chata');
+  if (karta060) {
+    over('U10d', karta060.je_muj || NOVE.every((k) => !(k in karta060)), 'karta ve volání u kontaktu, kterému Volající nevolal: bez hvězdy a mlčení');
+    await api.returnContact(petra, karta060.id);
+  }
+  const vetev = /if \(jenZaklad\(kontakt\)\) \{\s*return \(([\s\S]*?)\n    \);\n  \}/.exec(drawerSrc)?.[1] ?? '';
+  over('U10e', vetev.length > 100 && !/PrehledPanel|HvezdaPrepinac|HvezdaOdznak|hvezda_|prehled|ozn_|mlci_/.test(vetev), 'detail cizího kontaktu (jenZaklad) bez přehledu, hvězdy a označení');
 });
 
 /* ---------------- W) po dvou recenzích 045: záznam kolegy, hlavička s datem, jméno, chyby bez stavu (20. 10. 2026) ---------------- */

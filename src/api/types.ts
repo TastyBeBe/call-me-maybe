@@ -40,6 +40,9 @@ export type KontaktStatus =
    *   sleva_nabidnuta  odešla jednorázová nabídka poloviční ceny, čeká se na odpověď (po 14 dnech bez odpovědi tick
    *                    nastaví odmitnuto, po připomínce kampaně bez_odpovedi)
    *   bez_odpovedi     návrh i nabídka odešly, klient do lhůty nenapsal
+   *                    ⚠ migrace 060 (Albert 1. 11. 2026: „you don't close them, you archive them“): v appce „Archiv –
+   *                    neodpověděl“, po připomínce kampaně až 30 dní od naší poslední zprávy (NAHRAZUJE 14 dní); není to
+   *                    konec, nová zpráva klienta nebo vstup člověka v appce klienta vrátí do práce
    *   pozdeji          klient si řekl o čas („ozvu se později“)
    *   nekontaktovat    nechce, abychom mu psali nebo volali; konečný jako nerelevantni, automatizace mu nic nepošle
    */
@@ -67,6 +70,8 @@ export type DphStav = 'platce' | 'neplatce' | 'identifikovana_osoba' | 'neoveren
  * email_neoveren = e-mail jsme dohledali, ale není potvrzený od klienta
  * info_neoverene = informace/fotky pocházejí z internetu, klient je nepotvrdil
  * jine           = cokoli dalšího, popsané v poznámce
+ * neodpovida     = ⚠ jen historie: od migrace 060 (Albert 1. 11. 2026) ho nahradilo označení k zavolání
+ *                  (OznaceniKategorie); migrace staré příznaky zrušila a set_flag i update_kontakt ho odmítnou
  */
 export type FlagKind =
   | 'chybi_info'
@@ -86,6 +91,22 @@ export type CekaniKind = 'ceka_prvni' | 'ceka_po_odpovedi';
 
 /** Koš podle stáří čekání — brání tomu, aby roční mlčenlivci zaplavili začátek seznamu. */
 export type CekaniKos = 'cerstve' | 'k_zavolani' | 'vlazne' | 'vychladle';
+
+/**
+ * Označení k zavolání (migrace 060, Albert 1. 11. 2026: klient, který na naši zprávu neodpověděl VÍC než 5 pracovních
+ * dní, je označený pro SVÉHO volajícího, ať mu zavolá a zeptá se, jestli se na web podíval). Dvě kategorie:
+ *   navrh  „Neodpověděl na návrh“: dostal náhled (návrh) a nikdy neodpověděl
+ *   zmeny  „Neodpověděl na změny“: napsal, my jsme změny udělali a odpověděli, od té doby mlčí
+ * Kdo nikdy nic neodmítl, jen ten se označí; odmítnutí po slevě se nevolá. ⚠ NAHRAZUJE příznak `neodpovida`
+ * (migrace 014, jen „po naší odpovědi“, 7 až 30 kalendářních dní, jen bez jiného příznaku).
+ */
+export type OznaceniKategorie = 'navrh' | 'zmeny';
+
+/** Výsledek dovolání označeného klienta (zapis_hovor, migrace 060). Do call_log se nepíše (není to nový hovor). */
+export type VysledekDovolani = 'nedovolano' | 'nechce' | 'nekontaktovat' | 'mluvili';
+
+/** Známka ve filtru seznamů (migrace 060): A, B, C, nebo bez známky (rating null). */
+export type ZnamkaFiltr = Rating | 'bez';
 
 export interface Kontakt {
   id: number;
@@ -183,6 +204,44 @@ export interface Kontakt {
    * čekající naplánovaný hovor přihlášeného k tomuhle kontaktu, jinak null. Seznamy klíč neposílají (undefined).
    */
   zavolat?: ZavolatKarta | null;
+  /*
+   * ---- hvězda, mlčení a označení k zavolání (migrace 060, Albert 1. 11. 2026) ----
+   * Hvězda = „velký zájem“, nad známkou a bez ohledu na ni (sloupce kontaktu, chodí s k.*); kdo ji dal, jde přes masku
+   * jako flagged_by („jiný volající“ u kolegy, „automatizace“ zůstává). U cizího kontaktu Volajícího klíče CHYBÍ
+   * (allowlist 045); server bez migrace 060 je neposílá vůbec (appka pak hvězdu nenabízí).
+   */
+  hvezda_at?: string | null;
+  hvezda_kdo?: string | null;
+  hvezda_duvod?: string | null;
+  /**
+   * Kdy automatizace naposledy zapsala přehled klienta (kontakty.prehled_at, migrace 060); null = ještě nikdy. Seznamy ho
+   * posílají jen u vlastního řádku (u cizího kontaktu Volajícího klíč chybí), samotný přehled jen kontakt_prehled.
+   */
+  prehled_at?: string | null;
+  /**
+   * Kolik celých pracovních dní (Praha, bez víkendů a svátků) klient mlčí od naší poslední zprávy; null = nemlčí
+   * (napsal po ní, nebo jsme mu nic neposlali). Jen list_kontakty, my_kontakty a list_oznacene, jen u vlastního řádku.
+   */
+  mlci_pd?: number | null;
+  /**
+   * Otevřené označení k zavolání: Volajícímu jen JEHO označení (volajici_id = on), super adminovi a Albertovi každé.
+   * Bez označení null; u cizího kontaktu klíče chybí. ozn_lhuta_do = den (YYYY-MM-DD v Praze), do kdy zavolat.
+   */
+  ozn_kategorie?: OznaceniKategorie | null;
+  ozn_mlci_od?: string | null;
+  ozn_lhuta_do?: string | null;
+  ozn_pokusy?: number | null;
+  /**
+   * jen list_oznacene: id označení, kdy vzniklo, poslední „nedovolal/a jsem se“, jestli je z prvního běhu (lhůta 10
+   * pracovních dní) a komu je označený (ozn_volajici_id a jméno ozn_volajici, u označení bez vlastníka „bez volajícího“;
+   * obojí jen super admin a Albert, Volajícímu klíče chybí)
+   */
+  ozn_id?: number | null;
+  ozn_oznaceno_at?: string | null;
+  ozn_posledni_pokus_at?: string | null;
+  ozn_zavadeci?: boolean | null;
+  ozn_volajici_id?: number | null;
+  ozn_volajici?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -221,13 +280,17 @@ export interface UserStats extends MyStats {
  * should be just the last time they were called“): poslední změna = posledni_zmena (i změna stavu, odeslaný návrh
  * a odpovědi od automatizace; NAHRAZUJE „updated_at“ z 056) a navíc hovor_* podle posledního hovoru (posledni_hovor,
  * kontakty bez hovoru na konci). Server bez 057 hovor_* odmítne („Neplatné řazení“, appka řekne BEZ_057_HOVOR).
+ * Migrace 060 (Albert 1. 11. 2026: „sort by longest silence / star first“): mlceni = nejdéle bez odpovědi napřed (podle
+ * mlci_pd, nemlčící na konci), hvezda = s hvězdou napřed, pak nejdéle bez odpovědi. Volajícímu jen mezi jeho klienty.
+ * Server bez 060 je odmítne („Neplatné řazení“, appka řekne BEZ_060_RAZENI).
  */
-export type Razeni = 'zmena_nejnovejsi' | 'zmena_nejstarsi' | 'hovor_nejnovejsi' | 'hovor_nejstarsi';
+export type Razeni = 'zmena_nejnovejsi' | 'zmena_nejstarsi' | 'hovor_nejnovejsi' | 'hovor_nejstarsi' | 'mlceni' | 'hvezda';
 
 /**
  * Filtry Moji klienti (migrace 056, Albert 27. 10. 2026: „the same like filters as we have in the contacts … this only
- * applies for the super admins“). Appka je posílá jen za super admina; server je bere stejně jako list_kontakty nad
- * klienty vybraného člověka. Prázdné (null) = beze změny, jako dřív.
+ * applies for the super admins“). Server je bere stejně jako list_kontakty nad klienty vybraného člověka. Prázdné (null)
+ * = beze změny, jako dřív. ⚠ Migrace 060 (Albert 1. 11. 2026: Volající mají v Moji klienti VŠECHNY filtry, nad svými
+ * klienty) NAHRAZUJE „Appka je posílá jen za super admina“ a přidává filtry FiltryMlceni (níž).
  */
 export interface MojiFiltry {
   status?: string | null;
@@ -236,6 +299,13 @@ export interface MojiFiltry {
   cekani?: CekaniKind | null;
   kos?: CekaniKos | null;
   razeni?: Razeni | null;
+  /* migrace 060, význam jako ve FiltryMlceni */
+  statusy?: KontaktStatus[] | null;
+  znamky?: ZnamkaFiltr[] | null;
+  jen_hvezda?: boolean | null;
+  kategorie?: OznaceniKategorie[] | null;
+  mlci_min?: number | null;
+  mlci_max?: number | null;
 }
 
 export interface AdminMessage {
@@ -357,6 +427,113 @@ export interface ListKontaktyFilters {
   razeni?: Razeni | null;
   limit?: number;
   offset?: number;
+  /* migrace 060, význam jako ve FiltryMlceni (Volajícímu jen nad jeho klienty, jako stav a známka od 045) */
+  statusy?: KontaktStatus[] | null;
+  znamky?: ZnamkaFiltr[] | null;
+  jen_hvezda?: boolean | null;
+  kategorie?: OznaceniKategorie[] | null;
+  mlci_min?: number | null;
+  mlci_max?: number | null;
+}
+
+/**
+ * Kombinovatelné filtry seznamů (migrace 060, Albert 1. 11. 2026: stejné filtry v Kontaktech, Moji klienti
+ * i Označených): stav (víc najednou), známka (A, B, C, bez), jen s hvězdou, kategorie označení (na návrh, na změny)
+ * a mlčení v pracovních dnech od a do (včetně). Všechny zapnuté filtry platí najednou (A ZÁROVEŇ), z hodnot jednoho
+ * filtru stačí kterákoli (NEBO). Prázdné pole nebo null = filtr vypnutý; appka pak parametr serveru vůbec nepošle
+ * (server bez 060 ho nezná). Volajícímu berou jen jeho klienty a jen jeho označení (cizí kontakt nikdy nesedí).
+ */
+export type FiltryMlceni = Pick<ListKontaktyFilters, 'statusy' | 'znamky' | 'jen_hvezda' | 'kategorie' | 'mlci_min' | 'mlci_max'>;
+
+/**
+ * Označené (list_oznacene, migrace 060): kontakty s otevřeným označením k zavolání, které přihlášený vidí (Volající jen
+ * svoje označení, super admin a Albert všechna, `user_id` / `bez_volajiciho` je zúží), A kontakty s příznakem jako dřív
+ * (rozsah list_flagged). `druhy` = 'navrh', 'zmeny' a druhy příznaků (NEBO). Bez stránkování.
+ */
+export interface OznaceneFiltry extends Omit<FiltryMlceni, 'kategorie'> {
+  druhy?: string[] | null;
+  segment?: Segment | null;
+  user_id?: number | null;
+  bez_volajiciho?: boolean | null;
+  hledat?: string | null;
+  razeni?: Razeni | null;
+}
+
+/** Výsledek zapis_hovor (migrace 060): co se se zápisem stalo. */
+export interface ZapisHovoruVysledek {
+  ok: boolean;
+  kontakt_id: number;
+  oznaceni_id?: number;
+  vysledek?: VysledekDovolani;
+  /** označení zůstalo otevřené (nedovolal/a jsem se), jinak uzavřené výsledkem hovoru */
+  otevrene?: boolean;
+  pokusy?: number;
+  status?: KontaktStatus;
+  /** má kontakt po zápisu hvězdu, a změnila se */
+  hvezda?: boolean;
+  hvezda_zmena?: boolean | null;
+  /** vlákno, kam šel vzkaz agentovi („Mluvili jsme“), jinak null */
+  vlakno_id?: number | null;
+}
+
+/** Položka „Co klient chce / napsal“ přehledu (automatizace, migrace 060); zdroj e-mail, hovor nebo zpráva v appce. */
+export interface PrehledKlientChce {
+  datum: string;
+  text: string;
+  zdroj: 'e-mail' | 'hovor' | 'zprava';
+}
+
+/**
+ * Přehled klienta, jak ho píše automatizace (kontakty.prehled, migrace 060; ve stage 1 ho ještě nic nepíše). Tvar hlídá
+ * trigger na serveru: verze 1, „ted“ nejvýš 300 znaků, nejvýš 5 + 5 + 3 položek, bez jmen týmu, čísel faktur a technických id.
+ */
+export interface PrehledText {
+  verze: number;
+  ted?: string | null;
+  klient_chce?: PrehledKlientChce[] | null;
+  poslali_jsme?: { datum: string; text: string }[] | null;
+  pozor?: { text: string }[] | null;
+}
+
+/**
+ * Fakta přehledu (kontakt_prehled, migrace 060): server je skládá z dat bez jazykového modelu, vždycky. Chybějící klíč
+ * nebo null = nic (appka řádek neukáže). Jméno vlastníka označení a toho, kdo volá naplánovaný hovor, jen super admin
+ * a Albert (Volajícímu null); kdo dal hvězdu, u kolegy „jiný volající“.
+ */
+export interface PrehledFakta {
+  stav?: KontaktStatus | null;
+  stav_od?: string | null;
+  hvezda?: { at: string; kdo: string | null; duvod: string | null } | null;
+  oznaceni?: {
+    id: number;
+    kategorie: OznaceniKategorie;
+    mlci_od: string | null;
+    oznaceno_at: string | null;
+    lhuta_do: string | null;
+    pokusy: number;
+    posledni_pokus_at?: string | null;
+    volajici?: string | null;
+  } | null;
+  mlci_pd?: number | null;
+  prvni_navrh?: string | null;
+  nase_posledni?: string | null;
+  klient_naposledy?: string | null;
+  /** poslední nabídka poloviční ceny: kdy odešla, poslední den platnosti (+14 dní), z kampaně, archiv (+30 dní od naší zprávy) */
+  nabidka?: { odeslana_at: string; konci_dne: string | null; kampan: boolean; archiv_dne: string | null } | null;
+  pripominka_kampane?: string | null;
+  /** spící budík smazání náhledu (architekt po 8A) */
+  nahled_smazani?: string | null;
+  zavolat?: { id: number; kdy: string; poznamka: string | null; muj: boolean; volajici?: string | null } | null;
+  cena_web?: string | null;
+  cena_hosting?: string | null;
+}
+
+/** kontakt_prehled (migrace 060): jen vlastník podle pravidla o vlastních klientech, super admin a Albert. */
+export interface KontaktPrehled {
+  kontakt_id?: number;
+  prehled: PrehledText | null;
+  prehled_at: string | null;
+  fakta: PrehledFakta;
 }
 
 /** Argumenty update_user (migrace 004) — aplikují se jen ne-null/ne-undefined pole. */
@@ -671,8 +848,29 @@ export interface Api {
   setFlag(token: string, id: number, kind: FlagKind, note: string): Promise<Kontakt>;
   /** Zruší příznak — klient je vyřešený. */
   clearFlag(token: string, id: number): Promise<Kontakt>;
-  /** Označení klienti: admin svoji, super admin svých lidí (+ userId), Albert všichni (023). */
+  /** Označení klienti: admin svoji, super admin svých lidí (+ userId), Albert všichni (023). Od migrace 060 ji appka
+   *  nevolá (Označené jdou přes listOznacene); zůstává pro starou appku a pro server bez 060. */
   listFlagged(token: string, kind?: FlagKind | null, userId?: number | null): Promise<Kontakt[]>;
+  /* ---- označení k zavolání, hvězda a přehled (migrace 060, Albert 1. 11. 2026) ---- */
+  /** Označené: otevřená označení k zavolání + příznaky, s filtry (OznaceneFiltry). Server bez 060 = BEZ_060_OZNACENE. */
+  listOznacene(token: string, filtry: OznaceneFiltry): Promise<Kontakt[]>;
+  /**
+   * Zápis dovolání označeného klienta: Volající jen u SVÉHO otevřeného označení, super admin a Albert u každého.
+   * Do call_log se nepíše. `hvezda` true/false hvězdu dá/odebere (null = beze změny).
+   */
+  zapisHovor(
+    token: string,
+    kontaktId: number,
+    vysledek: VysledekDovolani,
+    poznamka?: string | null,
+    hvezda?: boolean | null
+  ): Promise<ZapisHovoruVysledek>;
+  /** Zrušení otevřeného označení (jen super admin a Albert, s důvodem). */
+  oznaceniZavrit(token: string, kontaktId: number, duvod: string): Promise<{ ok: boolean; kontakt_id: number; oznaceni_id?: number }>;
+  /** Hvězda (velký zájem): dá ji nebo odebere ten, kdo kontakt smí upravit; vrátí řádek kontaktu jako úpravy. */
+  nastavHvezdu(token: string, kontaktId: number, hvezda: boolean, duvod?: string | null): Promise<Kontakt>;
+  /** Přehled klienta: fakta z dat a text automatizace (když už je). Jen vlastní klient, super admin, Albert. */
+  kontaktPrehled(token: string, kontaktId: number): Promise<KontaktPrehled>;
   createUser(
     token: string,
     username: string,

@@ -5,13 +5,14 @@ import {
   type CekaniKind,
   type CekaniKos,
   type Kontakt,
-  type Razeni,
-  type Segment,
 } from '../api';
 import { audio } from '../audio';
 import { useSession } from '../auth';
+import { HvezdaPrepinac } from '../components/Hvezda';
 import KontaktDrawer from '../components/KontaktDrawer';
 import { usePeople } from '../components/PersonPicker';
+import SeznamFiltry from '../components/SeznamFiltry';
+import { PRAZDNE_FILTRY, filtrJenSvoje, filtryNaServer, type StavFiltru } from '../filtry';
 import { isAdminRole, isSuperAdmin } from '../roles';
 import { icoVidi } from '../segment';
 import {
@@ -23,13 +24,12 @@ import {
   ErrorBox,
   FlagBadge,
   KOS_LABELS,
+  MlceniBunka,
   RazeniSelect,
   SegmentBadge,
-  SegmentFilter,
   Skryto,
   SKRYTO_NAPOVEDA,
   Spinner,
-  STATUS_LABELS,
   StatusBadge,
   errMsg,
   formatCekani,
@@ -70,16 +70,23 @@ const PAGE_SIZE = 50;
 // automatizace; ⚠ NAHRAZUJE updated_at z 056, proti serveru bez 057 dál updated_at) a nový sloupec poslední hovor s datem
 // a časem (posledni_hovor); řazení i podle posledního hovoru. Volajícímu se do něj počítají jen jeho hovory (045), sloupec
 // se mu jmenuje „Můj poslední hovor“ a u cizího kontaktu je pomlčka.
+// Migrace 060 (Albert 1. 11. 2026: „the same combinable filters in Kontakty, Moji klienti and Označené“): sdílený řádek
+// filtrů (SeznamFiltry): stav víc najednou, známka i „bez známky“, jen s hvězdou, skupina označení (Neodpověděl na návrh /
+// na změny), mlčení v pracovních dnech, řazení i „Nejdéle bez odpovědi“ a „Hvězda nejdřív“; filtr volajícího a čekání
+// s koši zůstávají. ⚠ NAHRAZUJE výběr jednoho stavu a jedné známky (jeden stav a jedna známka A až C jdou serveru dál jako
+// p_status a p_rating, víc přes p_statusy a p_znamky). Volajícímu berou všechny filtry jen jeho klienty (045, hlídá server).
+// Nový sloupec Mlčí (MlceniBunka: označení, pracovní dny, naše poslední zpráva, klient naposledy; u cizího pomlčka uvnitř
+// buňky) a hvězda u jména (jen u vlastního řádku). Šest pomlček jenZaklad níž zůstává (kontrola 193).
 export default function AdminPage() {
   const session = useSession();
   const isAdmin = isAdminRole(session.role);
   const isSuper = isSuperAdmin(session.role);
   const [searchParams] = useSearchParams();
 
-  const [segment, setSegment] = useState<Segment | ''>('');
-  const [status, setStatus] = useState('');
+  // migrace 060: segment, stav, známka, hvězda, označení, mlčení, řazení a hledání v jednom stavu (src/filtry.ts)
+  const [filtry, setFiltry] = useState<StavFiltru>({ ...PRAZDNE_FILTRY, hledat: searchParams.get('search') ?? '' });
+  const segment = filtry.segment;
   const [caller, setCaller] = useState('');
-  const [rating, setRating] = useState('');
   // čekání na odpověď (migrace 014); při zapnutí se rovnou zapne koš „k zavolání",
   // aby začátek seznamu nezaplavili klienti, kteří mlčí rok (Albert 2026-09-07)
   const [cekani, setCekani] = useState<CekaniKind | ''>('');
@@ -87,10 +94,16 @@ export default function AdminPage() {
   const [kosCounts, setKosCounts] = useState<Record<string, number>>({});
   // Migrace 056 (Albert 27. 10. 2026: „sort them … from the newest to the oldest updated client“): řazení podle poslední
   // změny (sloupec Změněno); '' = výchozí pořadí. Volajícímu server řadí podle změny jen jeho klienty, cizí jsou za nimi.
-  const [razeni, setRazeni] = useState<Razeni | ''>('');
-  const [search, setSearch] = useState(searchParams.get('search') ?? '');
+  const razeni = filtry.razeni;
+  const search = filtry.hledat;
   const [debouncedSearch, setDebouncedSearch] = useState(search);
   const [page, setPage] = useState(0);
+  // nové filtry pro server; mění se jen s nimi (ne s každým písmenem hledání, to jde se zpožděním)
+  const naServer = useMemo(
+    () => filtryNaServer(filtry),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [filtry.statusy, filtry.znamky, filtry.jenHvezda, filtry.kategorie, filtry.mlciMin, filtry.mlciMax]
+  );
 
   const [rows, setRows] = useState<Kontakt[]>([]);
   const [total, setTotal] = useState<number | null>(0);
@@ -183,9 +196,8 @@ export default function AdminPage() {
     setError('');
     try {
       const r = await getApi().listKontakty(session.token, {
-        status: status || null,
+        ...naServer,
         caller: caller || null,
-        rating: rating || null,
         search: debouncedSearch.trim() || null,
         cekani: cekani || null,
         kos: cekani ? kos || null : null,
@@ -205,7 +217,7 @@ export default function AdminPage() {
     } finally {
       if (muj === posledniSeznam.current) setLoading(false);
     }
-  }, [session.token, segment, status, caller, rating, debouncedSearch, cekani, kos, razeni, page]);
+  }, [session.token, segment, naServer, caller, debouncedSearch, cekani, kos, razeni, page]);
 
   useEffect(() => {
     void load();
@@ -216,6 +228,19 @@ export default function AdminPage() {
     setRows((rs) => rs.map((r) => (r.id === updated.id ? updated : r)));
     reloadTick.current += 1;
     setTick(reloadTick.current);
+  };
+  // migrace 060: zápis hovoru s označeným klientem v přehledu: detail zavřít (stav i poznámku změnil server), načíst znovu
+  const [info, setInfo] = useState('');
+  const onDovolano = (veta: string) => {
+    setSelected(null);
+    setInfo(veta);
+    reloadTick.current += 1;
+    setTick(reloadTick.current);
+  };
+  // hvězda v řádku: jen ten řádek (ostatní klíče seznamu zůstávají)
+  const onHvezda = (k: Kontakt) => {
+    setRows((rs) => rs.map((r) => (r.id === k.id ? k : r)));
+    setSelected((s) => (s && s.id === k.id ? k : s));
   };
 
   // Volající total nedostane (null): stránky bez celkového počtu, „Další“ podle `dalsi` (migrace 045)
@@ -233,33 +258,33 @@ export default function AdminPage() {
         {total !== null && total > 0 && <span className="count-pill">{total}</span>}
       </h1>
 
-      <SegmentFilter
-        value={segment}
-        onChange={(s) => {
-          setSegment(s);
+      <SeznamFiltry
+        filtry={filtry}
+        onChange={(f) => {
+          setFiltry(f);
           setPage(0);
         }}
-      />
-
-      <div className="filter-bar">
-        <select
-          value={status}
-          onChange={(e) => {
-            setStatus(e.target.value);
-            setPage(0);
-          }}
-          aria-label="Filtr statusu"
-        >
-          <option value="">
-            {isSuper ? `Všechny statusy${totalAll ? ` (${totalAll})` : ''}` : 'Status: vše (filtr jen u mých)'}
-          </option>
-          {ALL_STATUSES.map((s) => (
-            <option key={s} value={s}>
-              {STATUS_LABELS[s]}
-              {statusCounts[s] !== undefined ? ` (${statusCounts[s]})` : ''}
-            </option>
-          ))}
-        </select>
+        statusPocty={isSuper ? statusCounts : undefined}
+        statusSoucet={isSuper ? totalAll : undefined}
+        hledatAria="Hledat v kontaktech"
+        hledatPlaceholder={
+          !isSuper
+            ? 'Hledat jméno, studio, telefon, web, město, IČO, e-mail architekta; e-mail chaty a poznámku jen u mých…'
+            : icoVidi(session.role)
+              ? 'Hledat jméno, studio, telefon, web, e-mail, město, IČO, poznámku…'
+              : 'Hledat jméno, studio, telefon, web, e-mail, město, poznámku…'
+        }
+        razeni={
+          <RazeniSelect
+            value={razeni}
+            onChange={(r) => {
+              setFiltry({ ...filtry, razeni: r });
+              setPage(0);
+            }}
+            jenMojeHovory={!isSuper}
+          />
+        }
+      >
         <select
           value={caller}
           onChange={(e) => {
@@ -280,19 +305,6 @@ export default function AdminPage() {
           )}
         </select>
         <select
-          value={rating}
-          onChange={(e) => {
-            setRating(e.target.value);
-            setPage(0);
-          }}
-          aria-label="Filtr známky"
-        >
-          <option value="">Známka: vše</option>
-          <option value="A">A</option>
-          <option value="B">B</option>
-          <option value="C">C</option>
-        </select>
-        <select
           value={cekani}
           onChange={(e) => {
             const v = e.target.value as CekaniKind | '';
@@ -311,38 +323,18 @@ export default function AdminPage() {
             </option>
           ))}
         </select>
-        <RazeniSelect
-          value={razeni}
-          onChange={(r) => {
-            setRazeni(r);
-            setPage(0);
-          }}
-          jenMojeHovory={!isSuper}
-        />
-        <div className="search-wrap search-wide">
-          <input
-            className="search-input"
-            aria-label="Hledat v kontaktech"
-            placeholder={
-              !isSuper
-                ? 'Hledat jméno, studio, telefon, web, město, IČO, e-mail architekta; e-mail chaty a poznámku jen u mých…'
-                : icoVidi(session.role)
-                  ? 'Hledat jméno, studio, telefon, web, e-mail, město, IČO, poznámku…'
-                  : 'Hledat jméno, studio, telefon, web, e-mail, město, poznámku…'
-            }
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
-        </div>
-      </div>
+      </SeznamFiltry>
 
       {!isSuper && (
         <p className="muted skryto-napoveda" style={{ fontSize: 13.5, margin: '0 0 10px' }}>
-          {SKRYTO_NAPOVEDA} Filtr stavu, známky a čekání a hledání v poznámce berou jen tvoje klienty.
+          {SKRYTO_NAPOVEDA} Filtry stavu, známky, hvězdy, označení, mlčení a čekání a hledání v poznámce berou jen tvoje klienty
+          (a jen tvoje označení k zavolání).
           {razeni
             ? razeni.startsWith('hovor_')
               ? ' Podle posledního hovoru se řadí jen tvoji klienti a počítají se jen tvoje hovory, ostatní kontakty jsou za nimi.'
-              : ' Podle poslední změny se řadí jen tvoji klienti, ostatní kontakty jsou za nimi.'
+              : razeni === 'mlceni' || razeni === 'hvezda'
+                ? ' Podle mlčení a hvězdy se řadí jen tvoji klienti, ostatní kontakty jsou za nimi.'
+                : ' Podle poslední změny se řadí jen tvoji klienti, ostatní kontakty jsou za nimi.'
             : ''}
         </p>
       )}
@@ -375,6 +367,7 @@ export default function AdminPage() {
       )}
 
       <ErrorBox>{error}</ErrorBox>
+      {info && <div className="info-box dovolani-info">{info}</div>}
 
       {loading ? (
         <Spinner label="Načítám kontakty…" />
@@ -385,8 +378,8 @@ export default function AdminPage() {
           {/* Migrace 045 (Albert 20. 10. 2026): Volajícímu bere filtr stavu, známky a čekání jen jeho klienty, u cizích
               kontaktů stav nevidí. ⚠ NAHRAZUJE obecné „Zkus změnit filtry“ pro tenhle případ (recenze appky 20. 10. 2026). */}
           <p className="muted">
-            {!isSuper && (status || rating || cekani || kos)
-              ? 'Filtr stavu, známky a čekání ukazuje jen tvoje klienty (u ostatních kontaktů stav nevidíš) a mezi nimi takový není. Zruš filtr a uvidíš všechny kontakty.'
+            {!isSuper && (filtrJenSvoje(filtry) || cekani || kos)
+              ? 'Filtry stavu, známky, hvězdy, označení, mlčení a čekání ukazují jen tvoje klienty (u ostatních kontaktů stav nevidíš) a mezi nimi takový není. Zruš filtr a uvidíš všechny kontakty.'
               : 'Zkus změnit filtry nebo hledaný výraz.'}
           </p>
         </div>
@@ -399,6 +392,7 @@ export default function AdminPage() {
                 <th>Telefon</th>
                 <th>Status</th>
                 <th>Známka</th>
+                <th title="Kolik pracovních dní klient mlčí od naší poslední zprávy; naše poslední zpráva a kdy klient napsal naposledy">Mlčí</th>
                 <th>Volal/a</th>
                 <th>Web</th>
                 {cekani ? <th>Čeká</th> : null}
@@ -414,12 +408,16 @@ export default function AdminPage() {
                   onClick={() => setSelected(r)}
                 >
                   <td className="row-name">
-                    <FlagBadge kontakt={r} compact /> <SegmentBadge kontakt={r} compact />{' '}
-                    {kontaktJmeno(r)}
+                    <HvezdaPrepinac kontakt={r} onZmena={onHvezda} /> <FlagBadge kontakt={r} compact />{' '}
+                    <SegmentBadge kontakt={r} compact /> {kontaktJmeno(r)}
                   </td>
                   <td style={{ whiteSpace: 'nowrap' }}>{r.phone || '—'}</td>
                   <td>{jenZaklad(r) ? <Skryto /> : <StatusBadge status={r.status} />}</td>
                   <td>{jenZaklad(r) ? <Skryto /> : r.rating ? <span className="badge rating">{r.rating}</span> : '—'}</td>
+                  {/* migrace 060: u cizího kontaktu pomlčka uvnitř MlceniBunka (server klíče mlčení ani označení nepošle) */}
+                  <td className="mlci-cell">
+                    <MlceniBunka kontakt={r} />
+                  </td>
                   <td>{jenZaklad(r) ? <Skryto /> : r.last_caller || '—'}</td>
                   <td>
                     {r.web ? (
@@ -481,6 +479,7 @@ export default function AdminPage() {
           onClose={() => setSelected(null)}
           onSaved={onSaved}
           readOnly={!isAdmin}
+          onDovolano={onDovolano}
         />
       )}
     </div>

@@ -36,7 +36,7 @@ let bundle;
     stdin: {
       contents: [
         "export { mockApi } from './src/api/mock.ts';",
-        "export { FLAG_HINTS, flagHint, flagHintDetail, ALL_FLAGS } from './src/ui.tsx';",
+        "export { FLAG_HINTS, flagHint, flagHintDetail, ALL_FLAGS, VOLITELNE_FLAGS } from './src/ui.tsx';",
       ].join('\n'),
       resolveDir: ROOT,
       loader: 'ts',
@@ -57,7 +57,7 @@ let bundle;
   bundle = createRequire(import.meta.url)(f);
   rmSync(dir, { recursive: true, force: true });
 }
-const { mockApi: api, FLAG_HINTS, flagHint, flagHintDetail, ALL_FLAGS } = bundle;
+const { mockApi: api, FLAG_HINTS, flagHint, flagHintDetail, ALL_FLAGS, VOLITELNE_FLAGS } = bundle;
 
 let pocet = 0;
 let chyby = 0;
@@ -102,6 +102,13 @@ await blok('H', async () => {
   // negativní test detektoru jinými slovy
   over('H5', slibuje('Až ho zapíšeš, příznak zmizí sám.') && slibuje('Příznak se pak zruší sám.') && !slibuje('Příznak sám nezruší.'),
     'detektor slibu pozná „zmizí sám" i „zruší sám" a nechá „sám nezruší"');
+  // Migrace 060 (Albert 1. 11. 2026): neodpovida nahradilo označení k zavolání; nápověda nic neslibuje (hovor s klientem
+  // mimo frontu se nedal zapsat, „zmizí sám, jakmile … mu někdo zavolá“ neplatilo) a vybrat ho nejde (⚠ NAHRAZUJE slib z 014)
+  over('H7', !slibuje(FLAG_HINTS.neodpovida) && !/někdo zavolá/i.test(FLAG_HINTS.neodpovida) && /Neodpověděl na změny/.test(FLAG_HINTS.neodpovida),
+    'nápověda neodpovida neslibuje zmizení a posílá na označení k zavolání', FLAG_HINTS.neodpovida);
+  over('H7b', ALL_FLAGS.includes('neodpovida') && !VOLITELNE_FLAGS.includes('neodpovida') && VOLITELNE_FLAGS.length === ALL_FLAGS.length - 1
+    && /\{VOLITELNE_FLAGS\.map\(\(f\) =>/.test(drawer) && !/\{ALL_FLAGS\.map\(/.test(drawer),
+    'detail nabízí jen příznaky, které jde nasadit (bez neodpovida); popisek starého zůstává');
 });
 
 /* ---------------- M) mock zrcadlí resolve_call z migrace 029 ---------------- */
@@ -163,6 +170,12 @@ await blok('M', async () => {
   r = await radek(k1);
   over('M6', r && r.flag_kind === 'chybi_email' && r.email === 'detail@example.invalid',
     'e-mail zapsaný v detailu (update_kontakt) příznak neruší — proto nápověda v detailu posílá na Vyřešeno', r && `${r.flag_kind} ${r.email}`);
+  // migrace 060: neodpovida nasadit nejde ani přes set_flag, ani přes update_kontakt (stejná věta jako server)
+  let hlaska = '';
+  try { await api.setFlag(albert, k1, 'neodpovida', 'TEST'); } catch (e) { hlaska = e.message; }
+  r = await radek(k1);
+  over('M7', hlaska === 'Příznak „neodpovídá“ nahradilo označení k zavolání (migrace 060).' && r && r.flag_kind === 'chybi_email',
+    'set_flag neodpovida odmítne a příznak zůstane', hlaska);
 });
 
 if (chyby === 0) {

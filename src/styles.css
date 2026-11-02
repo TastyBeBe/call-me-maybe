@@ -2675,3 +2675,335 @@ table.kontakty tbody tr.selected .cena-hosting {
     grid-column: 1 / -1;
   }
 }
+
+/* ---------------------------------------------------------------------------
+   Označení k zavolání, hvězda, kombinovatelné filtry a přehled klienta (migrace 060, Albert 1. 11. 2026).
+   --------------------------------------------------------------------------- */
+
+/* sdílený řádek filtrů (SeznamFiltry): výběr víc hodnot, hvězda, mlčení, zrušit filtry */
+.vyber-vice {
+  position: relative;
+}
+
+.vyber-vice-btn {
+  font-family: var(--font-ui);
+  font-weight: 700;
+  font-size: 15px;
+  background: var(--cream);
+  color: var(--ink);
+  border: var(--border);
+  border-radius: var(--r-ctl);
+  box-shadow: var(--shadow-hard-sm);
+  padding: 7px 12px;
+  cursor: pointer;
+  white-space: nowrap;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.vyber-vice-btn.zapnuto {
+  background: var(--yellow);
+}
+
+.vyber-vice-panel {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 30;
+  min-width: 230px;
+  max-width: min(340px, calc(100vw - 32px));
+  max-height: 360px;
+  overflow-y: auto;
+  background: var(--cream);
+  border: var(--border);
+  border-radius: var(--r-ctl);
+  box-shadow: var(--shadow-hard);
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.vyber-vice-volba {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14.5px;
+  font-weight: 700;
+  padding: 4px 2px;
+  cursor: pointer;
+}
+
+.vyber-vice-volba.vse {
+  border-bottom: 2px dashed var(--butter-dot);
+  padding-bottom: 6px;
+  margin-bottom: 2px;
+}
+
+.vyber-vice-volba input {
+  width: 17px;
+  height: 17px;
+  accent-color: var(--orange);
+}
+
+.pill-btn.hvezda-filtr {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.mlci-filtr {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.mlci-filtr-popisek {
+  font-weight: 800;
+  font-size: 14.5px;
+}
+
+.mlci-filtr-jednotka {
+  font-size: 13px;
+}
+
+.filter-bar .mlci-pole {
+  width: 58px;
+  min-width: 0;
+  padding: 6px 8px;
+}
+
+.pill-btn.zrusit-filtry {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* odznak skupiny označení a buňka Mlčí v seznamech */
+.badge.oznaceni-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.mlceni-bunka {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  white-space: nowrap;
+}
+
+.mlci-pd.dlouho {
+  color: var(--orange);
+  font-weight: 800;
+}
+
+.mlci-zpravy,
+.mlci-po,
+.mlci-od {
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+/* hvězda: odznak, přepínač v řádku a v detailu, ve formuláři zájmu */
+.hvezda-odznak {
+  display: inline-flex;
+  vertical-align: -3px;
+  color: var(--ink);
+}
+
+.hvezda-prepinac {
+  display: inline-flex;
+  align-items: center;
+  vertical-align: -3px;
+  background: transparent;
+  border: none;
+  padding: 0 2px;
+  color: var(--ink-soft);
+  cursor: pointer;
+}
+
+.hvezda-prepinac.ma {
+  color: var(--ink);
+}
+
+.hvezda-prepinac.velka {
+  gap: 4px;
+  padding: 4px 12px;
+  border: 2px solid var(--ink);
+  background: var(--cream);
+}
+
+.hvezda-prepinac.velka.ma {
+  background: var(--yellow);
+}
+
+.hvezda-chyba {
+  display: inline-block;
+  color: var(--pink);
+  font-size: 12.5px;
+  font-weight: 700;
+  margin-left: 4px;
+  white-space: normal;
+}
+
+.hvezda-detail {
+  margin-top: 8px;
+}
+
+.zajem-hvezda,
+.dovolani-hvezda {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.zajem-hvezda input,
+.dovolani-hvezda input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--orange);
+}
+
+/* přehled klienta (detail a karta ve volání) */
+.prehled-panel {
+  border: var(--border);
+  border-radius: var(--r-ctl);
+  background: var(--cream-deep);
+  box-shadow: var(--shadow-hard-sm);
+  padding: 10px 12px 12px;
+  margin-top: 14px;
+}
+
+.prehled-panel.na-karte {
+  margin: 12px 0 4px;
+}
+
+.prehled-panel .prehled-nadpis {
+  margin-top: 0;
+}
+
+.prehled-oznaceni {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+
+.prehled-akce {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.prehled-fakta {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 13.5px;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.prehled-klic {
+  font-weight: 800;
+}
+
+.prehled-text section {
+  margin-top: 10px;
+}
+
+.prehled-text h4 {
+  margin: 0 0 3px;
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.prehled-text p,
+.prehled-text ul {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.prehled-text ul {
+  padding-left: 18px;
+}
+
+.prehled-pozor h4 {
+  color: var(--pink);
+}
+
+.prehled-kdy,
+.prehled-prazdny {
+  font-size: 12.5px;
+  margin: 8px 0 0;
+}
+
+/* Označené: akce v řádku, lhůta, okno Zavolal/a jsem */
+.oznacene-akce {
+  white-space: nowrap;
+}
+
+.oznacene-akce .pill-btn + .pill-btn {
+  margin-left: 6px;
+}
+
+.pill-btn.zavolal-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.lhuta-cell {
+  font-size: 13px;
+  font-weight: 600;
+  min-width: 150px;
+}
+
+.oznacene-co {
+  white-space: nowrap;
+}
+
+.dovolani-volby {
+  flex-wrap: wrap;
+}
+
+.dovolani-co,
+.dovolani-lhuta {
+  margin: 8px 0 0;
+}
+
+@media (max-width: 640px) {
+  .vyber-vice-panel {
+    position: fixed;
+    top: auto;
+    left: 16px;
+    right: 16px;
+    bottom: 16px;
+    max-width: none;
+    max-height: 60vh;
+  }
+
+  /* sloupec nástrojů prasátka (pig.css, z-index 1001) má vlastní pruh vlevo: výběr se pod něj nesmí schovat */
+  body.pig-layer .vyber-vice-panel {
+    left: 70px;
+  }
+
+  .mlci-filtr {
+    width: 100%;
+  }
+}

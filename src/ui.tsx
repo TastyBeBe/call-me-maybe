@@ -7,10 +7,12 @@ import type {
   FlagKind,
   Kontakt,
   KontaktStatus,
+  OznaceniKategorie,
   Razeni,
   Segment,
+  ZnamkaFiltr,
 } from './api';
-import { CompassIcon, FlagIcon, HomeIcon } from './icons';
+import { CompassIcon, FlagIcon, HomeIcon, HvezdaIcon, PhoneIcon } from './icons';
 import { isoDen, posunDen, prahaCas, prahaDen } from './praha';
 import { SEGMENTY, segmentOf } from './segment';
 import { OWNER_USER_ID } from './roles';
@@ -32,8 +34,10 @@ export const STATUS_LABELS: Record<KontaktStatus, string> = {
   ceka_na_klienta: 'Čeká na klienta',
   // migrace 059: klient si řekl o čas
   pozdeji: 'Ozve se později',
-  // migrace 059: návrh i nabídka odešly, klient do lhůty nenapsal
-  bez_odpovedi: 'Neodpověděl',
+  // migrace 059: návrh i nabídka odešly, klient do lhůty nenapsal. ⚠ Migrace 060 (Albert 1. 11. 2026: „you don't close
+  // them, you archive them … we can pick them back up where they left off“) NAHRAZUJE popisek „Neodpověděl“: je to archiv,
+  // ne konec (nová zpráva klienta nebo vstup člověka ho vrátí do práce)
+  bez_odpovedi: 'Archiv – neodpověděl',
   upravy_ve_vyrobe: 'Úpravy ve výrobě',
   schvaleno: 'Schváleno',
   faktura_odeslana: 'Faktura odeslána',
@@ -145,8 +149,11 @@ export const FLAG_HINTS: Record<FlagKind, string> = {
   info_neoverene:
     'Texty a fotky na webu pocházejí z internetu, klient je zatím nepotvrdil. Může v nich být nepřesnost.',
   jine: 'U tohoto klienta je něco nedořešeného — podrobnosti jsou v poznámce níže.',
+  // ⚠ Migrace 060 (Albert 1. 11. 2026) NAHRAZUJE slib „příznak zmizí sám, jakmile se ozve nebo mu někdo zavolá“: hovor
+  // s klientem mimo frontu se nedal zapsat, takže slib neplatil. Příznak je jen historie (migrace staré zrušila, nový nejde
+  // dát); klienty, kteří mlčí, ukazuje označení k zavolání.
   neodpovida:
-    'Klient si web vyžádal, my mu odpověděli a od té doby mlčí. Zavolej mu prosím — příznak zmizí sám, jakmile se ozve nebo mu někdo zavolá.',
+    'Klient si web vyžádal, my mu odpověděli a od té doby mlčí. Zavolej mu prosím. Je to starý příznak: od 1. 11. 2026 takové klienty ukazuje označení „Neodpověděl na změny“.',
 };
 
 /** Vysvětlení příznaku v DETAILU kontaktu. E-mail zapsaný v detailu ukládá update_kontakt,
@@ -175,6 +182,12 @@ export function flagHintDetail(kind: FlagKind, readOnly: boolean, segment?: stri
 }
 
 export const ALL_FLAGS = Object.keys(FLAG_LABELS) as FlagKind[];
+
+/**
+ * Příznaky, které jde v detailu nasadit (migrace 060, Albert 1. 11. 2026): bez `neodpovida`, ten nahradilo označení
+ * k zavolání a server ho odmítne. ALL_FLAGS zůstává na popisky a počty (starý server ho může poslat).
+ */
+export const VOLITELNE_FLAGS: FlagKind[] = ALL_FLAGS.filter((f) => f !== 'neodpovida');
 
 export const FLAG_COLORS: Record<FlagKind, { bg: string; fg: string }> = {
   chybi_info: { bg: '#c0392b', fg: '#fdf6e9' },
@@ -208,6 +221,113 @@ export function FlagBadge({
   return (
     <span className="badge flag-badge" style={{ background: c.bg, color: c.fg }} title={title}>
       <FlagIcon size={13} /> {label}
+    </span>
+  );
+}
+
+/* ---------- označení k zavolání, mlčení a hvězda (migrace 060, Albert 1. 11. 2026) ---------- */
+
+/** Dvě kategorie označení: každá jde filtrovat zvlášť. */
+export const OZNACENI_LABELS: Record<OznaceniKategorie, string> = {
+  navrh: 'Neodpověděl na návrh',
+  zmeny: 'Neodpověděl na změny',
+};
+
+/** Co označení znamená a co s ním volající udělá (detail, okno Zavolal/a jsem). Ve stage 1 bez slibu e-mailu. */
+export const OZNACENI_HINTS: Record<OznaceniKategorie, string> = {
+  navrh: 'Dostal od nás náhled webu a víc než 5 pracovních dní neodpověděl. Zavolej mu a zeptej se, jestli se na web podíval.',
+  zmeny: 'Napsal nám, my jsme změny udělali a odpověděli, a od té doby víc než 5 pracovních dní mlčí. Zavolej mu a zeptej se, jestli se na změny podíval.',
+};
+
+export const ALL_OZNACENI = Object.keys(OZNACENI_LABELS) as OznaceniKategorie[];
+
+export const OZNACENI_COLORS: Record<OznaceniKategorie, { bg: string; fg: string }> = {
+  navrh: { bg: '#4a90d9', fg: '#fdf6e9' },
+  zmeny: { bg: '#2f6d8f', fg: '#fdf6e9' },
+};
+
+/** Odznak kategorie označení (seznamy, detail). Bez označení nevykreslí nic. */
+export function OznaceniBadge({ kategorie }: { kategorie: OznaceniKategorie | null | undefined }) {
+  if (!kategorie || !OZNACENI_LABELS[kategorie]) return null;
+  const c = OZNACENI_COLORS[kategorie];
+  return (
+    <span className={`badge oznaceni-badge ozn-${kategorie}`} style={{ background: c.bg, color: c.fg }} title={OZNACENI_HINTS[kategorie]}>
+      <PhoneIcon size={12} /> {OZNACENI_LABELS[kategorie]}
+    </span>
+  );
+}
+
+/** Známky ve filtru seznamů: A, B, C a „bez známky“ (rating null). */
+export const ZNAMKA_FILTR_LABELS: Record<ZnamkaFiltr, string> = { A: 'A', B: 'B', C: 'C', bez: 'bez známky' };
+export const ALL_ZNAMKY_FILTR = Object.keys(ZNAMKA_FILTR_LABELS) as ZnamkaFiltr[];
+
+/** „1 prac. den“, „3 prac. dny“, „12 prac. dní“ (mlci_pd od serveru); bez mlčení „—“. */
+export function formatMlci(pd: number | null | undefined): string {
+  if (pd === null || pd === undefined || Number.isNaN(pd)) return '—';
+  const slovo = pd === 1 ? 'den' : pd >= 2 && pd <= 4 ? 'dny' : 'dní';
+  return `${pd} prac. ${slovo}`;
+}
+
+/**
+ * „Mlčí od“ (Albert 1. 11. 2026): u označení na návrh od prvního návrhu, u označení na změny a bez označení od naší
+ * poslední zprávy. Klient, který nemlčí (mlci_pd null), nemlčí od ničeho.
+ */
+export function mlciOd(
+  k: Pick<Kontakt, 'mlci_pd' | 'ozn_kategorie' | 'ozn_mlci_od' | 'first_proposal_at' | 'last_our_reply_at'>
+): string | null {
+  if (k.ozn_mlci_od) return k.ozn_mlci_od;
+  if (k.mlci_pd === null || k.mlci_pd === undefined) return null;
+  return k.ozn_kategorie === 'navrh' ? k.first_proposal_at ?? k.last_our_reply_at : k.last_our_reply_at;
+}
+
+/** Den YYYY-MM-DD (lhůta od serveru) jako „5. 11. 2026“. */
+export function formatDatumDne(datum: string | null | undefined): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(datum ?? '');
+  if (!m) return '—';
+  return `${Number(m[3])}. ${Number(m[2])}. ${m[1]}`;
+}
+
+/** Lhůta na zavolání ve stage 1 (bez slibu e-mailu, ten přijde až s připomínkami ve stage 2). */
+export function lhutaText(datum: string | null | undefined): string {
+  return datum ? `Lhůta na zavolání do ${formatDatumDne(datum)}` : '';
+}
+
+/**
+ * Buňka „Mlčí“ v seznamech (Kontakty, Moji klienti): odznak označení, kolik pracovních dní klient mlčí, a pod tím naše
+ * poslední zpráva a kdy klient napsal naposledy (nebo „nikdy“). Cizí kontakt Volajícího (skryto) má pomlčku jako ostatní
+ * soukromé buňky (045): server mu klíče mlčení ani označení nepošle.
+ */
+export function MlceniBunka({ kontakt }: { kontakt: Kontakt }) {
+  if (jenZaklad(kontakt)) return <Skryto />;
+  const od = mlciOd(kontakt);
+  return (
+    <span className="mlceni-bunka">
+      <OznaceniBadge kategorie={kontakt.ozn_kategorie} />
+      <span className={`mlci-pd${kontakt.mlci_pd != null && kontakt.mlci_pd >= 5 ? ' dlouho' : ''}`} title={od ? `mlčí od ${formatDatumPraha(od)}` : undefined}>
+        {formatMlci(kontakt.mlci_pd)}
+      </span>
+      <span className="muted mlci-zpravy">
+        naše {kontakt.last_our_reply_at ? formatDatumPraha(kontakt.last_our_reply_at) : '—'} · klient{' '}
+        {kontakt.last_client_reply_at ? formatDatumPraha(kontakt.last_client_reply_at) : 'nikdy'}
+      </span>
+    </span>
+  );
+}
+
+/** Kdo a kdy hvězdu dal (title u odznaku a v detailu). */
+export function hvezdaPopis(k: Pick<Kontakt, 'hvezda_at' | 'hvezda_kdo' | 'hvezda_duvod'>): string {
+  if (!k.hvezda_at) return 'Bez hvězdy';
+  const kdo = k.hvezda_kdo === 'automatizace' ? 'automatizace' : k.hvezda_kdo || '—';
+  return `Velký zájem (hvězda) · dal/a ${kdo} ${formatDatumPraha(k.hvezda_at)}${k.hvezda_duvod ? ` · ${k.hvezda_duvod}` : ''}`;
+}
+
+/** Odznak hvězdy (jen ke čtení). Bez hvězdy, nebo u cizího kontaktu (klíč chybí), nevykreslí nic. */
+export function HvezdaOdznak({ kontakt }: { kontakt: Pick<Kontakt, 'hvezda_at' | 'hvezda_kdo' | 'hvezda_duvod'> }) {
+  if (!kontakt.hvezda_at) return null;
+  const popis = hvezdaPopis(kontakt);
+  return (
+    <span className="hvezda-odznak" title={popis} aria-label={popis}>
+      <HvezdaIcon size={16} />
     </span>
   );
 }
@@ -352,6 +472,9 @@ export function formatCekani(since: string | null | undefined): string {
    „Změněno“ (posledni_zmena: nejpozdější z úpravy v appce, změny stavu, odeslaného návrhu a odpovědí, i od automatizace;
    ⚠ NAHRAZUJE „updated_at, ne změna stavu od agenta“ z 056). Poslední hovor = sloupec s datem a časem posledního hovoru
    (posledni_hovor; Volajícímu jen jeho vlastní hovory, 045). Kontakty pro každého, Moji klienti jen super admin.
+   ⚠ Migrace 060 (Albert 1. 11. 2026: Volající mají v Moji klienti všechny filtry, nad svými klienty) NAHRAZUJE „Moji klienti
+   jen super admin“: řazení i filtry mají v Moji klienti a v Označených všichni; přibylo „Nejdéle bez odpovědi“ (mlceni)
+   a „Hvězda nejdřív“ (hvezda).
    --------------------------------------------------------------------------- */
 
 export const RAZENI_LABELS: Record<Razeni, string> = {
@@ -359,6 +482,9 @@ export const RAZENI_LABELS: Record<Razeni, string> = {
   zmena_nejstarsi: 'Podle poslední změny (od nejstarší)',
   hovor_nejnovejsi: 'Podle posledního hovoru (od nejnovějšího)',
   hovor_nejstarsi: 'Podle posledního hovoru (od nejstaršího)',
+  // migrace 060 (Albert 1. 11. 2026: „sort by longest silence / star first“)
+  mlceni: 'Nejdéle bez odpovědi',
+  hvezda: 'Hvězda nejdřív',
 };
 
 /** Volajícímu se do posledního hovoru počítají jen jeho hovory (migrace 057, 045): popisky to říkají. */
@@ -414,7 +540,7 @@ export function RazeniSelect({
       aria-label="Řazení"
       title={`Poslední změna = sloupec Změněno (úprava v appce, změna stavu, odeslaný návrh nebo odpověď, i od automatizace). Poslední hovor = ${
         jenMojeHovory ? 'kdy jsi klientovi naposledy volal/a ty' : 'kdy klientovi naposledy kdokoli volal'
-      }.`}
+      }. Nejdéle bez odpovědi = kolik pracovních dní klient mlčí od naší poslední zprávy. Hvězda nejdřív = klienti s velkým zájmem napřed.`}
     >
       <option value="">Řazení: výchozí</option>
       {ALL_RAZENI.map((r) => (
