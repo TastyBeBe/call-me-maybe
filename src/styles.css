@@ -2980,6 +2980,39 @@ table.kontakty tbody tr.selected .cena-hosting {
   gap: 5px;
 }
 
+/* „Zavolal/a jsem“ v řádku Moji klienti a Kontaktů (migrace 062, Albert 2. 11. 2026): 1. řádek za telefonem, vpravo jako akce
+   Označených; na telefonu jen ikona (název v aria-label a title), takže se vejde vedle čísla a nic se neposouvá do strany */
+table.kontakty.kompakt td.radek-akce {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-left: auto;
+}
+
+/* okno bez označení (062): neutrální věta nahoře, důvod vypnutého odmítnutí pod volbami */
+.dovolani-bez-oznaceni {
+  font-weight: 700;
+}
+
+.dovolani-nejde {
+  margin: 8px 0 0;
+}
+
+/* detail bez označení (062): „Klient není v Označených.“ a tlačítko jako řádek označení */
+.prehled-dovolani {
+  font-weight: 400;
+}
+
+@media (max-width: 640px) {
+  .pill-btn.zavolal-btn.zavolal-ikona-telefon {
+    padding: 5px 10px;
+  }
+
+  .pill-btn.zavolal-btn.zavolal-ikona-telefon .zavolal-text {
+    display: none;
+  }
+}
+
 .lhuta-cell {
   font-size: 13px;
   font-weight: 600;

@@ -4,6 +4,10 @@
 // (stav, hvězda, označení, návrh, poslední zprávy, nabídka, připomínka kampaně, smazání náhledu, naplánovaný hovor, cena)
 // a jsou vždy; text od automatizace (Teď a další krok, Co klient chce, Co jsme poslali, Pozor) jen když už je (ve stage 1
 // ho nic nepíše, panel pak řekne, že ho automatizace doplní). Poznámky volajících zůstávají pod ním beze změny.
+// Migrace 062 (Albert 2. 11. 2026: „even if the client isn't marked yet and you call them again, you should have like a I called
+// them button“): v detailu klienta BEZ označení řádek „Klient není v Označených.“ s tlačítkem „Zavolal/a jsem“
+// (DovolaniTlacitko), když ho přihlášený smí zapsat (dovolatSmi: ne ve frontě volání, u Nekontaktovat, Nerelevantní,
+// Odmítnuto ani u nabídnuté slevy). U otevřeného označení beze změny tlačítko u označení (okno s kategorií a lhůtou).
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { getApi, type Kontakt, type KontaktPrehled, type PrehledFakta } from '../api';
@@ -15,6 +19,7 @@ import {
   OznaceniBadge,
   STATUS_LABELS,
   cenaText,
+  dovolatSmi,
   formatDatumDne,
   formatDatumPraha,
   formatKdyVeta,
@@ -22,6 +27,7 @@ import {
   lhutaText,
 } from '../ui';
 import DovolaniOkno, { ZrusitOznaceniOkno } from './DovolaniOkno';
+import DovolaniTlacitko from './DovolaniTlacitko';
 
 /** Prázdný přehled od automatizace (Albert 1. 11. 2026: jen fakta, text doplní automatizace). */
 export const PREHLED_PRAZDNY = 'Přehled doplní automatizace po další e-mailové výměně.';
@@ -80,10 +86,13 @@ export default function PrehledPanel({
   smiZapsat = false,
   onDovolano,
 }: {
-  kontakt: Pick<Kontakt, 'id' | 'name' | 'firma' | 'smi_upravit'>;
+  /** migrace 062: i stav, náhled, poslední volající, skryto a označení řádku (tlačítko bez označení a texty okna) */
+  kontakt: Pick<Kontakt, 'id' | 'name' | 'firma' | 'smi_upravit' | 'status' | 'first_proposal_at' | 'live_url' | 'last_caller' | 'skryto'> &
+    Partial<Pick<Kontakt, 'ozn_kategorie' | 'hvezda_at' | 'flag_note'>>;
   /** karta ve volání: kratší, bez stavu, bez zápisu hovoru; když nic neříká, nevykreslí nic */
   naKarte?: boolean;
-  /** detail kontaktu: u otevřeného označení tlačítko „Zavolal/a jsem“ (a pro super admina „Zrušit označení“) */
+  /** detail kontaktu: u otevřeného označení tlačítko „Zavolal/a jsem“ (a pro super admina „Zrušit označení“), od migrace 062
+   *  i bez označení (DovolaniTlacitko, jen když ho přihlášený smí zapsat) */
   smiZapsat?: boolean;
   /** po zápisu hovoru nebo zrušení označení (stránka zavře detail a načte seznam znovu) */
   onDovolano?: (veta: string) => void;
@@ -122,6 +131,10 @@ export default function PrehledPanel({
   const p = data.prehled;
   const maText = !!p && (!!p.ted || !!p.klient_chce?.length || !!p.poslali_jsme?.length || !!p.pozor?.length);
   const o = f.oznaceni ?? null;
+  // migrace 062: bez otevřeného označení (které přihlášený vidí) tlačítko jako u klienta bez označení; klíče označení z řádku
+  // seznamu se nepřenesou (mohou být starší než přehled)
+  const bezOznaceni = { ...kontakt, ozn_kategorie: null, ozn_lhuta_do: null, ozn_pokusy: null };
+  const dovolatBezOznaceni = !naKarte && smiZapsat && !o && dovolatSmi(bezOznaceni);
   // na kartě ve volání jen když přehled něco říká (stav je na kartě zvlášť)
   if (naKarte && !maText && !o && fakta.length === 0) return null;
   return (
@@ -147,6 +160,20 @@ export default function PrehledPanel({
               )}
             </span>
           )}
+        </div>
+      )}
+      {dovolatBezOznaceni && (
+        <div className="prehled-oznaceni prehled-dovolani">
+          <span className="muted">Klient není v Označených.</span>
+          <span className="prehled-akce">
+            <DovolaniTlacitko
+              kontakt={bezOznaceni}
+              onDovolano={(veta) => {
+                if (onDovolano) onDovolano(veta);
+                else nacti();
+              }}
+            />
+          </span>
         </div>
       )}
       {fakta.length > 0 && (

@@ -8,6 +8,7 @@ import {
 } from '../api';
 import { audio } from '../audio';
 import { useSession } from '../auth';
+import DovolaniTlacitko from '../components/DovolaniTlacitko';
 import { HvezdaPrepinac } from '../components/Hvezda';
 import KontaktDrawer from '../components/KontaktDrawer';
 import { usePeople } from '../components/PersonPicker';
@@ -85,6 +86,11 @@ const PAGE_SIZE = 50;
 // pod tím ostatní buňky s malým popiskem (data-label v CSS). Obsah buněk se nemění; buňku jen s pomlčkou cizího kontaktu
 // (Skryto) CSS schová, nápověda nad tabulkou to vysvětluje. Příznak „Údaje z internetu“ Volající nevidí (priznakProRoli,
 // Albert 2. 11. 2026: „only the super admins will see this flag“).
+// Migrace 062 (Albert 2. 11. 2026: „so that I called them again feature is both in the flagged/marked section and also in the
+// my clients section, and you can even add [it] to the contacts section“): v 1. řádku za telefonem „Zavolal/a jsem“
+// (DovolaniTlacitko), na telefonu jen ikona; jen u vlastních řádků, které přihlášený smí zapsat (dovolatSmi: nikdy u cizího
+// kontaktu Volajícího, ve frontě volání, u Nekontaktovat, Nerelevantní, Odmítnuto ani u nabídnuté slevy bez označení).
+// Šest buněk Skryto cizího kontaktu (kontrola 193) zůstává beze změny, řádek se do strany neposouvá (e2e O61a a O62).
 export default function AdminPage() {
   const session = useSession();
   const isAdmin = isAdminRole(session.role);
@@ -237,7 +243,8 @@ export default function AdminPage() {
     reloadTick.current += 1;
     setTick(reloadTick.current);
   };
-  // migrace 060: zápis hovoru s označeným klientem v přehledu: detail zavřít (stav i poznámku změnil server), načíst znovu
+  // migrace 060: zápis hovoru s označeným klientem v přehledu: detail zavřít (stav i poznámku změnil server), načíst znovu;
+  // od migrace 062 i „Zavolal/a jsem“ v řádku a v detailu klienta bez označení
   const [info, setInfo] = useState('');
   const onDovolano = (veta: string) => {
     setSelected(null);
@@ -375,7 +382,8 @@ export default function AdminPage() {
       )}
 
       <ErrorBox>{error}</ErrorBox>
-      {info && <div className="info-box dovolani-info">{info}</div>}
+      {/* migrace 062: věta po zápisu hovoru v živé oblasti (čtečka ji přečte, jako Označené) */}
+      <div role="status">{info && <div className="info-box dovolani-info">{info}</div>}</div>
 
       {loading ? (
         <Spinner label="Načítám kontakty…" />
@@ -400,6 +408,7 @@ export default function AdminPage() {
               <tr role="row">
                 <th role="columnheader">Jméno</th>
                 <th role="columnheader">Telefon</th>
+                <th role="columnheader">Akce</th>
                 <th role="columnheader">Status</th>
                 <th role="columnheader">Známka</th>
                 <th role="columnheader" title="Kolik pracovních dní klient mlčí od naší poslední zprávy; naše poslední zpráva a kdy klient napsal naposledy">Mlčí</th>
@@ -425,6 +434,11 @@ export default function AdminPage() {
                     <SegmentBadge kontakt={r} compact /> {kontaktJmeno(r)}
                   </td>
                   <td role="cell" className="kompakt-hlavni tel-cell">{r.phone || '—'}</td>
+                  {/* migrace 062: „Zavolal/a jsem“ v 1. řádku jen u vlastního řádku (u cizího kontaktu prázdná buňka, CSS ji
+                      schová); klik detail neotevře */}
+                  <td role="cell" className="kompakt-hlavni radek-akce">
+                    <DovolaniTlacitko kontakt={r} onDovolano={onDovolano} jenIkonaNaTelefonu />
+                  </td>
                   {/* 2. řádek: údaje s malým popiskem (data-label), zalomí se podle šířky */}
                   <td role="cell">{jenZaklad(r) ? <Skryto /> : <StatusBadge status={r.status} />}</td>
                   <td role="cell" data-label="známka">{jenZaklad(r) ? <Skryto /> : r.rating ? <span className="badge rating">{r.rating}</span> : '—'}</td>

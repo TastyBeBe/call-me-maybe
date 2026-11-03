@@ -107,16 +107,20 @@ export type CekaniKos = 'cerstve' | 'k_zavolani' | 'vlazne' | 'vychladle';
 export type OznaceniKategorie = 'navrh' | 'zmeny';
 
 /**
- * Výsledek dovolání označeného klienta (zapis_hovor, migrace 060). Do call_log se nepíše (není to nový hovor).
- *   nedovolano     „Nedovolal/a jsem se“: označení zůstává otevřené (i s poznámkou), jen pokus + 1
+ * Výsledek dovolání klienta (zapis_hovor, migrace 060; od migrace 062 i u klienta bez označení). Do call_log se nepíše
+ * (není to nový hovor).
+ *   nedovolano     „Nedovolal/a jsem se“: u označení zůstává otevřené (i s poznámkou), jen pokus + 1; bez označení jen záznam
  *   nechce         „Nechce web“ (stav odmitnuto), nekontaktovat „Nechce, abychom ho kontaktovali“ (stav nekontaktovat)
  *   mluvili        „Mluvili jsme – co klient chce“ (povinná poznámka)
  *   jine           „Nic z toho výše“ (migrace 061, Albert 2. 11. 2026; povinná poznámka): hovor proběhl, ale nesedí nic
- *                  ze čtyř; uzavře označení a počítá se jako úspěšné dovolání jako mluvili
+ *                  z ostatních; uzavře označení a počítá se jako úspěšné dovolání jako mluvili
+ *   chce_web       „Chce web“ (migrace 062, Albert 2. 11. 2026, A1: „Yes, you can add the sixth option“; poznámka nepovinná):
+ *                  klient web chce, stav se nemění (zbytek domluví automatizace e-mailem), vzkaz agentovi jde vždy;
+ *                  uzavře označení jako mluvili a je to úspěšné dovolání
  * Poznámka (od migrace 061 u KAŽDÉHO výsledku, „Poznámka pro automatizaci“) jde s právem kontakt upravit automatizaci:
  * řádek v poznámce kontaktu a vzkaz do vlákna. nechce a nekontaktovat nejvýš 450 znaků, ostatní 2 000.
  */
-export type VysledekDovolani = 'nedovolano' | 'nechce' | 'nekontaktovat' | 'mluvili' | 'jine';
+export type VysledekDovolani = 'nedovolano' | 'nechce' | 'nekontaktovat' | 'mluvili' | 'jine' | 'chce_web';
 
 /** Známka ve filtru seznamů (migrace 060): A, B, C, nebo bez známky (rating null). */
 export type ZnamkaFiltr = Rating | 'bez';
@@ -472,15 +476,22 @@ export interface OznaceneFiltry extends Omit<FiltryMlceni, 'kategorie'> {
   razeni?: Razeni | null;
 }
 
-/** Výsledek zapis_hovor (migrace 060): co se se zápisem stalo. */
+/**
+ * Výsledek zapis_hovor (migrace 060): co se se zápisem stalo. Od migrace 062 (Albert 2. 11. 2026: „Zavolal/a jsem“ i bez
+ * označení) vybere větev server: `oznaceno` true = zápis šel do otevřeného označení (jako 061), false = dovolání bez
+ * označení (oznaceni_id, otevrene a pokusy jsou null; označení kolegy ani bez volajícího se nikdy nevrátí). Chybí
+ * (undefined) = server bez migrace 062 (zapsal jen do označení).
+ */
 export interface ZapisHovoruVysledek {
   ok: boolean;
   kontakt_id: number;
-  oznaceni_id?: number;
+  oznaceni_id?: number | null;
+  /** migrace 062: true = do označení, false = bez označení (Moji klienti, Kontakty, detail, kalendář) */
+  oznaceno?: boolean;
   vysledek?: VysledekDovolani;
-  /** označení zůstalo otevřené (nedovolal/a jsem se), jinak uzavřené výsledkem hovoru */
-  otevrene?: boolean;
-  pokusy?: number;
+  /** označení zůstalo otevřené (nedovolal/a jsem se), jinak uzavřené výsledkem hovoru; bez označení null */
+  otevrene?: boolean | null;
+  pokusy?: number | null;
   status?: KontaktStatus;
   /** má kontakt po zápisu hvězdu, a změnila se */
   hvezda?: boolean;
@@ -874,10 +885,13 @@ export interface Api {
   /** Označené: otevřená označení k zavolání + příznaky, s filtry (OznaceneFiltry). Server bez 060 = BEZ_060_OZNACENE. */
   listOznacene(token: string, filtry: OznaceneFiltry): Promise<Kontakt[]>;
   /**
-   * Zápis dovolání označeného klienta: Volající jen u SVÉHO otevřeného označení, super admin a Albert u každého.
-   * Do call_log se nepíše. `hvezda` true/false hvězdu dá/odebere (null = beze změny). Od migrace 061 pět výsledků
-   * (i jine) a `poznamka` u každého (povinná u mluvili a jine); kam šla, říká `poznamka_predana`. Server bez 061 jine
-   * odmítne (BEZ_061_JINE).
+   * Zápis dovolání: u otevřeného označení Volající jen u SVÉHO, super admin a Albert u každého; od migrace 062 (Albert
+   * 2. 11. 2026) i bez označení u klienta, kterého přihlášený smí upravit (mimo frontu volání, Odmítnuto, Nabídnutou slevu,
+   * Nekontaktovat a Nerelevantní; odmítnutí jen ten, kdo klienta vede, super admin a Albert; po prodeji odmítnutí ne).
+   * Větev vybere server, odpověď ji řekne v `oznaceno`. Do call_log se nepíše. `hvezda` true/false hvězdu dá/odebere
+   * (null = beze změny). Od migrace 061 `poznamka` u každého výsledku (povinná u mluvili a jine); kam šla, říká
+   * `poznamka_predana`. Od 062 šest výsledků (i chce_web, vzkaz agentovi vždy). Server bez 061 jine odmítne (BEZ_061_JINE),
+   * server bez 062 chce_web (BEZ_062_CHCE_WEB).
    */
   zapisHovor(
     token: string,

@@ -8,12 +8,21 @@
 // Po recenzi 21. 10. 2026: celý seznam se načte při otevření a po každé změně (událost cmm:zavolat-changed); druhý
 // minutový dotaz stránka nemá: čas („před 2 h“) bere z hodin poskytovatele připomínek (src/zavolat.tsx) a vlastní
 // kalendář načte znovu, když se při jeho minutové obnově změní čekající hovory (podpis).
+// Migrace 062 (Albert 2. 11. 2026: „that I called them again feature is both in the flagged/marked section and also in the my
+// clients section“; rozhodnutí D11): Hotovo u klienta mimo frontu otevře stejné okno „Zavolal/a jsem“ (DovolaniOkno se šesti
+// výsledky a poznámkou pro automatizaci), když ho přihlášený smí zapsat (dovolatSmi), takže každý další hovor je jeden záznam
+// (událost dovolani), který čtou označení, archiv i kampaň. ⚠ NAHRAZUJE u takového klienta „Hotovo jen s volným textem“
+// (zavolat_hotovo). Po zápisu: když hovor, na který člověk klikl, pořád čeká (hovor na pozdější den, rozhodnutí D20, nebo
+// hovor kolegy u super admina), uzavře ho appka (zavolat_hotovo s výsledkem); po „Nedovolal/a jsem se“ zůstává (jako po
+// dovolání v Označených) a stránka řekne, ať ho přesune nebo zruší. Klient ve frontě volání beze změny (Zavolat teď), klient,
+// kterému dovolání zapsat nejde (Odmítnuto, nabídnutá sleva, Nekontaktovat, Nerelevantní, cizí), má Hotovo s textem jako dřív.
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { getApi, type Kontakt, type ZavolatPolozka, type ZavolatSeznam } from '../api';
 import { audio } from '../audio';
 import { useSession } from '../auth';
+import DovolaniOkno, { type DovolaniZapsano } from '../components/DovolaniOkno';
 import KontaktDrawer from '../components/KontaktDrawer';
 import { usePeople } from '../components/PersonPicker';
 import ZavolatModal from '../components/ZavolatModal';
@@ -26,6 +35,7 @@ import {
   ErrorBox,
   PhoneLinks,
   Spinner,
+  dovolatSmi,
   errMsg,
   formatCas,
   formatDenNadpis,
@@ -143,6 +153,9 @@ export default function KalendarPage() {
   const [zrusit, setZrusit] = useState<ZavolatPolozka | null>(null);
   const [hotovo, setHotovo] = useState<ZavolatPolozka | null>(null);
   const [hotovoText, setHotovoText] = useState('');
+  // migrace 062: Hotovo u klienta mimo frontu, kterému jde zapsat dovolání = okno Zavolal/a jsem
+  const [dovolani, setDovolani] = useState<ZavolatPolozka | null>(null);
+  const [info, setInfo] = useState('');
   // odpověď staršího požadavku (přepnutý filtr) se zahodí
   const posledni = useRef(0);
 
@@ -205,6 +218,34 @@ export default function KalendarPage() {
     }
   };
 
+  /**
+   * Po zápisu dovolání z Hotovo (migrace 062): hovor, na který člověk klikl, uzavře zapis_hovor jen když je jeho a na dnešek
+   * nebo po termínu (rozhodnutí D20); jinak (pozdější den, hovor kolegy u super admina) ho uzavře appka s výsledkem. Po
+   * „Nedovolal/a jsem se“ zůstává (dovolání po nedovolání naplánovaný hovor neruší).
+   */
+  const poDovolani = async (z: ZavolatPolozka, veta: string, zapsano: DovolaniZapsano) => {
+    setDovolani(null);
+    if (zapsano.vysledek === 'nedovolano') {
+      setInfo(`${veta} Naplánovaný hovor zůstává v kalendáři: přesuň ho, nebo ho zruš.`);
+      void nacti(true);
+      return;
+    }
+    setInfo(veta);
+    try {
+      const s = await getApi().zavolatSeznam(session.token, typeof kdo === 'number' ? kdo : null, kdo === 'vsichni');
+      if (s.polozky.some((x) => x.id === z.id && x.stav === 'ceka')) {
+        // nejvýš 500 znaků jako poznámka k naplánovanému hovoru (app_zavolat_poznamka)
+        const vys = [...`dovolání: ${zapsano.text.toLowerCase()}${zapsano.poznamka ? ` · ${zapsano.poznamka}` : ''}`].slice(0, 500).join('');
+        await getApi().zavolatHotovo(session.token, z.id, vys);
+      } else {
+        void nacti(true);
+      }
+    } catch (e) {
+      setAkceChyba(errMsg(e));
+      void nacti(true);
+    }
+  };
+
   const dnes = data?.dnes ?? prahaDen(ted);
   const polozky = data?.polozky ?? [];
   const cekajici = polozky.filter((z) => z.stav === 'ceka');
@@ -232,6 +273,30 @@ export default function KalendarPage() {
           .map((p) => ({ user_id: p.user_id, display_name: p.display_name, popis: p.user_id === session.user_id ? '' : roleLabel(p.role) }))
       : [];
 
+  // ⚠ 3. 11. 2026 (ověření 062, appka FIX 1 a 2): kalendář (app_zavolat_ven) klíče ozn_* neposílá, takže o označení klienta
+  // nevěděl: u označeného klienta okno bez kategorie a lhůty a bez vět o označení, u kampaňové chaty s označením (Nabídnuta
+  // sleva) staré okno „Hovor je hotový?“ s volným textem bez události dovolani. Napřed přehled klienta (kontakt_prehled,
+  // fakta.oznaceni, jako detail), pak dovolatSmi; když přehled nejde (síť, práva), rozhodne kontakt z kalendáře jako dřív.
+  // NAHRAZUJE dovolatSmi(x.kontakt) bez označení.
+  const hotovoKlik = async (x: ZavolatPolozka) => {
+    setInfo('');
+    let k = x.kontakt;
+    if (!x.ve_fronte && !k.ozn_kategorie && !k.skryto) {
+      try {
+        const o = (await getApi().kontaktPrehled(session.token, x.kontakt_id))?.fakta?.oznaceni;
+        if (o) k = { ...k, ozn_kategorie: o.kategorie, ozn_lhuta_do: o.lhuta_do, ozn_pokusy: o.pokusy };
+      } catch {
+        // přehled nejde: rozhodne kontakt, jak ho poslal kalendář
+      }
+    }
+    if (dovolatSmi(k)) {
+      setDovolani({ ...x, kontakt: k });
+      return;
+    }
+    setHotovo(x);
+    setHotovoText('');
+  };
+
   const polozka = (z: ZavolatPolozka, jenCas = false) => (
     <Polozka
       key={z.id}
@@ -243,10 +308,7 @@ export default function KalendarPage() {
       busy={busy}
       onDetail={setDetail}
       onZavolat={(x) => navigate(`/call?zavolat=${x.id}`)}
-      onHotovo={(x) => {
-        setHotovo(x);
-        setHotovoText('');
-      }}
+      onHotovo={(x) => void hotovoKlik(x)}
       onPresunout={setPresun}
       onZrusit={setZrusit}
     />
@@ -288,6 +350,8 @@ export default function KalendarPage() {
 
       <ErrorBox>{error}</ErrorBox>
       <ErrorBox>{akceChyba}</ErrorBox>
+      {/* migrace 062: věta po zápisu dovolání z Hotovo (živá oblast) */}
+      <div role="status">{info && <div className="info-box dovolani-info">{info}</div>}</div>
       {loading && !data && <Spinner label="Načítám kalendář…" />}
 
       {data && cekajici.length === 0 && (
@@ -355,6 +419,12 @@ export default function KalendarPage() {
           onClose={() => setDetail(null)}
           onSaved={(u) => setDetail(u)}
           readOnly={!isAdminRole(session.role)}
+          // migrace 062: zápis hovoru z detailu (přehled) mohl uzavřít naplánovaný hovor, kalendář se načte znovu
+          onDovolano={(veta) => {
+            setDetail(null);
+            setInfo(veta);
+            void nacti(true);
+          }}
         />
       )}
 
@@ -399,6 +469,20 @@ export default function KalendarPage() {
           Hovor s <b>{kontaktJmeno(zrusit.kontakt)}</b> ({formatKdyVeta(zrusit.kdy, dnes)}) zmizí z kalendáře.
           {zrusit.ve_fronte && ' Kontakt zůstane ve frontě volání a dostane ho kdokoli.'}
         </ConfirmModal>
+      )}
+
+      {dovolani && (
+        <DovolaniOkno
+          kontakt={dovolani.kontakt}
+          kategorie={dovolani.kontakt.ozn_kategorie ?? null}
+          lhutaDo={dovolani.kontakt.ozn_lhuta_do ?? null}
+          pokusy={dovolani.kontakt.ozn_pokusy ?? 0}
+          maHvezdu={!!dovolani.kontakt.hvezda_at}
+          smiUpravit={dovolani.kontakt.smi_upravit !== false}
+          smiHvezdu={dovolani.kontakt.smi_upravit !== false && Object.prototype.hasOwnProperty.call(dovolani.kontakt, 'hvezda_at')}
+          onZavrit={() => setDovolani(null)}
+          onHotovo={(veta, zapsano) => void poDovolani(dovolani, veta, zapsano)}
+        />
       )}
 
       {hotovo && (
