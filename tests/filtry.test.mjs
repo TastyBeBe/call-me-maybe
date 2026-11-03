@@ -508,9 +508,16 @@ await blok('O', async () => {
       serazene(vsechny.filter((r) => ['sleva_nabidnuta', 'ceka_na_klienta'].includes(r.status)).map((r) => r.id))),
     'známka (i bez známky) a stav víc najednou; jedna hodnota přes staré p_status a p_rating = totéž jako pole');
   const mlciRadky = (mn, mx) => serazene(vsechny.filter((r) => r.mlci_pd !== null && (mn === null || r.mlci_pd >= mn) && (mx === null || r.mlci_pd <= mx)).map((r) => r.id));
+  // ⚠ 3. 11. 2026 (opravy z auditu soudržnosti, kontrola 227 červená v úterý): mlčení ukázkových klientů se počítá v pracovních
+  // dnech od dneška, takže na pevné meze 5 a 0 někdy žádný klient nepadne a mutace „mez mlčení výlučně“ prošla. Proto i mez,
+  // na které klient opravdu leží (nejmenší mlčení v datech, od = do): NAHRAZUJE měření „včetně“ jen na pevných mezích 5 a 0.
+  const mez = vsechny.filter((r) => r.mlci_pd !== null).map((r) => r.mlci_pd).sort((a, b) => a - b)[0];
+  const naMezi = mez === undefined ? [] : await idsF(albert, { mlci_min: mez, mlci_max: mez });
   over('O3d', stejne(await idsF(albert, { mlci_min: 5 }), mlciRadky(5, null)) && stejne(await idsF(albert, { mlci_min: 0, mlci_max: 3 }), mlciRadky(0, 3))
-    && (await idsF(albert, { mlci_min: 0, mlci_max: 3 })).includes(95) && !(await idsF(albert, { mlci_min: 0 })).includes(1),
-    'mlčení od a do včetně; nemlčící se zapnutou mezí nesedí');
+    && (await idsF(albert, { mlci_min: 0, mlci_max: 3 })).includes(95) && !(await idsF(albert, { mlci_min: 0 })).includes(1)
+    && naMezi.length > 0 && stejne(naMezi, mlciRadky(mez, mez)),
+    'mlčení od a do včetně (i na mezi, na které klient leží); nemlčící se zapnutou mezí nesedí',
+    `mez ${mez}, na mezi ${JSON.stringify(naMezi)}`);
   over('O3e', stejne(await idsF(albert, { jen_hvezda: true }), [93]) && stejne(await idsF(albert, { jen_hvezda: true, kategorie: ['zmeny'] }), [])
     && stejne(await idsF(albert, { kategorie: ['navrh'], znamky: ['B'], segment: 'architekt' }), [303])
     && stejne(await idsF(albert, { jen_hvezda: false }), serazene(vsechny.map((r) => r.id))),
