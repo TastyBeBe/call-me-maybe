@@ -2,7 +2,8 @@
 // volajícího a sloupce v Moji klienti. Od migrace 051 (Albert 22. 10. 2026) i blok D: cena při „Mají zájem“ nepovinná,
 // nedohodnutá cena = „n/a“ (db/migration_051_cena_na.sql, test db/tests/test_051_cena_na.sql). Od migrace 061 (Albert
 // 2. 11. 2026) i blok W: příznak „Údaje z internetu“ jen super adminům (priznakVidi, priznakProRoli) a okno Zavolal/a jsem
-// s pátým výsledkem a poznámkou u každého výsledku.
+// s pátým výsledkem a poznámkou u každého výsledku. Od auditu soudržnosti 2. 11. 2026 i blok AU: „e-mail se vrátil“
+// u označeného klienta s příznakem Chybí e-mail (F10) a věta u důvodu změny stavu v detailu (F11).
 //
 // Měří DEMO mock (src/api/mock.ts), který musí zrcadlit server (db/migration_050_volani_kalendar_vydelek.sql, test
 // db/tests/test_050_volani_kalendar_vydelek.sql), pomocníky v src/ui.tsx, src/praha.ts, src/zavolat.tsx
@@ -1077,6 +1078,63 @@ await blok('W', async () => {
     && /\{kontakt\.flag_kind && priznakVidi\(kontakt\.flag_kind, isSuperAdmin\(session\.role\)\) && \(/.test(call)
     && /<FlagPanel kontakt=\{priznakProRoli\(kontakt, isSuperAdmin\(session\.role\)\)\}/.test(drawer) && /priznakVidi\(f, jaSuper\) \? \(/.test(drawer),
     'stránky: Označené, Moji klienti, Kontakty, karta ve volání a detail berou příznak přes priznakProRoli / priznakVidi');
+});
+
+/* ---------------- AU) audit soudržnosti 2. 11. 2026: „e-mail se vrátil“ u označení (F10) a věta u důvodu stavu (F11) ---------------- */
+// F10 (nález STUCK-9): označený klient s příznakem „Chybí e-mail“ (odraz našeho e-mailu, orchestrator/odrazy.py) návrh
+// nejspíš nikdy neviděl, „Neodpověděl na návrh“ by volajícího spletlo; řádek Označených má hned vedle skupiny „e-mail se
+// vrátil“. Bez označení nic, jiný druh příznaku nic. F11 (nález R4): detail u změny stavu neslibuje, že důvod čte
+// automatizace vždy (čte ho jen u Odmítnuto a u architekta i u Nekontaktovat). Klikání měří tests/demo-e2e.mjs (blok AU).
+await blok('AU', async () => {
+  const pripady = [
+    [{ ozn_kategorie: 'navrh', flag_kind: 'chybi_email' }, true],
+    [{ ozn_kategorie: 'zmeny', flag_kind: 'chybi_email' }, true],
+    [{ ozn_kategorie: null, flag_kind: 'chybi_email' }, false],
+    [{ flag_kind: 'chybi_email' }, false],
+    [{ ozn_kategorie: 'navrh', flag_kind: 'email_neoveren' }, false],
+    [{ ozn_kategorie: 'navrh', flag_kind: 'info_neoverene' }, false],
+    [{ ozn_kategorie: 'navrh', flag_kind: 'jine' }, false],
+    [{ ozn_kategorie: 'navrh', flag_kind: null }, false],
+  ];
+  const spatne = pripady.filter(([k, cekam]) => U.emailSeVratil(k) !== cekam).map(([k]) => JSON.stringify(k));
+  over('AU1', spatne.length === 0, 'emailSeVratil: jen otevřené označení (návrh i změny) s příznakem Chybí e-mail', spatne.join(' | '));
+  const navrh = U.EmailSeVratil({ kontakt: { ozn_kategorie: 'navrh', flag_kind: 'chybi_email' } });
+  const zmeny = U.EmailSeVratil({ kontakt: { ozn_kategorie: 'zmeny', flag_kind: 'chybi_email' } });
+  over('AU2', navrh?.type === 'span' && navrh.props.className === 'badge ozn-odraz' && navrh.props.children === 'e-mail se vrátil'
+    && /^Náš e-mail se vrátil jako nedoručený, klient návrh webu nejspíš neviděl\./.test(navrh.props.title)
+    && /klient naši poslední zprávu nejspíš neviděl/.test(zmeny?.props?.title ?? '')
+    && U.EmailSeVratil({ kontakt: { ozn_kategorie: null, flag_kind: 'chybi_email' } }) === null
+    && U.EmailSeVratil({ kontakt: { ozn_kategorie: 'navrh', flag_kind: null } }) === null,
+    'odznak „e-mail se vrátil“ (badge ozn-odraz) s nápovědou podle skupiny; bez označení nebo příznaku nic', JSON.stringify({ navrh: navrh?.props, zmeny: zmeny?.props?.title }));
+  // mock jako server: označený klient (super admin vidí všechna označení) dostane příznak Chybí e-mail a list_oznacene vrátí
+  // oba klíče v jednom řádku; příznak se pak zase zruší (ostatní bloky beze změny)
+  const pred = await api.listOznacene(albert, {});
+  const k = pred.find((r) => r.ozn_kategorie && !r.flag_kind);
+  if (!k) { over('AU0', false, 'žádné otevřené označení bez příznaku, test by nic neměřil'); return; }
+  await api.setFlag(albert, k.id, 'chybi_email', 'TEST: náš e-mail se vrátil jako nedoručený');
+  const po = await api.listOznacene(albert, {});
+  const r = po.find((x) => x.id === k.id);
+  const navic = po.filter((x) => x.id !== k.id && U.emailSeVratil(x)).map((x) => x.id);
+  const bezOznaceni = po.filter((x) => !x.ozn_kategorie && x.flag_kind === 'chybi_email').map((x) => x.id);
+  await api.clearFlag(albert, k.id);
+  over('AU3', r?.ozn_kategorie === k.ozn_kategorie && r?.flag_kind === 'chybi_email' && U.emailSeVratil(r) && navic.length === 0
+    && !(await api.listOznacene(albert, {})).some((x) => U.emailSeVratil(x)),
+    'list_oznacene: označený klient s příznakem Chybí e-mail má „e-mail se vrátil“, nikdo jiný (ani příznak Chybí e-mail bez označení); po zrušení příznaku nikdo',
+    JSON.stringify({ id: k.id, ozn: r?.ozn_kategorie, flag: r?.flag_kind, navic, bezOznaceni }));
+  // zapojení stránky a stylu: hned za skupinou, před příznakem; styl bez min-width (řádek na telefonu bez posunu do strany)
+  const ozn = readFileSync(join(ROOT, 'src/pages/OznacenePage.tsx'), 'utf8');
+  const css = readFileSync(join(ROOT, 'src/styles.css'), 'utf8');
+  const styl = /\.badge\.ozn-odraz \{([^}]*)\}/.exec(css)?.[1] ?? '';
+  over('AU4', /<td role="cell" className="oznacene-co">\s*<OznaceniBadge kategorie=\{r\.ozn_kategorie\} \/> <EmailSeVratil kontakt=\{r\} \/> <FlagBadge kontakt=\{r\} \/>\s*<\/td>/.test(ozn)
+    && styl.length > 0 && !/min-width/.test(styl),
+    'Označené: „e-mail se vrátil“ v buňce Co je potřeba hned za skupinou a před příznakem; styl bez min-width', styl.trim().slice(0, 120));
+  // F11: věta u důvodu změny stavu (stará „Důvod si přečte automatizace a podle něj pokračuje …“ mimo komentáře nikde)
+  const drawer = readFileSync(join(ROOT, 'src/components/KontaktDrawer.tsx'), 'utf8');
+  const bezKomentaru = drawer.replace(/\{\/\*[\s\S]*?\*\/\}/g, '').replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+  over('AU5', U.DUVOD_STAVU_NAPOVEDA === 'Důvod čte automatizace jen u Odmítnuto (u architekta i u Nekontaktovat). Pokyn pro agenta napište do Vzkazů agentovi.'
+    && /<p className="muted duvod-stavu-napoveda"[^>]*>\s*Z „\{STATUS_LABELS\[kontakt\.status\] \?\? kontakt\.status\}“ na „\{STATUS_LABELS\[status\] \?\? status\}“\.\{' '\}\s*\{DUVOD_STAVU_NAPOVEDA\}\s*<\/p>/.test(drawer)
+    && !/přečte\s+automatizace|podle\s+něj\s+pokračuje/.test(bezKomentaru) && /<KontaktThreads\s/.test(drawer),
+    'detail: u změny stavu věta „Důvod čte automatizace jen u Odmítnuto (u architekta i u Nekontaktovat). Pokyn pro agenta napište do Vzkazů agentovi.“, starý slib nikde, Vzkazy agentovi v detailu jsou');
 });
 
 if (chyby === 0) {

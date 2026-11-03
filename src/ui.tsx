@@ -59,6 +59,15 @@ export function stavChceDuvod(userId: number): boolean {
   return userId !== OWNER_USER_ID;
 }
 
+/**
+ * Věta pod důvodem změny stavu v detailu (audit soudržnosti 2. 11. 2026, nález R4). Důvod čte automatizace jen u Odmítnuto
+ * (job rucni_odmitnuti, PLAYBOOK [2026-10-30] bod 6) a u architekta i u Nekontaktovat (stažení náhledu); u ostatních stavů
+ * ho žádný agent nečte. ⚠ NAHRAZUJE „Důvod si přečte automatizace a podle něj pokračuje (třeba u „Odmítnuto“ po návrhu
+ * pošle jednu nabídku poloviční ceny).“ z migrace 059, které slibovalo čtení u každé změny. Důvody předá až migrace 062.
+ */
+export const DUVOD_STAVU_NAPOVEDA =
+  'Důvod čte automatizace jen u Odmítnuto (u architekta i u Nekontaktovat). Pokyn pro agenta napište do Vzkazů agentovi.';
+
 /** Barvy status badge — výrazné, rozlišitelné, v paletě appky. */
 export const STATUS_COLORS: Record<KontaktStatus, { bg: string; fg: string }> = {
   nekontaktovano: { bg: '#fdf6e9', fg: '#7b7695' },
@@ -276,6 +285,33 @@ export function OznaceniBadge({ kategorie }: { kategorie: OznaceniKategorie | nu
   return (
     <span className={`badge oznaceni-badge ozn-${kategorie}`} style={{ background: c.bg, color: c.fg }} title={OZNACENI_HINTS[kategorie]}>
       <PhoneIcon size={12} /> {OZNACENI_LABELS[kategorie]}
+    </span>
+  );
+}
+
+/**
+ * Označený klient, kterému se náš e-mail vrátil (audit soudržnosti 2. 11. 2026, nález STUCK-9): příznak „Chybí e-mail“
+ * (chybi_email) u otevřeného označení dává odraz e-mailu (orchestrator/odrazy.py), klient návrh (u změn naši poslední
+ * zprávu) nejspíš nikdy neviděl. Řádek Označených to řekne hned vedle skupiny, ať se volající neptá, jestli se na web
+ * podíval. Bez označení nic: tam stačí příznak sám. Jiné druhy příznaku ne (email_neoveren = adresa funguje, jen ji
+ * klient nepotvrdil).
+ */
+export function emailSeVratil(k: Pick<Kontakt, 'ozn_kategorie' | 'flag_kind'>): boolean {
+  return !!k.ozn_kategorie && k.flag_kind === 'chybi_email';
+}
+
+/** Nápověda u „e-mail se vrátil“ podle skupiny označení (title; co dál, říká poznámka příznaku v témže řádku). */
+export function emailSeVratilNapoveda(kategorie: OznaceniKategorie | null | undefined): string {
+  const co = kategorie === 'zmeny' ? 'naši poslední zprávu' : 'návrh webu';
+  return `Náš e-mail se vrátil jako nedoručený, klient ${co} nejspíš neviděl. Při hovoru zjisti platný e-mail (víc v poznámce příznaku).`;
+}
+
+/** „e-mail se vrátil“ vedle odznaku skupiny označení (řádek Označených). Jinak nevykreslí nic. */
+export function EmailSeVratil({ kontakt }: { kontakt: Pick<Kontakt, 'ozn_kategorie' | 'flag_kind'> }) {
+  if (!emailSeVratil(kontakt)) return null;
+  return (
+    <span className="badge ozn-odraz" title={emailSeVratilNapoveda(kontakt.ozn_kategorie)}>
+      e-mail se vrátil
     </span>
   );
 }

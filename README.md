@@ -381,6 +381,27 @@ admins will see this flag, but the callers don't need to see the [flag]“.
   „Vyřešeno“ v řádku Volajícího i super admina; O61e „Údaje z internetu“ Volající nikde, super admin ano) a upravené L3a,
   O60e, O60h (⚠ O60k nahradil O61a). Server: `../db/tests/test_061_internet_jen_super_dovolani.sql`.
 
+## „E-mail se vrátil“ u označení a věta u důvodu stavu (audit soudržnosti, Albert 2. 11. 2026)
+
+Bez migrace (appka nad serverem 061). Albert 2. 11. 2026: „make sure that all the parts of the automation work together and
+the agents don't get confused by what they're supposed to be doing“ (audit soudržnosti automatizace, nálezy STUCK-9 a R4).
+
+- **„e-mail se vrátil“ v řádku Označených** (`EmailSeVratil` a `emailSeVratil` v `src/ui.tsx`, styl `.badge.ozn-odraz`):
+  označený klient (Neodpověděl na návrh nebo na změny) s příznakem „Chybí e-mail“ (`chybi_email`, dává ho odraz našeho
+  e-mailu, `../orchestrator/odrazy.py`) má hned za skupinou světlý odznak s růžovým okrajem „e-mail se vrátil“: klient návrh
+  (u změn naši poslední zprávu) nejspíš nikdy neviděl, volající se ho tedy nemá ptát, jestli se na web podíval (nápověda
+  odznaku: „… Při hovoru zjisti platný e-mail (víc v poznámce příznaku).“). Bez označení odznak není (příznak stačí sám),
+  u jiných druhů příznaku taky ne (`email_neoveren` = adresa funguje, jen ji klient nepotvrdil). Řádek zůstává kompaktní,
+  bez posunu do strany od 360 do 1920 px.
+- **Věta u důvodu změny stavu v detailu** (`DUVOD_STAVU_NAPOVEDA` v `src/ui.tsx`): „Důvod čte automatizace jen u Odmítnuto
+  (u architekta i u Nekontaktovat). Pokyn pro agenta napište do Vzkazů agentovi.“ ⚠ NAHRAZUJE „Důvod si přečte automatizace
+  a podle něj pokračuje (třeba u „Odmítnuto“ po návrhu pošle jednu nabídku poloviční ceny).“ (migrace 059): důvod jiné změny
+  stavu žádný agent nečte (předávat důvody začne až migrace 062).
+- **Demo**: žádný označený klient příznak „Chybí e-mail“ nemá; e2e ho dá v detailu (93 Petra, 90 Mikuláš).
+- **Testy**: `npm test` `tests/volani.test.mjs` blok AU (AU1 až AU5); `npm run test:e2e` blok AU (AU10a odznak hned za
+  skupinou a před příznakem, 302 s příznakem bez označení bez odznaku; AU10b a AU10c bez posunu do strany na 1920 až 360 px
+  pro Volajícího i super admina; AU11a věta u důvodu stavu, AU11b zavřený detail bez uložení nic nezmění).
+
 ## Účty a přihlášení (produkce)
 
 - Vlastní auth v Postgresu (žádný Supabase Auth): funkce `login` vrací token,
@@ -588,7 +609,7 @@ který schvaluje Albert (u zprávy je vidět jeho stav).
 | `#/moji`      | všichni | moji klienti (+ historie poznámek v detailu); super admin může vybrat kohokoli (027); filtr segmentu (028); od migrace 056 (Albert 27. 10. 2026) super admin stejné filtry jako Kontakty a řazení podle poslední změny, Volající beze změny; od migrace 057 sloupec posledního hovoru (Volajícímu „Můj poslední hovor“) a super admin řadí i podle něj; ⚠ od migrace 060 (Albert 1. 11. 2026) filtry, hledání na serveru a řazení i Volající nad svými klienty (NAHRAZUJE „Volající beze změny“), sloupec Mlčí, hvězda, „Zavolal/a jsem“ v přehledu detailu; ⚠ od migrace 061 (Albert 2. 11. 2026) řádky o dvou řádcích bez posunu do strany (NAHRAZUJE tabulku posouvanou v rámečku) |
 | `#/rozvrh`    | všichni | Rozvrh (042): týden po až ne, hodiny na den a cíl (hovorů za hodinu posílá server), plnění z hovorů, hláška pozadu / v plánu / napřed, poznámky ke dnům; Volající si ho nastaví jednou, super admin vidí přehled všech, mění a odemyká |
 | `#/admin`     | všichni | Kontakty: celá databáze s filtry (i segment, 028) a fulltextem (i studio, město, IČO; IČO jen admin a super admin, 038); upravovat smí admin a super admin; počty u stavů a košů a celkový počet jen super admin (045, Volající stránkuje bez počtu); Volající stav, známku, kdo volal, čekání a poznámky jen u svých klientů, filtr stavu a hledání v poznámce jen nad nimi (045, 20. 10. 2026); od migrace 056 řazení podle poslední změny (Volajícímu jen mezi jeho klienty, cizí za nimi podle čísla); od migrace 057 Změněno i se změnami od automatizace, sloupec a řazení podle posledního hovoru (Volajícímu jen jeho hovory); od migrace 060 (Albert 1. 11. 2026) spojitelné filtry (víc stavů a známek, hvězda, označení, mlčení v pracovních dnech), sloupec Mlčí a hvězda u svých klientů (Volajícímu jen nad jeho klienty); ⚠ od migrace 061 (Albert 2. 11. 2026) řádky o dvou řádcích bez posunu do strany (NAHRAZUJE tabulku posouvanou v rámečku) a Volající nevidí příznak „Údaje z internetu“ |
-| `#/oznacene`  | admin   | označení klienti — admin svoji; super admin a Albert všichni (027); filtr segmentu (028); ⚠ od migrace 060 (Albert 1. 11. 2026) „Označené k zavolání“ (`list_oznacene`): klienti, kteří víc než 5 pracovních dní mlčí (Neodpověděl na návrh, na změny), Volajícímu jen jeho, a klienti s příznakem; okno „Zavolal/a jsem“ (`zapis_hovor`, nikdy call_log), „Lhůta na zavolání do …“, stejné filtry jako Kontakty, super admin sloupec Volající, „bez volajícího“ a „Zrušit označení“ (NAHRAZUJE „jen příznaky přes list_flagged“); ⚠ od migrace 061 (Albert 2. 11. 2026) řádky o dvou řádcích bez posunu do strany s akcemi přímo v řádku („Zavolal/a jsem“, „Vyřešeno“ u příznaku, super admin „Zrušit označení“), okno s pěti výsledky (i „Nic z toho výše“) a poznámkou pro automatizaci u každého, příznak „Údaje z internetu“ jen super admin |
+| `#/oznacene`  | admin   | označení klienti — admin svoji; super admin a Albert všichni (027); filtr segmentu (028); ⚠ od migrace 060 (Albert 1. 11. 2026) „Označené k zavolání“ (`list_oznacene`): klienti, kteří víc než 5 pracovních dní mlčí (Neodpověděl na návrh, na změny), Volajícímu jen jeho, a klienti s příznakem; okno „Zavolal/a jsem“ (`zapis_hovor`, nikdy call_log), „Lhůta na zavolání do …“, stejné filtry jako Kontakty, super admin sloupec Volající, „bez volajícího“ a „Zrušit označení“ (NAHRAZUJE „jen příznaky přes list_flagged“); ⚠ od migrace 061 (Albert 2. 11. 2026) řádky o dvou řádcích bez posunu do strany s akcemi přímo v řádku („Zavolal/a jsem“, „Vyřešeno“ u příznaku, super admin „Zrušit označení“), okno s pěti výsledky (i „Nic z toho výše“) a poznámkou pro automatizaci u každého, příznak „Údaje z internetu“ jen super admin; od auditu soudržnosti (2. 11. 2026) u označeného klienta s příznakem „Chybí e-mail“ hned za skupinou „e-mail se vrátil“ |
 | `#/zpravy`    | admin   | vlákna s AI agenty — admin svoje; super admin vlákna všech lidí (cizí jen ke čtení, 027); Albert i automatizaci; odznak architekta u hledaného kontaktu (028) |
 | `#/uzivatele` | super admin | super admin: všichni lidé, upravuje sebe a své lidi + nový Volající (027, 042); Albert: role (Volající / Super admin, 042) a nadřízení (⚠ od migrace 024 Volající stránku nemá) |
 | `#/automatizace` | Albert | vypínač automatizace a přepínač účtu Claude                    |

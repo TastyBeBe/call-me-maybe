@@ -37,6 +37,7 @@ import { JINY_VOLAJICI, isSuperAdmin, roleLabel } from '../roles';
 import { bezCizihoIco, icoVidi, segmentOf } from '../segment';
 import {
   ALL_STATUSES,
+  DUVOD_STAVU_NAPOVEDA,
   ErrorBox,
   FLAG_COLORS,
   FLAG_LABELS,
@@ -887,9 +888,11 @@ export default function KontaktDrawer({
                   placeholder="Krátce, třeba „nechce web, řekl v telefonu“"
                   onChange={(e) => setDuvod(e.target.value)}
                 />
-                <p className="muted" style={{ fontSize: 13.5, margin: '6px 0 0' }}>
-                  Z „{STATUS_LABELS[kontakt.status] ?? kontakt.status}“ na „{STATUS_LABELS[status] ?? status}“. Důvod si
-                  přečte automatizace a podle něj pokračuje (třeba u „Odmítnuto“ po návrhu pošle jednu nabídku poloviční ceny).
+                {/* audit 2. 11. 2026 (R4): důvod čte automatizace jen u Odmítnuto a u architekta i u Nekontaktovat
+                    (DUVOD_STAVU_NAPOVEDA v ui.tsx, ⚠ NAHRAZUJE „Důvod si přečte automatizace a podle něj pokračuje …“) */}
+                <p className="muted duvod-stavu-napoveda" style={{ fontSize: 13.5, margin: '6px 0 0' }}>
+                  Z „{STATUS_LABELS[kontakt.status] ?? kontakt.status}“ na „{STATUS_LABELS[status] ?? status}“.{' '}
+                  {DUVOD_STAVU_NAPOVEDA}
                 </p>
               </div>
             )}
