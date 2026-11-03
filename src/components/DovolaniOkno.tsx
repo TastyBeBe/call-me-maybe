@@ -74,7 +74,7 @@ export function poznamkaPovinna(v: VysledekDovolani | null): boolean {
 
 /** Příklad do pole poznámky podle výsledku (bez výběru obecný). */
 const PRIKLAD: Record<VysledekDovolani, string> = {
-  nedovolano: 'Třeba: nebral to, zkusím to zítra dopoledne.',
+  nedovolano: 'Třeba: nebral to, zvoní naprázdno.',
   nechce: 'Třeba: web nechce, chalupu pronajímá přes Booking.',
   nekontaktovat: 'Třeba: ať mu už nevoláme ani nepíšeme.',
   mluvili: 'Třeba: web se mu líbí, chce jinou úvodní fotku a cenu na rok.',
