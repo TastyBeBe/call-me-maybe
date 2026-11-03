@@ -30,13 +30,19 @@
 // Audit soudržnosti 2. 11. 2026 (nález STUCK-9): označený klient s příznakem „Chybí e-mail“ (náš e-mail se mu vrátil, klient
 // návrh nejspíš neviděl) má hned vedle skupiny „e-mail se vrátil“ (EmailSeVratil v ui.tsx), ať „Neodpověděl na návrh“
 // volajícího nesplete. Řádek zůstává kompaktní, bez posunu do strany.
+// Migrace 062 (Albert 2. 11. 2026: „so that I called them again feature is both in the flagged/marked section and also in the
+// my clients section“): „Zavolal/a jsem“ je sdílené tlačítko DovolaniTlacitko (s vlastním oknem, stejné v Moji klienti,
+// Kontaktech a detailu) a má ho i řádek jen s příznakem, když ho přihlášený smí zapsat (dovolatSmi; server ho zapíše jako
+// další hovor bez označení). ⚠ NAHRAZUJE „Zavolal/a jsem jen u označení“ a okno se stavem stránky (060, 061). Okno má šest
+// výsledků (šestý „Chce web“).
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getApi, type Kontakt, type OznaceneFiltry } from '../api';
 import { BEZ_060_OZNACENE } from '../api/supabase';
 import { audio } from '../audio';
 import { useSession } from '../auth';
-import DovolaniOkno, { ZrusitOznaceniOkno } from '../components/DovolaniOkno';
+import { ZrusitOznaceniOkno } from '../components/DovolaniOkno';
+import DovolaniTlacitko from '../components/DovolaniTlacitko';
 import { HvezdaPrepinac } from '../components/Hvezda';
 import KontaktDrawer from '../components/KontaktDrawer';
 import PersonPicker, { usePeople } from '../components/PersonPicker';
@@ -70,7 +76,7 @@ import {
   priznakProRoli,
   priznakVidi,
 } from '../ui';
-import { AlarmIcon, CheckIcon, FlagIcon } from '../icons';
+import { CheckIcon, FlagIcon } from '../icons';
 
 /** Druhy řádku Označených: kategorie otevřeného označení a druh příznaku (jako p_druhy na serveru). */
 function druhyRadku(r: Kontakt): string[] {
@@ -106,7 +112,8 @@ export default function OznacenePage() {
   const [error, setError] = useState('');
   const [info, setInfo] = useState('');
   const [selected, setSelected] = useState<Kontakt | null>(null);
-  const [okno, setOkno] = useState<{ typ: 'zapis' | 'zrusit'; k: Kontakt } | null>(null);
+  // „Zrušit označení“ (super admin); „Zavolal/a jsem“ má okno ve vlastním tlačítku (DovolaniTlacitko, migrace 062)
+  const [okno, setOkno] = useState<{ typ: 'zrusit'; k: Kontakt } | null>(null);
   const [tick, setTick] = useState(0);
   // „Vyřešeno“ v řádku: id kontaktu, jehož příznak se právě ruší (tlačítko „Ukládám…“)
   const [resi, setResi] = useState<number | null>(null);
@@ -217,7 +224,7 @@ export default function OznacenePage() {
       setResi(null);
     }
   };
-  // zápis hovoru nebo zrušení označení (okno v řádku i v detailu): zavřít, načíst znovu, říct co se stalo
+  // zápis hovoru (DovolaniTlacitko v řádku, okno v detailu) nebo zrušení označení: zavřít, načíst znovu, říct co se stalo
   const onDovolano = (veta: string) => {
     setOkno(null);
     setSelected(null);
@@ -382,18 +389,8 @@ export default function OznacenePage() {
                       </span>
                     </td>
                     <td role="cell" className="oznacene-akce kompakt-hlavni">
-                      {r.ozn_kategorie && (
-                        <button
-                          type="button"
-                          className="pill-btn go sm zavolal-btn"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setOkno({ typ: 'zapis', k: r });
-                          }}
-                        >
-                          <AlarmIcon size={14} /> Zavolal/a jsem
-                        </button>
-                      )}
+                      {/* migrace 062: u označení vždy, u řádku jen s příznakem, když ho přihlášený smí zapsat (dovolatSmi) */}
+                      <DovolaniTlacitko kontakt={r} onDovolano={onDovolano} />
                       {smiVyresit && (
                         <button
                           type="button"
@@ -471,19 +468,6 @@ export default function OznacenePage() {
         </div>
       )}
 
-      {okno?.typ === 'zapis' && okno.k.ozn_kategorie && (
-        <DovolaniOkno
-          kontakt={okno.k}
-          kategorie={okno.k.ozn_kategorie}
-          lhutaDo={okno.k.ozn_lhuta_do ?? null}
-          pokusy={okno.k.ozn_pokusy ?? 0}
-          maHvezdu={!!okno.k.hvezda_at}
-          smiUpravit={okno.k.smi_upravit !== false}
-          smiHvezdu={okno.k.smi_upravit !== false && Object.prototype.hasOwnProperty.call(okno.k, 'hvezda_at')}
-          onZavrit={() => setOkno(null)}
-          onHotovo={onDovolano}
-        />
-      )}
       {okno?.typ === 'zrusit' && <ZrusitOznaceniOkno kontakt={okno.k} onZavrit={() => setOkno(null)} onHotovo={onDovolano} />}
 
       {selected && (

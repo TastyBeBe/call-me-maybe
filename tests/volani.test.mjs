@@ -526,13 +526,12 @@ await blok('N', async () => {
   const dalsi = await api.nextContact(petra, 'chata');
   over('N7', !dalsi || dalsi.id !== 10, 'nerelevantní kontakt se ve frontě nenabízí');
   if (dalsi) await api.returnContact(petra, dalsi.id);
-  // svůj nerelevantní kontakt naplánovat jde (třeba zavolá sám), ale je mimo frontu: karta ve volání pro něj není
-  const z = await api.zavolatNaplanovat(petra, 10, za(60 * MIN), null);
-  over('N7b', z.ve_fronte === false && z.kontakt.status === 'nerelevantni', 'naplánovaný hovor nerelevantního kontaktu je mimo frontu', JSON.stringify(z.ve_fronte));
-  await chyba('N7c', () => api.zavolatVzit(petra, z.id),
-    presne('Tenhle klient není ve frontě volání, kartu volání pro něj appka nemá. Zavolejte mu (číslo je v kalendáři) a hovor pak označte jako hotový.'),
-    'nerelevantní kontakt kartu ve volání nemá');
-  await api.zavolatZrusit(petra, z.id);
+  // ⚠ migrace 062 (rozhodnutí D19 zadání 062, Albert 2. 11. 2026 „Limit it“) NAHRAZUJE „svůj nerelevantní kontakt naplánovat
+  // jde (třeba zavolá sám)“ (Albert 22. 10. 2026 přes S33: „Even people who didn't pick up or were irrelevant“): nerelevantnímu
+  // se hovor neplánuje (zavolat_naplanovat); kartu ve volání mimo frontu měří blok Q u prodaného klienta
+  await chyba('N7b', () => api.zavolatNaplanovat(petra, 10, za(60 * MIN), null),
+    /^Klient je ve stavu (nerelevantni|Nerelevantní): hovor se mu neplánuje\. Když chce, abychom se mu zase ozývali, změňte stav v detailu klienta s důvodem\.$/,
+    'nerelevantnímu kontaktu se hovor neplánuje (062)');
   // čekání: nerelevantní nikdy nečeká (kontakt_cekani)
   await api.updateKontakt(albert, 90, { status: 'nerelevantni' });
   const ceka = (await api.listKontakty(albert, { cekani: 'ceka_prvni', limit: 500 })).rows.map((x) => x.id);
@@ -717,8 +716,10 @@ await blok('S', async () => {
   over('S4', telo.length > 100 && !/setSegment\(|saveCallSegment\(/.test(telo) && !/setInterval/.test(readFileSync(join(ROOT, 'src/pages/KalendarPage.tsx'), 'utf8')),
     'karta z kalendáře segment tiše nepřepne; stránka Kalendář se neptá serveru každou minutu sama');
   const drawer = readFileSync(join(ROOT, 'src/components/KontaktDrawer.tsx'), 'utf8');
-  over('S5', /const smi = isSuperAdmin\(session\.role\) \|\| kontakt\.je_muj === true;/.test(drawer) && /if \(!smi\) return null;/.test(drawer),
-    'detail: Naplánovat hovor Volající jen u svého klienta');
+  // ⚠ migrace 062 (D19): blok bez tlačítka u Nekontaktovat, Nerelevantní a Odmítnuto (NAHRAZUJE kotvu „if (!smi) return null;“)
+  over('S5', /const smi = isSuperAdmin\(session\.role\) \|\| kontakt\.je_muj === true;/.test(drawer) && /if \(!smi \|\| \(!planovat && !hovor\)\) return null;/.test(drawer)
+    && /const planovat = hovorPlanovatSmi\(kontakt\);/.test(drawer),
+    'detail: Naplánovat hovor Volající jen u svého klienta, u Nekontaktovat, Nerelevantní a Odmítnuto nikdo (062)');
 });
 
 // Albert 22. 10. 2026 (přes S33): „keep it for their own clients … anyone who has been called by that caller can be entered into the
@@ -729,7 +730,18 @@ await blok('Q', async () => {
   const kdy = za(48 * 60 * MIN);
   const CIZI = 'Naplánovat hovor můžete jen svému klientovi (kontaktu, kterému jste volal/a). Kontakt z fronty naplánujete při hovoru tlačítkem Přeplánovat.';
   const presne = new RegExp('^' + CIZI.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '$');
-  for (const id of [13, 4, 7]) {   // Petřini klienti: nerelevantní, odmítnutý, prodaný (zaplaceno)
+  // ⚠ migrace 062 (rozhodnutí D19, Albert 2. 11. 2026 o menu stavů: „Limit it“; A3: kdo web odmítl, tomu znovu nevoláme)
+  // NAHRAZUJE „v jakémkoli stavu“: odmítnutému, Nekontaktovat a Nerelevantnímu se hovor neplánuje (zavolat_naplanovat)
+  const NEPLANUJE = {
+    4: /^Klient web odmítl, hovor se mu neplánuje \(Albert 2\. 11\. 2026\)\. Když se ozval sám, že web chce, napište to agentovi ve vzkazu u klienta\.$/,
+    13: /^Klient je ve stavu (nerelevantni|Nerelevantní): hovor se mu neplánuje\. Když chce, abychom se mu zase ozývali, změňte stav v detailu klienta s důvodem\.$/,
+  };
+  for (const id of [13, 4]) {   // Petřini klienti: nerelevantní, odmítnutý
+    const r = await radek(id);
+    over(`Q0-${id}`, r && r.last_caller === 'Petra' && ['nerelevantni', 'odmitnuto'].includes(r.status), 'ukázkový klient Petry (předpoklad testu)', r && r.status);
+    await chyba(`Q1-${id}`, () => api.zavolatNaplanovat(petra, id, kdy, 'Albert 22. 10. 2026'), NEPLANUJE[id], `klientovi ve stavu ${r && r.status} se hovor neplánuje (062)`);
+  }
+  for (const id of [7]) {   // Petřin klient po prodeji (zaplaceno)
     const r = await radek(id);
     over(`Q0-${id}`, r && r.last_caller === 'Petra' && !['nekontaktovano', 'nedovolano'].includes(r.status),
       'ukázkový klient Petry je mimo frontu (předpoklad testu)', r && r.status);
@@ -973,24 +985,51 @@ await blok('X', async () => {
   if (vzor === undefined) { over('X12', false, 'žádný kontakt nečeká na první odpověď, test by nic neměřil'); return; }
   const puvodni = (await radek(vzor)).status;
   const vysl = {};
-  for (const s of ['sleva_nabidnuta', 'bez_odpovedi', 'pozdeji', 'nekontaktovat']) {
+  for (const s of ['bez_odpovedi', 'pozdeji', 'nekontaktovat']) {
     await api.updateKontakt(albert, vzor, { status: s });
     vysl[s] = (await ceka()).includes(vzor);
   }
   await api.updateKontakt(albert, vzor, { status: puvodni });
+  // ⚠ migrace 062 (D19): Nabídnutou slevu nastavuje jen automatizace (ani Albert v appce), proto ukázkový klient 97 (nabídka
+  // z kampaně bez odpovědi); NAHRAZUJE ruční nastavení sleva_nabidnuta v tomhle testu
+  vysl.sleva_nabidnuta = (await radek(97))?.status === 'sleva_nabidnuta' && (await ceka()).includes(97);
+  await chyba('X12b', () => api.updateKontakt(albert, vzor, { status: 'sleva_nabidnuta' }), presne('Nabídnutou slevu nastavuje automatizace, když nabídku pošle.'),
+    'Nabídnutou slevu ručně nenastaví nikdo, ani Albert (062, D19)');
+  const bezNavrhu = (await api.myKontakty(petra, 500, 0)).rows.find((r) => r.smi_upravit !== false && !r.first_proposal_at && !['nekontaktovano', 'nedovolano'].includes(r.status));
+  if (bezNavrhu) {
+    await chyba('X12c', () => api.updateKontakt(petra, bezNavrhu.id, { status: 'pozdeji', status_duvod: 'ozve se' }),
+      presne('Stav „Ozve se později“ jde nastavit jen klientovi, kterému už odešel návrh webu.'), 'Ozve se později jen klientovi s návrhem (062, D19)');
+  } else over('X12c', false, 'Petra nemá klienta bez návrhu mimo frontu, test by nic neměřil');
+  const vFronte = (await api.myKontakty(petra, 500, 0)).rows.find((r) => r.smi_upravit !== false && !r.first_proposal_at && ['nekontaktovano', 'nedovolano'].includes(r.status));
+  if (vFronte) {
+    await chyba('X12d', () => api.updateKontakt(petra, vFronte.id, { status: 'bez_odpovedi', status_duvod: 'nebere' }),
+      presne('Naplánujte hovor (Naplánovat hovor), klient je ve frontě volání.'), 'Archiv klientovi ve frontě volání ne, má Naplánovat hovor (062, D19)');
+  } else over('X12d', false, 'Petra nemá klienta ve frontě, test by nic neměřil');
   over('X12', vysl.sleva_nabidnuta === true && vysl.bez_odpovedi === false && vysl.pozdeji === false && vysl.nekontaktovat === false
     && (await ceka()).includes(vzor), 'čekání: sleva_nabidnuta čeká, bez_odpovedi, pozdeji a nekontaktovat ne (jako server)', JSON.stringify(vysl));
   // pořadí v seznamech jako server: sleva_nabidnuta za navrh_odeslan, pozdeji za ceka_na_klienta, bez_odpovedi a nekontaktovat
   // za odmitnuto, nerelevantni poslední (Petřiny klienti, Albert jim stavy nastaví a pak vrátí)
-  const sady = ['navrh_odeslan', 'sleva_nabidnuta', 'ceka_na_klienta', 'pozdeji', 'odmitnuto', 'bez_odpovedi', 'nekontaktovat', 'nerelevantni'];
-  const vybrani = mojiRows.slice(0, sady.length);
-  if (vybrani.length < sady.length) { over('X13', false, `Petra má jen ${vybrani.length} vlastních klientů, test pořadí by nic neměřil`); return; }
+  // ⚠ migrace 062 (D19): sleva_nabidnuta jen automatizace a pozdeji a bez_odpovedi jen klientovi s návrhem, proto bez nabídnuté
+  // slevy a Ozve se později a Archiv dostanou klienti s návrhem (NAHRAZUJE osm stavů na prvních osmi klientech)
+  const sady = ['navrh_odeslan', 'ceka_na_klienta', 'pozdeji', 'odmitnuto', 'bez_odpovedi', 'nekontaktovat', 'nerelevantni'];
+  const sNavrhem = mojiRows.filter((r) => r.first_proposal_at);
+  const ostatni = [...mojiRows.filter((r) => !r.first_proposal_at), ...sNavrhem.slice(2)];
+  const vybrani = sady.map((s, i) => (['pozdeji', 'bez_odpovedi'].includes(s) ? sNavrhem[s === 'pozdeji' ? 0 : 1] : ostatni[i])).filter(Boolean);
+  if (vybrani.length < sady.length || new Set(vybrani.map((r) => r.id)).size < sady.length) {
+    over('X13', false, `Petra má málo vlastních klientů (${mojiRows.length}, s návrhem ${sNavrhem.length}), test pořadí by nic neměřil`); return;
+  }
   const puvodniStavy = vybrani.map((r) => r.status);
   for (let i = 0; i < sady.length; i += 1) await api.updateKontakt(albert, vybrani[i].id, { status: sady[i] });
   const poradi = (await api.myKontakty(petra, 500, 0)).rows.filter((r) => vybrani.some((v) => v.id === r.id)).map((r) => r.status);
   for (let i = 0; i < sady.length; i += 1) await api.updateKontakt(albert, vybrani[i].id, { status: puvodniStavy[i] });
-  over('X13', JSON.stringify(poradi.filter((s) => s !== 'eskalace' && s !== 'zajem')) === JSON.stringify(sady),
-    'Moji klienti řadí nové stavy vedle příbuzných a nerelevantní na konec (STATUS_ORDER jako server 059)', poradi.join());
+  // sleva_nabidnuta ručně nastavit nejde (062, D19), její místo hned za navrh_odeslan měří ukázkoví klienti z kampaně (97 a 98)
+  // v Albertově celém seznamu: všechny řádky sleva_nabidnuta za posledním navrh_odeslan a před prvním ceka_na_klienta
+  const vse = (await api.listKontakty(albert, { limit: 500 })).rows.map((r) => r.status);
+  const slevaZaNavrhem = vse.includes('sleva_nabidnuta') && vse.includes('navrh_odeslan') && vse.includes('ceka_na_klienta')
+    && vse.indexOf('sleva_nabidnuta') > vse.lastIndexOf('navrh_odeslan') && vse.lastIndexOf('sleva_nabidnuta') < vse.indexOf('ceka_na_klienta');
+  over('X13', JSON.stringify(poradi.filter((s) => s !== 'eskalace' && s !== 'zajem')) === JSON.stringify(sady) && slevaZaNavrhem,
+    'Moji klienti řadí nové stavy vedle příbuzných a nerelevantní na konec, nabídnutá sleva hned za navrh_odeslan (STATUS_ORDER jako server 059)',
+    `${poradi.join()} | sleva za návrhem: ${slevaZaNavrhem}`);
   // supabase.ts pošle důvod serveru v p_patch beze změny
   const pred2 = odeslano.length;
   await supabaseApi.updateKontakt('t', 7, { status: 'odmitnuto', status_duvod: 'nechce' }).catch(() => null);
@@ -1055,10 +1094,12 @@ await blok('W', async () => {
     && proVolajiciho.flagged_by === null && skryty.flag_kind === 'info_neoverene'
     && U.priznakProRoli(skryty, true) === skryty && U.priznakProRoli(ciziPriznak, false) === ciziPriznak,
     'priznakProRoli: Volajícímu skrytý příznak zmizí i s poznámkou, časem a autorem (kopie, originál zůstane); jinak řádek beze změny');
+  // ⚠ migrace 062 (Albert 2. 11. 2026, A1): šest výsledků, „Chce web“ s nepovinnou poznámkou (NAHRAZUJE „pět výsledků“)
   over('W3', DO.poznamkaPovinna('mluvili') && DO.poznamkaPovinna('jine') && !DO.poznamkaPovinna('nedovolano') && !DO.poznamkaPovinna('nechce')
-    && !DO.poznamkaPovinna('nekontaktovat') && !DO.poznamkaPovinna(null)
-    && DO.DOVOLANI_VOLBY.find((x) => x.v === 'jine')?.text === 'Nic z toho výše' && DO.DOVOLANI_VOLBY.length === 5,
-    'okno Zavolal/a jsem: pět výsledků, poznámka povinná jen u „Mluvili jsme“ a „Nic z toho výše“');
+    && !DO.poznamkaPovinna('nekontaktovat') && !DO.poznamkaPovinna('chce_web') && !DO.poznamkaPovinna(null)
+    && DO.DOVOLANI_VOLBY.find((x) => x.v === 'jine')?.text === 'Nic z toho výše' && DO.DOVOLANI_VOLBY.find((x) => x.v === 'chce_web')?.text === 'Chce web'
+    && DO.DOVOLANI_VOLBY.length === 6,
+    'okno Zavolal/a jsem: šest výsledků, poznámka povinná jen u „Mluvili jsme“ a „Nic z toho výše“');
   const src = (p) => readFileSync(join(ROOT, p), 'utf8');
   const okno = src('src/components/DovolaniOkno.tsx');
   over('W4', /\n\s*text\.trim\(\) \|\| null,\n/.test(okno) && !/vysledek === 'nedovolano' \? null/.test(okno)

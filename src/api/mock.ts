@@ -2194,7 +2194,7 @@ interface MockOznaceni {
   posledni_pokus_at: string | null;
   zavolano_at: string | null;
   zavolano_kdo: number | null;
-  /** od migrace 061 i jine (Nic z toho výše); každý výsledek je úspěšné dovolání (kandidatOznaceni) */
+  /** od migrace 061 i jine (Nic z toho výše), od 062 i chce_web (Chce web); každý výsledek je úspěšné dovolání */
   vysledek: Exclude<VysledekDovolani, 'nedovolano'> | null;
   poznamka: string | null;
   uzavreno_at: string | null;
@@ -2207,6 +2207,13 @@ const oznaceniRadky: MockOznaceni[] = [];
 const pripominkyKampane = new Map<number, string>();
 /** Ruční odmítnutí po návrhu (na serveru událost stav_rucne na odmitnuto nebo job rucni_odmitnuti). */
 const rucniOdmitnuti = new Set<number>();
+/**
+ * Úspěšná dovolání (migrace 062, Albert 2. 11. 2026: „Zavolal/a jsem“ i bez označení): na serveru událost dovolani, jejíž
+ * první slovo není nedovol…, v Označených i bez označení, JEDINÝ záznam úspěšného hovoru (oznaceni_kandidati ho čte místo
+ * oznaceni.zavolano_at). Kdy se volající klientovi dovolal, podle kontaktu. ⚠ NAHRAZUJE v kandidatOznaceni zavolano_at
+ * řádků označení (dovolání bez označení by kandidáti jinak neviděli).
+ */
+const dovolaniUspesna = new Map<number, string[]>();
 /**
  * kontakty.prehled (migrace 060): mimo řádek kontaktu, protože seznamy ho neposílají (jen kontakt_prehled). ⚠ prehled_at
  * je na řádku kontaktu jako na serveru (seznamy a update_kontakt ho posílají; recenze 2. 11. 2026, NAHRAZUJE „i prehled_at
@@ -2249,17 +2256,16 @@ function odmitlPoNavrhu(c: Kontakt): boolean {
  * neoznačí nikdy). navrh: klient po návrhu nikdy nenapsal (last_client_reply_at null nebo <= first_proposal_at; stav
  * navrh_odeslan, ceka_na_klienta, nebo sleva_nabidnuta z kampaně bez odmítnutí), hodiny od pozdější z návrhu a naší poslední
  * zprávy; zmeny: napsal po návrhu a naše zpráva je novější (stav ceka_na_klienta nebo navrh_odeslan), hodiny od naší
- * poslední zprávy. „Napsal“ = e-mail NEBO hovor, ve kterém se mu volající dovolal (dovolání s výsledkem, zavolano_at;
- * recenze 2. 11. 2026): po „Mluvili jsme“ a naší novější zprávě je to zmeny.
+ * poslední zprávy. „Napsal“ = e-mail NEBO hovor, ve kterém se mu volající dovolal (recenze 2. 11. 2026): po „Mluvili jsme“
+ * a naší novější zprávě je to zmeny. ⚠ Migrace 062 (D6): úspěšné dovolání z dovolaniUspesna (na serveru událost dovolani,
+ * v Označených i bez označení), NAHRAZUJE zavolano_at řádků označení.
  */
 function kandidatOznaceni(c: Kontakt): { kategorie: OznaceniKategorie; od: string } | null {
   if (!c.first_proposal_at || !STAVY_OZNACENI.includes(c.status)) return null;
   if ((c.flag_note ?? '').trimStart().toUpperCase().startsWith('NEKONTAKTOVAT')) return null;
   const navrh = casMs(c.first_proposal_at) ?? 0;
   const nase = casMs(c.last_our_reply_at);
-  const hovory = oznaceniRadky
-    .filter((o) => o.kontakt_id === c.id && o.vysledek !== null && o.zavolano_at)
-    .map((o) => casMs(o.zavolano_at) ?? 0);
+  const hovory = (dovolaniUspesna.get(c.id) ?? []).map((t) => casMs(t) ?? 0);
   const email = casMs(c.last_client_reply_at);
   const klient = hovory.length > 0 || email !== null ? Math.max(email ?? 0, ...hovory) : null;
   if (klient === null || klient <= navrh) {
@@ -2472,10 +2478,80 @@ const DOVOLANI_PRO_AUTOMATIZACI: Record<Exclude<VysledekDovolani, 'mluvili'>, st
   nechce: 'Nechce web',
   nekontaktovat: 'Nechce, abychom ho kontaktovali',
   jine: 'Nic z toho výše',
+  // migrace 062 (Albert 2. 11. 2026, A1): šestý výsledek, vzkaz jde vždy (i bez poznámky jen „Chce web“)
+  chce_web: 'Chce web',
 };
-const VYSLEDKY_DOVOLANI: readonly VysledekDovolani[] = ['nedovolano', 'nechce', 'nekontaktovat', 'mluvili', 'jine'];
+const VYSLEDKY_DOVOLANI: readonly VysledekDovolani[] = ['nedovolano', 'nechce', 'nekontaktovat', 'mluvili', 'jine', 'chce_web'];
+/**
+ * ⚠ Migrace 062 (Albert 2. 11. 2026: tlačítko i v Moji klienti, Kontaktech a detailu) NAHRAZUJE větu „… kterého máte
+ * v Označených k zavolání. Tenhle mezi nimi není (nebo ho mezitím někdo vyřídil); zapíše ho ten, komu je označený, …“.
+ */
 const NENI_VASE_OZNACENI =
-  'Dovolání zapíšete jen u svého klienta, kterého máte v Označených k zavolání. Tenhle mezi nimi není (nebo ho mezitím někdo vyřídil); zapíše ho ten, komu je označený, jeho super admin nebo Albert.';
+  'Dovolání zapíšete jen u svého klienta. Tenhle mezi nimi není; zapíše ho ten, kdo mu volá, jeho super admin nebo Albert.';
+/** Stráže dovolání bez označení (migrace 062, D3; Albert A3: kdo web odmítl, tomu znovu nevoláme). Stejné věty jako server. */
+const DOVOLANI_ODMITL =
+  'Klient web odmítl, znovu mu nevoláme (Albert 2. 11. 2026). Když se ozval sám, že web chce, napište to agentovi ve vzkazu u klienta.';
+const DOVOLANI_FRONTA =
+  'Klient je ve frontě volání: naplánujte si hovor (Naplánovat hovor v detailu) a výsledek zapište přes Zavolat teď ve Volání.';
+const DOVOLANI_NEVEDE =
+  'Odmítnutí zapisuje volající, který klienta vede, jeho super admin nebo Albert. Zapište, co klient řekl, do „Mluvili jsme“ nebo „Nic z toho výše“.';
+/** ⚠ 3. 11. 2026 (ověření 062, DB F3): starý příznak „NEKONTAKTOVAT …“ (poznámka příznaku z doby před stavem nekontaktovat)
+ * platí jako stav nekontaktovat; stejný výraz jako server (oznaceni_kandidati, zapis_hovor). */
+const DOVOLANI_PRIZNAK_NEKONTAKTOVAT =
+  'Klient má příznak NEKONTAKTOVAT: dovolání se u něj nezapisuje. Když chce, abychom se mu zase ozývali, zrušte příznak v detailu klienta a důvod napište do poznámky.';
+function priznakNekontaktovat(c: Pick<Kontakt, 'flag_note'>): boolean {
+  return (c.flag_note ?? '').replace(/^\s+/, '').toUpperCase().startsWith('NEKONTAKTOVAT');
+}
+
+/**
+ * Vzkaz agentovi do vlákna kontaktu jako composer v detailu (zapis_hovor od 060, update_kontakt od 062): poslední otevřené
+ * vlákno kontaktu, do kterého přihlášený smí psát (app_vlakna_moje), jinak nové „Vzkaz od <jméno>: <klient>“ s kontakt_id;
+ * zpráva člověka (sender_type admin), dispečer z ní udělá job. Vrátí číslo vlákna.
+ */
+function vzkazAgentovi(me: MockUser, c: Kontakt, body: string): number {
+  const smi = writableThreadIds(me);
+  const otevrene = chatThreads
+    .filter((x) => x.kontakt_id === c.id && x.status === 'open' && smi.has(x.id))
+    .sort((a, b) => new Date(b.last_message_at).getTime() - new Date(a.last_message_at).getTime() || b.id - a.id)[0];
+  const vl: MockThread = otevrene ?? {
+    id: nextThreadId++,
+    kontakt_id: c.id,
+    subject: `Vzkaz od ${me.display_name}: ${(c.name ?? '').trim() || (c.firma ?? '').trim() || `#${c.id}`}`,
+    status: 'open',
+    created_by: me.display_name,
+    last_message_at: now(),
+    created_at: now(),
+  };
+  if (!otevrene) chatThreads.push(vl);
+  vl.last_message_at = now();
+  vl.status = 'open';
+  chatMessages.push({
+    id: nextChatMessageId++, thread_id: vl.id, sender_type: 'admin', sender_name: me.display_name,
+    body, apply_always: false, created_at: now(),
+  });
+  return vl.id;
+}
+
+/**
+ * Nové řádky poznámky (migrace 062, D15): neprázdné řádky nové poznámky (oříznuté jen o mezery jako btrim), které v uložené
+ * nebyly (tolikrát), bez hlavičky „[datum jméno]“ s cizím jménem (hlavickaCizi); samo smazání nebo přeházení nic nedá.
+ */
+function noveRadkyPoznamky(stara: string | null, nova: string | null, jmeno: string): string[] {
+  const radky = (s: string | null) => (s ?? '').replace(/\r\n?/g, '\n').split('\n').map(oriznoutMezery);
+  const zbyva = new Map<string, number>();
+  for (const r of radky(stara)) zbyva.set(r, (zbyva.get(r) ?? 0) + 1);
+  const ven: string[] = [];
+  for (const r of radky(nova)) {
+    if (r === '') continue;
+    const n = zbyva.get(r) ?? 0;
+    if (n > 0) {
+      zbyva.set(r, n - 1);
+      continue;
+    }
+    if (hlavickaCizi(r, [jmeno]) === null) ven.push(r);
+  }
+  return ven;
+}
 
 // Demo (1. 11. 2026): 97 dostal nabídku z připomínky kampaně (sleva_odeslana a pripominka_odeslana ve stejnou chvíli)
 // a neodpověděl, 98 nabídku po odmítnutí (ruční změna stavu na odmítnuto); 94 má přehled od automatizace (ve stage 1 ho
@@ -3055,6 +3131,13 @@ const mockApiZaklad: Api = {
     if ('status' in patch) {
       const novy = patch.status === null || patch.status === undefined ? null : String(patch.status);
       const duvod = String(patch.status_duvod ?? '').replace(/\s+/g, ' ').trim();
+      // migrace 062 (D19, Albert 2. 11. 2026 o menu stavů: „Limit it“), pro každého i Alberta: nabídnutou slevu nastavuje
+      // jen automatizace, „Ozve se později“ a „Archiv – neodpověděl“ jen klient, kterému už odešel návrh (jako server)
+      if (novy !== kontakt.status && novy === 'sleva_nabidnuta') fail('Nabídnutou slevu nastavuje automatizace, když nabídku pošle.');
+      if (novy !== kontakt.status && (novy === 'pozdeji' || novy === 'bez_odpovedi') && !kontakt.first_proposal_at) {
+        if (VE_FRONTE(kontakt.status)) fail('Naplánujte hovor (Naplánovat hovor), klient je ve frontě volání.');
+        fail(`Stav „${novy === 'pozdeji' ? 'Ozve se později' : 'Archiv – neodpověděl'}“ jde nastavit jen klientovi, kterému už odešel návrh webu.`);
+      }
       if (novy !== kontakt.status && duvod === '' && me.id !== OWNER_ID) {
         fail(`Napište krátce důvod změny stavu (z ${kontakt.status} na ${novy}). Bez důvodu stav změnit nejde.`);
       }
@@ -3126,6 +3209,7 @@ const mockApiZaklad: Api = {
       kontakt.flagged_by = druh === null ? null : me.display_name;
     }
     const stavPred = kontakt.status;
+    const poznamkaPred = kontakt.note;   // migrace 062 (D15): nové řádky poznámky proti uložené
     for (const [key, value] of Object.entries(patch)) {
       if (key === 'status_duvod') continue;   // migrace 059: důvod není sloupec kontaktu
       if (key === 'flag_kind') {
@@ -3155,6 +3239,25 @@ const mockApiZaklad: Api = {
     if ('status' in patch) zapisProdej(kontakt, stavPred);
     // migrace 060: ruční odmítnutí (na serveru událost stav_rucne) = klient odmítl, jeho nabídku z kampaně tick neoznačí
     if (kontakt.status === 'odmitnuto' && stavPred !== 'odmitnuto') rucniOdmitnuti.add(kontakt.id);
+    // migrace 062 (D19): změna stavu na nekontaktovat, nerelevantni nebo odmitnuto zruší čekající naplánovaný hovor kontaktu
+    // (už se mu nevolá; Albert A3) s důvodem změny stavu (na serveru i událost zavolat)
+    if (kontakt.status !== stavPred && ['nekontaktovat', 'nerelevantni', 'odmitnuto'].includes(kontakt.status)) {
+      const z = cekajiciHovor(kontakt.id);
+      if (z) {
+        const duvod = String(patch.status_duvod ?? '').replace(/\s+/g, ' ').trim() || '(bez důvodu, Albert)';
+        z.stav = 'zruseno';
+        z.uzavreno_at = now();
+        z.zmenil_id = me.id;
+        z.zmeneno_at = now();
+        z.vysledek = `zrušeno změnou stavu ${stavPred} → ${kontakt.status}: ${duvod}`.slice(0, 500);
+      }
+    }
+    // migrace 062 (D15, Albert 2. 11. 2026, A1: „every time there's something new … in the notes, the automation actually
+    // reads it“): nové vlastní řádky poznámky jdou automatizaci jako vzkaz „Poznámka (jméno): …“ (jako server)
+    if ('note' in patch) {
+      const nove = noveRadkyPoznamky(poznamkaPred, kontakt.note, me.display_name);
+      if (nove.length > 0) vzkazAgentovi(me, kontakt, `Poznámka (${me.display_name}): ${nove.join('\n')}`);
+    }
     return forList(me, kontakt); // bez osobního IČO, když nesmí upravit (028, 036)
   },
 
@@ -3382,9 +3485,9 @@ const mockApiZaklad: Api = {
     const me = authAdmin(token);
     const vse = me.id === OWNER_ID || me.role === 'super_admin';
     // migrace 061 (Albert 2. 11. 2026: „these four options. Plus … one more option which says none of it above“): pátý
-    // výsledek jine („Nic z toho výše“)
+    // výsledek jine („Nic z toho výše“); migrace 062 (A1: „Yes, you can add the sixth option“): šestý chce_web („Chce web“)
     if (!VYSLEDKY_DOVOLANI.includes(vysledek)) {
-      fail(`Neplatný výsledek dovolání: ${vysledek ?? '(null)'}. Povolené: nedovolano, nechce, nekontaktovat, mluvili, jine.`);
+      fail(`Neplatný výsledek dovolání: ${vysledek ?? '(null)'}. Povolené: nedovolano, nechce, nekontaktovat, mluvili, jine, chce_web.`);
     }
     if ([...(poznamka ?? '')].length > 2000) fail('Poznámka k dovolání je moc dlouhá: nejvýš 2 000 znaků.');
     // jeden řádek jako poznámka z hovoru (046): konce řádků (i Unicode) jako mezera, mezery na krajích pryč
@@ -3403,53 +3506,66 @@ const mockApiZaklad: Api = {
     if (!vse && !myKontaktIds(me).has(kontaktId)) fail(NENI_VASE_OZNACENI);
     const c = kontakty.find((x) => x.id === kontaktId);
     if (!c) fail(`Kontakt id=${kontaktId} neexistuje.`);
+    // migrace 062 (D1, Albert 2. 11. 2026): větev vybere server. Otevřené označení, které přihlášený smí (super admin
+    // a Albert každé, Volající jen své; označení bez volajícího ho do označení nepustí) = s označením jako 061; jinak bez
+    // označení (⚠ NAHRAZUJE „nemá otevřené označení“ super admina a odmítnutí Volajícího u označení kolegy)
     const o = otevreneOznaceni(c.id);
-    if (!o || (!vse && o.volajici_id !== me.id)) {
-      if (vse) fail(`Kontakt id=${kontaktId} nemá otevřené označení k zavolání (mezitím se ozval, někdo ho vyřídil, nebo ještě nemlčí 5 pracovních dní).`);
-      fail(NENI_VASE_OZNACENI);
-    }
+    const ozn = !!o && (vse || o.volajici_id === me.id);
+    const smi = canEdit(me, c.id);
+    // bez označení každý výsledek (i nedovolano a hvězda) jen s právem kontakt upravit (D2)
+    if (!ozn && !smi) fail(NENI_VAS_UPRAVIT);
     // výsledek, který kontakt mění (poznámka, stav, vzkaz agentovi, hvězda), jen s právem kontakt upravit (024)
-    if ((vysledek !== 'nedovolano' || typeof hvezda === 'boolean') && !canEdit(me, c.id)) fail(NENI_VAS_UPRAVIT);
+    if ((vysledek !== 'nedovolano' || typeof hvezda === 'boolean') && !smi) fail(NENI_VAS_UPRAVIT);
+    // stráže (D3, Albert A3: „if the client refuses the preview on the first call, I don't think we should be calling them
+    // again“) před prvním zápisem: bez označení kdo web odmítl a fronta volání, v obou větvích nekontaktovat a nerelevantni
+    if (!ozn && (c.status === 'odmitnuto' || c.status === 'sleva_nabidnuta')) fail(DOVOLANI_ODMITL);
+    if (!ozn && VE_FRONTE(c.status)) fail(DOVOLANI_FRONTA);
+    if (c.status === 'nekontaktovat' || c.status === 'nerelevantni') {
+      fail(`Klient je ve stavu ${c.status}: dovolání se u něj nezapisuje. Když chce, abychom se mu zase ozývali, změňte stav v detailu klienta s důvodem.`);
+    }
+    // ⚠ 3. 11. 2026 (ověření 062, DB F3): starý příznak „NEKONTAKTOVAT …“ jako stav nekontaktovat (jako server)
+    if (priznakNekontaktovat(c)) fail(DOVOLANI_PRIZNAK_NEKONTAKTOVAT);
+    const odmitnuti = vysledek === 'nechce' || vysledek === 'nekontaktovat';
+    if (odmitnuti) {
+      // D2 napřed (⚠ 3. 11. 2026, ověření 062, DB F1, NAHRAZUJE kontrolu vlastníka až za prodejem: kolega by podle věty poznal,
+      // jestli klient web objednal): bez označení odmítnutí jen ten, kdo klienta vede (oznaceni_vlastnik: poslední zájem,
+      // jinak last_caller)
+      if (!ozn && !vse && vlastnikOznaceni(c) !== me.id) fail(DOVOLANI_NEVEDE);
+      // po prodeji odmítnutí tlačítkem ne: stav prodeje, nebo eskalace a pozastaveno s historií prodeje (mock vede jen
+      // kontakt_prodej; server i události faktura_odeslana a platba_prijata, stav_rucne, status_fix a stav_pred jobu)
+      const drzeny = c.status === 'eskalace' || c.status === 'pozastaveno';
+      if (PRODANO_STAVY.includes(c.status) || (drzeny && kontaktProdej.has(c.id))) {
+        fail(`Klient už web objednal (stav ${c.status}): odmítnutí tady zapsat nejde. Napište, co řekl, do „Mluvili jsme“ nebo „Nic z toho výše“; stav se mění v detailu klienta s důvodem.`);
+      }
+      if (drzeny && !vse) {
+        fail(`Klient je ve stavu ${c.status}, o dalším kroku rozhodne Albert nebo super admin; zapište „Nic z toho výše“ s poznámkou.`);
+      }
+    }
     let vlakno: number | null = null;
     // migrace 061 (Albert 2. 11. 2026: „there should definitely be also a note below it where you can write a note for the
     // automation“): poznámka u KAŽDÉHO výsledku jde automatizaci jako u „Mluvili jsme“ od 060: řádek do poznámky (den
-    // v Praze, vlastní jméno) a vzkaz agentovi do vlákna kontaktu (poslední otevřené, do kterého smí psát, jinak nové;
-    // dispečer z něj udělá chat job). U mluvili text beze změny, u ostatních „<výsledek>: text“. Jen s právem kontakt
-    // upravit; bez něj (smí jen nedovolano) zůstane poznámka jen v události dovolani na serveru (mock události nevede).
-    const predat = text !== null && canEdit(me, c.id);
+    // v Praze, vlastní jméno) a vzkaz agentovi do vlákna kontaktu (vzkazAgentovi; dispečer z něj udělá chat job). U mluvili
+    // text beze změny, u ostatních „<výsledek>[: text]“. Jen s právem kontakt upravit; bez něj (smí jen nedovolano) zůstane
+    // poznámka jen v události dovolani na serveru (mock události nevede). Migrace 062 (D4): bez poznámky vzkaz u chce_web
+    // vždy a u odmítnutí klienta, který ještě nemá návrh nebo náhled
+    const predat = smi && (text !== null || vysledek === 'chce_web'
+      || (odmitnuti && (!c.first_proposal_at || oriznoutMezery(c.live_url ?? '') === '')));
     if (predat) {
-      const zprava = vysledek === 'mluvili' ? text : `${DOVOLANI_PRO_AUTOMATIZACI[vysledek]}: ${text}`;
+      const zprava = vysledek === 'mluvili' ? (text ?? '') : `${DOVOLANI_PRO_AUTOMATIZACI[vysledek]}${text === null ? '' : `: ${text}`}`;
       const radek = `[${denPraha(new Date())} ${me.display_name}] Dovolání: ${zprava}`;
       c.note = c.note ? `${c.note}\n${radek}` : radek;
       c.updated_at = now();
-      const smi = writableThreadIds(me);
-      const otevrene = chatThreads
-        .filter((x) => x.kontakt_id === c.id && x.status === 'open' && smi.has(x.id))
-        .sort((a, b) => new Date(b.last_message_at).getTime() - new Date(a.last_message_at).getTime() || b.id - a.id)[0];
-      const vl: MockThread = otevrene ?? {
-        id: nextThreadId++,
-        kontakt_id: c.id,
-        subject: `Vzkaz od ${me.display_name}: ${(c.name ?? '').trim() || (c.firma ?? '').trim() || `#${c.id}`}`,
-        status: 'open',
-        created_by: me.display_name,
-        last_message_at: now(),
-        created_at: now(),
-      };
-      if (!otevrene) chatThreads.push(vl);
-      vl.last_message_at = now();
-      vl.status = 'open';
-      chatMessages.push({
-        id: nextChatMessageId++, thread_id: vl.id, sender_type: 'admin', sender_name: me.display_name,
-        body: `Dovolání (${me.display_name}): ${zprava}`, apply_always: false, created_at: now(),
-      });
-      vlakno = vl.id;
+      vlakno = vzkazAgentovi(me, c, `Dovolání (${me.display_name}): ${zprava}`);
     }
     if (vysledek === 'nedovolano') {
-      // označení zůstává otevřené, lhůta beze změny, i s poznámkou (Albert 2. 11. 2026: „it shouldn't be removing the mark“)
-      o.pokusy += 1;
-      o.posledni_pokus_at = now();
+      // označení zůstává otevřené, lhůta beze změny, i s poznámkou (Albert 2. 11. 2026: „it shouldn't be removing the mark“);
+      // bez označení (062) jen záznam, označení kolegy nedovolání nemění (D5)
+      if (o && ozn) {
+        o.pokusy += 1;
+        o.posledni_pokus_at = now();
+      }
     } else {
-      if (vysledek === 'nechce' || vysledek === 'nekontaktovat') {
+      if (odmitnuti) {
         // nechce = odmitnuto (tick pošle jednu nabídku, když žádná neodešla), nekontaktovat = konečný stav; stopa jako ruční
         // změna stavu (událost stav_rucne s důvodem „Dovolání: …“; mock události nevede, odmítnutí si pamatuje)
         const novy: KontaktStatus = vysledek === 'nechce' ? 'odmitnuto' : 'nekontaktovat';
@@ -3460,26 +3576,41 @@ const mockApiZaklad: Api = {
         }
         if (novy === 'odmitnuto') rucniOdmitnuti.add(c.id);
       }
-      // mluvili a jine (061) kontakt nemění; všechno kromě nedovolano označení uzavře
-      o.zavolano_at = now();
-      o.zavolano_kdo = me.id;
-      o.vysledek = vysledek;
-      o.poznamka = text;
-      zavritOznaceni(o, 'hovor');
+      // mluvili, jine (061) a chce_web (062) kontakt nemění; všechno kromě nedovolano otevřené označení uzavře, bez označení
+      // (062, D5) i označení kolegy nebo bez volajícího (úspěšný hovor je odpověď klienta); odpověď ho nejmenuje
+      if (o) {
+        o.zavolano_at = now();
+        o.zavolano_kdo = me.id;
+        o.vysledek = vysledek;
+        o.poznamka = text;
+        zavritOznaceni(o, 'hovor');
+      }
       // naplánovaný hovor (050) jako resolve_call: vlastní uzavře (hotovo), cizí zruší neutrálně; po nedovolání zůstává
-      // (recenze 2. 11. 2026: okno slibuje „už mu nikdo nezavolá“)
+      // (recenze 2. 11. 2026: okno slibuje „už mu nikdo nezavolá“). Migrace 062: jen hovor s časem do konce dneška v Praze,
+      // pozdější zůstává (D20); bez označení jen vlastní (D2); odmítnutí zruší každý čekající hovor kontaktu (A3, jako D19)
       const z = cekajiciHovor(c.id);
-      if (z) {
+      if (z && denPraha(new Date(z.kdy)) <= denPraha(new Date()) && (ozn || z.user_id === me.id)) {
         const muj = z.user_id === me.id;
         z.stav = muj ? 'hotovo' : 'zruseno';
         z.uzavreno_at = now();
         z.vysledek = muj ? `dovolání: ${vysledek}` : !drziAktivni(z) ? NEAKTIVNI : 'hovor vyřídilo dovolání v Označených';
+      } else if (z && odmitnuti) {
+        z.stav = 'zruseno';
+        z.uzavreno_at = now();
+        z.zmenil_id = me.id;
+        z.zmeneno_at = now();
+        z.vysledek = `zrušeno: dovolání ${vysledek}`;
       }
+      // jediný záznam úspěšného hovoru (062, D6; na serveru událost dovolani), čtou ho kandidáti označení
+      dovolaniUspesna.set(c.id, [...(dovolaniUspesna.get(c.id) ?? []), now()]);
     }
     const zmenaHvezdy = typeof hvezda === 'boolean' ? zapisHvezdu(c, me, hvezda, hvezda ? 'Velký zájem při dovolání' : null) : null;
     // dovolání není nový hovor (Albert 1. 11. 2026): call_log, statistiky, Rozvrh, výdělek ani fronta se nemění
     return {
-      ok: true, kontakt_id: c.id, oznaceni_id: o.id, vysledek, otevrene: o.uzavreno_at === null, pokusy: o.pokusy,
+      ok: true, kontakt_id: c.id,
+      // migrace 062: oznaceno = zápis šel do označení; bez označení číslo, otevřenost ani pokusy (i označení kolegy) nikdy
+      oznaceni_id: o && ozn ? o.id : null, oznaceno: ozn, vysledek,
+      otevrene: o && ozn ? o.uzavreno_at === null : null, pokusy: o && ozn ? o.pokusy : null,
       status: c.status, hvezda: !!c.hvezda_at, hvezda_zmena: zmenaHvezdy, vlakno_id: vlakno,
       // migrace 061: true = poznámka šla automatizaci, false = jen do události (bez práva kontakt upravit), null = bez poznámky
       poznamka_predana: text === null ? null : predat,
@@ -4182,6 +4313,14 @@ const mockApiZaklad: Api = {
     if (me.role !== 'super_admin' && !kontaktyOf([me.id]).has(c.id)) {
       fail('Naplánovat hovor můžete jen svému klientovi (kontaktu, kterému jste volal/a). Kontakt z fronty naplánujete při hovoru tlačítkem Přeplánovat.');
     }
+    // migrace 062 (D19, Albert 2. 11. 2026: „Limit it“; A3): odmítnutému, Nekontaktovat a Nerelevantnímu se hovor neplánuje,
+    // až po kontrole vlastního klienta (o cizím kontaktu se Volající nedozví ani stav), stejné věty jako server
+    if (c.status === 'odmitnuto') {
+      fail('Klient web odmítl, hovor se mu neplánuje (Albert 2. 11. 2026). Když se ozval sám, že web chce, napište to agentovi ve vzkazu u klienta.');
+    }
+    if (c.status === 'nekontaktovat' || c.status === 'nerelevantni') {
+      fail(`Klient je ve stavu ${c.status}: hovor se mu neplánuje. Když chce, abychom se mu zase ozývali, změňte stav v detailu klienta s důvodem.`);
+    }
     let z = cekajiciHovor(c.id);
     // čekající hovor neaktivního člověka: zruší se a vznikne nový (nikdo ho už nevolá, Volající ho přesunout nesmí)
     if (z && !drziAktivni(z)) {
@@ -4243,6 +4382,15 @@ const mockApiZaklad: Api = {
     // cizí hovor Volajícímu stejnou hláškou jako neexistující (nepozná, čí hovory existují)
     if (!z || (z.user_id !== me.id && me.role !== 'super_admin')) fail(`Naplánovaný hovor id=${id} neexistuje nebo není váš.`);
     if (z.stav !== 'ceka') fail('Hovor už není naplánovaný (je hotový nebo zrušený). Naplánujte nový.');
+    // ⚠ 3. 11. 2026 (ověření 062, DB F2): hovor klienta ve stavu odmitnuto, nekontaktovat nebo nerelevantni se nepřesouvá,
+    // stejnými větami jako zavolatNaplanovat (jako server)
+    const kz = kontakty.find((x) => x.id === z.kontakt_id);
+    if (kz?.status === 'odmitnuto') {
+      fail('Klient web odmítl, hovor se mu neplánuje (Albert 2. 11. 2026). Když se ozval sám, že web chce, napište to agentovi ve vzkazu u klienta.');
+    }
+    if (kz && (kz.status === 'nekontaktovat' || kz.status === 'nerelevantni')) {
+      fail(`Klient je ve stavu ${kz.status}: hovor se mu neplánuje. Když chce, abychom se mu zase ozývali, změňte stav v detailu klienta s důvodem.`);
+    }
     let cil = users.find((u) => u.id === z.user_id)!;
     if (userId !== null && userId !== undefined && userId !== z.user_id) {
       const u = users.find((x) => x.id === userId && x.active);
@@ -4419,6 +4567,12 @@ function sDemoTestem(api: Api): Api {
     zavolat: zavolatRadky.map((z) => ({ id: z.id, kontakt_id: z.kontakt_id, user_id: z.user_id, kdy: z.kdy, poznamka: z.poznamka, stav: z.stav, rezervace: z.rezervace, vysledek: z.vysledek })),
     // migrace 060: označení k zavolání (otevřená i uzavřená)
     oznaceni: oznaceniRadky.map((o) => ({ ...o })),
+    // migrace 062 (D6): kdo je teď kandidát označení (oznaceni_kandidati) a úspěšná dovolání, která ho rozhodují
+    kandidati: kontakty.flatMap((c) => {
+      const kand = kandidatOznaceni(c);
+      return kand ? [{ kontakt_id: c.id, kategorie: kand.kategorie, od: kand.od }] : [];
+    }),
+    dovolani: [...dovolaniUspesna.entries()].map(([kontakt_id, casy]) => ({ kontakt_id, casy: [...casy] })),
   });
   return new Proxy(api, {
     get(target, prop, receiver) {

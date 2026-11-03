@@ -16,6 +16,8 @@
 // jinak ~/webdomov-nastroje/pw (docs/ARCHITEKTI.md 7.3). Nic se nestahuje.
 // Výsledek: „ALL OK (N kontrol)" a kód 0; „FAIL <id>: …" a kód 1; bez prohlížeče
 // „NEJDE ZMĚŘIT: …" a kód 2 (nezměřeno není v pořádku).
+// Migrace 062 (Albert 2. 11. 2026): bloky O062a až O062k (O062j a O062k: kalendář u označeného klienta, ověření 062) („Zavolal/a jsem“ i bez označení v Moji klienti, Kontaktech, detailu
+// a kalendáři, šestý výsledek „Chce web“, vypnutá odmítnutí s důvodem, menu stavů v detailu); bez posunu do strany O61a.
 
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
@@ -945,6 +947,13 @@ const casP = (x) => PRAHA_CAS_E2E.format(new Date(x));
 const plus1 = (d) => { const [y, m, dd] = d.split('-').map(Number); return new Date(Date.UTC(y, m - 1, dd + 1)).toISOString().slice(0, 10); };
 const txt = (s) => String(s ?? '').replace(/\s+/g, ' ').trim();
 const KRATKE = { timeout: 4000 };
+/**
+ * Výsledky okna „Zavolal/a jsem“ v pořadí okna (⚠ migrace 062, Albert 2. 11. 2026, A1: šestý „Chce web“; NAHRAZUJE pět
+ * výsledků 061 v e2e O60e a O61b).
+ */
+const VOLBY_062 = ['Nedovolal/a jsem se', 'Chce web', 'Mluvili jsme – co klient chce', 'Nechce web', 'Nechce, abychom ho kontaktovali', 'Nic z toho výše'];
+/** Stavy, ve kterých řádek bez označení „Zavolal/a jsem“ nemá (DOVOLANI_NE v src/ui.tsx), jejich popisky. */
+const BEZ_DOVOLANI_062 = ['Nekontaktováno', 'Nedovoláno', 'Nekontaktovat', 'Nerelevantní', 'Odmítnuto', 'Nabídnuta sleva'];
 async function blok050(id, fn) {
   try {
     await fn();
@@ -1130,14 +1139,21 @@ for (const sirka of [1280, 390]) {
       const p9 = page.locator(`.zavolat-polozka[data-zavolat-id="${z9?.id}"]`);
       over('K6', (await p9.getByRole('button', { name: 'Zavolat teď' }).count()) === 0 && (await p9.getByRole('button', { name: 'Hotovo' }).count()) === 1,
         'klient mimo frontu: Hotovo místo Zavolat teď');
+      // ⚠ migrace 062 (Albert 2. 11. 2026): Hotovo u klienta mimo frontu, kterému jde dovolání zapsat, otevře okno „Zavolal/a jsem“
+      // (NAHRAZUJE okno „Hovor je hotový?“ s textem; to zůstává u klienta, kterému dovolání zapsat nejde, blok O062i)
       await p9.getByRole('button', { name: 'Hotovo' }).click();
-      await page.locator('#zavolat-vysledek').fill('domluveno, zaplatí do pátku');
-      await page.locator('.modal').getByRole('button', { name: 'Hotovo' }).click();
-      await klid(page, 500);
-      const h9 = (await volani(page)).find((v) => v.fn === 'zavolatHotovo' && v.ok);
-      over('K6b', (await stav(page)).zavolat.find((z) => z.id === z9?.id)?.stav === 'hotovo' && h9?.args[1] === 'domluveno, zaplatí do pátku', 'Hotovo s výsledkem uzavře hovor');
+      const okno9 = page.locator('.dovolani-okno');
+      await okno9.waitFor(KRATKE);
+      await okno9.getByRole('radio', { name: 'Mluvili jsme – co klient chce' }).click();
+      await okno9.locator('#dovolani-text').fill('domluveno, zaplatí do pátku');
+      await okno9.getByRole('button', { name: 'Zapsat hovor' }).click();
+      await klid(page, 700);
+      const h9 = (await volani(page)).find((v) => v.fn === 'zapisHovor' && v.ok);
+      const z9po = (await stav(page)).zavolat.find((z) => z.id === z9?.id);
+      over('K6b', z9po?.stav === 'hotovo' && /^dovolání: mluvili/.test(z9po?.vysledek ?? '') && JSON.stringify(h9?.args.slice(0, 3)) === JSON.stringify([9, 'mluvili', 'domluveno, zaplatí do pátku']),
+        'Hotovo zapíše dovolání s poznámkou a hovor uzavře (062)', JSON.stringify({ z9po, args: h9?.args }));
       await page.getByRole('button', { name: /Ukázat hotové a zrušené/ }).click();
-      over('K7', (await page.locator('.zavolat-polozka.uzavrena').count()) >= 3 && /domluveno, zaplatí do pátku/.test(await page.locator('.zavolat-oddil.uzavrene').innerText()),
+      over('K7', (await page.locator('.zavolat-polozka.uzavrena').count()) >= 3 && /dovolání: mluvili/.test(await page.locator('.zavolat-oddil.uzavrene').innerText()),
         'hotové a zrušené za 14 dní jsou sbalené a jdou rozbalit');
       // Zavolat teď: karta ve volání přes zavolat_vzit, parametr z adresy zmizí
       const z10 = moje.find((z) => z.kontakt_id === 10);
@@ -1690,7 +1706,9 @@ await blok050('R056 petra', async () => {
   await jdi(page, '#/admin', 700);
   await page.selectOption('.filter-bar select[aria-label="Řazení"]', 'zmena_nejnovejsi');
   await klid(page, 600);
-  const skryte = await page.locator('table.kontakty tbody tr').evaluateAll((rs) => rs.map((r) => r.querySelector('td:nth-child(3) .skryto') !== null));
+  // ⚠ migrace 062: buňka stavu se hledá podle hlavičky (za telefonem přibyla buňka akcí „Zavolal/a jsem“; NAHRAZUJE td:nth-child(3))
+  const iStav = (await page.locator('table.kontakty thead th').evaluateAll((t) => t.map((x) => x.textContent.trim()))).indexOf('Status');
+  const skryte = await page.locator('table.kontakty tbody tr').evaluateAll((rs, j) => rs.map((r) => r.children[j]?.querySelector('.skryto') !== null), iStav);
   const prvniSkryty = skryte.indexOf(true);
   const napoveda = txt(await page.locator('.skryto-napoveda').innerText().catch(() => ''));
   over('R56c', prvniSkryty > 0 && skryte.slice(prvniSkryty).every(Boolean) && /Podle poslední změny se řadí jen tvoji klienti/.test(napoveda),
@@ -1775,8 +1793,10 @@ await blok050('R057 petra', async () => {
   const iHov = hl.indexOf('Můj poslední hovor');
   const radek2 = page.locator('table.kontakty tbody tr', { hasText: k2.name }).first();
   const b2 = txt(await radek2.locator('td').nth(iHov).innerText());
-  const skryte = await page.locator('table.kontakty tbody tr').evaluateAll((rs, j) => rs.map((r) => [r.querySelector('td:nth-child(3) .skryto') !== null,
-    r.children[j]?.querySelector('.skryto') !== null]), iHov);
+  // ⚠ migrace 062: buňka stavu podle hlavičky (NAHRAZUJE td:nth-child(3), za telefonem přibyla buňka akcí)
+  const iStav = hl.indexOf('Status');
+  const skryte = await page.locator('table.kontakty tbody tr').evaluateAll((rs, [j, s]) => rs.map((r) => [r.children[s]?.querySelector('.skryto') !== null,
+    r.children[j]?.querySelector('.skryto') !== null]), [iHov, iStav]);
   const prvniCizi = skryte.findIndex(([c]) => c);
   const napoveda = txt(await page.locator('.skryto-napoveda').innerText().catch(() => ''));
   over('R57f', iHov >= 0 && !hl.includes('Poslední hovor') && popisky.includes('Podle mého posledního hovoru (od nejnovějšího)')
@@ -1827,8 +1847,8 @@ for (const sirka of [1280, 390]) {
     const okno = page.locator('.dovolani-okno');
     await okno.waitFor({ timeout: 4000 });
     const volby = (await okno.locator('.dovolani-volby button').allInnerTexts()).map(txt);
-    over(`O60e ${sirka}`, JSON.stringify(volby) === JSON.stringify(['Nedovolal/a jsem se', 'Nechce web', 'Nechce, abychom ho kontaktovali', 'Mluvili jsme – co klient chce', 'Nic z toho výše'])
-      && /Lhůta na zavolání do/.test(await okno.innerText()), 'okno Zavolal/a jsem: pět výsledků (pátý „Nic z toho výše“, migrace 061) a lhůta', volby.join(' | '));
+    over(`O60e ${sirka}`, JSON.stringify(volby) === JSON.stringify(VOLBY_062)
+      && /Lhůta na zavolání do/.test(await okno.innerText()), 'okno Zavolal/a jsem: šest výsledků (062: Chce web; 061: Nic z toho výše) a lhůta', volby.join(' | '));
     await okno.getByRole('radio', { name: 'Mluvili jsme – co klient chce' }).click();
     const zapsat = okno.getByRole('button', { name: 'Zapsat hovor' });
     const hvezdaBox = okno.locator('.dovolani-hvezda input');
@@ -1950,7 +1970,7 @@ await blok050('O060 volani', async () => {
 // callers don't need to see the [flag]“. Každý blok ve vlastní stránce (vlastní mock v paměti).
 const SIRKY_061 = [[1920, 1080], [1440, 900], [1280, 900], [1024, 768], [768, 1024], [390, 844], [360, 780]];
 const STRANKY_061 = [['Označené', '#/oznacene'], ['Moji klienti', '#/moji'], ['Kontakty', '#/admin']];
-const VOLBY_061 = ['Nedovolal/a jsem se', 'Nechce web', 'Nechce, abychom ho kontaktovali', 'Mluvili jsme – co klient chce', 'Nic z toho výše'];
+// ⚠ migrace 062: okno má šest výsledků (VOLBY_062 nahoře), NAHRAZUJE VOLBY_061 s pěti
 const POVINNA_061 = ['Mluvili jsme – co klient chce', 'Nic z toho výše'];
 
 /** Bez posunu do strany (běží ve stránce): stránka, rámeček seznamu a každá buňka, tlačítko, odkaz a odznak řádků v rámečku. */
@@ -1987,6 +2007,8 @@ function zmer061() {
     }
     akce.push({
       text: r.innerText.replace(/\s+/g, ' ').trim().slice(0, 60),
+      // migrace 062: stav řádku (popisek) kvůli „Zavolal/a jsem“ u řádku jen s příznakem
+      stav: r.querySelector('.status-badge')?.textContent?.trim() ?? '',
       oznaceni: !!r.querySelector('.oznaceni-badge'),
       zavolal: !!r.querySelector('.oznacene-akce .zavolal-btn'),
       vyreseno: !!r.querySelector('.oznacene-akce .vyreseno-btn'),
@@ -2013,7 +2035,10 @@ for (const kdo of ['petra', 'mikulas', 'admin']) {
         if (hash === '#/oznacene') {
           const superAdmin = kdo !== 'petra';
           for (const a of m.akce) {
-            if (a.oznaceni !== a.zavolal) spatne.push(`${w} px: „${a.text}“ ${a.oznaceni ? 'bez' : 'navíc s'} „Zavolal/a jsem“`);
+            // ⚠ migrace 062: řádek jen s příznakem má „Zavolal/a jsem“, když ho přihlášený smí zapsat (dovolatSmi), nikdy ve
+            // stavech DOVOLANI_NE; NAHRAZUJE „Zavolal/a jsem přesně u označení“
+            if (a.oznaceni && !a.zavolal) spatne.push(`${w} px: „${a.text}“ bez „Zavolal/a jsem“`);
+            if (!a.oznaceni && a.zavolal && BEZ_DOVOLANI_062.includes(a.stav)) spatne.push(`${w} px: „${a.text}“ (${a.stav}) navíc s „Zavolal/a jsem“`);
             if (a.zrusit !== (superAdmin && a.oznaceni)) spatne.push(`${w} px: „${a.text}“ ${a.zrusit ? 'navíc s' : 'bez'} „Zrušit označení“`);
           }
           if (kdo === 'petra' && !m.akce.some((a) => /Vzorová/.test(a.text) && a.vyreseno)) spatne.push(`${w} px: řádek 302 (Vzorová) bez „Vyřešeno“`);
@@ -2048,8 +2073,9 @@ for (const [w, h, odkud] of [[360, 640, 'řádek'], [390, 844, 'řádek'], [1280
     const predVyberem = (await okno.locator('label[for="dovolani-text"]').isVisible()) && (await okno.locator('#dovolani-text').isVisible())
       && /^Poznámka pro automatizaci$/.test(txt(await okno.locator('label[for="dovolani-text"]').innerText()));
     const spatne = [];
-    for (const v of VOLBY_061) {
-      await okno.getByRole('radio', { name: v }).click();
+    for (const v of VOLBY_062) {
+      // exact: jinak „Chce web“ najde i „Nechce web“ (Playwright hledá název jako podřetězec)
+      await okno.getByRole('radio', { name: v, exact: true }).click();
       await page.waitForTimeout(60);
       await okno.locator('.dovolani-volby button').first().scrollIntoViewIfNeeded();
       const m = await page.evaluate(() => {
@@ -2084,7 +2110,7 @@ for (const [w, h, odkud] of [[360, 640, 'řádek'], [390, 844, 'řádek'], [1280
     const moc = await okno.locator('#dovolani-text-pocet').evaluate((e) => e.classList.contains('moc'));
     const vypnuto = await okno.getByRole('button', { name: 'Zapsat hovor' }).isDisabled();
     over(id, predVyberem && spatne.length === 0 && pocet === '500 / 450' && moc && vypnuto,
-      'okno: poznámka vidět už před výběrem, pět výsledků bez přesahu a posunu, tlačítka vždy vidět, nic nezakrývá volby, povinná jen u Mluvili jsme a Nic z toho výše, 500 znaků u Nechce web nejde zapsat',
+      'okno: poznámka vidět už před výběrem, šest výsledků bez přesahu a posunu, tlačítka vždy vidět, nic nezakrývá volby, povinná jen u Mluvili jsme a Nic z toho výše, 500 znaků u Nechce web nejde zapsat',
       `${spatne.slice(0, 3).join(' | ')}${predVyberem ? '' : ' | pole poznámky není vidět před výběrem'} | ${pocet} moc=${moc} vypnuto=${vypnuto}`);
     await ctx.close();
   });
@@ -2290,6 +2316,331 @@ await blok050('AU mikulas', async () => {
   await page.setViewportSize({ width: 1280, height: 900 });
   over('AU10c', spatne.length === 0 && (await page.locator('.ozn-odraz').count()) === 1,
     'super admin: označení 90 bez volajícího s příznakem Chybí e-mail má „e-mail se vrátil“, bez posunu do strany na 1920 až 360 px', spatne.slice(0, 4).join(' | '));
+  await ctx.close();
+});
+
+/* ============ 062 (Albert 2. 11. 2026): „Zavolal/a jsem“ i bez označení v Moji klienti, Kontaktech, detailu a kalendáři, šestý
+   výsledek „Chce web“, menu stavů v detailu ============ */
+// „I would like to have this also in my clients section … even if the client isn't marked yet and you call them again, you should
+// have like a I called them button … you can even add [it] to the contacts section“, A1 „Yes, you can add the sixth option“, A3
+// „if the client refuses the preview on the first call, I don't think we should be calling them again“ a o menu stavů „Limit it“.
+// Bez posunu do strany s novým tlačítkem měří O61a (tři seznamy, sedm šířek, Volající i super admini).
+/** Řádky seznamu: jméno, stav (popisek nebo skryto), označení, tlačítko, jeho text vidět, poloha vůči 2. řádku. */
+const radky062 = (page) => page.locator('table.kontakty tbody tr').evaluateAll((rs) => rs.map((r) => {
+  const tl = r.querySelector('td.radek-akce .zavolal-btn');
+  const bunky = [...r.children];
+  const druhy = bunky.find((td) => getComputedStyle(td).order === '2' && getComputedStyle(td).display !== 'none');
+  const t = tl?.getBoundingClientRect();
+  const text = tl?.querySelector('.zavolal-text');
+  return {
+    jmeno: (r.querySelector('td.row-name')?.textContent ?? '').replace(/\s+/g, ' ').trim(),
+    stav: r.querySelector('.status-badge')?.textContent?.trim() ?? '',
+    skryto: !!r.querySelector('.skryto'),
+    oznaceni: !!r.querySelector('.oznaceni-badge'),
+    tlacitko: !!tl,
+    textVidet: !!text && getComputedStyle(text).display !== 'none',
+    nazev: tl ? `${tl.getAttribute('aria-label')}|${tl.getAttribute('title')}` : '',
+    // 1. řádek: tlačítko nad první buňkou 2. řádku (stav, údaje)
+    prvniRadek: !tl || !druhy || t.bottom <= druhy.getBoundingClientRect().top + 0.5,
+  };
+}));
+
+// O62a: tlačítko jen tam, kde ho přihlášený smí zapsat (dovolatSmi), v 1. řádku, na telefonu jen ikona s názvem v aria-label
+for (const kdo of ['petra', 'admin']) {
+  for (const [w, h] of [[1280, 900], [360, 780]]) {
+    await blok050(`O062a ${kdo} ${w}`, async () => {
+      const { ctx, page } = await novaStranka(kdo, { sirka: w, vyska: h });
+      for (const [nazev, hash] of [['Moji klienti', '#/moji'], ['Kontakty', '#/admin']]) {
+        await jdi(page, hash, 700);
+        const rs = await radky062(page);
+        const spatne = [];
+        for (const r of rs) {
+          // Volající u svých řádků a Albert všude smí upravit: tlačítko u označení, jinak mimo DOVOLANI_NE; cizí kontakt nikdy
+          const cekam = !r.skryto && (r.oznaceni || (!!r.stav && !BEZ_DOVOLANI_062.includes(r.stav)));
+          if (r.tlacitko !== cekam) spatne.push(`${r.jmeno.slice(0, 28)} (${r.stav || 'skryto'}) ${r.tlacitko ? 'navíc s' : 'bez'} tlačítkem`);
+          if (r.tlacitko && !r.prvniRadek) spatne.push(`${r.jmeno.slice(0, 28)}: tlačítko není v 1. řádku`);
+          if (r.tlacitko && r.textVidet !== (w > 640)) spatne.push(`${r.jmeno.slice(0, 28)}: text tlačítka ${r.textVidet ? 'vidět' : 'schovaný'} na ${w} px`);
+          if (r.tlacitko && r.nazev !== 'Zavolal/a jsem|Zavolal/a jsem: zapiš, jak hovor dopadl') spatne.push(`${r.jmeno.slice(0, 28)}: název ${r.nazev}`);
+        }
+        const s = rs.filter((r) => r.tlacitko).length;
+        // Albert v Moji klienti žádné klienty nemá (jako O61a); jinde musí být řádky s tlačítkem i bez něj, jinak se nic nezměřilo
+        if (!(kdo === 'admin' && hash === '#/moji') && (s === 0 || s === rs.length)) spatne.push(`tlačítko u ${s} z ${rs.length} řádků (čekám jen u některých)`);
+        over(`O62a ${kdo} ${nazev} ${w}`, spatne.length === 0,
+          `${nazev} (${kdo}, ${w} px): „Zavolal/a jsem“ jen u řádků, kde ho smí zapsat (označení, nebo stav mimo frontu, Nekontaktovat, Nerelevantní, Odmítnuto a nabídnutou slevu; cizí kontakt nikdy), v 1. řádku, na telefonu jen ikona`,
+          spatne.slice(0, 4).join(' | '));
+      }
+      await ctx.close();
+    });
+  }
+}
+
+// O62b: Moji klienti → klient bez označení (95): okno bez označení, šest výsledků, Chce web bez poznámky, detail se neotevře
+await blok050('O062b petra', async () => {
+  const { ctx, page } = await novaStranka('petra');
+  await jdi(page, '#/moji', 700);
+  const s0 = await stav(page);
+  const r95 = page.locator('table.kontakty tbody tr', { hasText: 'Chalupa Pod Skálou' }).first();
+  await r95.locator('button.zavolal-btn').click();
+  const okno = page.locator('.dovolani-okno');
+  await okno.waitFor(KRATKE);
+  const volby = (await okno.locator('.dovolani-volby button').allInnerTexts()).map(txt);
+  const telo = txt(await okno.innerText());
+  await okno.getByRole('radio', { name: 'Chce web', exact: true }).click();
+  const co = txt(await okno.locator('.dovolani-co').innerText());
+  const zapsat = okno.getByRole('button', { name: 'Zapsat hovor' });
+  const lzeBezPoznamky = !(await zapsat.isDisabled());
+  const stitek = txt(await okno.locator('label[for="dovolani-text"]').innerText());
+  over('O62b1', JSON.stringify(volby) === JSON.stringify(VOLBY_062) && telo.includes('Klient není v Označených: zapíše se další hovor, ve statistikách nový hovor není.')
+    && !/Lhůta na zavolání|Neodpověděl na/.test(telo) && co === 'Klient web chce: automatizace mu pošle e-mail s odkazem a domluví zbytek (hosting, faktura).'
+    && lzeBezPoznamky && /\(nepovinná\)/.test(stitek) && (await page.locator('.drawer').count()) === 0,
+    'okno u klienta bez označení: šest výsledků, neutrální věta nahoře, bez lhůty a kategorie, Chce web bez poznámky, detail se neotevřel',
+    `${volby.join(' | ')} || ${co} || ${telo.slice(0, 120)}`);
+  // klik na pozadí okna zavře okno a detail neotevře (okno je přes createPortal, klik nesmí doputovat k řádku)
+  await page.mouse.click(5, 5);
+  await page.waitForTimeout(200);
+  const poPozadi = (await page.locator('.dovolani-okno').count()) === 0 && (await page.locator('.drawer').count()) === 0;
+  await r95.locator('button.zavolal-btn').click();
+  await okno.waitFor(KRATKE);
+  await okno.getByRole('radio', { name: 'Chce web', exact: true }).click();
+  await zapsat.click();
+  await klid(page, 700);
+  const v = (await volani(page)).filter((x) => x.fn === 'zapisHovor').pop();
+  const s1 = await stav(page);
+  const info = txt(await page.locator('.dovolani-info').innerText().catch(() => ''));
+  over('O62b2', poPozadi && JSON.stringify(v?.args.slice(0, 4)) === JSON.stringify([95, 'chce_web', null, null]) && v?.ok === true
+    && /^Hovor s klientem Chalupa Pod Skálou.* je zapsaný: chce web\. Zapsáno jako další hovor bez označení\.$/.test(info)
+    && s1.kontakty.find((k) => k.id === 95)?.status === s0.kontakty.find((k) => k.id === 95)?.status && s1.callLog.length === s0.callLog.length
+    && s1.zpravy.some((m) => m.sender_type === 'admin' && m.body === 'Dovolání (Petra): Chce web') && (await page.locator('.drawer').count()) === 0,
+    'Chce web bez označení: zapis_hovor (95, chce_web, bez poznámky), věta „Zapsáno jako další hovor bez označení.“, stav ani call_log beze změny, vzkaz agentovi, detail zavřený',
+    JSON.stringify({ args: v?.args, info, poPozadi }));
+  await ctx.close();
+});
+
+// O62c: odmítnutí vypnuté s důvodem (po prodeji, Eskalace u Volajícího, sdílený klient, kterého vede kolega); jinde zapnuté
+await blok050('O062c petra', async () => {
+  const { ctx, page } = await novaStranka('petra');
+  await jdi(page, '#/moji', 700);
+  const okno = page.locator('.dovolani-okno');
+  const zmer = async (jmeno) => {
+    await page.locator('table.kontakty tbody tr', { hasText: jmeno }).first().locator('button.zavolal-btn').click();
+    await okno.waitFor(KRATKE);
+    const vyp = await okno.locator('.dovolani-volby button').evaluateAll((bs) => bs.filter((b) => b.disabled).map((b) => b.textContent.trim()));
+    const duvod = txt(await okno.locator('.dovolani-nejde').innerText().catch(() => ''));
+    await okno.getByRole('button', { name: 'Zpět' }).click();
+    await page.waitForTimeout(120);
+    return { vyp, duvod };
+  };
+  const ODM = ['Nechce web', 'Nechce, abychom ho kontaktovali'];
+  const prodej = await zmer('Chalupa Na Vršku');
+  const esk = await zmer('Chata Jizerky');
+  const kolega = await zmer('Chata Na Samotě');
+  const svuj = await zmer('Chalupa Pod Skálou');
+  over('O62c', JSON.stringify(prodej.vyp) === JSON.stringify(ODM) && /^Klient už web objednal \(stav Schváleno\): odmítnutí tady zapsat nejde\./.test(prodej.duvod)
+    && JSON.stringify(esk.vyp) === JSON.stringify(ODM) && /^Klient je ve stavu Eskalace, o dalším kroku rozhodne Albert nebo super admin;/.test(esk.duvod)
+    && JSON.stringify(kolega.vyp) === JSON.stringify(ODM) && /^Odmítnutí zapisuje volající, který klienta vede,/.test(kolega.duvod)
+    && svuj.vyp.length === 0 && svuj.duvod === '' && (await page.locator('.drawer').count()) === 0,
+    'odmítnutí vypnutá s důvodem: po prodeji (20), Eskalace (9), sdílený klient Honzův (96); u vlastního klienta (95) zapnutá',
+    JSON.stringify({ prodej, esk, kolega, svuj }));
+  await ctx.close();
+});
+
+// O62d: detail klienta bez označení (95) má tlačítko v přehledu, s označením (94) jen tlačítko u označení; zápis z detailu
+await blok050('O062d petra', async () => {
+  const { ctx, page } = await novaStranka('petra');
+  await jdi(page, '#/moji', 700);
+  await page.locator('table.kontakty tbody tr', { hasText: 'Roubenka Na Kopci' }).first().locator('td.row-name').click();
+  await klid(page, 500);
+  const panel = page.locator('.drawer .prehled-panel');
+  const s94 = { tlacitek: await panel.locator('button.zavolal-btn').count(), bez: await panel.locator('.prehled-dovolani').count() };
+  await page.locator('.drawer-close').click();
+  await klid(page, 300);
+  await page.locator('table.kontakty tbody tr', { hasText: 'Chalupa Pod Skálou' }).first().locator('td.row-name').click();
+  await klid(page, 500);
+  const radek = txt(await panel.locator('.prehled-dovolani').innerText().catch(() => ''));
+  await panel.locator('.prehled-dovolani button.zavolal-btn').click();
+  const okno = page.locator('.dovolani-okno');
+  await okno.waitFor(KRATKE);
+  const telo = txt(await okno.innerText());
+  await okno.getByRole('radio', { name: 'Nedovolal/a jsem se' }).click();
+  const co = txt(await okno.locator('.dovolani-co').innerText());
+  await okno.getByRole('button', { name: 'Zapsat hovor' }).click();
+  await klid(page, 700);
+  const v = (await volani(page)).filter((x) => x.fn === 'zapisHovor').pop();
+  over('O62d', s94.tlacitek === 1 && s94.bez === 0 && /^Klient není v Označených\./.test(radek) && telo.includes('Klient není v Označených: zapíše se další hovor')
+    && co === 'Zapíše se pokus, u klienta se nic nemění.' && JSON.stringify(v?.args.slice(0, 2)) === JSON.stringify([95, 'nedovolano'])
+    && (await page.locator('.drawer').count()) === 0 && /je zapsaný: nedovolal\/a jsem se\./.test(await page.locator('.dovolani-info').innerText()),
+    'detail: s označením jen tlačítko u označení (94), bez označení řádek „Klient není v Označených.“ s tlačítkem (95); zápis detail zavře a řekne, co se zapsalo',
+    JSON.stringify({ s94, radek, co, args: v?.args }));
+  await ctx.close();
+});
+
+// O62e: Kontakty Volajícího: cizí kontakt (skryto) tlačítko nemá, vlastní řádek ano; klepnutí na řádek dál otevře detail
+await blok050('O062e petra', async () => {
+  const { ctx, page } = await novaStranka('petra');
+  await jdi(page, '#/admin', 700);
+  const rs = await radky062(page);
+  const cizi = rs.filter((r) => r.skryto);
+  const r95 = rs.find((r) => /Chalupa Pod Skálou/.test(r.jmeno));
+  await page.locator('table.kontakty tbody tr', { hasText: 'Chalupa Pod Skálou' }).first().locator('td.row-name').click();
+  await klid(page, 500);
+  over('O62e', cizi.length > 0 && cizi.every((r) => !r.tlacitko) && r95?.tlacitko === true && (await page.locator('.drawer').count()) === 1
+    && (await page.locator('.dovolani-okno').count()) === 0,
+    'Kontakty (Petra): cizí kontakty bez tlačítka, vlastní klient 95 s ním; klepnutí na jméno otevře detail, ne okno',
+    `${cizi.length} cizích, 95 ${r95?.tlacitko}`);
+  await ctx.close();
+});
+
+// O62f: super admin (Mikuláš) má tlačítko jen u klientů, které smí upravit, a u označení: Petřin 95 ne, jeho 97 ano, 98 (sleva) ne
+await blok050('O062f mikulas', async () => {
+  const { ctx, page } = await novaStranka('mikulas');
+  await jdi(page, '#/admin', 700);
+  const rs = await radky062(page);
+  const r = (re) => rs.find((x) => re.test(x.jmeno));
+  over('O62f', r(/Chalupa Pod Skálou/)?.tlacitko === false && r(/Chalupa Za Humny/)?.tlacitko === true && r(/Chata Bez Zájmu/)?.tlacitko === false
+    && r(/Roubenka Na Kopci/)?.tlacitko === true,
+    'super admin: bez označení jen u klienta, kterého smí upravit (Petřin 95 ne, jeho nabídnutá sleva 98 ne), u označení vždy (97, 94)',
+    JSON.stringify(['Skálou', 'Humny', 'Zájmu', 'Kopci'].map((j) => [j, rs.find((x) => x.jmeno.includes(j))?.tlacitko])));
+  await ctx.close();
+});
+
+// O62g: kalendář: Hotovo u klienta mimo frontu (9) otevře okno Zavolal/a jsem a hovor uzavře; klient ve frontě (10) dál Zavolat teď
+await blok050('O062g petra', async () => {
+  const { ctx, page } = await novaStranka('petra');
+  await jdi(page, '#/kalendar', 700);
+  const s0 = await stav(page);
+  const z9 = s0.zavolat.find((z) => z.kontakt_id === 9 && z.stav === 'ceka');
+  const p9 = page.locator(`.zavolat-polozka[data-zavolat-id="${z9?.id}"]`);
+  const z10 = s0.zavolat.find((z) => z.kontakt_id === 10 && z.stav === 'ceka');
+  const p10 = page.locator(`.zavolat-polozka[data-zavolat-id="${z10?.id}"]`);
+  const fronta = { teď: await p10.getByRole('button', { name: 'Zavolat teď' }).count(), hotovo: await p10.getByRole('button', { name: 'Hotovo' }).count() };
+  await p9.getByRole('button', { name: 'Hotovo' }).click();
+  const okno = page.locator('.dovolani-okno');
+  await okno.waitFor(KRATKE);
+  const confirm = await page.locator('.modal', { hasText: 'Hovor je hotový?' }).count();
+  await okno.getByRole('radio', { name: 'Mluvili jsme – co klient chce' }).click();
+  await okno.locator('#dovolani-text').fill('chce přidat ceník na zimu');
+  await okno.getByRole('button', { name: 'Zapsat hovor' }).click();
+  await klid(page, 900);
+  const s1 = await stav(page);
+  const z9po = s1.zavolat.find((z) => z.id === z9?.id);
+  const v = (await volani(page)).filter((x) => x.fn === 'zapisHovor').pop();
+  over('O62g', !!z9 && !!z10 && fronta.teď === 1 && fronta.hotovo === 0 && confirm === 0 && JSON.stringify(v?.args.slice(0, 3)) === JSON.stringify([9, 'mluvili', 'chce přidat ceník na zimu'])
+    && z9po?.stav === 'hotovo' && /^dovolání: mluvili/.test(z9po?.vysledek ?? '') && (await page.locator(`.zavolat-polozka[data-zavolat-id="${z9?.id}"] button`, { hasText: 'Hotovo' }).count()) === 0
+    && /je zapsaný: mluvili jsme – co klient chce\./.test(await page.locator('.dovolani-info').innerText()),
+    'kalendář: Hotovo u klienta mimo frontu otevře okno Zavolal/a jsem (ne „Hovor je hotový?“), zapíše dovolání a hovor uzavře; klient ve frontě má dál Zavolat teď',
+    JSON.stringify({ fronta, confirm, args: v?.args, z9po }));
+  await ctx.close();
+});
+
+// O62h: menu stavů a plánování v detailu (D19): bez Nabídnuté slevy, Ozve se později a Archiv jen s návrhem, u Odmítnuto bez plánování
+await blok050('O062h petra', async () => {
+  const { ctx, page } = await novaStranka('petra');
+  await jdi(page, '#/moji', 700);
+  const otevri = async (jmeno) => {
+    if (await page.locator('.drawer-close').count()) {
+      await page.locator('.drawer-close').click();
+      await klid(page, 250);
+    }
+    await page.locator('table.kontakty tbody tr', { hasText: jmeno }).first().locator('td.row-name').click();
+    await klid(page, 500);
+  };
+  const volbyStavu = () => page.locator('.drawer .field:has(> label:text-is("Status")) > select option').allTextContents();
+  await otevri('Chalupa Pod Skálou');
+  const s95 = await volbyStavu();
+  const naplan95 = await page.locator('.drawer button.zavolat-naplanovat').count();
+  await page.locator('.drawer .field:has(> label:text-is("Status")) > select').selectOption('odmitnuto');
+  const rusi = txt(await page.locator('.drawer .duvod-stavu-hovory').innerText().catch(() => ''));
+  const pozn = txt(await page.locator('.drawer .poznamka-automatizace').innerText().catch(() => ''));
+  await otevri('Roubenka U Lesa');
+  const s2 = await volbyStavu();
+  await otevri('Apartmány Krkonoše');
+  const naplan4 = await page.locator('.drawer button.zavolat-naplanovat').count();
+  over('O62h', !s95.includes('Nabídnuta sleva') && s95.includes('Ozve se později') && s95.includes('Archiv – neodpověděl') && naplan95 === 1
+    && rusi === 'Naplánované hovory klienta se tím zruší.' && pozn === 'Nové řádky, které do poznámky připíšeš, dostane po uložení automatizace jako vzkaz agentovi.'
+    && !s2.includes('Ozve se později') && !s2.includes('Archiv – neodpověděl') && !s2.includes('Nabídnuta sleva') && s2.includes('Nedovoláno')
+    && naplan4 === 0 && !(await volani(page)).some((v) => v.fn === 'updateKontakt'),
+    'detail: menu bez Nabídnuté slevy; Ozve se později a Archiv jen s návrhem (95 ano, 2 ve frontě ne); změna na Odmítnuto řekne, že se hovory zruší; u Odmítnuto (4) Naplánovat hovor není; poznámka říká, že ji automatizace dostane',
+    JSON.stringify({ s95: s95.length, s2: s2.length, naplan95, naplan4, rusi, pozn }));
+  await ctx.close();
+});
+
+// O62i: Hotovo u klienta mimo frontu, kterému přihlášený dovolání zapsat nesmí (Mikuláš v Petřině kalendáři u klienta 9 pod
+// Albertem, smi_upravit false): okno „Hovor je hotový?“ s textem jako dřív (zavolat_hotovo), žádné okno Zavolal/a jsem
+await blok050('O062i mikulas', async () => {
+  const { ctx, page } = await novaStranka('mikulas');
+  await jdi(page, '#/kalendar', 700);
+  await page.selectOption('#kalendar-kdo', String(UID.petra));
+  await klid(page, 500);
+  const z9 = (await stav(page)).zavolat.find((z) => z.kontakt_id === 9 && z.stav === 'ceka');
+  await page.locator(`.zavolat-polozka[data-zavolat-id="${z9?.id}"]`).getByRole('button', { name: 'Hotovo' }).click(KRATKE);
+  const okno = page.locator('.modal', { hasText: 'Hovor je hotový?' });
+  await okno.waitFor(KRATKE);
+  const dovolani = await page.locator('.dovolani-okno').count();
+  await page.locator('#zavolat-vysledek').fill('domluveno, zaplatí do pátku');
+  await okno.getByRole('button', { name: 'Hotovo' }).click();
+  await klid(page, 500);
+  const h9 = (await volani(page)).find((v) => v.fn === 'zavolatHotovo' && v.ok);
+  over('O62i', !!z9 && dovolani === 0 && (await stav(page)).zavolat.find((z) => z.id === z9?.id)?.stav === 'hotovo' && h9?.args[1] === 'domluveno, zaplatí do pátku'
+    && !(await volani(page)).some((v) => v.fn === 'zapisHovor'),
+    'Hotovo u klienta, kterému dovolání zapsat nejde: okno „Hovor je hotový?“ s výsledkem jako dřív (zavolat_hotovo), bez okna Zavolal/a jsem', JSON.stringify(h9?.args));
+  await ctx.close();
+});
+
+// ⚠ 3. 11. 2026 (ověření 062, appka FIX 1 a 2): kalendář (app_zavolat_ven) klíče ozn_* neposílá; Hotovo si napřed přečte
+// označení z přehledu klienta. O62j: Petřin označený klient 93 (návrh) dostane okno S OZNAČENÍM (kategorie a věty o označení,
+// ne neutrální věta), zápis označení uzavře. O62k: Mikulášova kampaňová chata 97 s označením (Nabídnuta sleva) dostane okno
+// Zavolal/a jsem, ne „Hovor je hotový?“ s volným textem bez dovolání.
+const naplanujVDetailu = async (page, jmeno, minut) => {
+  await jdi(page, '#/moji', 600);
+  if (await page.locator('.drawer-close').count()) await page.locator('.drawer-close').click();
+  await page.locator('table.kontakty tbody tr', { hasText: jmeno }).first().locator('td.row-name').click(KRATKE);
+  await klid(page, 500);
+  await page.locator('.drawer').getByRole('button', { name: /Naplánovat hovor|Přesunout hovor/ }).click(KRATKE);
+  const kdy = Date.now() + minut * 60 * 1000;
+  await page.fill('#zavolat-den', denP(kdy));
+  await page.fill('#zavolat-cas', casP(kdy));
+  await page.locator('.modal').getByRole('button', { name: /^(Naplánovat|Přesunout)$/ }).click();
+  await klid(page, 600);
+};
+await blok050('O062j petra', async () => {
+  const { ctx, page } = await novaStranka('petra');
+  await naplanujVDetailu(page, 'Chata U Rybníka', 60);
+  await jdi(page, '#/kalendar', 700);
+  const z93 = (await stav(page)).zavolat.find((z) => z.kontakt_id === 93 && z.stav === 'ceka');
+  await page.locator(`.zavolat-polozka[data-zavolat-id="${z93?.id}"]`).getByRole('button', { name: 'Hotovo' }).click(KRATKE);
+  const okno = page.locator('.dovolani-okno');
+  await okno.waitFor(KRATKE);
+  const text = txt(await okno.innerText());
+  const stary = await page.locator('.modal', { hasText: 'Hovor je hotový?' }).count();
+  await okno.getByRole('radio', { name: 'Mluvili jsme – co klient chce' }).click();
+  const text2 = txt(await okno.innerText());
+  await okno.locator('#dovolani-text').fill('podívá se večer s manželkou');
+  await okno.getByRole('button', { name: 'Zapsat hovor' }).click();
+  await klid(page, 900);
+  const v = (await volani(page)).filter((x) => x.fn === 'zapisHovor').pop();
+  const s1 = await stav(page);
+  const o93 = s1.oznaceni.filter((o) => o.kontakt_id === 93).pop();
+  over('O62j', !!z93 && stary === 0 && text.includes('Neodpověděl na návrh.') && !text.includes('Klient není v Označených')
+    && /Označení se uzavře/.test(text2)
+    && JSON.stringify(v?.args.slice(0, 3)) === JSON.stringify([93, 'mluvili', 'podívá se večer s manželkou']) && v?.ok === true
+    && o93?.uzavreno_duvod === 'hovor' && o93?.vysledek === 'mluvili' && s1.zavolat.find((z) => z.id === z93?.id)?.stav === 'hotovo',
+    'kalendář: Hotovo u označeného klienta otevře okno s označením (kategorie, věty o označení, ne neutrální věta) a zápis označení uzavře',
+    JSON.stringify({ z93: z93?.id, stary, text: text.slice(0, 160), o93 }));
+  await ctx.close();
+});
+await blok050('O062k mikulas', async () => {
+  const { ctx, page } = await novaStranka('mikulas');
+  await naplanujVDetailu(page, 'Chalupa Za Humny', 60);
+  await jdi(page, '#/kalendar', 700);
+  const z97 = (await stav(page)).zavolat.find((z) => z.kontakt_id === 97 && z.stav === 'ceka');
+  await page.locator(`.zavolat-polozka[data-zavolat-id="${z97?.id}"]`).getByRole('button', { name: 'Hotovo' }).click(KRATKE);
+  await klid(page, 600);
+  const okno = await page.locator('.dovolani-okno').count();
+  const stary = await page.locator('.modal', { hasText: 'Hovor je hotový?' }).count();
+  const prehled = (await volani(page)).some((x) => x.fn === 'kontaktPrehled' && x.args[0] === 97);
+  over('O62k', !!z97 && okno === 1 && stary === 0 && prehled,
+    'kalendář: Hotovo u kampaňové chaty s označením (Nabídnuta sleva) otevře okno Zavolal/a jsem, ne „Hovor je hotový?“',
+    JSON.stringify({ z97: z97?.id, okno, stary, prehled }));
   await ctx.close();
 });
 

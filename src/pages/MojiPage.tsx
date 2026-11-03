@@ -30,6 +30,11 @@
 // NAHRAZUJE „filtry a řazení jen super admin“ (27. 10. 2026) i „Volající: jen klientské hledání v načtených řádcích“: sdílený
 // řádek filtrů (SeznamFiltry, jako Kontakty a Označené) má každý; server je bere jen nad klienty vybraného člověka (Volající
 // jen svými, jen jeho označení k zavolání). Počty u stavů dál jen super admin. Nový sloupec Mlčí a hvězda u jména.
+// Migrace 062 (Albert 2. 11. 2026: „I would like to have this also in my clients section … even if the client isn't marked
+// yet and you call them again, you should have like a I called them button“): v 1. řádku za telefonem „Zavolal/a jsem“
+// (DovolaniTlacitko, okno DovolaniOkno se šesti výsledky), na telefonu jen ikona; jen u klienta, kterému ho přihlášený smí
+// zapsat (dovolatSmi: ne ve frontě volání, u Nekontaktovat, Nerelevantní, Odmítnuto ani u nabídnuté slevy bez označení).
+// Řádek se tím nikam neposouvá do strany (360 až 1920 px, e2e O61a a O62). Po zápisu se seznam načte znovu.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -41,6 +46,7 @@ import {
 } from '../api';
 import { audio } from '../audio';
 import { useSession } from '../auth';
+import DovolaniTlacitko from '../components/DovolaniTlacitko';
 import { HvezdaPrepinac } from '../components/Hvezda';
 import KontaktDrawer from '../components/KontaktDrawer';
 import PersonPicker, { usePeople } from '../components/PersonPicker';
@@ -260,7 +266,8 @@ export default function MojiPage() {
     // úprava může kontakt posunout v řazení nebo ho vyřadit z filtru (056, od 060 i u Volajícího), načíst znovu
     setTick((t) => t + 1);
   };
-  // migrace 060: zápis hovoru s označeným klientem v přehledu: detail zavřít (stav i poznámku změnil server), načíst znovu
+  // migrace 060: zápis hovoru s označeným klientem v přehledu: detail zavřít (stav i poznámku změnil server), načíst znovu;
+  // od migrace 062 i „Zavolal/a jsem“ v řádku a v detailu klienta bez označení
   const [info, setInfo] = useState('');
   const onDovolano = (veta: string) => {
     setSelected(null);
@@ -354,7 +361,8 @@ export default function MojiPage() {
       )}
 
       <ErrorBox>{error}</ErrorBox>
-      {info && <div className="info-box dovolani-info">{info}</div>}
+      {/* migrace 062: věta po zápisu hovoru v živé oblasti (čtečka ji přečte, jako Označené) */}
+      <div role="status">{info && <div className="info-box dovolani-info">{info}</div>}</div>
       {!loading && total > rows.length && (
         <p className="muted" style={{ margin: '0 0 10px' }}>
           Zobrazeno {rows.length} z {total} ({poradiText}). Zbytek ukáže přesnější filtr nebo hledání.
@@ -383,6 +391,7 @@ export default function MojiPage() {
               <tr role="row">
                 <th role="columnheader">Jméno</th>
                 <th role="columnheader">Telefon</th>
+                <th role="columnheader">Akce</th>
                 <th role="columnheader">Status</th>
                 <th role="columnheader">Známka</th>
                 <th role="columnheader">Cena</th>
@@ -407,6 +416,10 @@ export default function MojiPage() {
                     <SegmentBadge kontakt={r} compact /> {kontaktJmeno(r)}
                   </td>
                   <td role="cell" className="kompakt-hlavni tel-cell">{r.phone || '—'}</td>
+                  {/* migrace 062: „Zavolal/a jsem“ v 1. řádku (jinak prázdná buňka, CSS ji schová); klik detail neotevře */}
+                  <td role="cell" className="kompakt-hlavni radek-akce">
+                    <DovolaniTlacitko kontakt={r} onDovolano={onDovolano} jenIkonaNaTelefonu />
+                  </td>
                   {/* 2. řádek: údaje s malým popiskem (data-label), zalomí se podle šířky */}
                   <td role="cell">
                     <StatusBadge status={r.status} />
