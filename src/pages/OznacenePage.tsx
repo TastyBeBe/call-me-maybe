@@ -13,7 +13,7 @@
 // U označení „Zavolal/a jsem“ (okno se čtyřmi výsledky a hvězdou, zapis_hovor) a lhůta na zavolání (ve stage 1 bez slibu
 // e-mailu); super admin a Albert i „Zrušit označení“ a výběr volajícího včetně „bez volajícího“. Server bez 060: jen příznaky
 // přes list_flagged a hláška BEZ_060_OZNACENE.
-// Migrace 061 (Albert 1. 11. 2026, druhá etapa: po lhůtě na zavolání pošle automatizace jednu připomínku e-mailem): pod lhůtou
+// Migrace 063 (Albert 1. 11. 2026, druhá etapa: po lhůtě na zavolání pošle automatizace jednu připomínku e-mailem): pod lhůtou
 // „Připomínka odeslána <den>“, když ji řádek nese (ozn_pripominka_at, jen u označení, které přihlášený vidí). Lhůta sama dál
 // „Lhůta na zavolání do …“: platí, ať je přepínač připomínek zapnutý, nebo ne.
 
@@ -323,7 +323,7 @@ export default function OznacenePage() {
                         <>
                           {lhutaText(r.ozn_lhuta_do)}
                           {r.ozn_pokusy ? <span className="muted"> · nedovoláno {r.ozn_pokusy}×</span> : null}
-                          {/* migrace 061: po lhůtě odešla připomínka e-mailem (jen u označení, které přihlášený vidí) */}
+                          {/* migrace 063: po lhůtě odešla připomínka e-mailem (jen u označení, které přihlášený vidí) */}
                           {r.ozn_pripominka_at ? <span className="pripominka-odeslana">{pripominkaOdeslanaText(r.ozn_pripominka_at)}</span> : null}
                         </>
                       ) : r.flagged_at ? (

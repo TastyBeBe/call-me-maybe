@@ -243,8 +243,8 @@ export interface Kontakt {
   ozn_volajici_id?: number | null;
   ozn_volajici?: string | null;
   /**
-   * jen list_oznacene, migrace 061 (Albert 1. 11. 2026, druhá etapa): kdy po lhůtě na zavolání ověřeně odešla připomínka
-   * e-mailem (oznaceni.pripominka_at otevřeného označení, které přihlášený vidí); null = ještě ne, server bez 061 klíč nepošle
+   * jen list_oznacene, migrace 063 (Albert 1. 11. 2026, druhá etapa): kdy po lhůtě na zavolání ověřeně odešla připomínka
+   * e-mailem (oznaceni.pripominka_at otevřeného označení, které přihlášený vidí); null = ještě ne, server bez 063 klíč nepošle
    */
   ozn_pripominka_at?: string | null;
   created_at: string;
@@ -527,7 +527,7 @@ export interface PrehledFakta {
   nabidka?: { odeslana_at: string; konci_dne: string | null; kampan: boolean; archiv_dne: string | null } | null;
   pripominka_kampane?: string | null;
   /**
-   * migrace 061 (Albert 1. 11. 2026, druhá etapa): kdy naposledy odešla připomínka po lhůtě na zavolání (nejnovější
+   * migrace 063 (Albert 1. 11. 2026, druhá etapa): kdy naposledy odešla připomínka po lhůtě na zavolání (nejnovější
    * oznaceni.pripominka_at z označení, která přihlášený vidí, i uzavřených: Volajícímu jen z jeho); null = žádná
    */
   pripominka_oznaceni?: string | null;

@@ -315,7 +315,7 @@ export function MlceniBunka({ kontakt }: { kontakt: Kontakt }) {
 }
 
 /**
- * hvezda_kdo hvězdy od automatizace (migrace 061, Albert 1. 11. 2026: hvězdu dává i automatizace, když zpráva klienta jasně
+ * hvezda_kdo hvězdy od automatizace (migrace 063, Albert 1. 11. 2026: hvězdu dává i automatizace, když zpráva klienta jasně
  * ukazuje velký zájem). Není to jméno kolegy, server ho nemaskuje; appka ho ukáže i s důvodem.
  */
 export const HVEZDA_AUTOMATIZACE = 'automatizace';
@@ -332,7 +332,7 @@ export function hvezdaPopis(k: Pick<Kontakt, 'hvezda_at' | 'hvezda_kdo' | 'hvezd
 }
 
 /**
- * Pod lhůtou v Označených (migrace 061, Albert 1. 11. 2026: po lhůtě na zavolání pošle automatizace jednu připomínku
+ * Pod lhůtou v Označených (migrace 063, Albert 1. 11. 2026: po lhůtě na zavolání pošle automatizace jednu připomínku
  * e-mailem): „Připomínka odeslána 18. 11. 2026“ z ozn_pripominka_at; bez připomínky prázdné.
  */
 export function pripominkaOdeslanaText(iso: string | null | undefined): string {

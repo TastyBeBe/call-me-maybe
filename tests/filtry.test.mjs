@@ -7,8 +7,8 @@
 // ⚠ Migrace 060 (Albert 1. 11. 2026: označení k zavolání, hvězda, stejné kombinovatelné filtry v Kontaktech, Moji klienti
 // i Označených, přehled klienta): blok O měří mock proti db/migration_060_oznaceni_hvezda.sql (test db/tests/test_060_oznaceni.sql),
 // co supabase.ts posílá a stránky; bloky R a U upravené (šest hodnot řazení, filtry Moji klienti pro každého).
-// Migrace 061 (Albert 1. 11. 2026, druhá etapa): blok P (hvězda od automatizace, odeslaná připomínka po lhůtě v Označených
-// a v přehledu) proti db/migration_061_oznaceni_etapa2.sql; v bloku O upravené O2, O3e a O3g (ukázková data druhé etapy).
+// Migrace 063 (Albert 1. 11. 2026, druhá etapa): blok P (hvězda od automatizace, odeslaná připomínka po lhůtě v Označených
+// a v přehledu) proti db/migration_063_oznaceni_etapa2.sql; v bloku O upravené O2, O3e a O3g (ukázková data druhé etapy).
 //
 // Měří DEMO mock (src/api/mock.ts), který musí zrcadlit server (db/migration_056_statistiky_den_filtry.sql, test
 // db/tests/test_056_statistiky_den_filtry.sql), a to, co src/api/supabase.ts posílá serveru (fetch je podstrčený, nic
@@ -473,7 +473,7 @@ await blok('O', async () => {
     94: ['zmeny', 2], 96: ['navrh', 3], 97: ['navrh', 4] };
   const o0 = otevrena();
   const ids0 = o0.map((o) => o.kontakt_id).sort((a, b) => a - b);
-  // ⚠ migrace 061 (ukázková data druhé etapy): 96 má označení už z doby před prvním během (před 16 dny, lhůta 5 pracovních
+  // ⚠ migrace 063 (ukázková data druhé etapy): 96 má označení už z doby před prvním během (před 16 dny, lhůta 5 pracovních
   // dní minula) s odeslanou připomínkou; první běh mu jen obnoví vlastníka. NAHRAZUJE „všechna z prvního běhu“.
   over('O2', JSON.stringify(ids0) === JSON.stringify(Object.keys(cekane).map(Number).sort((a, b) => a - b))
     && o0.every((o) => o.kategorie === cekane[o.kontakt_id][0] && o.volajici_id === cekane[o.kontakt_id][1] && o.pokusy === 0
@@ -514,7 +514,7 @@ await blok('O', async () => {
   over('O3d', stejne(await idsF(albert, { mlci_min: 5 }), mlciRadky(5, null)) && stejne(await idsF(albert, { mlci_min: 0, mlci_max: 3 }), mlciRadky(0, 3))
     && (await idsF(albert, { mlci_min: 0, mlci_max: 3 })).includes(95) && !(await idsF(albert, { mlci_min: 0 })).includes(1),
     'mlčení od a do včetně; nemlčící se zapnutou mezí nesedí');
-  // ⚠ migrace 061: 24 má hvězdu od automatizace (ukázková data druhé etapy); NAHRAZUJE „jen 93“
+  // ⚠ migrace 063: 24 má hvězdu od automatizace (ukázková data druhé etapy); NAHRAZUJE „jen 93“
   over('O3e', stejne(await idsF(albert, { jen_hvezda: true }), [24, 93]) && stejne(await idsF(albert, { jen_hvezda: true, kategorie: ['zmeny'] }), [])
     && stejne(await idsF(albert, { kategorie: ['navrh'], znamky: ['B'], segment: 'architekt' }), [303])
     && stejne(await idsF(albert, { jen_hvezda: false }), serazene(vsechny.map((r) => r.id))),
@@ -525,7 +525,7 @@ await blok('O', async () => {
   over('O3f', sMlcenim.length > 5 && mlc.slice(0, sMlcenim.length).every((r) => r.mlci_pd !== null) && sMlcenim.every((r, i) => i === 0 || sMlcenim[i - 1].mlci_pd >= r.mlci_pd),
     'řazení nejdéle bez odpovědi: mlčící od nejdelšího, nemlčící na konci');
   const hv = (await lk(albert, { razeni: 'hvezda' })).rows;
-  // ⚠ migrace 061: dvě hvězdy (93 od Petry, 24 od automatizace, nemlčí); NAHRAZUJE „93 jediná hvězda“
+  // ⚠ migrace 063: dvě hvězdy (93 od Petry, 24 od automatizace, nemlčí); NAHRAZUJE „93 jediná hvězda“
   over('O3g', hv[0]?.id === 93 && hv[1]?.id === 24 && hv.slice(2).every((r) => !r.hvezda_at), 'řazení hvězda nejdřív: 93 (mlčí nejdéle) a 24, pak bez hvězdy', hv.slice(0, 3).map((r) => r.id).join());
 
   // O4 Volající (Petra): nové filtry jen nad jejími klienty, jen její označení; cizí kontakt bez nových klíčů
@@ -805,8 +805,8 @@ await blok('O', async () => {
   over('O16f', !/zmiz\p{L}*\s+s[aá]m|zavol[aá]\s*$/iu.test(hint) && /starý příznak/i.test(hint), 'nápověda neodpovida nic neslibuje (hovor mimo frontu se dřív nedal zapsat)', hint);
 });
 
-/* ---------------- P) migrace 061: hvězda od automatizace, odeslaná připomínka po lhůtě (Albert 1. 11. 2026, druhá etapa) ---------------- */
-// Server: db/migration_061_oznaceni_etapa2.sql (test db/tests/test_061_oznaceni_etapa2.sql). Mock musí jako server: klíč
+/* ---------------- P) migrace 063: hvězda od automatizace, odeslaná připomínka po lhůtě (Albert 1. 11. 2026, druhá etapa) ---------------- */
+// Server: db/migration_063_oznaceni_etapa2.sql (test db/tests/test_063_oznaceni_etapa2.sql). Mock musí jako server: klíč
 // ozn_pripominka_at v Označených jen u označení, které přihlášený vidí (vlastník, jeho super admin, Albert; kolega u společného
 // klienta ne), fakta.pripominka_oznaceni v přehledu z označení, která přihlášený vidí (i uzavřených), hvězda od automatizace
 // bez masky (není to jméno kolegy) a služební pravidla (háček): hvězdu člověka nikdy nepřepíše, po vzetí člověkem od poslední

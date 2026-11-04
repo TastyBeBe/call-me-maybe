@@ -2,7 +2,7 @@
 // při prvním hovoru i kdykoli později všude, kde pracuje se svými klienty). Přepínač volá nastav_hvezdu hned, bez
 // „Uložit změny“; smí ten, kdo kontakt smí upravit (smi_upravit, jako obsah kontaktu), ostatní vidí jen odznak.
 // U cizího kontaktu Volajícího (skryto) a proti serveru bez 060 (klíč hvezda_at chybí) se neukáže nic.
-// Migrace 061 (Albert 1. 11. 2026, druhá etapa): hvězdu dává i automatizace (hvezda_kdo „automatizace“); title ukáže
+// Migrace 063 (Albert 1. 11. 2026, druhá etapa): hvězdu dává i automatizace (hvezda_kdo „automatizace“); title ukáže
 // „dala ji automatizace <den> · <důvod>“, velká varianta v detailu „Hvězda od automatizace“. Odebrat ji smí člověk jako
 // každou jinou; automatizace ji pak znovu nedá, dokud klient znovu nenapíše (server).
 
@@ -69,7 +69,7 @@ export function HvezdaPrepinac({
         onClick={(e) => void prepni(e)}
       >
         <HvezdaIcon size={velka ? 17 : 16} plna={ma} />
-        {/* migrace 061: hvězda od automatizace se v detailu jmenuje tak (kdo a proč je v title i v přehledu) */}
+        {/* migrace 063: hvězda od automatizace se v detailu jmenuje tak (kdo a proč je v title i v přehledu) */}
         {velka ? (ma ? (kontakt.hvezda_kdo === HVEZDA_AUTOMATIZACE ? ' Hvězda od automatizace' : ' Hvězda: velký zájem') : ' Dát hvězdu (velký zájem)') : null}
       </button>
       {chyba && (
