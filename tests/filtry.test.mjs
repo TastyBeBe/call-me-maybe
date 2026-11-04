@@ -1147,7 +1147,7 @@ await blok('P', async () => {
     && /hvezdaKdoText\(f\.hvezda\.kdo\)/.test(pp) && /HVEZDA_AUTOMATIZACE \? ' Hvězda od automatizace'/.test(hv),
     'Označené: „Připomínka odeslána“ pod lhůtou; přehled: řádek připomínky po lhůtě a kdo dal hvězdu; detail: „Hvězda od automatizace“');
 
-  // P7 den archivu v přehledu (Albert 4. 11. 2026, stavy_kontaktu.py, server test 63l): 97 je kampaňová chata Mikuláše
+  // P7 den archivu v přehledu (Albert 4. 11. 2026, stavy_kontaktu.py, server test 63k): 97 je kampaňová chata Mikuláše
   const arch97 = async () => (await api.kontaktPrehled(mikulas, 97)).fakta.nabidka?.archiv_dne;
   const k97z = () => stavP().kontakty.find((k) => k.id === 97);
   const zak97 = await arch97();
@@ -1169,8 +1169,16 @@ await blok('P', async () => {
   await api.updateKontakt(mikulas, 97, { rating: 'B' });
   over('P7c', sHvezdou === null && bezHvezdy === poHovoru && sA === null && (await arch97()) === poHovoru,
     'kdo do archivu nejde, den nemá: s hvězdou a se známkou A null, bez nich zase den', JSON.stringify([sHvezdou, bezHvezdy, sA]));
+  // ověření 4. 11. 2026 (stavy_kontaktu.py bod 6, server test 63k9): adresa společná s jiným kontaktem = tick nikdy, den není
+  await api.updateKontakt(albert, 97, { email: 'spolecna@example.cz' });
+  const bezKolegy = await arch97();
+  await api.updateKontakt(albert, 98, { email: ' Spolecna@Example.cz ' });
+  const sKolegou = await arch97();
+  await api.updateKontakt(albert, 98, { email: 'jina98@example.cz' });
+  over('P7d', bezKolegy === poHovoru && sKolegou === null && (await arch97()) === poHovoru,
+    'adresa společná s jiným kontaktem: den archivu null, bez toho zase den', JSON.stringify([bezKolegy, sKolegou]));
 
-  // P8 text z Hotovo v kalendáři (audit F4, server test 63k): u klienta s nabídnutou slevou bez označení (98) jde do vlákna jako
+  // P8 text z Hotovo v kalendáři (audit F4, server test 63j): u klienta s nabídnutou slevou bez označení (98) jde do vlákna jako
   // zpráva člověka; bez textu a s „dovolání: …“ nic; kdo klienta upravit nesmí, jen uzavře hovor
   const zpr98 = () => {
     const s = stavP();

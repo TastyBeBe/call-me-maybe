@@ -3808,7 +3808,8 @@ const mockApiZaklad: Api = {
       // nabídka platí 14 dní. ⚠ Migrace 063 (Albert 4. 11. 2026: „the archiving is more so for like truly lost clients“)
       // NAHRAZUJE archiv 30 dní od pozdější z naší poslední zprávy a nabídky: den archivu (bez_odpovedi) jen když ho tick může
       // archivovat (nabídka v připomínce kampaně, stav sleva_nabidnuta, klient od návrhu nikdy nenapsal, bez hvězdy, známka ne
-      // A), 60 dní od nejpozdějšího z naší poslední zprávy, nabídky, úspěšného hovoru, hotového hovoru z kalendáře a zprávy
+      // A, adresa není společná s jiným kontaktem: ověření 4. 11. 2026, mock vede jen hlavní adresu, rezervační a ateliér ne), 60 dní
+      // od nejpozdějšího z naší poslední zprávy, nabídky, úspěšného hovoru, hotového hovoru z kalendáře a zprávy
       // člověka ve vláknech kontaktu (jako stavy_kontaktu.py)
       nabidka: sleva
         ? {
@@ -3818,6 +3819,7 @@ const mockApiZaklad: Api = {
             archiv_dne: kampan && c.status === 'sleva_nabidnuta' && !!c.first_proposal_at
               && (!c.last_client_reply_at || (casMs(c.last_client_reply_at) ?? 0) < (casMs(c.first_proposal_at) ?? 0))
               && !c.hvezda_at && c.rating !== 'A'
+              && !(c.email && kontakty.some((x) => x.id !== c.id && (x.email ?? '').trim().toLowerCase() === c.email!.trim().toLowerCase()))
               ? posunDen(denPraha(new Date(Math.max(casMs(c.last_our_reply_at) ?? 0, casMs(sleva.created_at) ?? 0,
                   ...(dovolaniUspesna.get(c.id) ?? []).map((t) => casMs(t) ?? 0),
                   ...zavolatRadky.filter((x) => x.kontakt_id === c.id && x.stav === 'hotovo').map((x) => casMs(x.uzavreno_at) ?? 0),

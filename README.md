@@ -473,7 +473,7 @@ v `config.env` (do té doby ostrá appka řádek „Připomínka odeslána“ ne
   z označení, která přihlášený vidí, i po archivu).
 - **Den archivu v přehledu** (Albert 4. 11. 2026: „the archiving is more so for like truly lost clients“; ⚠ NAHRAZUJE +30 dní):
   „bez odpovědi do archivu <den>“ jen u klienta, kterého tick opravdu může archivovat (nabídka v připomínce kampaně, stav Nabídnutá
-  sleva, od návrhu nikdy nenapsal, bez hvězdy a známky A), 60 dní od nejpozdějšího z naší poslední zprávy, nabídky, úspěšného hovoru,
+  sleva, od návrhu nikdy nenapsal, bez hvězdy a známky A, adresa ani ateliér nejsou společné s jiným kontaktem), 60 dní od nejpozdějšího z naší poslední zprávy, nabídky, úspěšného hovoru,
   hotového hovoru z kalendáře a zprávy člověka ve vláknech kontaktu; jinak se den neukáže (`fakta.nabidka.archiv_dne` null).
 - **Hotovo s textem v kalendáři** (audit F4; Albert 2. 11. 2026: „the automation actually reads it“): u klienta, kterému dovolání zapsat
   nejde (Nabídnutá sleva bez označení), jde text i do vlákna klienta jako zpráva člověka „Naplánovaný hovor hotový (jméno): text“, jen
