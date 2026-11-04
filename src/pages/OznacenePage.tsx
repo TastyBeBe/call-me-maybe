@@ -10,8 +10,8 @@
 // segment, stav, známka, hvězda, mlčení, řazení a hledání jdou na server). Druhy (Neodpověděl na návrh, na změny a druhy
 // příznaků) jsou pilulky s počty: server vrací všechny řádky bez stránkování, výběr druhů se proto dělá tady nad nimi (stejné
 // pravidlo jako p_druhy na serveru) a počty jsou přesné. Výchozí pořadí serveru: s hvězdou, označení, nejdéle mlčící.
-// U označení „Zavolal/a jsem“ (okno DovolaniOkno s výsledky, poznámkou a hvězdou, zapis_hovor) a lhůta na zavolání (ve stage 1
-// bez slibu e-mailu); super admin a Albert i „Zrušit označení“ a výběr volajícího včetně „bez volajícího“. Server bez 060: jen
+// U označení „Zavolal/a jsem“ (okno DovolaniOkno s výsledky, poznámkou a hvězdou, zapis_hovor) a lhůta na zavolání (bez slibu
+// e-mailu); super admin a Albert i „Zrušit označení“ a výběr volajícího včetně „bez volajícího“. Server bez 060: jen
 // příznaky přes list_flagged a hláška BEZ_060_OZNACENE.
 // ⚠ Migrace 061 (Albert 2. 11. 2026: „the option for the callers to click the button that they called or to remove the flag is
 // kind of hidden because you have to slide … to the side and it's super inconvenient … make it a little bit more compact … or

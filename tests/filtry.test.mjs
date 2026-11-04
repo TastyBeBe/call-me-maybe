@@ -637,10 +637,11 @@ await blok('O', async () => {
   const pr97 = await api.kontaktPrehled(mikulas, 97);
   const pr98 = await api.kontaktPrehled(mikulas, 98);
   const k97 = stavO().kontakty.find((k) => k.id === 97);
-  over('O8d', pr97.fakta.nabidka?.kampan === true && pr97.fakta.nabidka.archiv_dne === P.posunDen(P.prahaDen(k97.last_our_reply_at), 30)
+  // ⚠ Migrace 063 (Albert 4. 11. 2026: archiv až po 60 dnech) NAHRAZUJE +30 dní; pravidla dne archivu měří P7
+  over('O8d', pr97.fakta.nabidka?.kampan === true && pr97.fakta.nabidka.archiv_dne === P.posunDen(P.prahaDen(k97.last_our_reply_at), 60)
     && pr97.fakta.nabidka.konci_dne === P.posunDen(P.prahaDen(pr97.fakta.nabidka.odeslana_at), 14) && !!pr97.fakta.pripominka_kampane
     && pr98.fakta.nabidka?.kampan === false && pr98.fakta.nabidka.archiv_dne === null && pr98.fakta.oznaceni === null,
-    'nabídka: kampaň s datem archivu (+30 dní od naší zprávy), konec za 14 dní; po odmítnutí bez archivu a bez označení');
+    'nabídka: kampaň s datem archivu (+60 dní od naší zprávy), konec za 14 dní; po odmítnutí bez archivu a bez označení');
   const hovorPred = stavO().callLog.length;
   const statsPred = JSON.stringify(await api.myStats(petra));
 
@@ -907,7 +908,7 @@ await blok('O', async () => {
     && U.formatMlci(3) === '3 prac. dny' && U.formatMlci(null) === '—' && U.lhutaText('2026-11-18') === 'Lhůta na zavolání do 18. 11. 2026'
     && U.mlciOd({ mlci_pd: 6, ozn_kategorie: null, ozn_mlci_od: null, first_proposal_at: '2026-10-01T10:00:00Z', last_our_reply_at: '2026-10-20T10:00:00Z' }) === '2026-10-20T10:00:00Z'
     && U.mlciOd({ mlci_pd: null, ozn_kategorie: null, ozn_mlci_od: null, first_proposal_at: 'x', last_our_reply_at: 'y' }) === null,
-    'popisky: archiv, dvě kategorie, pracovní dny, lhůta (ve stage 1 bez slibu e-mailu), mlčí od');
+    'popisky: archiv, dvě kategorie, pracovní dny, lhůta (bez slibu e-mailu), mlčí od');
   // ⚠ migrace 061 (Albert 2. 11. 2026: „these four options. Plus … one more option which says none of it above“): pět
   // výsledků, pátý „Nic z toho výše“ (jine); NAHRAZUJE „čtyři výsledky ze zadání“ z 060. ⚠ Migrace 062 (Albert 2. 11. 2026, A1:
   // „Yes, you can add the sixth option“) NAHRAZUJE pět výsledků v pořadí 061: šest, „Chce web“ druhý, odmítnutí pohromadě,
@@ -1145,6 +1146,55 @@ await blok('P', async () => {
     && /if \(f\.pripominka_oznaceni\) r\.push\(\{ klic: 'připomínka po lhůtě', text: `odeslána \$\{datum\(f\.pripominka_oznaceni\)\}` \}\);/.test(pp)
     && /hvezdaKdoText\(f\.hvezda\.kdo\)/.test(pp) && /HVEZDA_AUTOMATIZACE \? ' Hvězda od automatizace'/.test(hv),
     'Označené: „Připomínka odeslána“ pod lhůtou; přehled: řádek připomínky po lhůtě a kdo dal hvězdu; detail: „Hvězda od automatizace“');
+
+  // P7 den archivu v přehledu (Albert 4. 11. 2026, stavy_kontaktu.py, server test 63l): 97 je kampaňová chata Mikuláše
+  const arch97 = async () => (await api.kontaktPrehled(mikulas, 97)).fakta.nabidka?.archiv_dne;
+  const k97z = () => stavP().kontakty.find((k) => k.id === 97);
+  const zak97 = await arch97();
+  const dnesP = P.prahaDen(new Date().toISOString());
+  over('P7', zak97 === P.posunDen(P.prahaDen(k97z().last_our_reply_at), 60) && (await api.kontaktPrehled(mikulas, 98)).fakta.nabidka?.archiv_dne === null,
+    'den archivu: 60 dní od naší poslední zprávy, nabídka po odmítnutí (98) žádný', String(zak97));
+  await api.zapisHovor(mikulas, 97, 'nedovolano');
+  const poNedovolani = await arch97();
+  await api.zapisHovor(mikulas, 97, 'jine', 'koukne na to příští týden');
+  const poHovoru = await arch97();
+  over('P7b', poNedovolani === zak97 && poHovoru === P.posunDen(dnesP, 60),
+    'nedovolání bez poznámky den archivu neposune, hovor s klientem (a jeho vzkaz) ano', JSON.stringify([zak97, poNedovolani, poHovoru]));
+  await api.nastavHvezdu(mikulas, 97, true, 'Chce web');
+  const sHvezdou = await arch97();
+  await api.nastavHvezdu(mikulas, 97, false);
+  const bezHvezdy = await arch97();
+  await api.updateKontakt(mikulas, 97, { rating: 'A' });
+  const sA = await arch97();
+  await api.updateKontakt(mikulas, 97, { rating: 'B' });
+  over('P7c', sHvezdou === null && bezHvezdy === poHovoru && sA === null && (await arch97()) === poHovoru,
+    'kdo do archivu nejde, den nemá: s hvězdou a se známkou A null, bez nich zase den', JSON.stringify([sHvezdou, bezHvezdy, sA]));
+
+  // P8 text z Hotovo v kalendáři (audit F4, server test 63k): u klienta s nabídnutou slevou bez označení (98) jde do vlákna jako
+  // zpráva člověka; bez textu a s „dovolání: …“ nic; kdo klienta upravit nesmí, jen uzavře hovor
+  const zpr98 = () => {
+    const s = stavP();
+    const vl = s.vlakna.filter((v) => v.kontakt_id === 98).map((v) => v.id);
+    return s.zpravy.filter((m) => vl.includes(m.thread_id) && m.body.startsWith('Naplánovaný hovor hotový'));
+  };
+  const kdy98 = () => new Date(Date.now() + 26 * 3600 * 1000).toISOString();
+  const z98a = await api.zavolatNaplanovat(mikulas, 98, kdy98(), null);
+  const pred98 = zpr98().length;
+  const h98a = await api.zavolatHotovo(mikulas, z98a.id, '  chce web za polovinu  ');
+  const po98 = zpr98();
+  over('P8', pred98 === 0 && h98a.ok === true && po98.length === 1 && po98[0].sender_type === 'admin' && po98[0].sender_name === 'Mikuláš'
+    && po98[0].body === 'Naplánovaný hovor hotový (Mikuláš): chce web za polovinu'
+    && stavP().zavolat.find((z) => z.id === z98a.id)?.vysledek === 'chce web za polovinu',
+    'Hotovo s textem u klienta bez dovolání: zpráva člověka do vlákna kontaktu, výsledek hovoru jako dřív', JSON.stringify(po98));
+  for (const text of [null, '   ', 'dovolání: mluvili jsme · chce web']) {
+    const z98 = await api.zavolatNaplanovat(mikulas, 98, kdy98(), null);
+    await api.zavolatHotovo(mikulas, z98.id, text);
+    over(`P8b ${JSON.stringify(text)}`, zpr98().length === 1 && stavP().zavolat.find((z) => z.id === z98.id)?.stav === 'hotovo',
+      'Hotovo bez textu a s textem „dovolání: …“ (appka po zapis_hovor) žádná zpráva, hovor uzavřený');
+  }
+  const kal = src('src/pages/KalendarPage.tsx');
+  over('P8c', /hotovo\.kontakt\.smi_upravit === true && ' Co napíšeš, přečte si automatizace \(jde to jako vzkaz u klienta\)\.'/.test(kal),
+    'okno Hovor je hotový: automatizaci slibuje jen tomu, kdo klienta smí upravit (server pošle vzkaz jen jemu)');
 });
 
 if (chyby === 0) {

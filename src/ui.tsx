@@ -265,7 +265,7 @@ export const OZNACENI_LABELS: Record<OznaceniKategorie, string> = {
   zmeny: 'Neodpověděl na změny',
 };
 
-/** Co označení znamená a co s ním volající udělá (detail, okno Zavolal/a jsem). Ve stage 1 bez slibu e-mailu. */
+/** Co označení znamená a co s ním volající udělá (detail, okno Zavolal/a jsem). Bez slibu e-mailu (připomínku řídí přepínač). */
 export const OZNACENI_HINTS: Record<OznaceniKategorie, string> = {
   navrh: 'Dostal od nás náhled webu a víc než 5 pracovních dní neodpověděl. Zavolej mu a zeptej se, jestli se na web podíval.',
   zmeny: 'Napsal nám, my jsme změny udělali a odpověděli, a od té doby víc než 5 pracovních dní mlčí. Zavolej mu a zeptej se, jestli se na změny podíval.',
@@ -418,7 +418,7 @@ export function formatDatumDne(datum: string | null | undefined): string {
   return `${Number(m[3])}. ${Number(m[2])}. ${m[1]}`;
 }
 
-/** Lhůta na zavolání ve stage 1 (bez slibu e-mailu, ten přijde až s připomínkami ve stage 2). */
+/** Lhůta na zavolání (bez slibu e-mailu: platí, ať je přepínač připomínek zapnutý, nebo ne; odeslanou připomínku ukáže pripominkaOdeslanaText). */
 export function lhutaText(datum: string | null | undefined): string {
   return datum ? `Lhůta na zavolání do ${formatDatumDne(datum)}` : '';
 }

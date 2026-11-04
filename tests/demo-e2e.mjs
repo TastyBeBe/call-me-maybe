@@ -1815,7 +1815,7 @@ await blok050('R057 petra', async () => {
 
 /* ============ 060 (Albert 1. 11. 2026): Označené s označením k zavolání, okno Zavolal/a jsem, hvězda, přehled, filtry ============ */
 // Klient, který víc než 5 pracovních dní neodpověděl, je v Označených pro SVÉHO volajícího; „Zavolal/a jsem“ má výsledky
-// a hvězdu; zápis nejde do call_log; lhůta ve stage 1 „Lhůta na zavolání do …“ bez slibu e-mailu. Volající vidí jen svoje
+// a hvězdu; zápis nejde do call_log; lhůta „Lhůta na zavolání do …“ bez slibu e-mailu. Volající vidí jen svoje
 // označení (96 je Petřin klient, ale označení je Honzovo), super admin všechna, „bez volajícího“ a „Zrušit označení“.
 // ⚠ Migrace 061 (Albert 2. 11. 2026) NAHRAZUJE „čtyři výsledky“ (O60e: pět, pátý „Nic z toho výše“) a O60k (posun stránky
 // jen na dvou šířkách; měří ho celý blok O61a bez posunu stránky i rámečku na sedmi šířkách).
@@ -1832,7 +1832,7 @@ for (const sirka of [1280, 390]) {
       'Petra: svoje označení (93 s hvězdou první, 94) a klient s příznakem (302); Honzovo označení 96 ne; bez sloupce Volající', JSON.stringify(jmena));
     const lhuta = txt(await radky.first().locator('.lhuta-cell').innerText());
     over(`O60b ${sirka}`, /^Lhůta na zavolání do \d{1,2}\. \d{1,2}\. \d{4}/.test(lhuta) && !/E-mail mu půjde|Připomínka e-mailem/.test(await page.locator('body').innerText()),
-      'lhůta ve stage 1: „Lhůta na zavolání do …“, bez slibu e-mailu (připomínku pošle až stage 2)', lhuta);
+      'lhůta: „Lhůta na zavolání do …“, bez slibu e-mailu (připomínku řídí přepínač, odeslanou ukáže řádek pod lhůtou)', lhuta);
     const pilulky = (await page.locator('.oznacene-druhy button').allInnerTexts()).map(txt);
     over(`O60c ${sirka}`, pilulky.includes('Neodpověděl na návrh (1)') && pilulky.includes('Neodpověděl na změny (1)') && pilulky.some((p) => /^Chybí e-mail \(1\)$/.test(p)),
       'pilulky druhů s počty (označení i příznaky)', pilulky.join(' | '));
@@ -2576,13 +2576,18 @@ await blok050('O062i mikulas', async () => {
   const okno = page.locator('.modal', { hasText: 'Hovor je hotový?' });
   await okno.waitFor(KRATKE);
   const dovolani = await page.locator('.dovolani-okno').count();
+  const textOkna9 = await okno.innerText();
   await page.locator('#zavolat-vysledek').fill('domluveno, zaplatí do pátku');
   await okno.getByRole('button', { name: 'Hotovo' }).click();
   await klid(page, 500);
   const h9 = (await volani(page)).find((v) => v.fn === 'zavolatHotovo' && v.ok);
-  over('O62i', !!z9 && dovolani === 0 && (await stav(page)).zavolat.find((z) => z.id === z9?.id)?.stav === 'hotovo' && h9?.args[1] === 'domluveno, zaplatí do pátku'
-    && !(await volani(page)).some((v) => v.fn === 'zapisHovor'),
-    'Hotovo u klienta, kterému dovolání zapsat nejde: okno „Hovor je hotový?“ s výsledkem jako dřív (zavolat_hotovo), bez okna Zavolal/a jsem', JSON.stringify(h9?.args));
+  // migrace 063 (audit F4): Mikuláš tenhle kontakt upravit nesmí, takže okno automatizaci neslibuje a do vlákna nic nejde
+  const s9 = await stav(page);
+  const vl9 = s9.vlakna.filter((v) => v.kontakt_id === 9).map((v) => v.id);
+  over('O62i', !!z9 && dovolani === 0 && s9.zavolat.find((z) => z.id === z9?.id)?.stav === 'hotovo' && h9?.args[1] === 'domluveno, zaplatí do pátku'
+    && !(await volani(page)).some((v) => v.fn === 'zapisHovor') && !textOkna9.includes('přečte si automatizace')
+    && !s9.zpravy.some((m) => vl9.includes(m.thread_id) && /^Naplánovaný hovor hotový/.test(m.body)),
+    'Hotovo u klienta, kterému dovolání zapsat nejde: okno „Hovor je hotový?“ s výsledkem jako dřív (zavolat_hotovo), bez okna Zavolal/a jsem; bez práva kontakt upravit do vlákna nic', JSON.stringify(h9?.args));
   await ctx.close();
 });
 

@@ -2640,8 +2640,8 @@ function noveRadkyPoznamky(stara: string | null, nova: string | null, jmeno: str
 }
 
 // Demo (1. 11. 2026): 97 dostal nabídku z připomínky kampaně (sleva_odeslana a pripominka_odeslana ve stejnou chvíli)
-// a neodpověděl, 98 nabídku po odmítnutí (ruční změna stavu na odmítnuto); 94 má přehled od automatizace (ve stage 1 ho
-// na serveru ještě nic nepíše, v demu je, ať je panel vidět). Pak první běh označení jako migrace 060 (lhůta 10 dní).
+// a neodpověděl, 98 nabídku po odmítnutí (ruční změna stavu na odmítnuto); 94 má přehled od automatizace (na serveru ho píše
+// worker od druhé etapy, migrace 063). Pak první běh označení jako migrace 060 (lhůta 10 dní).
 (() => {
   slevy.set(97, [{ detail: '2 450 Kč místo 4 900 Kč', created_at: daysAgo(16) }]);
   pripominkyKampane.set(97, daysAgo(16));
@@ -3805,15 +3805,25 @@ const mockApiZaklad: Api = {
       prvni_navrh: c.first_proposal_at,
       nase_posledni: c.last_our_reply_at,
       klient_naposledy: c.last_client_reply_at,
-      // nabídka platí 14 dní; po připomínce kampaně archiv (bez_odpovedi) 30 dní od naší poslední zprávy, nejdřív od nabídky
-      // (pozdější z obou, jako stavy_kontaktu.py; recenze 2. 11. 2026)
+      // nabídka platí 14 dní. ⚠ Migrace 063 (Albert 4. 11. 2026: „the archiving is more so for like truly lost clients“)
+      // NAHRAZUJE archiv 30 dní od pozdější z naší poslední zprávy a nabídky: den archivu (bez_odpovedi) jen když ho tick může
+      // archivovat (nabídka v připomínce kampaně, stav sleva_nabidnuta, klient od návrhu nikdy nenapsal, bez hvězdy, známka ne
+      // A), 60 dní od nejpozdějšího z naší poslední zprávy, nabídky, úspěšného hovoru, hotového hovoru z kalendáře a zprávy
+      // člověka ve vláknech kontaktu (jako stavy_kontaktu.py)
       nabidka: sleva
         ? {
             odeslana_at: sleva.created_at,
             konci_dne: posunDen(denPraha(new Date(sleva.created_at)), 14),
             kampan,
-            archiv_dne: kampan
-              ? posunDen(denPraha(new Date(Math.max(casMs(c.last_our_reply_at) ?? 0, casMs(sleva.created_at) ?? 0))), 30)
+            archiv_dne: kampan && c.status === 'sleva_nabidnuta' && !!c.first_proposal_at
+              && (!c.last_client_reply_at || (casMs(c.last_client_reply_at) ?? 0) < (casMs(c.first_proposal_at) ?? 0))
+              && !c.hvezda_at && c.rating !== 'A'
+              ? posunDen(denPraha(new Date(Math.max(casMs(c.last_our_reply_at) ?? 0, casMs(sleva.created_at) ?? 0,
+                  ...(dovolaniUspesna.get(c.id) ?? []).map((t) => casMs(t) ?? 0),
+                  ...zavolatRadky.filter((x) => x.kontakt_id === c.id && x.stav === 'hotovo').map((x) => casMs(x.uzavreno_at) ?? 0),
+                  ...chatMessages
+                    .filter((m) => m.sender_type === 'admin' && chatThreads.some((t) => t.id === m.thread_id && t.kontakt_id === c.id))
+                    .map((m) => casMs(m.created_at) ?? 0)))), 60)
               : null,
           }
         : null,
@@ -4566,12 +4576,19 @@ const mockApiZaklad: Api = {
     if (kh && VE_FRONTE(kh.status)) {
       fail('Klient je ve frontě volání: hovor uzavřete výsledkem ve volání (Zavolat teď), nebo ho zrušte.');
     }
-    const vys = zavolatPoznamka(vysledek) ?? 'hotovo';
+    const text = zavolatPoznamka(vysledek);
+    const vys = text ?? 'hotovo';
     z.stav = 'hotovo';
     z.uzavreno_at = now();
     z.vysledek = vys;
     z.zmenil_id = me.id;
     z.zmeneno_at = now();
+    // migrace 063 (audit F4; Albert 2. 11. 2026: „the automation actually reads it“): text z Hotovo jde do vlákna kontaktu jako
+    // zpráva člověka, jen s právem kontakt upravit; bez textu nic a „dovolání: …“ (poDovolani v kalendáři, vzkaz už poslal
+    // zapis_hovor) taky ne
+    if (kh && text !== null && !text.startsWith('dovolání: ') && canEdit(me, kh.id)) {
+      vzkazAgentovi(me, kh, `Naplánovaný hovor hotový (${me.display_name}): ${text}`);
+    }
     return { ok: true, id: z.id };
   },
 

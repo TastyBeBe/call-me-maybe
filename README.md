@@ -280,9 +280,9 @@ one should be just the last time they were called, or the moment they were calle
 Server: `../db/migration_060_oznaceni_hvezda.sql` (spouští se PŘED appkou; nová appka bez 060 jede dál a nové věci jen řeknou,
 že je server ještě neumí). Albert 1. 11. 2026: klient, který na naši zprávu víc než 5 pracovních dní neodpověděl, je označený
 pro svého volajícího, „the caller always sees only the clients he called and are marked, not other callers' clients“, a
-dovolání „should not count as two separate calls … as one call and as one client still“. Tohle je stage 1 (označení, hvězda,
-filtry, přehled jen ke čtení); připomínku e-mailem, hvězdu a zápis přehledu od automatizace přidala stage 2 (oddíl 063 níž;
-⚠ 2. 11. 2026 NAHRAZUJE „přidá automatizace ve stage 2“): přehled a hvězdu píše worker po jobu s klientem, připomínky po
+dovolání „should not count as two separate calls … as one call and as one client still“. Tohle je první etapa (označení, hvězda,
+filtry, přehled jen ke čtení); připomínku e-mailem, hvězdu a zápis přehledu od automatizace přidává druhá etapa (oddíl 063 níž;
+⚠ NAHRAZUJE „přidá automatizace ve stage 2“): přehled a hvězdu píše worker po jobu s klientem bez ohledu na přepínače, připomínky po
 lhůtě a doplnění přehledů ostatním klientům tick zařadí až po zapnutí přepínačů `PRIPOMINKY_OZNACENI` a `PREHLED_DOPLNIT`
 (zapíná je koordinující session po Albertově ano).
 
@@ -309,7 +309,7 @@ lhůtě a doplnění přehledů ostatním klientům tick zařadí až po zapnut�
   nesmí upravit (`smi_upravit` false, třeba super admin cizího týmu), dostane v okně jen „Nedovolal/a jsem se“ (server
   ostatní odmítne); důvod u „Nechce web“ a „Nechce, abychom ho kontaktovali“ nejvýš 450 znaků jako server (recenze
   2. 11. 2026). Lhůta: „Lhůta na zavolání do <den>“ (bez slibu e-mailu; ⚠ etapa 2, migrace 063: zůstává tak, ať je
-  přepínač připomínek zapnutý, nebo ne, NAHRAZUJE „Připomínka e-mailem po <den> až se stage 2“; odeslanou připomínku
+  přepínač připomínek zapnutý, nebo ne, NAHRAZUJE „Připomínka e-mailem po <den>“; odeslanou připomínku
   ukáže řádek pod lhůtou, oddíl 063). Super admin a Albert ještě „Zrušit označení“ s povinným důvodem (`oznaceni_zavrit`).
 - **Hvězda** (velký zájem nad známkou, `src/components/Hvezda.tsx`, ikona `HvezdaIcon`, jiná než u „Mají zájem“): ve
   volání zaškrtávátko „Velký zájem (hvězda)“ u zájmu (`nastav_hvezdu` až po uloženém `resolve_call`; když hvězda selže,
@@ -444,7 +444,7 @@ be calling them again“; o menu stavů „Limit it“.
 - **Kalendář**: Hotovo u klienta mimo frontu, kterému jde dovolání zapsat, otevře stejné okno; když hovor, na který člověk klikl,
   po zápisu pořád čeká (pozdější den, server vyřídí jen hovory do konce dneška; hovor kolegy u super admina), uzavře ho appka
   (`zavolat_hotovo`, „dovolání: …“); po „Nedovolal/a jsem se“ zůstává a stránka to řekne. Ostatní klienti mimo frontu mají
-  Hotovo s textem jako dřív, klient ve frontě Zavolat teď.
+  Hotovo s textem jako dřív (od migrace 063 text i do vlákna klienta, oddíl 063), klient ve frontě Zavolat teď.
 - **Detail** (`src/components/KontaktDrawer.tsx`): menu stavů jen se stavy, které člověk smí nastavit (`stavyVMenu`: bez Nabídnuté
   slevy, tu nastavuje automatizace; Ozve se později a Archiv – neodpověděl jen klientovi s návrhem; stávající stav vždy), u
   Nekontaktovat, Nerelevantní a Odmítnuto bez Naplánovat hovor (`hovorPlanovatSmi`) a změna na ně řekne „Naplánované hovory
@@ -461,8 +461,8 @@ be calling them again“; o menu stavů „Limit it“.
 
 ## Označení, druhá etapa 063 (Albert 1. 11. 2026)
 
-Server: `../db/migration_063_oznaceni_etapa2.sql` (spouští se PŘED větví automatizace; appka bez 063 jede dál, nové klíče jen
-nepřijdou a nic navíc se neukáže). Albert 1. 11. 2026: po lhůtě na zavolání pošle automatizace sama jednu připomínku e-mailem
+Server: `../db/migration_063_oznaceni_etapa2.sql` (pořadí vůči větvi automatizace rozhodne brána nasazení; appka bez 063 jede dál,
+nové klíče jen nepřijdou a nic navíc se neukáže). Albert 1. 11. 2026: po lhůtě na zavolání pošle automatizace sama jednu připomínku e-mailem
 a hvězdu dává i automatizace, když klient jasně ukáže velký zájem (bez ohledu na známku). Připomínky a hvězdy píše jen
 automatizace (služba), appka je jen ukazuje. Připomínky po lhůtě tick zařadí až po zapnutí přepínače `PRIPOMINKY_OZNACENI`
 v `config.env` (do té doby ostrá appka řádek „Připomínka odeslána“ neukáže nikomu; demo ho má u kontaktu 96):
@@ -471,14 +471,24 @@ v `config.env` (do té doby ostrá appka řádek „Připomínka odeslána“ ne
   „Lhůta na zavolání do <den>“ (platí, ať je přepínač připomínek zapnutý, nebo ne).
 - **Přehled klienta**: řádek faktů „připomínka po lhůtě: odeslána <den>“ z `fakta.pripominka_oznaceni` (poslední připomínka
   z označení, která přihlášený vidí, i po archivu).
+- **Den archivu v přehledu** (Albert 4. 11. 2026: „the archiving is more so for like truly lost clients“; ⚠ NAHRAZUJE +30 dní):
+  „bez odpovědi do archivu <den>“ jen u klienta, kterého tick opravdu může archivovat (nabídka v připomínce kampaně, stav Nabídnutá
+  sleva, od návrhu nikdy nenapsal, bez hvězdy a známky A), 60 dní od nejpozdějšího z naší poslední zprávy, nabídky, úspěšného hovoru,
+  hotového hovoru z kalendáře a zprávy člověka ve vláknech kontaktu; jinak se den neukáže (`fakta.nabidka.archiv_dne` null).
+- **Hotovo s textem v kalendáři** (audit F4; Albert 2. 11. 2026: „the automation actually reads it“): u klienta, kterému dovolání zapsat
+  nejde (Nabídnutá sleva bez označení), jde text i do vlákna klienta jako zpráva člověka „Naplánovaný hovor hotový (jméno): text“, jen
+  když ho přihlášený smí upravit (okno to pak říká); bez práva nebo bez textu jen uzavře hovor jako dřív. Text „dovolání: …“, kterým appka
+  uzavírá hovor po zápisu dovolání, do vlákna nejde (vzkaz už poslal `zapis_hovor`).
 - **Hvězda od automatizace** (`hvezda_kdo` = „automatizace“, `HVEZDA_AUTOMATIZACE` v `src/ui.tsx`): popisek hvězdy
   „dala ji automatizace <den> · <důvod>“, v detailu tlačítko „Hvězda od automatizace“, u kontaktu jen ke čtení
   „velký zájem (od automatizace)“, v přehledu kdo a proč. Není to jméno kolegy, maska ho nemění. Odebrat ji smí člověk jako
   každou jinou; automatizace ji pak znovu nedá, dokud klient znovu nenapíše (server).
 - **Demo**: mock zrcadlí obě služební funkce (`hvezdaOdAutomatizace`, `pripominkaOznaceniOdeslana` a zařazení jobu
-  připomínky tickem v `src/api/mock.ts`; háček `__volackaDemoTest` je dává testům), klíče a fakta stejně jako server.
+  připomínky tickem v `src/api/mock.ts`; háček `__volackaDemoTest` je dává testům), klíče, fakta, den archivu a text z Hotovo
+  stejně jako server.
 - **Testy**: `npm test` soubor `tests/filtry.test.mjs` blok P (čas připomínky jen u viditelného označení, fakta, hvězda od
-  automatizace bez masky, pravidla služebních funkcí jako server, popisky) a upravené O2, O3e, O3g; `npm run test:e2e` bloky
+  automatizace bez masky, pravidla služebních funkcí jako server, popisky, P7 den archivu, P8 text z Hotovo)
+  a upravené O2, O3e, O3g, O8d; `npm run test:e2e` bloky
   E063 (Označené a přehled super admina, Petra nic nevidí, hvězda od automatizace v Moji klienti a v detailu). Server:
   `../db/tests/test_063_oznaceni_etapa2.sql`.
 

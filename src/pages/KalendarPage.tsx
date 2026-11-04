@@ -16,6 +16,10 @@
 // hovor kolegy u super admina), uzavře ho appka (zavolat_hotovo s výsledkem); po „Nedovolal/a jsem se“ zůstává (jako po
 // dovolání v Označených) a stránka řekne, ať ho přesune nebo zruší. Klient ve frontě volání beze změny (Zavolat teď), klient,
 // kterému dovolání zapsat nejde (Odmítnuto, nabídnutá sleva, Nekontaktovat, Nerelevantní, cizí), má Hotovo s textem jako dřív.
+// Migrace 063 (audit F4; Albert 2. 11. 2026, A1: „make sure that every time there's something new in the messages for the agents
+// or in the notes, the automation actually reads it“): ten text teď jde i do vlákna klienta jako zpráva člověka (server
+// zavolat_hotovo, jen kdo klienta smí upravit), takže ho automatizace přečte; okno to říká. Text „dovolání: …“, kterým appka po
+// zápisu dovolání uzavírá hovor (poDovolani), server do vlákna nedává: vzkaz už poslal zapis_hovor.
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
@@ -500,6 +504,8 @@ export default function KalendarPage() {
         >
           <p style={{ marginTop: 0 }}>
             <b>{kontaktJmeno(hotovo.kontakt)}</b> není ve frontě volání, hovor se tu jen označí jako hotový.
+            {/* migrace 063: text jde do vlákna klienta jen tomu, kdo klienta smí upravit (server zavolat_hotovo) */}
+            {hotovo.kontakt.smi_upravit === true && ' Co napíšeš, přečte si automatizace (jde to jako vzkaz u klienta).'}
           </p>
           <div className="field" style={{ marginBottom: 0 }}>
             <label htmlFor="zavolat-vysledek">Jak to dopadlo (nepovinné)</label>
