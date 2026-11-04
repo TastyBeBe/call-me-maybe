@@ -41,7 +41,8 @@ export type KontaktStatus =
    *                    nastaví odmitnuto, po připomínce kampaně bez_odpovedi)
    *   bez_odpovedi     návrh i nabídka odešly, klient do lhůty nenapsal
    *                    ⚠ migrace 060 (Albert 1. 11. 2026: „you don't close them, you archive them“): v appce „Archiv –
-   *                    neodpověděl“, po připomínce kampaně až 30 dní od naší poslední zprávy (NAHRAZUJE 14 dní); není to
+   *                    neodpověděl“, po připomínce kampaně až 60 dní od poslední zprávy nebo hovoru (Albert 4. 11. 2026, jen kdo od
+   *                    návrhu nikdy nenapsal, bez hvězdy a známky A; NAHRAZUJE 14 a 30 dní); není to
    *                    konec, nová zpráva klienta nebo vstup člověka v appce klienta vrátí do práce
    *   pozdeji          klient si řekl o čas („ozvu se později“)
    *   nekontaktovat    nechce, abychom mu psali nebo volali; konečný jako nerelevantni, automatizace mu nic nepošle
@@ -259,6 +260,11 @@ export interface Kontakt {
   ozn_zavadeci?: boolean | null;
   ozn_volajici_id?: number | null;
   ozn_volajici?: string | null;
+  /**
+   * jen list_oznacene, migrace 063 (Albert 1. 11. 2026, druhá etapa): kdy po lhůtě na zavolání ověřeně odešla připomínka
+   * e-mailem (oznaceni.pripominka_at otevřeného označení, které přihlášený vidí); null = ještě ne, server bez 063 klíč nepošle
+   */
+  ozn_pripominka_at?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -514,7 +520,7 @@ export interface PrehledKlientChce {
 }
 
 /**
- * Přehled klienta, jak ho píše automatizace (kontakty.prehled, migrace 060; ve stage 1 ho ještě nic nepíše). Tvar hlídá
+ * Přehled klienta, jak ho píše automatizace (kontakty.prehled, migrace 060; od druhé etapy, migrace 063, ho píše worker). Tvar hlídá
  * trigger na serveru: verze 1, „ted“ nejvýš 300 znaků, nejvýš 5 + 5 + 3 položek, bez jmen týmu, čísel faktur a technických id.
  */
 export interface PrehledText {
@@ -548,9 +554,17 @@ export interface PrehledFakta {
   prvni_navrh?: string | null;
   nase_posledni?: string | null;
   klient_naposledy?: string | null;
-  /** poslední nabídka poloviční ceny: kdy odešla, poslední den platnosti (+14 dní), z kampaně, archiv (+30 dní od naší zprávy) */
+  /**
+   * poslední nabídka poloviční ceny: kdy odešla, poslední den platnosti (+14 dní), z kampaně, den archivu (migrace 063, Albert
+   * 4. 11. 2026: +60 dní od naší poslední zprávy, hovoru nebo zprávy člověka; null = tick ho nearchivuje)
+   */
   nabidka?: { odeslana_at: string; konci_dne: string | null; kampan: boolean; archiv_dne: string | null } | null;
   pripominka_kampane?: string | null;
+  /**
+   * migrace 063 (Albert 1. 11. 2026, druhá etapa): kdy naposledy odešla připomínka po lhůtě na zavolání (nejnovější
+   * oznaceni.pripominka_at z označení, která přihlášený vidí, i uzavřených: Volajícímu jen z jeho); null = žádná
+   */
+  pripominka_oznaceni?: string | null;
   /** spící budík smazání náhledu (architekt po 8A) */
   nahled_smazani?: string | null;
   zavolat?: { id: number; kdy: string; poznamka: string | null; muj: boolean; volajici?: string | null } | null;

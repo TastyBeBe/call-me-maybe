@@ -3342,3 +3342,10 @@ table.kontakty.kompakt .mlceni-bunka > * {
     font-size: 18px;
   }
 }
+
+/* migrace 063 (Albert 1. 11. 2026, druhá etapa): pod lhůtou v Označených „Připomínka odeslána <den>“ */
+.lhuta-cell .pripominka-odeslana {
+  display: block;
+  margin-top: 2px;
+  color: var(--ink-soft);
+}

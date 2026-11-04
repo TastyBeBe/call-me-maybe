@@ -10,8 +10,8 @@
 // segment, stav, známka, hvězda, mlčení, řazení a hledání jdou na server). Druhy (Neodpověděl na návrh, na změny a druhy
 // příznaků) jsou pilulky s počty: server vrací všechny řádky bez stránkování, výběr druhů se proto dělá tady nad nimi (stejné
 // pravidlo jako p_druhy na serveru) a počty jsou přesné. Výchozí pořadí serveru: s hvězdou, označení, nejdéle mlčící.
-// U označení „Zavolal/a jsem“ (okno DovolaniOkno s výsledky, poznámkou a hvězdou, zapis_hovor) a lhůta na zavolání (ve stage 1
-// bez slibu e-mailu); super admin a Albert i „Zrušit označení“ a výběr volajícího včetně „bez volajícího“. Server bez 060: jen
+// U označení „Zavolal/a jsem“ (okno DovolaniOkno s výsledky, poznámkou a hvězdou, zapis_hovor) a lhůta na zavolání (bez slibu
+// e-mailu); super admin a Albert i „Zrušit označení“ a výběr volajícího včetně „bez volajícího“. Server bez 060: jen
 // příznaky přes list_flagged a hláška BEZ_060_OZNACENE.
 // ⚠ Migrace 061 (Albert 2. 11. 2026: „the option for the callers to click the button that they called or to remove the flag is
 // kind of hidden because you have to slide … to the side and it's super inconvenient … make it a little bit more compact … or
@@ -35,6 +35,9 @@
 // Kontaktech a detailu) a má ho i řádek jen s příznakem, když ho přihlášený smí zapsat (dovolatSmi; server ho zapíše jako
 // další hovor bez označení). ⚠ NAHRAZUJE „Zavolal/a jsem jen u označení“ a okno se stavem stránky (060, 061). Okno má šest
 // výsledků (šestý „Chce web“).
+// Migrace 063 (Albert 1. 11. 2026, druhá etapa: po lhůtě na zavolání pošle automatizace jednu připomínku e-mailem): pod lhůtou
+// „Připomínka odeslána <den>“, když ji řádek nese (ozn_pripominka_at, jen u označení, které přihlášený vidí). Lhůta sama dál
+// „Lhůta na zavolání do …“: platí, ať je přepínač připomínek zapnutý, nebo ne.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getApi, type Kontakt, type OznaceneFiltry } from '../api';
@@ -73,6 +76,7 @@ import {
   kontaktJmeno,
   lhutaText,
   mlciOd,
+  pripominkaOdeslanaText,
   priznakProRoli,
   priznakVidi,
 } from '../ui';
@@ -447,6 +451,8 @@ export default function OznacenePage() {
                         <>
                           {lhutaText(r.ozn_lhuta_do)}
                           {r.ozn_pokusy ? <span className="ozn-pokusy"> · nedovoláno {r.ozn_pokusy}×</span> : null}
+                          {/* migrace 063: po lhůtě odešla připomínka e-mailem (jen u označení, které přihlášený vidí) */}
+                          {r.ozn_pripominka_at ? <span className="pripominka-odeslana">{pripominkaOdeslanaText(r.ozn_pripominka_at)}</span> : null}
                         </>
                       ) : r.flagged_at ? (
                         <span className="muted">příznak od {formatDateTime(r.flagged_at)}</span>

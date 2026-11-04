@@ -2,12 +2,16 @@
 // structured“). Panel v detailu kontaktu a na kartě ve volání, jen u vlastního klienta (server kontakt_prehled cizímu
 // odmítne, appka ho u cizího kontaktu nevolá; větev jenZaklad ho nemá). Fakta skládá server z dat bez jazykového modelu
 // (stav, hvězda, označení, návrh, poslední zprávy, nabídka, připomínka kampaně, smazání náhledu, naplánovaný hovor, cena)
-// a jsou vždy; text od automatizace (Teď a další krok, Co klient chce, Co jsme poslali, Pozor) jen když už je (ve stage 1
-// ho nic nepíše, panel pak řekne, že ho automatizace doplní). Poznámky volajících zůstávají pod ním beze změny.
+// a jsou vždy; text od automatizace (Teď a další krok, Co klient chce, Co jsme poslali, Pozor) jen když už je (od druhé etapy
+// ho worker přepíše po každém jobu, který s klientem komunikoval, bez ohledu na přepínač doplňování PREHLED_DOPLNIT; panel do
+// té doby řekne, že ho automatizace doplní). Poznámky volajících zůstávají pod ním beze změny.
 // Migrace 062 (Albert 2. 11. 2026: „even if the client isn't marked yet and you call them again, you should have like a I called
 // them button“): v detailu klienta BEZ označení řádek „Klient není v Označených.“ s tlačítkem „Zavolal/a jsem“
 // (DovolaniTlacitko), když ho přihlášený smí zapsat (dovolatSmi: ne ve frontě volání, u Nekontaktovat, Nerelevantní,
 // Odmítnuto ani u nabídnuté slevy). U otevřeného označení beze změny tlačítko u označení (okno s kategorií a lhůtou).
+// Migrace 063 (Albert 1. 11. 2026, druhá etapa): řádek faktů „připomínka po lhůtě: odeslána <den>“ (fakta.pripominka_oznaceni)
+// a u hvězdy od automatizace „dala ji automatizace <den> · <důvod>“. Den archivu u nabídky (nabidka.archiv_dne) posílá server
+// jen tomu, koho tick může archivovat (Albert 4. 11. 2026: 60 dní, jen kdo nikdy nenapsal, bez hvězdy a známky A); jinak nic.
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { getApi, type Kontakt, type KontaktPrehled, type PrehledFakta } from '../api';
@@ -24,6 +28,7 @@ import {
   formatDatumPraha,
   formatKdyVeta,
   formatMlci,
+  hvezdaKdoText,
   lhutaText,
 } from '../ui';
 import DovolaniOkno, { ZrusitOznaceniOkno } from './DovolaniOkno';
@@ -43,9 +48,10 @@ function radkyFaktu(f: PrehledFakta, kratce: boolean): { klic: string; text: str
     r.push({ klic: 'stav', text: `${STATUS_LABELS[f.stav] ?? f.stav}${f.stav_od ? ` od ${datum(f.stav_od)}` : ''}` });
   }
   if (f.hvezda?.at) {
+    // migrace 063: hvězda od automatizace „dala ji automatizace … · důvod“ (důvod napsal worker podle zprávy klienta)
     r.push({
       klic: 'hvězda',
-      text: `velký zájem, dal/a ${f.hvezda.kdo || '—'} ${datum(f.hvezda.at)}${f.hvezda.duvod ? ` · ${f.hvezda.duvod}` : ''}`,
+      text: `velký zájem, ${hvezdaKdoText(f.hvezda.kdo)} ${datum(f.hvezda.at)}${f.hvezda.duvod ? ` · ${f.hvezda.duvod}` : ''}`,
     });
   }
   if (f.prvni_navrh || f.nase_posledni || f.klient_naposledy) {
@@ -65,6 +71,8 @@ function radkyFaktu(f: PrehledFakta, kratce: boolean): { klic: string; text: str
     });
   }
   if (f.pripominka_kampane) r.push({ klic: 'připomínka', text: `připomínka kampaně odešla ${datum(f.pripominka_kampane)}` });
+  // migrace 063 (Albert 1. 11. 2026): obyčejná připomínka e-mailem po lhůtě na zavolání (jedna na mlčení)
+  if (f.pripominka_oznaceni) r.push({ klic: 'připomínka po lhůtě', text: `odeslána ${datum(f.pripominka_oznaceni)}` });
   if (f.nahled_smazani) r.push({ klic: 'náhled', text: `náhled webu se smaže ${datum(f.nahled_smazani)}` });
   if (f.zavolat) {
     r.push({

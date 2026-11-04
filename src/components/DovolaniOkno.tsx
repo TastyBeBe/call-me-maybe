@@ -1,8 +1,8 @@
 // „ZAVOLAL/A JSEM“ U OZNAČENÉHO KLIENTA (migrace 060, Albert 1. 11. 2026: „a proper menu: didn't reach him / client doesn't
 // want the website / client doesn't want to be contacted / we spoke — write down what the client wants (the automation
 // acts on it)“). Okno s výsledky, poznámkou a hvězdou volá zapis_hovor. Druhý hovor NENÍ nový hovor ve statistikách („as one
-// call and as one client still“): server nepíše call_log, Rozvrh ani výdělek se nemění. Lhůta ve stage 1 bez slibu
-// e-mailu („Lhůta na zavolání do …“; připomínka e-mailem přijde až ve stage 2). Super admin navíc „Zrušit označení“.
+// call and as one client still“): server nepíše call_log, Rozvrh ani výdělek se nemění. Lhůta bez slibu e-mailu („Lhůta na
+// zavolání do …“; připomínku po lhůtě řídí přepínač PRIPOMINKY_OZNACENI, migrace 063). Super admin navíc „Zrušit označení“.
 // ⚠ Migrace 061 (Albert 2. 11. 2026: „there are currently only four options … there should definitely be also a note below it
 // where you can write a note for the automation … these four options. Plus … one more option which says none of it above.
 // And plus there should be a note and you should be able to write down the note when you hit the I called them button“)
