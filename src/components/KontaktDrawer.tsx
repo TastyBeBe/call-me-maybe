@@ -17,6 +17,15 @@
 // označení „Zavolal/a jsem“, super admin i „Zrušit označení“) a hvězda „velký zájem“ hned bez „Uložit změny“ (kdo smí
 // upravit; ostatní jen odznak). Větev jenZaklad (cizí kontakt Volajícího) nemá ani jedno. Příznak `neodpovida` už nejde
 // vybrat (nahradilo ho označení k zavolání).
+// Migrace 061 (Albert 2. 11. 2026: „only the super admins will see this flag, but the callers don't need to see the [flag]“):
+// příznak „Údaje z internetu“ (info_neoverene) Volající v detailu nevidí (panel příznaku dostane řádek přes priznakProRoli)
+// a výběr druhu mu ho nenabízí; super admin a Albert beze změny.
+// Migrace 062 (Albert 2. 11. 2026): v přehledu i bez označení „Zavolal/a jsem“ (PrehledPanel, DovolaniTlacitko). Menu stavů
+// omezené (rozhodnutí D19, Albert 2. 11. 2026: „Limit it“; stavyVMenu v ui.tsx): Nabídnutou slevu nastavuje jen automatizace,
+// Ozve se později a Archiv jen klientovi, který dostal návrh; stávající stav je v menu vždy. U Nekontaktovat, Nerelevantní
+// a Odmítnuto se hovor neplánuje (tlačítko Naplánovat hovor není, hovorPlanovatSmi) a změna na ně řekne, že se čekající hovory
+// zruší (zruší je server). Nové řádky poznámky dostane automatizace jako vzkaz agentovi (update_kontakt od 062, rozhodnutí D15:
+// Albert 2. 11. 2026 „or in the notes, the automation actually reads it“); pod polem to stojí a vzkazy se po uložení načtou znovu.
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
@@ -33,7 +42,7 @@ import { useSession } from '../auth';
 import { JINY_VOLAJICI, isSuperAdmin, roleLabel } from '../roles';
 import { bezCizihoIco, icoVidi, segmentOf } from '../segment';
 import {
-  ALL_STATUSES,
+  DUVOD_STAVU_NAPOVEDA,
   ErrorBox,
   FLAG_COLORS,
   FLAG_LABELS,
@@ -58,8 +67,14 @@ import {
   formatKdyVeta,
   formatRelativne,
   pravidloPopisek,
+  priznakProRoli,
+  priznakVidi,
   stavChceDuvod,
   VOLITELNE_FLAGS,
+  STAVY_BEZ_HOVORU,
+  ZMENA_RUSI_HOVORY,
+  hovorPlanovatSmi,
+  stavyVMenu,
   zmenenoKdy,
 } from '../ui';
 import { HvezdaPrepinac } from './Hvezda';
@@ -94,6 +109,12 @@ export const RADKY_KOLEGU_NAPOVEDA =
   'pod hlavičkou kolegy (patří k jeho záznamu). Připište nový řádek: obyčejný řádek pod zápisem kolegy dostane při ' +
   'uložení vaši hlavičku „[dnešní datum vaše jméno]“ sám. Prázdné řádky můžete přidat i smazat. Hlavičku s datem na ' +
   'začátku řádku (i za odrážkou) pište jen se svým jménem, bez jména kolegy, ani za čárkou.';
+/**
+ * Migrace 062 (rozhodnutí D15, Albert 2. 11. 2026: „every time there's something new in the messages for the agents or in the
+ * notes, the automation actually reads it“): update_kontakt pošle nové řádky poznámky jako vzkaz „Poznámka (jméno): …“ do
+ * vlákna kontaktu (dispečer z něj udělá chat job). Mazání a řádky kolegů ne.
+ */
+export const POZNAMKA_AUTOMATIZACE = 'Nové řádky, které do poznámky připíšeš, dostane po uložení automatizace jako vzkaz agentovi.';
 export function maRadkyKolegu(text: string | null | undefined, role: string | null | undefined): boolean {
   return !isSuperAdmin(role) && /jiný volající/i.test(text ?? '');
 }
@@ -130,6 +151,10 @@ function FlagPanel({
   onSaved?: (updated: Kontakt) => void;
 }) {
   const session = useSession();
+  // migrace 061 (Albert 2. 11. 2026: „only the super admins will see this flag“): Volající „Údaje z internetu“ ve výběru nemá
+  // (příznak, který by pak sám neviděl); skrytý příznak mu sem jde jako žádný (priznakProRoli níž) a „Označit klienta“ ho
+  // nahradí jeho vlastním, jak 061 dovolí
+  const jaSuper = isSuperAdmin(session.role);
   // migrace 060: starý příznak neodpovida vybrat nejde (server ho odmítne); úprava takového příznaku začne na „jine“
   const vychoziDruh = (k: FlagKind | null): FlagKind => (k && VOLITELNE_FLAGS.includes(k) ? k : 'jine');
   const [editing, setEditing] = useState(false);
@@ -230,11 +255,14 @@ function FlagPanel({
           <div className="field">
             <label>Co je špatně</label>
             <select value={kind} onChange={(e) => setKind(e.target.value as FlagKind)}>
-              {VOLITELNE_FLAGS.map((f) => (
-                <option key={f} value={f}>
-                  {FLAG_LABELS[f]}
-                </option>
-              ))}
+              {/* jen druhy, které přihlášený vidí (migrace 061: Volající bez „Údaje z internetu“) */}
+              {VOLITELNE_FLAGS.map((f) =>
+                priznakVidi(f, jaSuper) ? (
+                  <option key={f} value={f}>
+                    {FLAG_LABELS[f]}
+                  </option>
+                ) : null
+              )}
             </select>
           </div>
           <div className="field">
@@ -279,7 +307,11 @@ function FlagPanel({
 
 /* ---------- Vzkazy agentovi (vlákna kontaktu + composer) ---------- */
 
-function KontaktThreads({ kontakt, canWrite }: { kontakt: Kontakt; canWrite: boolean }) {
+/**
+ * `obnova` (migrace 062): číslo, které detail zvedne po uložení poznámky; vzkazy se pak potichu načtou znovu (nové řádky
+ * poznámky dostane automatizace jako vzkaz „Poznámka (jméno): …“ do vlákna kontaktu, rozhodnutí D15).
+ */
+function KontaktThreads({ kontakt, canWrite, obnova = 0 }: { kontakt: Kontakt; canWrite: boolean; obnova?: number }) {
   const session = useSession();
   const [details, setDetails] = useState<ThreadDetail[]>([]);
   const [loading, setLoading] = useState(true);
@@ -317,6 +349,11 @@ function KontaktThreads({ kontakt, canWrite }: { kontakt: Kontakt; canWrite: boo
   useEffect(() => {
     void load();
   }, [load]);
+
+  // migrace 062: po uložení poznámky potichu znovu (vzkaz z poznámky se objeví bez zavření detailu)
+  useEffect(() => {
+    if (obnova > 0) void load(true);
+  }, [obnova, load]);
 
   const send = async () => {
     const body = draft.trim();
@@ -522,6 +559,9 @@ function NaplanovatOkno({
 function ZavolatBlok({ kontakt }: { kontakt: Kontakt }) {
   const session = useSession();
   const smi = isSuperAdmin(session.role) || kontakt.je_muj === true;
+  // migrace 062 (D19): u Nekontaktovat, Nerelevantní a Odmítnuto se hovor neplánuje (server zavolat_naplanovat odmítne);
+  // starší čekající hovor zůstane vidět, přesunout nebo zrušit jde v kalendáři
+  const planovat = hovorPlanovatSmi(kontakt);
   const [hovor, setHovor] = useState<ZavolatPolozka | null>(null);
   const [otevreno, setOtevreno] = useState(false);
   const [hotovo, setHotovo] = useState('');
@@ -543,7 +583,7 @@ function ZavolatBlok({ kontakt }: { kontakt: Kontakt }) {
     setHovor(null);
     if (smi) nacti();
   }, [smi, nacti]);
-  if (!smi) return null;
+  if (!smi || (!planovat && !hovor)) return null;
   return (
     <div className="zavolat-blok">
       {hovor && (
@@ -554,10 +594,12 @@ function ZavolatBlok({ kontakt }: { kontakt: Kontakt }) {
         </p>
       )}
       {hotovo && <div className="info-box zavolat-blok-hotovo">{hotovo}</div>}
-      <button type="button" className="pill-btn sm tag zavolat-naplanovat" onClick={() => setOtevreno(true)}>
-        <AlarmIcon size={14} /> {hovor ? 'Přesunout hovor' : 'Naplánovat hovor'}
-      </button>
-      {otevreno && (
+      {planovat && (
+        <button type="button" className="pill-btn sm tag zavolat-naplanovat" onClick={() => setOtevreno(true)}>
+          <AlarmIcon size={14} /> {hovor ? 'Přesunout hovor' : 'Naplánovat hovor'}
+        </button>
+      )}
+      {otevreno && planovat && (
         <NaplanovatOkno
           kontakt={kontakt}
           hovor={hovor}
@@ -613,6 +655,8 @@ export default function KontaktDrawer({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [savedFlash, setSavedFlash] = useState(false);
+  // migrace 062 (D15): po uložení poznámky se vzkazy agentovi načtou znovu (nové řádky v nich má automatizace)
+  const [obnovaVlaken, setObnovaVlaken] = useState(0);
 
   // Obsah kontaktu (stav, e-mail, ceny, poznámku) smí měnit jen ten, komu kontakt patří,
   // jeho super admin a Albert — rozhoduje server (smi_upravit, migrace 024). Příznak
@@ -675,6 +719,7 @@ export default function KontaktDrawer({
       // server vrátí uloženou poznámku: obyčejný řádek pod zápisem kolegy v ní už má vlastní hlavičku (recenze 046),
       // pole ji ukáže hned a uložení se nezdá rozpracované
       if ('note' in patch) setNote(updated.note ?? '');
+      if ('note' in patch) setObnovaVlaken((n) => n + 1);
       // napsané „n/a“ se uložilo jako null: pole ukáže uloženou cenu (prázdné s nápovědou „n/a“), ne rozepsaný text
       if ('cena_web' in patch) setCenaWeb(updated.cena_web ?? '');
       if ('cena_hosting' in patch) setCenaHosting(updated.cena_hosting ?? '');
@@ -807,7 +852,8 @@ export default function KontaktDrawer({
           }}
         />
 
-        <FlagPanel kontakt={kontakt} readOnly={readOnly} onSaved={onSaved} />
+        {/* migrace 061: příznak „Údaje z internetu“ jen super adminovi (Volajícímu jako bez příznaku, pojistka k serveru) */}
+        <FlagPanel kontakt={priznakProRoli(kontakt, isSuperAdmin(session.role))} readOnly={readOnly} onSaved={onSaved} />
 
         {cizi && (
           <p className="muted" style={{ fontSize: 13.5, margin: '12px 0 0' }}>
@@ -854,8 +900,9 @@ export default function KontaktDrawer({
           <>
             <div className="field" style={{ marginTop: 14 }}>
               <label>Status</label>
+              {/* migrace 062 (D19): jen stavy, které člověk smí nastavit (stávající vždy) */}
               <select value={status} onChange={(e) => setStatus(e.target.value as KontaktStatus)}>
-                {ALL_STATUSES.map((s) => (
+                {stavyVMenu(kontakt).map((s) => (
                   <option key={s} value={s}>
                     {STATUS_LABELS[s]}
                   </option>
@@ -875,10 +922,18 @@ export default function KontaktDrawer({
                   placeholder="Krátce, třeba „nechce web, řekl v telefonu“"
                   onChange={(e) => setDuvod(e.target.value)}
                 />
-                <p className="muted" style={{ fontSize: 13.5, margin: '6px 0 0' }}>
-                  Z „{STATUS_LABELS[kontakt.status] ?? kontakt.status}“ na „{STATUS_LABELS[status] ?? status}“. Důvod si
-                  přečte automatizace a podle něj pokračuje (třeba u „Odmítnuto“ po návrhu pošle jednu nabídku poloviční ceny).
+                {/* audit 2. 11. 2026 (R4): důvod čte automatizace jen u Odmítnuto a u architekta i u Nekontaktovat
+                    (DUVOD_STAVU_NAPOVEDA v ui.tsx, ⚠ NAHRAZUJE „Důvod si přečte automatizace a podle něj pokračuje …“) */}
+                <p className="muted duvod-stavu-napoveda" style={{ fontSize: 13.5, margin: '6px 0 0' }}>
+                  Z „{STATUS_LABELS[kontakt.status] ?? kontakt.status}“ na „{STATUS_LABELS[status] ?? status}“.{' '}
+                  {DUVOD_STAVU_NAPOVEDA}
                 </p>
+                {/* migrace 062 (D19): změna na Nekontaktovat, Nerelevantní nebo Odmítnuto zruší čekající hovory klienta */}
+                {STAVY_BEZ_HOVORU.includes(status) && !STAVY_BEZ_HOVORU.includes(kontakt.status) && (
+                  <p className="muted duvod-stavu-hovory" style={{ fontSize: 13.5, margin: '4px 0 0' }}>
+                    {ZMENA_RUSI_HOVORY}
+                  </p>
+                )}
               </div>
             )}
             <div className="field">
@@ -912,6 +967,10 @@ export default function KontaktDrawer({
             <div className="field">
               <label>Poznámky</label>
               <textarea rows={7} value={note} onChange={(e) => setNote(e.target.value)} />
+              {/* migrace 062 (D15): nové řádky dostane automatizace jako vzkaz agentovi */}
+              <p className="muted poznamka-automatizace" style={{ fontSize: 13.5, margin: '6px 0 0' }}>
+                {POZNAMKA_AUTOMATIZACE}
+              </p>
               {maRadkyKolegu(kontakt.note, session.role) && (
                 <p className="muted radky-kolegu" style={{ fontSize: 13.5, margin: '6px 0 0' }}>{RADKY_KOLEGU_NAPOVEDA}</p>
               )}
@@ -944,6 +1003,7 @@ export default function KontaktDrawer({
         <KontaktThreads
           kontakt={kontakt}
           canWrite={readOnly ? kontakt.je_muj !== false : kontakt.smi_upravit !== false}
+          obnova={obnovaVlaken}
         />
       </div>
     </>

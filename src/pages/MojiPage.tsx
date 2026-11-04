@@ -8,6 +8,12 @@
 // a cena webu, pod ní menší cena hostingu. Čistá částka jako „7 000 Kč“, jiný text tak, jak ho kdo zapsal (dlouhý
 // zkrácený, celý v nápovědě), zástupné „x“ nebo „-“ jako nezadáno. Na telefonu se tabulka posouvá do strany
 // uvnitř rámečku (table-wrap), stránka sama ne.
+// ⚠ Migrace 061 (Albert 2. 11. 2026: „make it a little bit more compact … or just fits into the screen without sliding
+// anywhere“; řekl to k Označeným, tabulka tady měla 1 364 až 1 427 px v rámečku 1 180 px, takže poslední sloupec nebyl vidět
+// na žádné šířce) NAHRAZUJE „tabulka se posouvá do strany uvnitř rámečku“ (výš): řádek klienta má dva řádky bez vodorovného
+// posunu (table.kontakty.kompakt v styles.css, stejně jako Označené a Kontakty): nahoře hvězda, příznak, segment, jméno
+// a telefon, pod tím stav, známka, cena, mlčení, čekání, změněno a poslední hovor s malým popiskem (data-label v CSS).
+// Obsah buněk se nemění. Příznak „Údaje z internetu“ Volající nevidí ani tady (priznakProRoli, migrace 061).
 // ⚠ Migrace 051 (Albert 22. 10. 2026: „there's n/a on the hosting and on the prices when we haven't arranged them yet“)
 // NAHRAZUJE pomlčku u nezadané ceny: nedohodnutá cena (prázdná nebo zástupná, cenaNezadana) je „n/a“, viz CenaBunka.
 // Migrace 056 (Albert 27. 10. 2026: „we should be able when we're in the my client section to have the same like filters
@@ -24,6 +30,11 @@
 // NAHRAZUJE „filtry a řazení jen super admin“ (27. 10. 2026) i „Volající: jen klientské hledání v načtených řádcích“: sdílený
 // řádek filtrů (SeznamFiltry, jako Kontakty a Označené) má každý; server je bere jen nad klienty vybraného člověka (Volající
 // jen svými, jen jeho označení k zavolání). Počty u stavů dál jen super admin. Nový sloupec Mlčí a hvězda u jména.
+// Migrace 062 (Albert 2. 11. 2026: „I would like to have this also in my clients section … even if the client isn't marked
+// yet and you call them again, you should have like a I called them button“): v 1. řádku za telefonem „Zavolal/a jsem“
+// (DovolaniTlacitko, okno DovolaniOkno se šesti výsledky), na telefonu jen ikona; jen u klienta, kterému ho přihlášený smí
+// zapsat (dovolatSmi: ne ve frontě volání, u Nekontaktovat, Nerelevantní, Odmítnuto ani u nabídnuté slevy bez označení).
+// Řádek se tím nikam neposouvá do strany (360 až 1920 px, e2e O61a a O62). Po zápisu se seznam načte znovu.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -35,6 +46,7 @@ import {
 } from '../api';
 import { audio } from '../audio';
 import { useSession } from '../auth';
+import DovolaniTlacitko from '../components/DovolaniTlacitko';
 import { HvezdaPrepinac } from '../components/Hvezda';
 import KontaktDrawer from '../components/KontaktDrawer';
 import PersonPicker, { usePeople } from '../components/PersonPicker';
@@ -65,6 +77,7 @@ import {
   hovorNapoveda,
   jenZaklad,
   kontaktJmeno,
+  priznakProRoli,
   zmenenoKdy,
 } from '../ui';
 import { SearchIcon } from '../icons';
@@ -253,7 +266,8 @@ export default function MojiPage() {
     // úprava může kontakt posunout v řazení nebo ho vyřadit z filtru (056, od 060 i u Volajícího), načíst znovu
     setTick((t) => t + 1);
   };
-  // migrace 060: zápis hovoru s označeným klientem v přehledu: detail zavřít (stav i poznámku změnil server), načíst znovu
+  // migrace 060: zápis hovoru s označeným klientem v přehledu: detail zavřít (stav i poznámku změnil server), načíst znovu;
+  // od migrace 062 i „Zavolal/a jsem“ v řádku a v detailu klienta bez označení
   const [info, setInfo] = useState('');
   const onDovolano = (veta: string) => {
     setSelected(null);
@@ -347,7 +361,8 @@ export default function MojiPage() {
       )}
 
       <ErrorBox>{error}</ErrorBox>
-      {info && <div className="info-box dovolani-info">{info}</div>}
+      {/* migrace 062: věta po zápisu hovoru v živé oblasti (čtečka ji přečte, jako Označené) */}
+      <div role="status">{info && <div className="info-box dovolani-info">{info}</div>}</div>
       {!loading && total > rows.length && (
         <p className="muted" style={{ margin: '0 0 10px' }}>
           Zobrazeno {rows.length} z {total} ({poradiText}). Zbytek ukáže přesnější filtr nebo hledání.
@@ -369,52 +384,62 @@ export default function MojiPage() {
           </p>
         </div>
       ) : (
-        <div className="table-wrap">
-          <table className="kontakty">
-            <thead>
-              <tr>
-                <th>Jméno</th>
-                <th>Telefon</th>
-                <th>Status</th>
-                <th>Známka</th>
-                <th>Cena</th>
-                <th title="Kolik pracovních dní klient mlčí od naší poslední zprávy; naše poslední zpráva a kdy klient napsal naposledy">Mlčí</th>
-                {cekani ? <th>Čeká</th> : null}
-                <th>Změněno</th>
-                <th title={hovorNapoveda(!isSuper)}>{hovorNadpis(!isSuper)}</th>
+        // migrace 061: kompaktní řádky jako Označené (role v TSX, protože display se v CSS mění; hlavička jen pro čtečky)
+        <div className="table-wrap kompakt-wrap">
+          <table className="kontakty kompakt" role="table">
+            <thead role="rowgroup">
+              <tr role="row">
+                <th role="columnheader">Jméno</th>
+                <th role="columnheader">Telefon</th>
+                <th role="columnheader">Akce</th>
+                <th role="columnheader">Status</th>
+                <th role="columnheader">Známka</th>
+                <th role="columnheader">Cena</th>
+                <th role="columnheader" title="Kolik pracovních dní klient mlčí od naší poslední zprávy; naše poslední zpráva a kdy klient napsal naposledy">Mlčí</th>
+                {cekani ? <th role="columnheader">Čeká</th> : null}
+                <th role="columnheader">Změněno</th>
+                <th role="columnheader" title={hovorNapoveda(!isSuper)}>{hovorNadpis(!isSuper)}</th>
               </tr>
             </thead>
-            <tbody>
+            <tbody role="rowgroup">
               {filtered.map((r) => (
                 <tr
+                  role="row"
                   key={r.id}
                   className={selected?.id === r.id ? 'selected' : ''}
                   onClick={() => setSelected(r)}
                 >
-                  <td className="row-name">
-                    <HvezdaPrepinac kontakt={r} onZmena={onHvezda} /> <FlagBadge kontakt={r} compact />{' '}
+                  {/* 1. řádek: jméno a telefon (obyčejný text, klepnutí na řádek tak vždy otevře detail) */}
+                  <td role="cell" className="row-name kompakt-hlavni">
+                    {/* migrace 061: příznak „Údaje z internetu“ jen super adminovi */}
+                    <HvezdaPrepinac kontakt={r} onZmena={onHvezda} /> <FlagBadge kontakt={priznakProRoli(r, isSuper)} compact />{' '}
                     <SegmentBadge kontakt={r} compact /> {kontaktJmeno(r)}
                   </td>
-                  <td style={{ whiteSpace: 'nowrap' }}>{r.phone || '—'}</td>
-                  <td>
+                  <td role="cell" className="kompakt-hlavni tel-cell">{r.phone || '—'}</td>
+                  {/* migrace 062: „Zavolal/a jsem“ v 1. řádku (jinak prázdná buňka, CSS ji schová); klik detail neotevře */}
+                  <td role="cell" className="kompakt-hlavni radek-akce">
+                    <DovolaniTlacitko kontakt={r} onDovolano={onDovolano} jenIkonaNaTelefonu />
+                  </td>
+                  {/* 2. řádek: údaje s malým popiskem (data-label), zalomí se podle šířky */}
+                  <td role="cell">
                     <StatusBadge status={r.status} />
                   </td>
-                  <td className="znamka-cell">
+                  <td role="cell" className="znamka-cell" data-label="známka">
                     {jenZaklad(r) ? <Skryto /> : r.rating ? <span className="badge rating">{r.rating}</span> : <span className="muted">—</span>}
                   </td>
-                  <td className="cena-cell">{jenZaklad(r) ? <Skryto /> : <CenaBunka web={r.cena_web} hosting={r.cena_hosting} />}</td>
-                  <td className="mlci-cell">
+                  <td role="cell" className="cena-cell" data-label="cena">{jenZaklad(r) ? <Skryto /> : <CenaBunka web={r.cena_web} hosting={r.cena_hosting} />}</td>
+                  <td role="cell" className="mlci-cell">
                     <MlceniBunka kontakt={r} />
                   </td>
                   {cekani ? (
-                    <td style={{ whiteSpace: 'nowrap' }} className="ceka-cell">
+                    <td role="cell" style={{ whiteSpace: 'nowrap' }} className="ceka-cell" data-label="čeká">
                       {formatCekani(r.cekani_since)}
                     </td>
                   ) : null}
-                  <td style={{ whiteSpace: 'nowrap' }} className="muted zmeneno-cell">
+                  <td role="cell" style={{ whiteSpace: 'nowrap' }} className="muted zmeneno-cell" data-label="změněno">
                     {formatDateTime(zmenenoKdy(r))}
                   </td>
-                  <td style={{ whiteSpace: 'nowrap' }} className="muted hovor-cell">
+                  <td role="cell" style={{ whiteSpace: 'nowrap' }} className="muted hovor-cell" data-label={hovorNadpis(!isSuper).toLowerCase()}>
                     {formatDateTime(r.posledni_hovor ?? null)}
                   </td>
                 </tr>

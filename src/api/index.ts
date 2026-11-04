@@ -11,7 +11,9 @@ const MUTATING = new Set<PropertyKey>(['resolveCall', 'updateKontakt', 'setFlag'
  * hovor, ostatní ho plánují, přesouvají a ruší. Po nich `cmm:zavolat-changed`: připomínky (src/zavolat.tsx) a kalendář
  * se hned obnoví, ať odznak a lišta na Domů nečekají na minutový interval.
  */
-const ZAVOLAT_ZMENY = new Set<PropertyKey>(['resolveCall', 'zavolatNaplanovat', 'zavolatPresunout', 'zavolatZrusit', 'zavolatHotovo']);
+// ⚠ 3. 11. 2026 (ověření 062): i zapisHovor a updateKontakt (zápis dovolání vyřídí dnešní naplánované hovory, změna stavu na
+// odmítnutí je zruší), jinak by odznak připomínek čekal až minutu; NAHRAZUJE výčet bez nich
+const ZAVOLAT_ZMENY = new Set<PropertyKey>(['resolveCall', 'zavolatNaplanovat', 'zavolatPresunout', 'zavolatZrusit', 'zavolatHotovo', 'zapisHovor', 'updateKontakt']);
 
 /** Po úspěšném měnícím volání pošli `cmm:data-changed` (vrstva s Prokchopem si načte my_stats). */
 function withChangeEvents(api: Api): Api {

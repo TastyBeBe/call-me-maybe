@@ -814,6 +814,14 @@ table.kontakty tr:last-child td {
   padding: 20px 22px 40px;
 }
 
+/* Sloupec nástrojů prasátka (pig.css: na telefonu fixed 4–62 px zleva, z-index 1001) je nad detailem. Stránka má pod ním
+   vlastní pruh (pig.css, .page), detail přes celou šířku telefonu ho dostane taky: obsah začne 70 px od kraje obrazovky;
+   od šířky 508 px začíná detail sám dost vpravo a zůstává 22 px (recenze 2. 11. 2026: sloupec zakrýval začátek čísla,
+   jména, lhůty a tlačítek detailu). */
+body.pig-layer .drawer {
+  padding-left: max(22px, min(70px, calc(530px - 100vw)));
+}
+
 .drawer h2 {
   font-size: 22px;
   font-weight: 800;
@@ -2613,8 +2621,10 @@ table.kontakty tbody tr.selected .cena-hosting {
 }
 
 @media (max-width: 640px) {
+  /* pilulka nikdy užší než svůj text (recenze 2. 11. 2026: na 360 px se „⏰ Přeplánovat“ dotýkal okraje, na 320 px přetekl);
+     když se obě na řádek nevejdou, řádek .outcome-dalsi je zalomí pod sebe */
   .outcome-row .outcome-dalsi .pill-btn {
-    min-width: 0;
+    min-width: max-content;
   }
 
   .zavolat-toast {
@@ -2788,6 +2798,15 @@ table.kontakty tbody tr.selected .cena-hosting {
   gap: 4px;
 }
 
+/* „e-mail se vrátil“ hned za skupinou označení (audit 2. 11. 2026, STUCK-9): světlý s růžovým okrajem jako příznak
+   Chybí e-mail, tmavé písmo kvůli kontrastu */
+.badge.ozn-odraz {
+  background: var(--cream);
+  color: var(--ink);
+  border-color: var(--pink);
+  box-shadow: 0 2px 0 var(--pink);
+}
+
 .mlceni-bunka {
   display: inline-flex;
   flex-direction: column;
@@ -2953,29 +2972,50 @@ table.kontakty tbody tr.selected .cena-hosting {
   margin: 8px 0 0;
 }
 
-/* Označené: akce v řádku, lhůta, okno Zavolal/a jsem */
-.oznacene-akce {
-  white-space: nowrap;
-}
-
-.oznacene-akce .pill-btn + .pill-btn {
-  margin-left: 6px;
-}
-
+/* Označené: akce v řádku, lhůta, okno Zavolal/a jsem (⚠ migrace 061: řádek je kompaktní, akce a odznaky se zalamují,
+   pravidla .oznacene-akce a .oznacene-co s nowrap jsou pryč; viz „Kompaktní řádky seznamů“ níž) */
 .pill-btn.zavolal-btn {
   display: inline-flex;
   align-items: center;
   gap: 5px;
 }
 
+/* „Zavolal/a jsem“ v řádku Moji klienti a Kontaktů (migrace 062, Albert 2. 11. 2026): 1. řádek za telefonem, vpravo jako akce
+   Označených; na telefonu jen ikona (název v aria-label a title), takže se vejde vedle čísla a nic se neposouvá do strany */
+table.kontakty.kompakt td.radek-akce {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-left: auto;
+}
+
+/* okno bez označení (062): neutrální věta nahoře, důvod vypnutého odmítnutí pod volbami */
+.dovolani-bez-oznaceni {
+  font-weight: 700;
+}
+
+.dovolani-nejde {
+  margin: 8px 0 0;
+}
+
+/* detail bez označení (062): „Klient není v Označených.“ a tlačítko jako řádek označení */
+.prehled-dovolani {
+  font-weight: 400;
+}
+
+@media (max-width: 640px) {
+  .pill-btn.zavolal-btn.zavolal-ikona-telefon {
+    padding: 5px 10px;
+  }
+
+  .pill-btn.zavolal-btn.zavolal-ikona-telefon .zavolal-text {
+    display: none;
+  }
+}
+
 .lhuta-cell {
   font-size: 13px;
   font-weight: 600;
-  min-width: 150px;
-}
-
-.oznacene-co {
-  white-space: nowrap;
 }
 
 .dovolani-volby {
@@ -3005,6 +3045,301 @@ table.kontakty tbody tr.selected .cena-hosting {
 
   .mlci-filtr {
     width: 100%;
+  }
+}
+
+/* ---------- Kompaktní řádky seznamů (migrace 061, Albert 2. 11. 2026: „make it a little bit more compact … or just fits
+   into the screen without sliding anywhere, and that includes the buttons“; ⚠ NAHRAZUJE „tabulka se posouvá do strany“
+   v rámečku table-wrap u Označených, Moji klienti a Kontaktů) ----------
+   Tabulka zůstává tabulkou (role v TSX, protože se mění display a Safari by sémantiku zahodil). Každý řádek je flex se
+   zalamováním: buňky td.kompakt-hlavni (jméno, telefon, u Označených akce) jsou 1. řádek, tr::after ho ukončí, ostatní buňky
+   jsou 2. řádek a zalomí se dál jen na úzké obrazovce. Žádná pevná šířka, takže řádek nikdy nepřeroste rámeček. Hlavička
+   zůstává pro čtečky (a pro testy), vidět není; prázdná buňka se nevykreslí. */
+.table-wrap.kompakt-wrap {
+  position: relative;
+}
+
+table.kontakty.kompakt,
+table.kontakty.kompakt > tbody {
+  display: block;
+  min-width: 0;
+}
+
+table.kontakty.kompakt > thead {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+table.kontakty.kompakt tbody tr {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 14px;
+  padding: 10px 14px;
+  border-bottom: 2px solid var(--butter-dot);
+}
+
+table.kontakty.kompakt tbody tr:last-child {
+  border-bottom: none;
+}
+
+/* zlom za 1. řádkem (order 1 mezi buňkami order 0 a order 2) */
+table.kontakty.kompakt tbody tr::after {
+  content: '';
+  order: 1;
+  flex: 0 0 100%;
+  height: 0;
+}
+
+table.kontakty.kompakt td {
+  order: 2;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+  max-width: 100%;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+table.kontakty.kompakt td.kompakt-hlavni {
+  order: 0;
+  font-size: 14px;
+}
+
+table.kontakty.kompakt td.row-name {
+  flex: 1 1 14rem;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 15px;
+}
+
+table.kontakty.kompakt tbody td:empty {
+  display: none;
+}
+
+/* zvlášť: prohlížeč bez :has by zahodil celé pravidlo i s td:empty */
+table.kontakty.kompakt tbody td:has(> .skryto:only-child) {
+  display: none;
+}
+
+/* popisek údaje ve 2. řádku je jen v CSS (innerText buňky se nemění) */
+table.kontakty.kompakt td[data-label]::before {
+  content: attr(data-label) ' ';
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-soft);
+}
+
+table.kontakty.kompakt tbody tr.selected .muted,
+table.kontakty.kompakt tbody tr.selected td[data-label]::before {
+  color: inherit;
+  opacity: 0.85;
+}
+
+table.kontakty.kompakt tbody tr.selected .phone-link {
+  color: var(--ink);
+}
+
+/* oranžové mlčení by na oranžovém vybraném řádku zmizelo */
+table.kontakty.kompakt tbody tr.selected .mlci-pd.dlouho {
+  color: inherit;
+}
+
+.ozn-pokusy {
+  font-weight: 800;
+}
+
+/* jméno je tlačítko: detail jde otevřít i z klávesnice (Enter, mezerník) */
+.kompakt-jmeno {
+  font: inherit;
+  font-weight: 800;
+  color: inherit;
+  background: none;
+  border: 0;
+  padding: 0;
+  text-align: left;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+
+.kompakt-jmeno:hover {
+  text-decoration: underline;
+}
+
+.kompakt-jmeno:focus-visible {
+  outline: 3px solid var(--ink);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+table.kontakty.kompakt td.ozn-tel .phone-links {
+  gap: 6px;
+}
+
+table.kontakty.kompakt td.ozn-tel .phone-link {
+  font-size: 14px;
+  padding: 2px 10px;
+  white-space: nowrap;
+}
+
+table.kontakty.kompakt td.oznacene-akce {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.pill-btn.vyreseno-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+table.kontakty.kompakt td.oznacene-co {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px 6px;
+}
+
+table.kontakty.kompakt td.cena-cell {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: 6px;
+}
+
+/* poznámka příznaku na dva řádky (celá v title a v detailu) */
+table.kontakty.kompakt td.flag-note-cell {
+  flex: 1 1 16rem;
+  max-width: none;
+  line-height: 1.3;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+}
+
+table.kontakty.kompakt .mlceni-bunka {
+  flex-direction: row;
+  flex-wrap: wrap;
+  column-gap: 8px;
+  white-space: normal;
+}
+
+table.kontakty.kompakt .mlceni-bunka > * {
+  white-space: nowrap;
+}
+
+/* telefon: akce na vlastní řádek přes celou šířku, větší tlačítka a číslo k vytočení */
+@media (max-width: 640px) {
+  table.kontakty.kompakt tbody tr {
+    padding: 10px 12px;
+  }
+
+  table.kontakty.kompakt td.oznacene-akce {
+    flex-basis: 100%;
+    margin-left: 0;
+  }
+
+  table.kontakty.kompakt td.oznacene-akce .pill-btn {
+    flex: 1 1 auto;
+    justify-content: center;
+    padding: 6px 12px;
+  }
+
+  table.kontakty.kompakt td.ozn-tel .phone-link {
+    font-size: 16px;
+    padding: 3px 12px;
+  }
+}
+
+/* ---------- okno Zavolal/a jsem a Zrušit označení (migrace 061) ----------
+   Přes createPortal v body nad sloupcem prasátka (pig.css z-index 1001, zakrýval levý kraj voleb) i nad prasátkem (1000).
+   Okno je sloupec: posouvá se jen tělo, chyba serveru a tlačítka zůstávají vidět (bez lepkavé patičky). */
+.scrim.dovolani-scrim {
+  z-index: 1002;
+}
+
+.modal.dovolani-okno {
+  width: 520px;
+  max-height: calc(100vh - 32px);
+  max-height: calc(100dvh - 32px);
+  display: flex;
+  flex-direction: column;
+}
+
+.dovolani-okno .modal-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 2px 4px 2px 2px;
+  margin-bottom: 12px;
+}
+
+.dovolani-okno > .error-box {
+  flex: none;
+  margin: 0 0 12px;
+}
+
+.dovolani-okno .modal-actions {
+  flex: none;
+}
+
+.field.dovolani-poznamka {
+  margin: 10px 0 0;
+}
+
+/* 16 px: iPhone při psaní stránku nezvětší */
+.dovolani-okno textarea {
+  font-size: 16px;
+}
+
+.dovolani-pod-polem {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 10px;
+  font-size: 12.5px;
+}
+
+.dovolani-pod-polem .zavolat-pocet {
+  flex: none;
+  white-space: nowrap;
+}
+
+.zavolat-pocet.moc {
+  color: var(--pink);
+  font-weight: 800;
+}
+
+.dovolani-chybi,
+.dovolani-chyba {
+  margin: 4px 0 0;
+  font-size: 13px;
+}
+
+.dovolani-chyba {
+  font-weight: 700;
+  color: var(--pink);
+}
+
+@media (max-width: 640px) {
+  .modal.dovolani-okno {
+    padding: 16px;
+  }
+
+  .dovolani-okno .modal-title {
+    font-size: 18px;
   }
 }
 

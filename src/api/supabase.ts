@@ -72,6 +72,23 @@ export const BEZ_060_OZNACENE =
 export const BEZ_060_HOVOR = 'Zápis hovoru s označeným klientem server ještě neumí (chybí na něm migrace 060).';
 export const BEZ_060_HVEZDA = 'Hvězdu server ještě neumí (chybí na něm migrace 060).';
 export const BEZ_060_PREHLED = 'Přehled klienta server ještě neumí (chybí na něm migrace 060).';
+/**
+ * Migrace 061 (Albert 2. 11. 2026): pátý výsledek dovolání jine („Nic z toho výše“). Server s 060 bez 061 ho odmítne
+ * hláškou „Neplatný výsledek dovolání: jine. Povolené: … mluvili.“; appka řekne, co server ještě neumí (testy appky hlídají
+ * znění). Poznámku u ostatních výsledků server bez 061 přijme, ale u nedovolání ji dá jen do historie (výsledek pak nemá
+ * klíč poznamka_predana).
+ */
+export const BEZ_061_JINE =
+  'Výsledek „Nic z toho výše“ server ještě neumí (chybí na něm migrace 061). Vyberte nejbližší jiný výsledek a napište poznámku.';
+/**
+ * Migrace 062 (Albert 2. 11. 2026, A1: „Yes, you can add the sixth option“): šestý výsledek dovolání chce_web („Chce web“).
+ * Server bez 062 ho odmítne hláškou „Neplatný výsledek dovolání: chce_web. Povolené: … jine.“; appka řekne, co server ještě
+ * neumí (testy appky hlídají znění). Dovolání bez označení server bez 062 odmítne svou starou větou (Volajícímu „… kterého
+ * máte v Označených k zavolání …“, super adminovi „nemá otevřené označení“); appka ji ukáže, jak přišla. Pořadí nasazení
+ * (větev, migrace, appka) tenhle stav nepřipustí, jen návrat migrace.
+ */
+export const BEZ_062_CHCE_WEB =
+  'Výsledek „Chce web“ server ještě neumí (chybí na něm migrace 062). Vyberte „Mluvili jsme“ a napište, že klient web chce.';
 /** Server odmítl řazení mlceni nebo hvezda, protože ho nezná (bez 060 „Neplatné řazení“, bez 056 PGRST202). */
 const razeni060Nezna = (razeni: string | null | undefined, e: unknown): boolean =>
   (razeni === 'mlceni' || razeni === 'hvezda') && e instanceof RpcChyba
@@ -360,12 +377,22 @@ export const supabaseApi: Api = {
         p_token: token,
         p_kontakt_id: kontaktId,
         p_vysledek: vysledek,
-        p_poznamka: poznamka,
+        // migrace 061: poznámka u každého výsledku (i jine a nedovolano), prázdná jako null; server ji zbaví konců řádků
+        // (od 062 i chce_web: bez poznámky null, vzkaz „Chce web“ server pošle i tak)
+        p_poznamka: poznamka?.trim() ? poznamka : null,
         // hvězda jen když se mění (null = beze změny)
         ...(typeof hvezda === 'boolean' ? { p_hvezda: hvezda } : {}),
       });
     } catch (e) {
       if (neniNaServeru(e)) throw new Error(BEZ_060_HOVOR);
+      // migrace 061: server s 060 pátý výsledek nezná
+      if (vysledek === 'jine' && e instanceof RpcChyba && e.message.startsWith('Neplatný výsledek dovolání: jine.')) {
+        throw new Error(BEZ_061_JINE);
+      }
+      // migrace 062: server bez 062 šestý výsledek nezná (s 060 i bez 061 stejná hláška)
+      if (vysledek === 'chce_web' && e instanceof RpcChyba && e.message.startsWith('Neplatný výsledek dovolání: chce_web.')) {
+        throw new Error(BEZ_062_CHCE_WEB);
+      }
       throw e;
     }
   },

@@ -59,6 +59,15 @@ export function stavChceDuvod(userId: number): boolean {
   return userId !== OWNER_USER_ID;
 }
 
+/**
+ * Věta pod důvodem změny stavu v detailu (audit soudržnosti 2. 11. 2026, nález R4). Důvod čte automatizace jen u Odmítnuto
+ * (job rucni_odmitnuti, PLAYBOOK [2026-10-30] bod 6) a u architekta i u Nekontaktovat (stažení náhledu); u ostatních stavů
+ * ho žádný agent nečte. ⚠ NAHRAZUJE „Důvod si přečte automatizace a podle něj pokračuje (třeba u „Odmítnuto“ po návrhu
+ * pošle jednu nabídku poloviční ceny).“ z migrace 059, které slibovalo čtení u každé změny. Důvody předá až migrace 062.
+ */
+export const DUVOD_STAVU_NAPOVEDA =
+  'Důvod čte automatizace jen u Odmítnuto (u architekta i u Nekontaktovat). Pokyn pro agenta napište do Vzkazů agentovi.';
+
 /** Barvy status badge — výrazné, rozlišitelné, v paletě appky. */
 export const STATUS_COLORS: Record<KontaktStatus, { bg: string; fg: string }> = {
   nekontaktovano: { bg: '#fdf6e9', fg: '#7b7695' },
@@ -184,6 +193,29 @@ export function flagHintDetail(kind: FlagKind, readOnly: boolean, segment?: stri
 export const ALL_FLAGS = Object.keys(FLAG_LABELS) as FlagKind[];
 
 /**
+ * Příznaky jen pro super adminy a Alberta (migrace 061, Albert 2. 11. 2026: „This should be exclusive to the super admins …
+ * only the super admins will see this flag, but the callers don't need to see the [flag]“): „Údaje z internetu“. Volající
+ * je nevidí nikde (pilulka, odznak, počet, karta ve volání, detail ani výběr druhu v detailu). Server 061 mu je neposílá,
+ * tohle je druhá pojistka v appce.
+ */
+export const JEN_SUPER_FLAGS: FlagKind[] = ['info_neoverene'];
+
+/** Vidí přihlášený tenhle druh příznaku? Super admin a Albert všechny, Volající všechny kromě JEN_SUPER_FLAGS. */
+export function priznakVidi(kind: FlagKind | null | undefined, jaSuper: boolean): boolean {
+  return !!kind && (jaSuper || !JEN_SUPER_FLAGS.includes(kind));
+}
+
+/**
+ * Řádek pro přihlášeného: příznak, který nesmí vidět, zmizí i s poznámkou, časem a autorem (jako app_kontakt_ven od 061),
+ * takže je řádek jako bez příznaku. Volající takový příznak v detailu nahradí vlastním („Označit klienta“), jak 061 dovolí.
+ */
+export function priznakProRoli<T extends Pick<Kontakt, 'flag_kind'>>(k: T, jaSuper: boolean): T {
+  return k.flag_kind && !priznakVidi(k.flag_kind, jaSuper)
+    ? { ...k, flag_kind: null, flag_note: null, flagged_at: null, flagged_by: null }
+    : k;
+}
+
+/**
  * Příznaky, které jde v detailu nasadit (migrace 060, Albert 1. 11. 2026): bez `neodpovida`, ten nahradilo označení
  * k zavolání a server ho odmítne. ALL_FLAGS zůstává na popisky a počty (starý server ho může poslat).
  */
@@ -256,6 +288,105 @@ export function OznaceniBadge({ kategorie }: { kategorie: OznaceniKategorie | nu
     </span>
   );
 }
+
+/**
+ * Označený klient, kterému se náš e-mail vrátil (audit soudržnosti 2. 11. 2026, nález STUCK-9): příznak „Chybí e-mail“
+ * (chybi_email) u otevřeného označení dává odraz e-mailu (orchestrator/odrazy.py), klient návrh (u změn naši poslední
+ * zprávu) nejspíš nikdy neviděl. Řádek Označených to řekne hned vedle skupiny, ať se volající neptá, jestli se na web
+ * podíval. Bez označení nic: tam stačí příznak sám. Jiné druhy příznaku ne (email_neoveren = adresa funguje, jen ji
+ * klient nepotvrdil).
+ */
+export function emailSeVratil(k: Pick<Kontakt, 'ozn_kategorie' | 'flag_kind'>): boolean {
+  return !!k.ozn_kategorie && k.flag_kind === 'chybi_email';
+}
+
+/** Nápověda u „e-mail se vrátil“ podle skupiny označení (title; co dál, říká poznámka příznaku v témže řádku). */
+export function emailSeVratilNapoveda(kategorie: OznaceniKategorie | null | undefined): string {
+  const co = kategorie === 'zmeny' ? 'naši poslední zprávu' : 'návrh webu';
+  return `Náš e-mail se vrátil jako nedoručený, klient ${co} nejspíš neviděl. Při hovoru zjisti platný e-mail (víc v poznámce příznaku).`;
+}
+
+/** „e-mail se vrátil“ vedle odznaku skupiny označení (řádek Označených). Jinak nevykreslí nic. */
+export function EmailSeVratil({ kontakt }: { kontakt: Pick<Kontakt, 'ozn_kategorie' | 'flag_kind'> }) {
+  if (!emailSeVratil(kontakt)) return null;
+  return (
+    <span className="badge ozn-odraz" title={emailSeVratilNapoveda(kontakt.ozn_kategorie)}>
+      e-mail se vrátil
+    </span>
+  );
+}
+
+/* ---------- „Zavolal/a jsem“ i bez označení a šestý výsledek „Chce web“ (migrace 062, Albert 2. 11. 2026) ---------- */
+// Albert 2. 11. 2026: „I would like to have this also in my clients section … even if the client isn't marked yet and you call
+// them again, you should have like a I called them button … you can even add [it] to the contacts section“. Server
+// (zapis_hovor) sám vybere větev: otevřené označení přihlášeného = zápis jako v 061, jinak další hovor bez označení
+// (oznaceno false). Appka jen neukáže tlačítko tam, kde by ho server odmítl (rozhodnutí D3 a D11 zadání 062).
+
+/**
+ * Stavy, u kterých se dovolání BEZ označení nezapisuje (D11): fronta volání (nekontaktovano a nedovolano: hovor se zapíše
+ * výsledkem ve Volání), Nekontaktovat a Nerelevantní (nevolá se) a odmítnutí, s náhledem i bez něj, i s nabídnutou slevou
+ * (Albert 2. 11. 2026: „if the client refuses the preview on the first call, I don't think we should be calling them
+ * again“). Kampaňová chata ve stavu Nabídnuta sleva tlačítko má přes své označení (dovolatSmi).
+ */
+export const DOVOLANI_NE: KontaktStatus[] = ['nekontaktovano', 'nedovolano', 'nekontaktovat', 'nerelevantni', 'odmitnuto', 'sleva_nabidnuta'];
+
+/**
+ * Klient web objednal (D3): „Nechce web“ ani „Nechce, abychom ho kontaktovali“ se mu tlačítkem nezapíše (stav se mění
+ * v detailu s důvodem). Eskalace a Pozastaveno po prodeji pozná jen server (podle historie prodeje).
+ */
+export const PRODEJ: KontaktStatus[] = ['schvaleno', 'faktura_odeslana', 'zaplaceno', 'domena_pripojena', 'hotovo'];
+
+/**
+ * Starý příznak „NEKONTAKTOVAT …“ (poznámka příznaku z doby před stavem nekontaktovat, ARCHITEKTI-PRAVIDLA M bod 2): server
+ * dovolání odmítne jako u stavu Nekontaktovat (⚠ 3. 11. 2026, ověření 062, DB F3; stejný výraz jako oznaceni_kandidati).
+ */
+export function priznakNekontaktovat(k: Partial<Pick<Kontakt, 'flag_note'>>): boolean {
+  return (k.flag_note ?? '').replace(/^\s+/, '').toUpperCase().startsWith('NEKONTAKTOVAT');
+}
+
+/**
+ * Má řádek „Zavolal/a jsem“? (D11) Ne u cizího kontaktu Volajícího (skryto) a ne s příznakem NEKONTAKTOVAT (ověření 062,
+ * DB F3); u otevřeného označení, které přihlášený vidí, vždy (jako Označené od 060); jinak jen ten, kdo klienta smí upravit
+ * (smi_upravit), a ne ve stavech DOVOLANI_NE. ⚠ 3. 11. 2026 NAHRAZUJE vzorec D11 bez příznaku.
+ */
+export function dovolatSmi(
+  k: Pick<Kontakt, 'skryto' | 'ozn_kategorie' | 'smi_upravit' | 'status'> & Partial<Pick<Kontakt, 'flag_note'>>
+): boolean {
+  return !jenZaklad(k) && !priznakNekontaktovat(k) && (!!k.ozn_kategorie || (k.smi_upravit === true && !DOVOLANI_NE.includes(k.status)));
+}
+
+/** Má klient náhled webu? (odkaz na nový web nebo odeslaný návrh; okno „Zavolal/a jsem“ podle toho říká, co udělá automatizace) */
+export function maNahled(k: Pick<Kontakt, 'live_url' | 'first_proposal_at'>): boolean {
+  return !!k.live_url || !!k.first_proposal_at;
+}
+
+/* ---------- menu stavů a plánování hovoru v detailu (migrace 062, rozhodnutí D19; Albert 2. 11. 2026: „Limit it“) ---------- */
+
+/** Stav, který nastavuje jen automatizace, když nabídku pošle (update_kontakt ho od 062 člověku odmítne). */
+export const STAVY_JEN_AUTOMATIZACE: KontaktStatus[] = ['sleva_nabidnuta'];
+/** Stavy jen pro klienta, který už dostal návrh (first_proposal_at): klient ve frontě volání má Naplánovat hovor. */
+export const STAVY_JEN_PO_NAVRHU: KontaktStatus[] = ['pozdeji', 'bez_odpovedi'];
+/** Stavy, ve kterých se hovor neplánuje (zavolat_naplanovat je od 062 odmítne a změna na ně zruší čekající hovory). */
+export const STAVY_BEZ_HOVORU: KontaktStatus[] = ['nekontaktovat', 'nerelevantni', 'odmitnuto'];
+
+/**
+ * Stavy v rozbalovacím menu detailu (D19): bez Nabídnuté slevy a bez Ozve se později a Archivu u klienta bez návrhu; stávající
+ * stav klienta je v menu vždy (jinak by výběr nic neukazoval). Server (update_kontakt) to hlídá sám, menu jen neukáže, co by
+ * odmítl.
+ */
+export function stavyVMenu(k: Pick<Kontakt, 'status' | 'first_proposal_at'>): KontaktStatus[] {
+  return ALL_STATUSES.filter(
+    (s) => s === k.status || (!STAVY_JEN_AUTOMATIZACE.includes(s) && (!STAVY_JEN_PO_NAVRHU.includes(s) || !!k.first_proposal_at))
+  );
+}
+
+/** Jde klientovi v detailu naplánovat hovor? (D19: u Nekontaktovat, Nerelevantní a Odmítnuto ne) */
+export function hovorPlanovatSmi(k: Pick<Kontakt, 'status'>): boolean {
+  return !STAVY_BEZ_HOVORU.includes(k.status);
+}
+
+/** Věta pod důvodem změny stavu na Nekontaktovat, Nerelevantní nebo Odmítnuto (D19: čekající hovory klienta se zruší). */
+export const ZMENA_RUSI_HOVORY = 'Naplánované hovory klienta se tím zruší.';
 
 /** Známky ve filtru seznamů: A, B, C a „bez známky“ (rating null). */
 export const ZNAMKA_FILTR_LABELS: Record<ZnamkaFiltr, string> = { A: 'A', B: 'B', C: 'C', bez: 'bez známky' };

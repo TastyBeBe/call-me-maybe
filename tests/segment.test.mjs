@@ -709,14 +709,38 @@ await blok('W', async () => {
     over('W8c', (await poznamka2())?.flagged_by === 'Honza', 'update_kontakt se změnou druhu zapíše autora (kolega Honza)', (await poznamka2())?.flagged_by);
     await projde('W8d', () => api.updateKontakt(petra, 2, { flag_kind: 'jine', flag_note: p8?.flag_note ?? '' }), 'update_kontakt se stejným druhem a stejnou poznámkou projde');
     over('W8d', (await poznamka2())?.flagged_by === 'Honza', 'update_kontakt se stejným druhem autora nepřepíše', (await poznamka2())?.flagged_by);
-    // autor před změnou druhu je jistě někdo jiný (Albert přes set_flag s jiným druhem), aby W8e měřil přepis autora
-    await api.setFlag(albert, 2, 'info_neoverene', p8?.flag_note ?? '');
+    // autor před změnou druhu je jistě někdo jiný (Albert přes set_flag s jiným druhem), aby W8e měřil přepis autora.
+    // ⚠ Migrace 061 (Albert 2. 11. 2026): info_neoverene Volající nemění, proto tu Albert dá chybi_info (NAHRAZUJE
+    // info_neoverene z 046; to měří W8g až W8k)
+    await api.setFlag(albert, 2, 'chybi_info', p8?.flag_note ?? '');
     const p8pred = await poznamka2();
     await projde('W8e', () => api.updateKontakt(petra, 2, { flag_kind: 'chybi_email' }), 'update_kontakt s jiným druhem projde');
     const p8e = await poznamka2();
     over('W8e', p8pred?.flagged_by === 'Albert' && p8e?.flagged_by === 'Petra' && p8e?.flag_kind === 'chybi_email' && !!p8e?.flagged_at,
       'update_kontakt s jiným druhem zapíše nového autora a čas', `${p8pred?.flagged_by} → ${p8e?.flagged_by}`);
     await chyba('W8f', () => api.updateKontakt(petra, 2, { flag_kind: 'blbost' }), /^Neplatný druh příznaku: blbost\.$/, 'update_kontakt odmítne neznámý druh příznaku (jako server)');
+    // migrace 061 (Albert 2. 11. 2026: „only the super admins will see this flag“): info_neoverene, který dal Albert (pro
+    // Petru cizí jméno) s poznámkou se zápisem kolegy Honzy, Petra (Volající) nevidí, nezruší, nezmění, ale svým příznakem nahradí
+    await api.setFlag(albert, 2, 'info_neoverene', '[2026-10-30 Honza] ověřit fotky z inzerátu');
+    const p8g = (await api.listKontakty(petra, { search: 'Roubenka U Lesa', limit: 5 })).rows.find((r) => r.id === 2);
+    over('W8g', !!p8g && p8g.skryto === false && p8g.flag_kind === null && p8g.flag_note === null && p8g.flagged_at === null && p8g.flagged_by === null
+      && (await poznamka2())?.flag_kind === 'info_neoverene',
+      'Volající info_neoverene svého klienta nevidí (řádek bez příznaku), Albert ano', JSON.stringify(p8g && [p8g.flag_kind, p8g.flag_note, p8g.flagged_by]));
+    for (const [id, patch] of [['W8h', { flag_kind: null }], ['W8h', { flag_note: 'x' }], ['W8h', { flag_kind: 'jine', flag_note: 'y' }]]) {
+      await chyba(id, () => api.updateKontakt(petra, 2, patch), /^Tenhle příznak řeší super admin\.$/, `update_kontakt Volajícího ${JSON.stringify(patch)} u info_neoverene`);
+    }
+    await chyba('W8i', () => api.clearFlag(petra, 2), /^Tenhle příznak řeší super admin\.$/, 'clear_flag Volajícího u info_neoverene');
+    over('W8i', (await poznamka2())?.flag_kind === 'info_neoverene' && (await poznamka2())?.flag_note === '[2026-10-30 Honza] ověřit fotky z inzerátu',
+      'odmítnuté zrušení a úpravy nechají info_neoverene beze změny');
+    const neviditelna = (await api.listFlagged(petra, null, null)).some((r) => r.id === 2) || (await api.listFlagged(petra, 'info_neoverene', null)).length > 0
+      || (await api.listOznacene(petra, { druhy: ['info_neoverene'] })).length > 0;
+    over('W8j', !neviditelna && (await api.listFlagged(albert, 'info_neoverene', null)).some((r) => r.id === 2),
+      'list_flagged a Označené Volajícímu info_neoverene nevrátí ani s filtrem druhu, Albertovi ano');
+    // poznámka skrytého příznaku má zápis kolegy: dřív by ho set_flag Volajícího (060) bral jako jen ke čtení a odmítl
+    await projde('W8k', () => api.setFlag(petra, 2, 'jine', 'moje poznámka'), 'Volající info_neoverene svým příznakem nahradí');
+    const p8k = await poznamka2();
+    over('W8k', p8k?.flag_kind === 'jine' && p8k?.flag_note === 'moje poznámka' && p8k?.flagged_by === 'Petra',
+      'nový příznak Volajícího nahradí skrytý info_neoverene celý (druh, poznámka, autor)', `${p8k?.flag_kind} / ${p8k?.flag_note} / ${p8k?.flagged_by}`);
   } finally {
     await api.clearFlag(albert, 2);
   }
