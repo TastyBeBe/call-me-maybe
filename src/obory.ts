@@ -19,8 +19,23 @@ function oznam(): void {
 
 /** Nastaví registr (po načtení z RPC; testy). Seřadí podle `poradi` jako server. */
 export function nastavNiky(seznam: readonly OborNika[]): void {
-  niky = [...seznam].sort((a, b) => (a.poradi ?? 9999) - (b.poradi ?? 9999) || a.klic.localeCompare(b.klic));
+  const nove = [...seznam].sort((a, b) => (a.poradi ?? 9999) - (b.poradi ?? 9999) || a.klic.localeCompare(b.klic));
+  // Obnova každých pár minut a při návratu do záložky: beze změny se nic nepřekresluje (stejný snímek pro React)
+  if (JSON.stringify(nove) === JSON.stringify(niky)) return;
+  niky = nove;
   oznam();
+}
+
+/**
+ * Jak často appka registr nik načte znovu, i když je záložka pořád otevřená (ms). Proč: nika se zapíná a pozastavuje
+ * v DB (obor_niky.stav) bez nasazení appky; bez obnovy by volající s otevřenou záložkou po zapnutí autoservisu tlačítko
+ * Obory neviděl, dokud stránku sám nenačte znovu (recenze kroku B9, 8. 11. 2026).
+ */
+export const OBNOVA_NIK_MS = 5 * 60 * 1000;
+
+/** Chyba next_contact, po které je registr zastaralý (nika mezitím pozastavená nebo jen pro vybrané). */
+export function jeChybaZastaraleNiky(zprava: string): boolean {
+  return /není spuštěný|volají jen vybraní/i.test(zprava);
 }
 
 /** Všechny niky, které server poslal (volajícímu jen ty, které smí volat). */

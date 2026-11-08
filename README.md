@@ -99,6 +99,11 @@ adresy `example.cz`, telefony s předvolbou 999. Pak se na přepínači objeví 
 s panelem „jejich web“ (odkaz, hodnocení A až F, věta o stavu webu, nejvýš dvě věty o nedostatcích, „potvrď e-mail
 v hovoru“), řádek „Máš naplánovaný hovor: …“ pro jiný segment a stránka `#/jak-volat`. Testy: `npm test` bloky NK a I6
 (segment), FO (volání), OF (filtry), `npm run test:e2e` blok OB.
+Registr se načítá znovu bez přihlášení (recenze kroku B9, 8. 11. 2026; ⚠ NAHRAZUJE „jednou za přihlášení“): při příchodu
+na Volání a na Jak volat, při návratu do okna nebo záložky, každých 5 minut (`OBNOVA_NIK_MS`) a po chybě next_contact
+„Obor … zatím není spuštěný.“ / „… volají jen vybraní volající.“ (pak místo chyby prázdná fronta niky s hláškou serveru).
+Volající s otevřenou appkou tak zapnutý autoservis uvidí nejpozději do 5 minut, při přepnutí do okna hned. E2E OB5 až OB7
+to v demu zkouší háčky `zapniNiku`, `nastavStavNiky` a `naplanujDosly` (`globalThis.__volackaDemoTest`, jen testy).
 
 Od migrace 060 (Albert 1. 11. 2026, oddíl Označení 060 níž) má demo i označení k zavolání: mock je počítá stejně jako tick
 (`obnovOznaceni` v `src/api/mock.ts`, první běh s lhůtou 10 pracovních dní jako migrace, každé další označení 5). Chaty 93 až

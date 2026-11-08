@@ -4,7 +4,7 @@ import { getApi, type Kontakt, type Rating, type Segment, type VysledekHovoru, t
 import { audio } from '../audio';
 import { useSession } from '../auth';
 import { jeObor, loadCallSegment, rodinaOf, saveCallSegment, segmentOf, ulozenaNika } from '../segment';
-import { klicNikKVolani, nactiNiky, nikaInfo, nikaVolatelna, STAV_NIKY_POPISEK, useNiky, viditelneNiky } from '../obory';
+import { jeChybaZastaraleNiky, klicNikKVolani, nactiNiky, nikaInfo, nikaVolatelna, STAV_NIKY_POPISEK, useNiky, viditelneNiky } from '../obory';
 import JejichWeb from '../components/JejichWeb';
 import {
   ConfirmModal,
@@ -259,6 +259,14 @@ export default function CallPage() {
       if (my !== reqId.current) return;
       shownId.current = null;
       setKontakt(null);
+      if (jeObor(seg) && jeChybaZastaraleNiky(errMsg(e))) {
+        // Recenze B9: nika mezitím pozastavená (nebo jen pro vybrané), záložka měla starý registr. Registr znovu a místo
+        // chyby prázdná fronta niky s hláškou serveru a tlačítkem „Volat chaty“.
+        void nactiNiky(session.token, true);
+        setEmpty(true);
+        setWarning([hlaska, errMsg(e)].filter(Boolean).join(' '));
+        return;
+      }
       setError(errMsg(e));
       if (hlaska) setWarning(hlaska);
       audio.play('error');
@@ -297,7 +305,7 @@ export default function CallPage() {
       // Od migrace 064: uložená nika se pozná až z registru nik; první karta na něj počká (jinak by šla z chat)
       if (ulozenaNika() && !jeObor(segmentRef.current)) {
         const prvni = loadNext;
-        void nactiNiky(session.token).then(() => {
+        void nactiNiky(session.token, true).then(() => {
           if (nactenoPro.current !== prvni) return;
           const s = loadCallSegment(klicNikKVolani());
           segmentRef.current = s;
@@ -306,6 +314,9 @@ export default function CallPage() {
         });
         return;
       }
+      // Recenze B9 (8. 11. 2026): příchod na volání načte registr nik znovu (nika mohla být mezitím zapnutá nebo
+      // pozastavená); karta chat a architektů na něj nečeká
+      void nactiNiky(session.token, true);
       void loadNext('', zavolatId);
       return;
     }
@@ -592,7 +603,10 @@ export default function CallPage() {
   const obor = rodina === 'obor';
   const nikaKarty = obor ? nikaInfo(segmentOf(kontakt)) : undefined;
   const obrat = obratArchitekta(kontakt.dph_osobni, kontakt.dph_firma);
-  const cekaPrepnuti = segmentOf(kontakt) !== segment;
+  // Recenze B9 (návrh 6.2 bod 1): na nice dá průchod 0b vlastní naplánovaný hovor z kterékoli zapnuté niky rodiny. Taková
+  // karta žlutou cedulku „Po tomhle hovoru dostaneš …“ nemá: „Přepnout hned“ by ji vrátil a průchod 0b by ji hned dal znovu.
+  const cekaPrepnuti =
+    segmentOf(kontakt) !== segment && !(jeObor(segment) && jeObor(segmentOf(kontakt)) && !!kontakt.zavolat);
 
   return (
     <div style={{ maxWidth: 720, margin: '0 auto' }}>

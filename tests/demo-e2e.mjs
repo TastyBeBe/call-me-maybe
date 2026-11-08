@@ -2809,6 +2809,82 @@ await blok050('OB3', async () => {
   await ctx.close();
 });
 
+await blok050('OB5', async () => {
+  // recenze B9: nika zapnutá, zatímco má volající appku otevřenou, se ukáže po návratu do okna bez odhlášení; nika
+  // pozastavená pod rukama dá prázdnou frontu s hláškou serveru (ne chybu) a z přepínače zmizí
+  const { ctx, page } = await novaStranka('petra');
+  await jdi(page, '#/call', 600);
+  const pred = await page.locator('.segment-switch button.obor').count();
+  await page.evaluate(() => {
+    globalThis.__volackaDemoTest.zapniNiku('autoservis');
+    globalThis.__volackaDemoTest.vyprazdniNiku('autoservis');
+    window.dispatchEvent(new Event('focus'));
+  });
+  await klid(page, 500);
+  over('OB5a', pred === 0 && (await page.locator('.segment-switch button.obor').count()) === 1,
+    'zapnutá nika: tlačítko Obory se objeví po návratu do okna, bez nového přihlášení', String(pred));
+  await page.locator('.segment-switch button.obor').click();
+  await page.waitForTimeout(150);
+  await page.locator('.segment-niky button.nika').first().click();
+  await klid(page, 500);
+  const prazdna = txt(await page.locator('.empty-state').innerText().catch(() => ''));
+  over('OB5b', prazdna.includes('V oboru autoservisy teď nikdo k volání není.'), 'po volbě nové niky se ptá serveru na její frontu', prazdna);
+  await page.evaluate(() => globalThis.__volackaDemoTest.nastavStavNiky('autoservis', 'pozastaveno'));
+  await page.locator('.empty-state button', { hasText: 'Zkusit znovu' }).click();
+  await klid(page, 600);
+  const info = txt(await page.locator('.info-box').allInnerTexts().then((a) => a.join(' ')).catch(() => ''));
+  over('OB5c', (await page.locator('.error-box').count()) === 0 && (await page.locator('.empty-state').count()) === 1 && info.includes('zatím není spuštěný'),
+    'pozastavená nika: prázdná fronta s hláškou serveru, žádná chyba', info);
+  over('OB5d', (await page.locator('.segment-switch button.obor').count()) === 0, 'po chybě „není spuštěný“ appka načte registr znovu a nika zmizí');
+  await ctx.close();
+});
+await blok050('OB6', async () => {
+  // recenze B9: řádek „Máš naplánovaný hovor“ vykreslený na chatách; na autoservisu karta stavby z průchodu 0b bez cedulky
+  // „Po tomhle hovoru dostaneš …“ (Přepnout hned by ji vrátil a 0b by ji dal znovu)
+  const { ctx, page } = await novaStranka('petra', { ls: { volacka_demo_obory: 'autoservis,stavby' } });
+  await page.evaluate(() => globalThis.__volackaDemoTest.naplanujDosly(421, 2));
+  await jdi(page, '#/call', 600);
+  const radek = txt(await page.locator('.zavolat-jinde').innerText().catch(() => ''));
+  over('OB6a', /Máš naplánovaný hovor: Stav\S* \(1\)/.test(radek), 'na chatách řádek „Máš naplánovaný hovor: Stavby (1)“', radek);
+  await page.locator('.segment-switch button.obor').click();
+  await page.waitForTimeout(150);
+  await page.locator('.segment-niky button.nika', { hasText: 'Autoservis' }).first().click();
+  await klid(page, 600);
+  const id = await kartaId(page);
+  const telo = txt(await page.locator('main, body').first().innerText());
+  over('OB6b', id === 421 && !telo.includes('Po tomhle hovoru dostaneš'), 'karta stavby z průchodu 0b na autoservisu bez cedulky o přepnutí',
+    `${id} | ${telo.slice(0, 200)}`);
+  await ctx.close();
+});
+await blok050('OB7', async () => {
+  // recenze B9 (návrh 6.9): karta hovoru s panelem „jejich web“ pro každý stav webu a cena z registru ve formuláři zájmu
+  const { ctx, page } = await novaStranka('petra', { ls: { volacka_demo_obory: 'autoservis', volacka_segment: 'autoservis' } });
+  await page.close();
+  const stavy = new Set();
+  for (const id of [400, 401, 402, 403, 404, 405, 407, 408, 409, 410, 411, 412]) {
+    const p = await ctx.newPage();
+    p.on('pageerror', (e) => chybyStranky.push(String(e)));
+    await p.goto(BASE + '#/moji');
+    await p.waitForFunction(() => typeof globalThis.__volackaDemoTest?.vyprazdniNiku === 'function', null, { timeout: 15000 });
+    await p.evaluate((x) => globalThis.__volackaDemoTest.vyprazdniNiku('autoservis', [x]), id);
+    await jdi(p, '#/call', 500);
+    const k = (await stav(p)).kontakty.find((x) => x.id === id);
+    const panel = txt(await p.locator('.call-card .jejich-web').innerText().catch(() => ''));
+    if ((await kartaId(p)) === id && panel.includes(vetaWebu(k?.web_stav, k?.web_hodnoceni)) && !/(?<!po)známk/i.test(panel)) stavy.add(k?.web_stav);
+    else over('OB7a', false, `karta ${id}: věta o webu`, `${k?.web_stav} ${k?.web_hodnoceni} | ${panel}`);
+    if (id === 405) {
+      await p.locator('.call-card button', { hasText: 'Mají zájem' }).click();
+      await p.waitForTimeout(150);
+      const ph = (await p.locator('#zajem-cena-web').getAttribute('placeholder')) ?? '';
+      const phH = (await p.locator('#zajem-cena-hosting').getAttribute('placeholder')) ?? '';
+      over('OB7b', ph.includes('7 000 Kč') && phH.includes('1 000 Kč ročně') && !/podle domluvy/.test(ph), 'zájem u oboru: ceny z registru (R12)', `${ph} | ${phH}`);
+    }
+    await p.close();
+  }
+  over('OB7c', stavy.size === 10, 'karta hovoru změřena u všech deseti stavů webu', [...stavy].join(','));
+  await ctx.close();
+});
+
 await browser.close();
 server.close();
 rmSync(OUT, { recursive: true, force: true });

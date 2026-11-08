@@ -12,7 +12,7 @@ import { audio, isSfxName } from './audio';
 import { OWNER_USER_ID, useAuth } from './auth';
 import { getConfig } from './config';
 import { isAdminRole, isSuperAdmin } from './roles';
-import { nactiNiky, useNiky, viditelneNiky, zapomenNiky } from './obory';
+import { nactiNiky, OBNOVA_NIK_MS, useNiky, viditelneNiky, zapomenNiky } from './obory';
 import { jeKlicNiky, UDALOST_SEGMENT, ulozenaVolba } from './segment';
 
 /** Logo = Prokchopova pochroumaná hlava v party čepici (public/icons). */
@@ -113,6 +113,23 @@ function OboryNacitani() {
   useEffect(() => {
     if (token) void nactiNiky(token);
     else zapomenNiky();
+  }, [token]);
+  // Obnova registru bez přihlášení znovu (recenze B9, 8. 11. 2026): nika se zapne nebo pozastaví v DB a otevřená záložka
+  // to pozná při návratu do okna nebo záložky a nejpozději za OBNOVA_NIK_MS. ⚠ NAHRAZUJE „jednou za přihlášení“.
+  useEffect(() => {
+    if (!token) return;
+    const obnov = () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+      void nactiNiky(token, true);
+    };
+    window.addEventListener('focus', obnov);
+    document.addEventListener('visibilitychange', obnov);
+    const casovac = window.setInterval(obnov, OBNOVA_NIK_MS);
+    return () => {
+      window.removeEventListener('focus', obnov);
+      document.removeEventListener('visibilitychange', obnov);
+      window.clearInterval(casovac);
+    };
   }, [token]);
   return null;
 }

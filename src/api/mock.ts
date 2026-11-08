@@ -4895,6 +4895,12 @@ interface DemoTestHacek {
   pripominkaOdeslana?: (kid: number) => unknown;
   /** migrace 064 (obory): fronta niky prázdná (její firmy odmítnuté, kromě `nechat`), e2e blok OB měří text prázdné fronty a kartu */
   vyprazdniNiku?: (klic: string, nechat?: number[]) => number;
+  /** recenze B9: živá session zapne niku v DB, zatímco má volající appku otevřenou (e2e OB5: obnova registru bez odhlášení) */
+  zapniNiku?: (klic: string) => void;
+  /** recenze B9: živá session niku pozastaví (e2e OB5: otevřená záložka se starým registrem) */
+  nastavStavNiky?: (klic: string, stav: MockNika['stav']) => void;
+  /** recenze B9: vlastní naplánovaný hovor člověka `uid`, jehož čas už nastal (e2e OB6: řádek „Máš naplánovaný hovor“) */
+  naplanujDosly?: (kid: number, uid: number) => number;
 }
 
 function sDemoTestem(api: Api): Api {
@@ -4904,6 +4910,17 @@ function sDemoTestem(api: Api): Api {
   hacek.hvezdaAutomatizace = hvezdaOdAutomatizace;
   hacek.zaradPripominku = zaradPripominkuOznaceni;
   hacek.pripominkaOdeslana = pripominkaOznaceniOdeslana;
+  hacek.zapniNiku = (klic: string) => zapniDemoObory([klic]);
+  hacek.nastavStavNiky = (klic: string, stav: MockNika['stav']) => nastavStavNikyDemo(klic, stav);
+  hacek.naplanujDosly = (kid: number, uid: number) => {
+    const id = nextZavolatId++;
+    zavolatRadky.push({
+      id, kontakt_id: kid, user_id: uid, kdy: new Date(Date.now() - 5 * 60 * 1000).toISOString(), poznamka: null, stav: 'ceka',
+      vysledek: null, rezervace: false, puvodni_last_caller: null, vytvoril_id: uid, created_at: now(), zmenil_id: null,
+      zmeneno_at: null, uzavreno_at: null,
+    });
+    return id;
+  };
   hacek.vyprazdniNiku = (klic: string, nechat: number[] = []) => {
     let n = 0;
     for (const c of kontakty) {

@@ -20,7 +20,7 @@ export default function JakVolatPage() {
   const [nacteno, setNacteno] = useState(false);
   useEffect(() => {
     let platne = true;
-    void nactiNiky(session.token).then(() => {
+    void nactiNiky(session.token, true).then(() => {
       if (platne) setNacteno(true);
     });
     return () => {
@@ -52,7 +52,7 @@ export default function JakVolatPage() {
       ) : (
         <div className="card empty-state">
           <h2>Pokyny pro tenhle obor zatím nejsou.</h2>
-          <p className="muted">Volej jako u architektů: krátce se představ a zeptej se, jestli můžeš poslat ukázku webu.</p>
+          <p className="muted">Krátce se představ a zeptej se, jestli můžeš firmě poslat ukázku webu.</p>
         </div>
       )}
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 14 }}>
