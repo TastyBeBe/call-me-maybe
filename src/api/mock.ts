@@ -1315,9 +1315,12 @@ function canEdit(u: MockUser, kid: number): boolean {
  * app_kontakt_klice_cizi (migrace 045, Albert 20. 10. 2026: Volající vidí stav jen u svých klientů): klíče, které
  * Volající dostane u kontaktu, kterému nevolal (identifikace a kontakt pro hovor). Stejný seznam jako na serveru;
  * nic o průběhu (stav, známka, ceny, poznámky, příznak, kdo volal, nový web, čekání, data změn).
+ * Od migrace 064 (Albert 7. 11. 2026, obory) i šest klíčů hodnocení webu firmy (u chat a architektů NULL, mock je u nich
+ * nemá a smyčka níž chybějící klíč přeskočí); zbytek oborů v mocku (checkSegment, ukázkové niky) doplní krok B9.
  */
 export const KLICE_CIZI = ['id', 'segment', 'name', 'firma', 'phone', 'email', 'web', 'ma_web', 'obor', 'mesto',
-  'ico_osobni', 'ico_firma', 'dph_osobni', 'dph_firma'] as const;
+  'ico_osobni', 'ico_firma', 'dph_osobni', 'dph_firma',
+  'web_hodnoceni', 'web_stav', 'web_priorita', 'web_hodnoceno_do', 'web_duvod', 'web_socialni'] as const;
 
 /**
  * app_bez_cisla_faktury (migrace 048, audit soukromí 20. 10. 2026): číslo faktury z roční řady iDokladu (osm číslic
