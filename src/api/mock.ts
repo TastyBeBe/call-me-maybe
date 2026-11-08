@@ -686,7 +686,9 @@ const WEB_HODNOCENO_DO = '2026-11-06';
 /** Vymyšlené firmy oborů: každá kombinace stavu webu a hodnocení aspoň jednou (autoservis), ostatní niky po dvou. */
 function demoFirmyOboru(): Kontakt[] {
   const f = (id: number, segment: string, p: Partial<Kontakt>): Kontakt =>
-    k({ id, segment, obor: segment, phone: `+420 999 000 ${id}`, web_hodnoceno_do: WEB_HODNOCENO_DO, ...p });
+    // šest klíčů hodnocení webu má řádek niky vždy (server je posílá jen niky oboru, i null), chata a architekt ne
+    k({ id, segment, obor: segment, phone: `+420 999 000 ${id}`, web_hodnoceni: null, web_stav: null, web_priorita: null,
+      web_hodnoceno_do: WEB_HODNOCENO_DO, web_duvod: null, web_socialni: null, ...p });
   return [
     // autoservis: priorita 1 (nemá skutečný web)
     f(400, 'autoservis', { firma: 'Autoservis Ukázka s.r.o.', name: 'Petr Ukázka', mesto: 'Brno', email: 'servis@ukazka-autoservis.example.cz', web: null, ma_web: 'nemá web', web_stav: 'zadny', web_priorita: 1, ico_firma: '33333333' }),
@@ -4891,6 +4893,8 @@ interface DemoTestHacek {
   hvezdaAutomatizace?: (kid: number, duvod: string | null) => unknown;
   zaradPripominku?: (kid: number, job: number) => boolean;
   pripominkaOdeslana?: (kid: number) => unknown;
+  /** migrace 064 (obory): fronta niky prázdná (její firmy odmítnuté, kromě `nechat`), e2e blok OB měří text prázdné fronty a kartu */
+  vyprazdniNiku?: (klic: string, nechat?: number[]) => number;
 }
 
 function sDemoTestem(api: Api): Api {
@@ -4900,6 +4904,17 @@ function sDemoTestem(api: Api): Api {
   hacek.hvezdaAutomatizace = hvezdaOdAutomatizace;
   hacek.zaradPripominku = zaradPripominkuOznaceni;
   hacek.pripominkaOdeslana = pripominkaOznaceniOdeslana;
+  hacek.vyprazdniNiku = (klic: string, nechat: number[] = []) => {
+    let n = 0;
+    for (const c of kontakty) {
+      if (segmentOf(c) !== klic || nechat.includes(c.id)) continue;
+      c.status = 'odmitnuto';
+      c.lock_by = null;
+      c.lock_at = null;
+      n += 1;
+    }
+    return n;
+  };
   hacek.stav = () => ({
     kontakty: kontakty.map((c) => ({
       id: c.id,
@@ -4911,6 +4926,11 @@ function sDemoTestem(api: Api): Api {
       flag_kind: c.flag_kind,
       dph_osobni: c.dph_osobni ?? null,
       dph_firma: c.dph_firma ?? null,
+      // migrace 064 (obory): stav a hodnocení webu firmy (e2e blok OB: věta na kartě a v detailu)
+      web_stav: c.web_stav ?? null,
+      web_hodnoceni: c.web_hodnoceni ?? null,
+      email: c.email,
+      firma: c.firma ?? null,
       // migrace 051 (22. 10. 2026): jméno a ceny (e2e blok A: zájem bez ceny uloží null, ne prázdný text)
       name: c.name,
       cena_web: c.cena_web,

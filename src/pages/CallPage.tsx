@@ -4,7 +4,7 @@ import { getApi, type Kontakt, type Rating, type Segment, type VysledekHovoru, t
 import { audio } from '../audio';
 import { useSession } from '../auth';
 import { jeObor, loadCallSegment, rodinaOf, saveCallSegment, segmentOf, ulozenaNika } from '../segment';
-import { klicNikKVolani, nactiNiky, nikaInfo, nikaVolatelna, STAV_NIKY_POPISEK } from '../obory';
+import { klicNikKVolani, nactiNiky, nikaInfo, nikaVolatelna, STAV_NIKY_POPISEK, useNiky, viditelneNiky } from '../obory';
 import JejichWeb from '../components/JejichWeb';
 import {
   ConfirmModal,
@@ -138,6 +138,13 @@ function NerelevantniModal({
 
 /** Hláška, když se čistou kartu nepodaří vrátit do fronty (docs/ARCHITEKTI.md 9.2). */
 const NEVRACENO = 'Kontakt se nepodařilo vrátit do fronty. Zámek sám vyprší do 2 hodin.';
+
+/**
+ * Zástupné ceny rodiny obor, jen když registr niku nenese (R12, Albert 8. 11. 2026: jako architekti web 7 000 Kč, hosting
+ * 1 000 Kč ročně, funkce navíc podle domluvy). Platí text z registru (obor_niky.*_vzor); NAHRAZUJE výchozí 6.6 „NULL →
+ * cena podle domluvy“.
+ */
+const CENA_OBORU = { web: '7 000 Kč', hosting: '1 000 Kč ročně', funkce: 'podle domluvy' } as const;
 
 export default function CallPage() {
   const session = useSession();
@@ -353,8 +360,15 @@ export default function CallPage() {
    */
   const [jinde, setJinde] = useState<ZavolatJinde[]>([]);
   const kartaId = kontakt?.id ?? null;
+  // Dokud přihlášený žádnou niku nevidí (žádná zapnutá), se server neptá a stránka chat a architektů je přesně jako před
+  // 064 (žádné volání navíc, žádný řádek); řádek pro všechny segmenty přibude se zapnutím první niky.
+  const sObory = viditelneNiky(useNiky()).length > 0;
   useEffect(() => {
     let platne = true;
+    if (!sObory) {
+      setJinde([]);
+      return;
+    }
     getApi()
       .zavolatJinde(session.token, segment)
       .then((r) => {
@@ -366,13 +380,13 @@ export default function CallPage() {
     return () => {
       platne = false;
     };
-  }, [session.token, segment, kartaId, empty]);
+  }, [session.token, segment, kartaId, empty, sObory]);
 
   const hlavicka = (
     <>
       <SegmentSwitch value={segment} onChange={zvolitSegment} disabled={busy} />
       {jinde.length > 0 && (
-        <div className="info-box zavolat-jinde" role="note">
+        <div className="zavolat-jinde" role="note">
           {jinde.map((j) => (
             <span key={j.segment} className="zavolat-jinde-polozka">
               <AlarmIcon size={16} /> Máš naplánovaný hovor: {segmentNazev(j.segment)} ({j.pocet}){' '}
@@ -789,7 +803,7 @@ export default function CallPage() {
                   id="zajem-cena-web"
                   value={cenaWeb}
                   onChange={(e) => setCenaWeb(e.target.value)}
-                  placeholder={obor ? `např. ${nikaKarty?.cena_web_vzor ?? 'cena podle domluvy'}` : architekt ? 'např. 6500' : 'např. 4900'}
+                  placeholder={obor ? `např. ${nikaKarty?.cena_web_vzor ?? CENA_OBORU.web}` : architekt ? 'např. 6500' : 'např. 4900'}
                   aria-describedby="zajem-cena-napoveda"
                   autoFocus
                 />
@@ -800,7 +814,7 @@ export default function CallPage() {
                   id="zajem-cena-hosting"
                   value={cenaHosting}
                   onChange={(e) => setCenaHosting(e.target.value)}
-                  placeholder={obor ? `např. ${nikaKarty?.hosting_vzor ?? 'podle domluvy'}` : architekt ? 'např. 1000/rok' : 'např. 190/měs'}
+                  placeholder={obor ? `např. ${nikaKarty?.hosting_vzor ?? CENA_OBORU.hosting}` : architekt ? 'např. 1000/rok' : 'např. 190/měs'}
                   aria-describedby="zajem-cena-napoveda"
                 />
               </div>
@@ -811,8 +825,8 @@ export default function CallPage() {
               {obor && (
                 <>
                   {' '}
-                  Běžně u oborů: web {nikaKarty?.cena_web_vzor ?? 'podle domluvy'}, hosting{' '}
-                  {nikaKarty?.hosting_vzor ?? 'podle domluvy'}, funkce navíc {nikaKarty?.cena_funkce_vzor ?? 'podle domluvy'}.
+                  Běžně u oborů: web {nikaKarty?.cena_web_vzor ?? CENA_OBORU.web}, hosting{' '}
+                  {nikaKarty?.hosting_vzor ?? CENA_OBORU.hosting}, funkce navíc {nikaKarty?.cena_funkce_vzor ?? CENA_OBORU.funkce}.
                   Domluvíš-li jinou cenu, napiš ji, platí tvoje.
                 </>
               )}

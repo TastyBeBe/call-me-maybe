@@ -59,7 +59,7 @@ let textBalicku;   // blok P si z něj načte vlastní kopii mocku (ukázková d
   const out = await build({
     stdin: {
       contents: [
-        "export { mockApi } from './src/api/mock.ts';",
+        "export { mockApi, zapniDemoObory } from './src/api/mock.ts';",
         "export { supabaseApi, BEZ_056_DEN, BEZ_056_RAZENI, BEZ_056_FILTRY, BEZ_057_HOVOR } from './src/api/supabase.ts';",
         "export { BEZ_060_FILTRY, BEZ_060_RAZENI, BEZ_060_OZNACENE, BEZ_060_HOVOR, BEZ_060_HVEZDA, BEZ_060_PREHLED } from './src/api/supabase.ts';",
         // migrace 061: pátý výsledek dovolání proti serveru bez 061
@@ -1203,6 +1203,35 @@ await blok('P', async () => {
   const kal = src('src/pages/KalendarPage.tsx');
   over('P8c', /hotovo\.kontakt\.smi_upravit === true && ' Co napíšeš, přečte si automatizace \(jde to jako vzkaz u klienta\)\.'/.test(kal),
     'okno Hovor je hotový: automatizaci slibuje jen tomu, kdo klienta smí upravit (server pošle vzkaz jen jemu)');
+});
+
+/* ---------------- OF) filtr segmentu s nikami oboru (migrace 064, návrh oborů 6.4) ---------------- */
+// Seznamy filtrují podle niky stejně jako podle chat a architektů; nika se nikdy nesměšuje s chatami. Blok je poslední:
+// zapnutí ukázkových firem mění demo data.
+await blok('OF', async () => {
+  bundle.zapniDemoObory(['autoservis']);
+  const auto = await api.listKontakty(albert, { segment: 'autoservis', limit: 1000 });
+  over('OF1', auto.rows.length === 14 && auto.rows.every((r) => r.segment === 'autoservis'), 'filtr autoservis: jen 14 ukázkových autoservisů',
+    JSON.stringify(auto.rows.map((r) => [r.id, r.segment])));
+  const chaty = await api.listKontakty(albert, { segment: 'chata', limit: 1000 });
+  over('OF2', chaty.rows.length > 0 && chaty.rows.every((r) => (r.segment ?? 'chata') === 'chata'), 'filtr chaty: žádná firma oboru');
+  const arch = await api.listKontakty(albert, { segment: 'architekt', limit: 1000 });
+  over('OF2b', arch.rows.length > 0 && arch.rows.every((r) => r.segment === 'architekt'), 'filtr architekti: žádná firma oboru');
+  const vse = await api.listKontakty(albert, { limit: 1000 });
+  over('OF3', vse.rows.filter((r) => r.segment === 'autoservis').length === 14 && vse.rows.some((r) => r.segment === 'stavby'),
+    'bez filtru jsou firmy oborů mezi ostatními (super admin vidí všechno)');
+  const pAuto = await api.listKontakty(petra, { segment: 'autoservis', limit: 1000 });
+  const r405 = pAuto.rows.find((r) => r.id === 405);
+  over('OF4', !!r405 && r405.web_hodnoceni === 'D' && r405.web_duvod && !('note' in r405) && !('status' in r405),
+    'Volající u cizí firmy oboru: hodnocení webu ano (allowlist 064), stav a poznámka ne', JSON.stringify(r405));
+  await chyba('OF5', () => api.listKontakty(petra, { segment: 'kominik', limit: 10 }), /^Neplatný segment: kominik\. Povolené: chata, architekt nebo obor z registru\.$/,
+    'nika mimo registr ve filtru odmítnuta');
+  // supabase.ts posílá segment niky beze změny (server ho ověří proti registru)
+  odeslano.length = 0;
+  odpoved = { status: 200, telo: JSON.stringify({ rows: [], total: 0 }) };
+  await supabaseApi.listKontakty('tok', { segment: 'autoservis', limit: 10 });
+  over('OF6', odeslano.length >= 1 && odeslano[odeslano.length - 1].body.p_segment === 'autoservis', 'list_kontakty dostane p_segment niky',
+    JSON.stringify(odeslano.map((o) => o.body.p_segment)));
 });
 
 if (chyby === 0) {

@@ -38,6 +38,9 @@ let bundle;
     stdin: {
       contents: [
         "export { mockApi, poznamkaBezCizich, poznamkaZpet, jmenoKlic, hlavickaCizi, KLIC_Z, KLIC_NA, bezCislaFaktury } from './src/api/mock.ts';",
+        "export { zapniDemoObory, nastavStavNikyDemo, poradiFronty, KLICE_CIZI } from './src/api/mock.ts';",
+        "export * as oboryModul from './src/obory.ts';",
+        "export * as webFirmyModul from './src/webFirmy.ts';",
         "export * as pokrokModul from './src/pig/progress.ts';",
         "export { supabaseApi } from './src/api/supabase.ts';",
         "export { loadCallSegment, saveCallSegment, segmentOf } from './src/segment.ts';",
@@ -64,6 +67,7 @@ let bundle;
   bundle = createRequire(import.meta.url)(f);
   rmSync(dir, { recursive: true, force: true });
 }
+const { oboryModul, webFirmyModul } = bundle;
 const { mockApi: api, poznamkaBezCizich, poznamkaZpet, jmenoKlic, hlavickaCizi, KLIC_Z, KLIC_NA, bezCislaFaktury, pokrokModul, supabaseApi, loadCallSegment, saveCallSegment, segmentOf, segmentModul, PhoneLinks, uiModul } = bundle;
 
 let pocet = 0;
@@ -1456,6 +1460,161 @@ await blok('K', async () => {
   over('K3', !spravne(zavislostiNextContact(bez)), 'detektor chytí useCallback bez závislostí');
   const dobry = `const loadNext = useCallback(async () => {\n  const x = '[a, b]'; await getApi().nextContact(session.token, segmentRef.current);\n}, [session.token, session.user_id]);`;
   over('K4', spravne(zavislostiNextContact(dobry)), 'detektor nechá správné závislosti (i s hranatými závorkami v řetězci)');
+});
+
+/* ---------------- NK) obory: tři rodiny, registr nik, karta „jejich web“ (migrace 064, návrh oborů 6.1 až 6.9) ---------------- */
+// Albert 7. 11. 2026: volající mají volat firmy čtyř oborů (autoservis, stavby, topeni, elektro). Appka žádnou niku nezná
+// jménem (registr app_obor_niky), nika se nikdy nepřevede na chatu, nika mimo stav zapnuto se volajícím neukáže a fronta
+// ji odmítne. Blok běží na konci: zapnutí ukázkových firem (zapniDemoObory) mění demo data.
+const { zapniDemoObory, nastavStavNikyDemo, poradiFronty, KLICE_CIZI } = bundle;
+const { rodinaOf, jeKlicNiky } = segmentModul;
+const odstranKomentare = (s) => s.split('\n').filter((r) => !/^\s*(\/\/|\/\*|\*)/.test(r)).join('\n');
+await blok('NK', async () => {
+  // O1: rodiny
+  over('NK1', rodinaOf(null) === 'chata' && rodinaOf('') === 'chata' && rodinaOf('chata') === 'chata' && rodinaOf(undefined) === 'chata',
+    'null, prázdné a chata = rodina chata');
+  over('NK1b', rodinaOf('architekt') === 'architekt', 'architekt = rodina architekt');
+  over('NK1c', ['autoservis', 'stavby', 'topeni', 'elektro', 'nova2'].every((s) => rodinaOf(s) === 'obor'), 'klíč niky = rodina obor');
+  over('NK1d', ['Autoservis', 'x', ' autoservis', 'obor', 'auto-servis', 'a'.repeat(30)].every((s) => rodinaOf(s) === 'chata'),
+    'smetí bez tvaru klíče niky = chata (RC-14), slovo „obor“ není nika');
+  over('NK1e', !jeKlicNiky('chata') && !jeKlicNiky('architekt') && !jeKlicNiky('obor') && jeKlicNiky('autoservis'), 'jeKlicNiky jako CHECK obor_niky.klic');
+  // O2: segmentOf nikdy nepřevede niku na chatu (dřív „cokoli kromě architekta = chata“)
+  over('NK2', segmentOf({ segment: 'autoservis' }) === 'autoservis' && segmentOf({ segment: 'elektro' }) === 'elektro', 'segmentOf vrátí niku tak, jak přišla');
+  // O3: uložená volba: nika jen ze seznamu nik, které smí volat
+  uloziste.set('volacka_segment', 'autoservis');
+  over('NK3', loadCallSegment() === 'chata', 'uložená nika bez načteného registru = chata');
+  over('NK3b', loadCallSegment(['autoservis']) === 'autoservis', 'uložená nika ze seznamu volatelných nik se načte');
+  over('NK3c', loadCallSegment(['stavby']) === 'chata', 'uložená nika, která volatelná není (vypnutá), = chata');
+  uloziste.set('volacka_segment', 'Autoservis');
+  over('NK3d', loadCallSegment(['autoservis']) === 'chata', 'smetí podobné nice = chata');
+  hodit = true;
+  over('NK3e', loadCallSegment(['autoservis']) === 'chata', 'házející localStorage = chata i s registrem nik');
+  hodit = false;
+  uloziste.delete('volacka_segment');
+
+  // O4: registr v mocku jako seed serveru: čtyři niky ve stavu priprava, volajícímu nic
+  const nP = await api.oborNiky(petra);
+  over('NK4', Array.isArray(nP) && nP.length === 0, 'volající bez zapnuté niky nedostane z registru nic (appka jako dřív)', JSON.stringify(nP));
+  const nS = await api.oborNiky(mikulas);
+  over('NK4b', nS.map((n) => n.klic).join() === 'autoservis,stavby,topeni,elektro' && nS.every((n) => n.stav === 'priprava' && n.smi_volat === false),
+    'super admin vidí čtyři niky ve stavu priprava, volat žádnou nesmí', JSON.stringify(nS.map((n) => [n.klic, n.stav, n.smi_volat])));
+  over('NK4c', nS.every((n) => n.cena_web_vzor === '7 000 Kč' && n.hosting_vzor === '1 000 Kč ročně' && n.cena_funkce_vzor === 'podle domluvy' && n.volaji_vsichni === true),
+    'ceny a volají všichni podle R9 a R12 (Albert 8. 11. 2026)');
+  over('NK4d', nP.every((n) => !('stav' in n)) && nS.every((n) => 'stav' in n), 'stav niky jen super adminovi');
+  const { viditelneNiky, klicNikKVolani } = oboryModul;
+  over('NK4e', viditelneNiky(nS).length === 0 && klicNikKVolani(nS).length === 0, 'niky v přípravě nejsou na přepínači ani super admina');
+  // O5: fronta vypnutou niku odmítne hláškou serveru
+  await chyba('NK5', () => api.nextContact(petra, 'autoservis'), /^Obor Autoservisy zatím není spuštěný\.$/, 'next_contact na niku v přípravě odmítne');
+  await chyba('NK5b', () => api.nextContact(petra, 'kominik'), /^Neplatný segment: kominik\. Povolené: chata, architekt nebo obor z registru\.$/, 'nika mimo registr = neplatný segment');
+  // O6: zkouška: super admin ji vidí se štítkem, volat nesmí nikdo
+  nastavStavNikyDemo('stavby', 'zkouska');
+  const nS2 = await api.oborNiky(mikulas);
+  const nP2 = await api.oborNiky(petra);
+  over('NK6', viditelneNiky(nS2).map((n) => n.klic).join() === 'stavby' && klicNikKVolani(nS2).length === 0 && nP2.length === 0,
+    'nika ve zkoušce: super admin ji vidí na přepínači, fronta je prázdná pro všechny, volající ji nevidí');
+  await chyba('NK6b', () => api.nextContact(mikulas, 'stavby'), /^Obor Stavby zatím není spuštěný\.$/, 'ani super admin nevolá niku ve zkoušce');
+  nastavStavNikyDemo('stavby', 'priprava');
+
+  // O7: zapnutý autoservis se smyšlenými firmami: fronta dává napřed priority 1 až 3 (R7)
+  zapniDemoObory(['autoservis']);
+  const nP3 = await api.oborNiky(petra);
+  over('NK7', nP3.map((n) => `${n.klic}:${n.smi_volat}`).join() === 'autoservis:true', 'po zapnutí volající dostane jen autoservis a smí ho volat', JSON.stringify(nP3));
+  const karty = [];
+  for (const t of [petra, honza, eva]) {
+    const c = await api.nextContact(t, 'autoservis');
+    karty.push(c);
+  }
+  over('NK7b', karty.every((c) => c && c.segment === 'autoservis' && [1, 2, 3].includes(c.web_priorita)),
+    'první karty autoservisu jsou z priorit 1, 2 a 3', JSON.stringify(karty.map((c) => c && [c.id, c.segment, c.web_priorita])));
+  over('NK7c', karty.every((c) => c && 'web_stav' in c && 'web_hodnoceni' in c), 'karta niky nese klíče hodnocení webu');
+  over('NK7d', new Set(karty.map((c) => c && c.id)).size === karty.length, 'tři volající dostanou tři různé firmy');
+  await chyba('NK7e', () => api.nextContact(petra, 'stavby'), /^Obor Stavby zatím není spuštěný\.$/, 'ostatní niky zůstanou vypnuté');
+  // karty se nevracejí (vratit_do_fronty má strop 10 za hodinu a bloky výš ho vyčerpaly); blok je poslední
+  const chataKarta = await api.nextContact(petra, 'chata');
+  over('NK7f', chataKarta === null || segmentOf(chataKarta) === 'chata', 'fronta chat ani po zapnutí niky nedá firmu oboru', JSON.stringify(chataKarta && [chataKarta.id, chataKarta.segment]));
+
+  // O8: pořadí fronty (obor_poradi_fronty, R7): 2 × skupina + 1 za dvě a víc nedovolání; chata a architekt 0
+  const P = (pri, h, n = 0) => poradiFronty('autoservis', pri, h, n);
+  over('NK8', P(1, null) === 0 && P(2, 'D') === 0 && P(3, null) === 0, 'priority 1, 2 a 3 mají jedno pořadí (promíchají se náhodou)');
+  over('NK8b', P(4, 'C') === 2 && P(6, null) === 4 && P(null, null) === 4 && P(5, 'B') === 6 && P(5, null) === 6 && P(5, 'A') === 8,
+    'pak 4, pak 6 a bez priority, pak 5 s B, nakonec 5 s A');
+  over('NK8c', P(1, null, 2) === 1 && P(1, null, 1) === 0 && P(5, 'A', 3) === 9, 'dvě a víc nedovolání jdou za ostatní své skupiny');
+  over('NK8d', poradiFronty('chata', 1, 'A', 5) === 0 && poradiFronty('architekt', 5, 'A', 5) === 0, 'chata a architekt: pořadí beze změny (0)');
+  over('NK8e', !/zdroj_telefonu|meta/i.test(poradiFronty.toString()), 'pořadí nečte zdroj čísla (R7: žádné „vlastní web před Meta“)');
+
+  // O9: věta o webu, nedostatky, odkazy (návrh 5.4, 5.5, 6.3)
+  const W = webFirmyModul;
+  const vety = [
+    ['zadny', null, 'Nemá vlastní web.'],
+    ['jen_socialni', null, 'Má jen profil na sociální síti.'],
+    ['zaparkovany', null, 'Doména je jen zaparkovaná, web na ní není.'],
+    ['jiny_web', null, 'Adresa webu dnes vede na cizí stránku.'],
+    ['katalog', null, 'Má jen profil v katalogu.'],
+    ['nenacten', null, 'Web se při kontrole nepodařilo otevřít, ověř si ho.'],
+    ['roboti', null, 'Web má, ale nešel ohodnotit.'],
+    ['potvrzeny', 'A', 'Má dobrý web.'],
+    ['nepotvrzeny', 'B', 'Má dobrý web.'],
+    ['potvrzeny', 'C', 'Má průměrný web.'],
+    ['potvrzeny', 'D', 'Má web, hodnocení slabé.'],
+    ['nepotvrzeny', 'F', 'Má web, hodnocení slabé.'],
+    ['potvrzeny', null, 'Web má, hodnocení chybí.'],
+  ];
+  for (const [s, h, v] of vety) over('NK9', W.vetaOWebu(s, h, 'https://x.example') === v, `věta o webu pro ${s} ${h ?? ''}`, W.vetaOWebu(s, h));
+  over('NK9b', W.vetyNedostatku('Jedna. Dvě. Tři.').length === 2 && W.vetyNedostatku('').length === 0 && W.vetyNedostatku(null).length === 0,
+    'nejvýš dvě věty o nedostatcích');
+  over('NK9c', !W.maVlastniWebFirmy('jen_socialni', 'https://x.example') && W.maVlastniWebFirmy('potvrzeny', 'https://x.example') && !W.maVlastniWebFirmy('potvrzeny', ''),
+    'odkaz na vlastní web jen u stavu s vlastním webem');
+  over('NK9d', W.odkazWebu('javascript:alert(1)') === null && W.odkazWebu('priklad.example.cz') === 'https://priklad.example.cz/', 'odkaz jen http a https');
+  over('NK9e', W.socialniPopisek('https://www.facebook.com/x') === 'jen Facebook' && W.socialniPopisek('https://instagram.com/x') === 'jen Instagram', 'popisek sociálního odkazu');
+  over('NK9f', W.denCesky('2026-11-06') === '6. 11. 2026', 'datum kontroly česky');
+  over('NK9g', Object.values(W.TON_SLOVO).join() === 'dobrý,průměrný,slabý' && W.HODNOCENI_TON.C === 'prumerny' && W.HODNOCENI_TON.B === 'dobry' && W.HODNOCENI_TON.D === 'slaby',
+    'odznak A a B dobrý, C průměrný, D až F slabý');
+
+  // O10: co appka nikdy neukáže (6.8): slovo „známka“ u hodnocení webu, zdroj čísla, rámeček s tipy na kartě
+  for (const f of ['src/components/JejichWeb.tsx', 'src/webFirmy.ts', 'src/pages/JakVolatPage.tsx', 'src/obory.ts']) {
+    const z = odstranKomentare(readFileSync(join(ROOT, f), 'utf8'));
+    over('NK10', !/(?<!po)známk/i.test(z), `${f}: žádné slovo „známka“ (hodnocení webu, návrh 6.8)`);
+    over('NK10b', !/zdroj[ _]tel|odkud máme|meta_profil|Meta profil/i.test(z), `${f}: nic o zdroji čísla (migrace 043, kontrola 104)`);
+  }
+  const call = readFileSync(join(ROOT, 'src/pages/CallPage.tsx'), 'utf8');
+  over('NK10c', call.includes('potvrď e-mail v hovoru') && call.includes('nemáme, zjisti') && /<JejichWeb kontakt=\{kontakt\} naKarte \/>/.test(call),
+    'karta oboru: pokyn potvrdit e-mail, odznak bez e-mailu a panel „jejich web“');
+  over('NK10d', !/jak_volat|<Markdown/.test(call), 'karta hovoru nečte „Jak volat“ (rámeček s tipy Albert odstranil 19. 10. 2026)');
+  // O11: klíče hodnocení webu v allowlistu cizího kontaktu (app_kontakt_klice_cizi z 064)
+  over('NK11', ['web_hodnoceni', 'web_stav', 'web_priorita', 'web_hodnoceno_do', 'web_duvod', 'web_socialni'].every((k) => KLICE_CIZI.includes(k)),
+    'KLICE_CIZI nese šest klíčů hodnocení webu');
+  // O12: přepínač a filtr bez nik vypadají jako dřív (bez tlačítka Obory, bez třídy s-obory)
+  const ui = readFileSync(join(ROOT, 'src/ui.tsx'), 'utf8');
+  over('NK12', /niky\.length > 0 && \(\s*<button[\s\S]{0,80}className=\{`obor/.test(ui) && /niky\.length > 0 \? ' s-obory' : ''/.test(ui),
+    'tlačítko Obory a zúžení první řady jen při viditelné nice');
+});
+
+/* ---------------- I6) nika na serveru bez migrace 028 a registr na serveru bez 064 (supabase.ts) ---------------- */
+await blok('I6', async () => {
+  uloziste.set('volacka_supabase_url', 'http://127.0.0.1:9');
+  uloziste.set('volacka_anon_key', 'test-klic');
+  const puvodniFetch = globalThis.fetch;
+  const odeslano = [];
+  globalThis.fetch = async (url, init) => {
+    odeslano.push({ url: String(url), body: JSON.parse(init.body) });
+    return new Response(JSON.stringify({ code: 'PGRST202', message: 'Could not find the function' }), { status: 404 });
+  };
+  try {
+    let e = null;
+    try { await supabaseApi.nextContact('tok', 'autoservis'); } catch (x) { e = String(x && x.message); }
+    over('I6', e !== null && /obor/.test(e) && !/autoservis/i.test(e) && odeslano.length === 1,
+      'nika na serveru bez 028: obecná hláška bez jména niky, žádný druhý pokus jako chata', JSON.stringify({ e, n: odeslano.length }));
+    odeslano.length = 0;
+    const r = await supabaseApi.oborNiky('tok');
+    over('I6b', Array.isArray(r) && r.length === 0 && /\/rpc\/app_obor_niky$/.test(odeslano[0]?.url ?? ''), 'registr na serveru bez 064 = prázdný seznam');
+    odeslano.length = 0;
+    const j = await supabaseApi.zavolatJinde('tok', 'chata');
+    over('I6c', Array.isArray(j) && j.length === 0, 'app_zavolat_jinde na serveru bez 064 = nic jinde');
+  } finally {
+    globalThis.fetch = puvodniFetch;
+    uloziste.delete('volacka_supabase_url');
+    uloziste.delete('volacka_anon_key');
+  }
 });
 
 if (chyby === 0) {

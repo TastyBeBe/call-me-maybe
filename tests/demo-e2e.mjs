@@ -16,6 +16,8 @@
 // jinak ~/webdomov-nastroje/pw (docs/ARCHITEKTI.md 7.3). Nic se nestahuje.
 // Výsledek: „ALL OK (N kontrol)" a kód 0; „FAIL <id>: …" a kód 1; bez prohlížeče
 // „NEJDE ZMĚŘIT: …" a kód 2 (nezměřeno není v pořádku).
+// Migrace 064 (obory, Albert 7. 11. 2026): blok OB (přepínač se dvěma řadami při 360 px, karta „jejich web“, detail pro
+// každý stav webu, prázdná fronta niky, stránka Jak volat).
 // Migrace 062 (Albert 2. 11. 2026): bloky O062a až O062k (O062j a O062k: kalendář u označeného klienta, ověření 062) („Zavolal/a jsem“ i bez označení v Moji klienti, Kontaktech, detailu
 // a kalendáři, šestý výsledek „Chce web“, vypnutá odmítnutí s důvodem, menu stavů v detailu); bez posunu do strany O61a.
 
@@ -107,15 +109,17 @@ const chybyStranky = [];
 const UID = { admin: 1, petra: 2, honza: 3, mikulas: 4, eva: 5 };
 const HESLO = { admin: 'admin', petra: 'volam', honza: 'volam', mikulas: 'mikulas', eva: 'eva' };
 
-async function novaStranka(kdo, { sirka = 1280, vyska = 900 } = {}) {
+async function novaStranka(kdo, { sirka = 1280, vyska = 900, ls = {} } = {}) {
   const ctx = await browser.newContext({ viewport: { width: sirka, height: vyska } });
-  await ctx.addInitScript(() => {
+  // ls: další klíče localStorage před načtením appky (migrace 064: volacka_demo_obory zapne ukázkové niky, blok OB)
+  await ctx.addInitScript((dalsi) => {
     localStorage.setItem('volacka_supabase_url', ' ');
     localStorage.setItem('volacka_sfx_enabled', '0');
     localStorage.setItem('volacka_music_enabled', '0');
     localStorage.setItem('volacka_pig_enabled', '0');
+    for (const [k, v] of Object.entries(dalsi)) localStorage.setItem(k, v);
     globalThis.__volackaDemoTest = { volani: [], zpozdeni: () => 0 };
-  });
+  }, ls);
   await ctx.route('**/*', (route) => {
     const u = route.request().url();
     if (u.startsWith(BASE) || u.startsWith('data:') || u.startsWith('blob:')) return route.continue();
@@ -2701,6 +2705,107 @@ await blok050('E063 honza', async () => {
   over('E63e', tlacitko === 'Hvězda od automatizace' && /hvězda: velký zájem, dala ji automatizace \d{1,2}\. \d{1,2}\. \d{4} · /.test(panel)
     && panel.includes(k24?.hvezda_duvod ?? '§'),
     'detail 24: „Hvězda od automatizace“ a v přehledu kdo a proč', `${tlacitko} | ${panel.slice(0, 200)}`);
+  await ctx.close();
+});
+
+/* ============ OB) obory (migrace 064, návrh oborů 6.2 až 6.7): přepínač, karta „jejich web“, detail, prázdná fronta, Jak volat ============ */
+// Bez zapnuté niky appka vypadá jako dřív; s localStorage volacka_demo_obory = autoservis (jen DEMO) se zapne autoservis
+// se smyšlenými firmami. Věty o webu jako src/webFirmy.ts (tabulka návrhu 6.3).
+const VETA_WEBU = {
+  zadny: 'Nemá vlastní web.',
+  jen_socialni: 'Má jen profil na sociální síti.',
+  zaparkovany: 'Doména je jen zaparkovaná, web na ní není.',
+  jiny_web: 'Adresa webu dnes vede na cizí stránku.',
+  katalog: 'Má jen profil v katalogu.',
+  nenacten: 'Web se při kontrole nepodařilo otevřít, ověř si ho.',
+  roboti: 'Web má, ale nešel ohodnotit.',
+};
+const vetaWebu = (s, h) => VETA_WEBU[s] ?? (h === 'A' || h === 'B' ? 'Má dobrý web.' : h === 'C' ? 'Má průměrný web.' : h ? 'Má web, hodnocení slabé.' : 'Web má, hodnocení chybí.');
+await blok050('OB0', async () => {
+  // bez zapnuté niky: žádné tlačítko Obory, žádný odkaz „jak volat“, žádné volání app_zavolat_jinde
+  const { ctx, page } = await novaStranka('petra');
+  await jdi(page, '#/call', 600);
+  over('OB0a', (await page.locator('.segment-switch button.obor').count()) === 0 && (await page.locator('.segment-switch button').count()) === 2,
+    'bez zapnuté niky má přepínač jen Chaty a Architekti');
+  over('OB0b', (await page.locator('nav a[href*="jak-volat"]').count()) === 0, 'bez niky v menu není „jak volat“');
+  over('OB0c', !(await volani(page)).some((v) => v.fn === 'zavolatJinde'), 'bez niky se server na hovory jinde neptá', JSON.stringify(nazvyVolani(await volani(page))));
+  await ctx.close();
+});
+await blok050('OB1', async () => {
+  // 360 px: dvě řady, bez posunu do strany; karta autoservisu s panelem „jejich web“
+  const { ctx, page } = await novaStranka('petra', { sirka: 360, vyska: 740, ls: { volacka_demo_obory: 'autoservis' } });
+  await jdi(page, '#/call', 600);
+  await page.locator('.segment-switch button.obor').click();
+  await page.waitForTimeout(150);
+  const niky = await page.locator('.segment-niky button.nika').allInnerTexts();
+  over('OB1a', niky.length === 1 && txt(niky[0]) === 'Autoservisy', 'po klepnutí na Obory druhá řada jen se zapnutou nikou', JSON.stringify(niky));
+  await page.locator('.segment-niky button.nika').first().click();
+  await klid(page, 600);
+  const sirka = await page.evaluate(() => document.documentElement.scrollWidth);
+  over('OB1b', sirka <= 360, 'při 360 px se obě řady vejdou bez posunu do strany', String(sirka));
+  const id = await kartaId(page);
+  const k = (await stav(page)).kontakty.find((x) => x.id === id);
+  over('OB1c', k?.segment === 'autoservis' && /autoservisy/.test(await eyebrow(page)), 'po volbě niky je na obrazovce autoservis', JSON.stringify(k));
+  const panel = txt(await page.locator('.call-card .jejich-web').innerText().catch(() => ''));
+  over('OB1d', panel.includes(vetaWebu(k?.web_stav, k?.web_hodnoceni)), 'karta: věta o stavu webu podle tabulky', `${k?.web_stav} ${k?.web_hodnoceni} | ${panel}`);
+  const karta = txt(await page.locator('.call-card').innerText());
+  over('OB1e', k?.email ? karta.includes('potvrď e-mail v hovoru') : karta.includes('nemáme, zjisti'), 'karta: pokyn potvrdit e-mail (nebo „nemáme, zjisti“)', karta.slice(0, 300));
+  over('OB1f', !/(?<!po)známk/i.test(karta) && !/call-hint|Tip pro hovor|TIP PRO HOVOR/.test(await page.locator('.call-card').innerHTML()), 'karta bez slova „známka“ a bez rámečku s tipy');
+  over('OB1g', (await page.locator('nav a[href*="jak-volat"]').count()) === 1, 'se zvolenou nikou je v menu „jak volat“');
+  await ctx.close();
+});
+await blok050('OB2', async () => {
+  // detail kontaktu: blok firmy oboru s panelem „jejich web“ pro každý stav webu (14 smyšlených autoservisů)
+  const { ctx, page } = await novaStranka('admin', { ls: { volacka_demo_obory: 'autoservis' } });
+  await jdi(page, '#/admin', 600);
+  await filtr(page, 'autoservisy').click();
+  await klid(page, 500);
+  const radky = page.locator('table.kontakty tbody tr');
+  const n = await radky.count();
+  over('OB2a', n === 14, 'filtr autoservisy ukáže 14 firem', String(n));
+  const firmy = (await stav(page)).kontakty.filter((x) => x.segment === 'autoservis');
+  const stavy = new Set();
+  for (let i = 0; i < n; i++) {
+    await radky.nth(i).click();
+    await klid(page, 300);
+    const blokTxt = txt(await page.locator('.drawer .obor-udaje').innerText().catch(() => ''));
+    const f = firmy.find((x) => x.firma && blokTxt.includes(x.firma));
+    stavy.add(f?.web_stav ?? '?');
+    over('OB2b', !!f && blokTxt.includes(vetaWebu(f.web_stav, f.web_hodnoceni)) && !/(?<!po)známk/i.test(blokTxt),
+      'detail: blok firmy oboru s větou o webu', `${f?.firma} ${f?.web_stav} | ${blokTxt.slice(0, 200)}`);
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(150);
+    if ((await page.locator('.drawer').count()) > 0) {
+      await page.locator('.drawer button[aria-label="Zavřít"], .drawer .drawer-close').first().click().catch(() => {});
+      await page.waitForTimeout(150);
+    }
+  }
+  over('OB2c', stavy.size === 10, 'detail změřen u všech deseti stavů webu', [...stavy].join(','));
+  await ctx.close();
+});
+await blok050('OB4', async () => {
+  // karta s e-mailem: pokyn potvrdit e-mail; bez e-mailu odznak „nemáme, zjisti“ (ve frontě nechaná jedna firma)
+  for (const [id, cekam, neni] of [[405, 'potvrď e-mail v hovoru', 'nemáme, zjisti'], [404, 'nemáme, zjisti', 'potvrď e-mail v hovoru']]) {
+    const { ctx, page } = await novaStranka('petra', { ls: { volacka_demo_obory: 'autoservis', volacka_segment: 'autoservis' } });
+    await page.evaluate((x) => globalThis.__volackaDemoTest.vyprazdniNiku('autoservis', [x]), id);
+    await jdi(page, '#/call', 600);
+    const karta = txt(await page.locator('.call-card').innerText().catch(() => ''));
+    over('OB4', (await kartaId(page)) === id && karta.includes(cekam) && !karta.includes(neni), `karta ${id}: „${cekam}“`, karta.slice(0, 240));
+    await ctx.close();
+  }
+});
+await blok050('OB3', async () => {
+  // prázdná fronta niky: obecný text z registru a odkaz na Jak volat; stránka Jak volat s textem z registru
+  const { ctx, page } = await novaStranka('petra', { ls: { volacka_demo_obory: 'autoservis', volacka_segment: 'autoservis' } });
+  await page.evaluate(() => globalThis.__volackaDemoTest.vyprazdniNiku('autoservis'));
+  await jdi(page, '#/call', 600);
+  const prazdna = txt(await page.locator('.empty-state').innerText().catch(() => ''));
+  over('OB3a', prazdna.includes('V oboru autoservisy teď nikdo k volání není.'), 'prázdná fronta niky: obecný text', prazdna);
+  await page.locator('.empty-state a', { hasText: 'Jak volat' }).click();
+  await klid(page, 400);
+  const jak = txt(await page.locator('.jak-volat').innerText().catch(() => ''));
+  over('OB3b', /#\/jak-volat\?nika=autoservis/.test(page.url()) && jak.includes('Jak volat: Autoservisy') && jak.includes('Kdy volat') && jak.includes('Do poznámky'),
+    'stránka Jak volat ukáže text z registru pro zvolenou niku', jak.slice(0, 200));
   await ctx.close();
 });
 

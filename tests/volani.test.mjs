@@ -47,6 +47,7 @@ let bundle;
     stdin: {
       contents: [
         "export { mockApi, cenaCist, cenaNezadanaMock, maVlastniWeb, vrstvaFronty } from './src/api/mock.ts';",
+        "export { zapniDemoObory, poradiFronty } from './src/api/mock.ts';",
         "export { supabaseApi } from './src/api/supabase.ts';",
         "export * as uiModul from './src/ui.tsx';",
         "export * as prahaModul from './src/praha.ts';",
@@ -1176,6 +1177,52 @@ await blok('AU', async () => {
     && /<p className="muted duvod-stavu-napoveda"[^>]*>\s*Z „\{STATUS_LABELS\[kontakt\.status\] \?\? kontakt\.status\}“ na „\{STATUS_LABELS\[status\] \?\? status\}“\.\{' '\}\s*\{DUVOD_STAVU_NAPOVEDA\}\s*<\/p>/.test(drawer)
     && !/přečte\s+automatizace|podle\s+něj\s+pokračuje/.test(bezKomentaru) && /<KontaktThreads\s/.test(drawer),
     'detail: u změny stavu věta „Důvod čte automatizace jen u Odmítnuto (u architekta i u Nekontaktovat). Pokyn pro agenta napište do Vzkazů agentovi.“, starý slib nikde, Vzkazy agentovi v detailu jsou');
+});
+
+/* ---------------- FO) obory ve frontě (k bloku F architektů) (migrace 064, návrh oborů 6.2 a 6.5, R7 z 8. 11. 2026) ---------------- */
+// Pořadí niky oboru (obor_poradi_fronty): priority 1, 2 a 3 promíchaně, pak 4, pak 6 a bez priority, pak 5 s B, nakonec
+// 5 s A; dvě a víc nedovolání za ostatní své skupiny. Chata a architekt beze změny (vrstvaFronty, poradiFronty 0).
+// Naplánovaný hovor jiné zapnuté niky přijde v průchodu 0b; řádek „Máš naplánovaný hovor“ (app_zavolat_jinde) pro jiný
+// segment. Blok je poslední: zapnutí ukázkových firem mění demo data.
+const { zapniDemoObory, poradiFronty } = bundle;
+await blok('FO', async () => {
+  zapniDemoObory(['autoservis', 'stavby']);
+  const MIN = 60 * 1000;
+  // F1: chata a architekt beze změny
+  over('FO1', vrstvaFronty('autoservis', null, 'nemá web', 5) === 0 && vrstvaFronty('architekt', null, 'nemá web', 2) === 2
+    && vrstvaFronty('architekt', 'https://x.example', 'má web', 0) === 1 && vrstvaFronty('chata', null, null, 9) === 0,
+    'vrstvy: nika vždy 0, architekt a chata jako dřív');
+  over('FO1b', poradiFronty('chata', 5, 'A', 3) === 0 && poradiFronty('architekt', 1, null, 3) === 0, 'pořadí oboru se chat a architektů netýká');
+  // F2: pořadí oboru včetně nedovolání
+  over('FO2', poradiFronty('autoservis', 2, 'D', 2) === 1 && poradiFronty('autoservis', 4, 'C', 2) === 3 && poradiFronty('autoservis', 4, 'C', 1) === 2,
+    'dvě a víc nedovolání = +1 v každé skupině');
+  // F2b: fronta autoservisu dává firmy po skupinách (Honza volá všechny a zapisuje Nedovoláno)
+  const skupiny = [];
+  for (let i = 0; i < 20; i++) {
+    const c = await api.nextContact(honza, 'autoservis');
+    if (!c) break;
+    skupiny.push(poradiFronty('autoservis', c.web_priorita, c.web_hodnoceni, 0));
+    await api.resolveCall(honza, { kontakt_id: c.id, outcome: 'nedovolano', note: null });
+  }
+  over('FO2b', skupiny.length === 14 && skupiny.every((g, i) => i === 0 || g >= skupiny[i - 1]) && skupiny[0] === 0 && skupiny[13] === 8,
+    'fronta autoservisu: 14 firem po skupinách R7, nejlepší web (A) poslední', JSON.stringify(skupiny));
+  // F4: řádek „Máš naplánovaný hovor“: hovor jiné niky se počítá ve frontě chat, ne na nice téže rodiny
+  const z = await api.zavolatNaplanovat(mikulas, 421, new Date(Date.now() - 5 * MIN).toISOString(), 'ozvěte se', 2);
+  const naChatach = await api.zavolatJinde(petra, 'chata');
+  const naAutoservisu = await api.zavolatJinde(petra, 'autoservis');
+  over('FO4', naChatach.some((r) => r.segment === 'stavby' && r.pocet === 1), 've frontě chat: „Máš naplánovaný hovor: Stavby (1)“', JSON.stringify(naChatach));
+  over('FO4b', !naAutoservisu.some((r) => r.segment === 'stavby'), 'na autoservisu se hovor stavby „jinde“ nepočítá (dá ho průchod 0b)', JSON.stringify(naAutoservisu));
+  await chyba('FO4c', () => api.zavolatJinde(petra, 'kominik'), /^Neplatný segment: kominik\. Povolené: chata, architekt nebo obor z registru\.$/, 'neplatný segment odmítne');
+  // F3: průchod 0b na autoservisu vezme naplánovaný hovor ze stavby (zapnutá nika téže rodiny)
+  const k = await api.nextContact(petra, 'autoservis');
+  over('FO3', k && k.id === 421 && k.segment === 'stavby' && k.zavolat && k.zavolat.id === z.id, 'na autoservisu přijde napřed vlastní naplánovaný hovor stavební firmy',
+    JSON.stringify(k && [k.id, k.segment, k.zavolat]));
+  // F5: appka: řádek pro jiný segment a ceny z registru
+  const call = readFileSync(join(ROOT, 'src/pages/CallPage.tsx'), 'utf8');
+  over('FO5', /zavolatJinde\(session\.token, segment\)/.test(call) && /Máš naplánovaný hovor: \{segmentNazev\(j\.segment\)\} \(\{j\.pocet\}\)/.test(call),
+    'stránka volání ukáže „Máš naplánovaný hovor: {segment} ({počet})“ s přepnutím');
+  over('FO5b', /nikaKarty\?\.cena_web_vzor/.test(call) && /nikaKarty\?\.hosting_vzor/.test(call) && /nikaKarty\?\.cena_funkce_vzor/.test(call),
+    'ceny u oboru z registru (R12: 7 000 Kč, 1 000 Kč ročně, funkce podle domluvy)');
 });
 
 if (chyby === 0) {

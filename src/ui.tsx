@@ -840,7 +840,8 @@ export function SegmentSwitch({
   const druhaRada = niky.length > 0 && (otevreno || naNice);
   return (
     <div className="segment-switch-wrap">
-      <div className="segmented segment-switch" role="group" aria-label="Koho voláš">
+      {/* s-obory: zúžení tlačítek na telefonu jen s třetím tlačítkem „Obory“; bez nik vypadá přepínač bajtově jako dřív */}
+      <div className={`segmented segment-switch${niky.length > 0 ? ' s-obory' : ''}`} role="group" aria-label="Koho voláš">
         {SEGMENTY.map((s) => (
           <button
             key={s}

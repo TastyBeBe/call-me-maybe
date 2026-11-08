@@ -1664,6 +1664,12 @@ body.pig-layer .drawer {
   border-right: var(--border);
 }
 
+/* zvolená nika: zelená jako „Obory“ (pravidlo výš má stejnou specifičnost jako pilulka, proto ještě jednou za ní) */
+.segmented.segment-niky button.nika.active {
+  background: var(--green);
+  color: var(--paper-on-dark);
+}
+
 .nika-stav {
   font-size: 11px;
   font-weight: 800;
@@ -1676,7 +1682,7 @@ body.pig-layer .drawer {
 }
 
 @media (max-width: 480px) {
-  .segment-switch-wrap .segmented.segment-switch:not(.segment-niky) button {
+  .segment-switch-wrap .segmented.segment-switch.s-obory button {
     font-size: 15px;
     padding: 7px 11px;
     gap: 4px;
@@ -1684,6 +1690,15 @@ body.pig-layer .drawer {
   .segmented.segment-niky button.nika {
     font-size: 14px;
     padding: 5px 11px;
+  }
+}
+
+/* telefon 360 px: tři tlačítka první řady se vejdou bez posunu do strany (změřeno: při 480px pravidle o 5 px širší) */
+@media (max-width: 400px) {
+  .segment-switch-wrap .segmented.segment-switch.s-obory button {
+    font-size: 14px;
+    padding: 7px 8px;
+    gap: 3px;
   }
 }
 
@@ -1757,8 +1772,16 @@ body.pig-layer .drawer {
   margin: 4px 0 0;
 }
 
-/* řádek „Máš naplánovaný hovor“ v jiném segmentu */
+/* řádek „Máš naplánovaný hovor“ v jiném segmentu: vzhled žluté cedulky (.info-box), ale vlastní třída, ať se s ní
+   neplete (cedulka „Po tomhle hovoru dostaneš…“ a testy, které ji hledají) */
 .zavolat-jinde {
+  background: var(--yellow);
+  border: var(--border);
+  border-radius: var(--r-ctl);
+  box-shadow: var(--shadow-hard-sm);
+  font-weight: 700;
+  padding: 10px 16px;
+  margin: 12px 0;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -1769,6 +1792,20 @@ body.pig-layer .drawer {
 .jak-volat {
   max-width: 720px;
   margin: 0 auto;
+}
+
+.jak-volat .card:not(.empty-state) {
+  padding: 20px 24px;
+}
+
+.jak-volat a.pill-btn {
+  text-decoration: none;
+}
+
+@media (max-width: 480px) {
+  .jak-volat .card:not(.empty-state) {
+    padding: 16px;
+  }
 }
 
 .jak-volat .card h2 {

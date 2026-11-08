@@ -89,6 +89,17 @@ a 90 až 92 (od migrace 050 i 10 až 13 a 20 až 23 pro kalendář hovorů a vý
 kontrolním součtem): 300 a 301 jsou ve frontě, 302 je nedovolaný s příznakem a bez
 e-mailu (volala Petra), 303 má odeslaný návrh a čeká na odpověď (volal Honza).
 
+Od migrace 064 (obory, Albert 7. 11. 2026; návrh oborů oddíl 6): registr nik (`app_obor_niky`, `src/obory.ts`) má v demu
+čtyři niky ve stavu `priprava` jako seed serveru (ceny 7 000 Kč, hosting 1 000 Kč ročně, funkce navíc podle domluvy, volají
+všichni; Albert 8. 11. 2026), takže appka vypadá jako dřív: přepínač jen Chaty · Architekti, žádné volání `app_zavolat_jinde`.
+Zapnout niku v demu jde jen klíčem `localStorage.volacka_demo_obory` nastaveným **před** načtením appky (čárkami oddělené
+klíče nik, např. `autoservis`; `vse` = všechny čtyři): zapne ji (`stav = zapnuto`) a přidá smyšlené firmy id 400 až 413
+(autoservis, každý stav webu a hodnocení aspoň jednou) a 420 až 441 (ostatní niky), názvy „Ukázka / Vzor / Příklad“,
+adresy `example.cz`, telefony s předvolbou 999. Pak se na přepínači objeví „Obory“ a druhá řada nik, karta firmy oboru
+s panelem „jejich web“ (odkaz, hodnocení A až F, věta o stavu webu, nejvýš dvě věty o nedostatcích, „potvrď e-mail
+v hovoru“), řádek „Máš naplánovaný hovor: …“ pro jiný segment a stránka `#/jak-volat`. Testy: `npm test` bloky NK a I6
+(segment), FO (volání), OF (filtry), `npm run test:e2e` blok OB.
+
 Od migrace 060 (Albert 1. 11. 2026, oddíl Označení 060 níž) má demo i označení k zavolání: mock je počítá stejně jako tick
 (`obnovOznaceni` v `src/api/mock.ts`, první běh s lhůtou 10 pracovních dní jako migrace, každé další označení 5). Chaty 93 až
 98 (adresy `example.cz`, telefony 731 000 193 až 198): 93 Petra, návrh bez odpovědi, známka A a hvězda; 94 Petra, změny bez
