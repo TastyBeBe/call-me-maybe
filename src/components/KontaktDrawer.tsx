@@ -40,7 +40,9 @@ import {
 import { audio } from '../audio';
 import { useSession } from '../auth';
 import { JINY_VOLAJICI, isSuperAdmin, roleLabel } from '../roles';
-import { bezCizihoIco, icoVidi, segmentOf } from '../segment';
+import { bezCizihoIco, icoVidi, rodinaOf, segmentOf } from '../segment';
+import { nikaInfo } from '../obory';
+import JejichWeb from './JejichWeb';
 import {
   DUVOD_STAVU_NAPOVEDA,
   ErrorBox,
@@ -500,6 +502,32 @@ function ArchitektUdaje({ kontakt, icoVidi: vidi }: { kontakt: Kontakt; icoVidi:
   );
 }
 
+/* ---------- údaje firmy oboru (migrace 064, návrh oborů 6.4), jen ke čtení ---------- */
+
+/**
+ * Obchodní jméno, IČO podle role (icoVidi: jen admin a super admin, volajícímu server IČO neposílá), město, štítek niky
+ * a tentýž panel „jejich web“ jako na kartě hovoru (hodnocení, stav, nedostatky, sociální odkaz). Hodnocení, stav
+ * a priorita jsou importní data a nejdou upravit (nejsou v update_kontakt). Právní jméno, kraj a kontaktní roli server
+ * appce zatím neposílá (obor_udaje čtou jen workery), proto tu nejsou.
+ */
+function OborUdaje({ kontakt, icoVidi: vidi }: { kontakt: Kontakt; icoVidi: boolean }) {
+  const nezjisteno = <span className="muted">nezjištěno</span>;
+  const nika = nikaInfo(segmentOf(kontakt));
+  return (
+    <div className="obor-udaje">
+      <p className="meta-line">firma: {kontakt.firma || nezjisteno}</p>
+      {kontakt.name && kontakt.firma && kontakt.name !== kontakt.firma && <p className="meta-line">ptej se na: {kontakt.name}</p>}
+      <p className="meta-line">obor: {nika?.nazev_jednotne ?? segmentOf(kontakt)}</p>
+      <p className="meta-line">město: {kontakt.mesto || nezjisteno}</p>
+      {vidi && <p className="meta-line">IČO: {kontakt.ico_firma || kontakt.ico_osobni || nezjisteno}</p>}
+      <div className="meta-line">
+        jejich web:
+        <JejichWeb kontakt={kontakt} />
+      </div>
+    </div>
+  );
+}
+
 /* ---------- naplánovat hovor (migrace 050, Albert 21. 10. 2026) ---------- */
 
 /**
@@ -764,7 +792,7 @@ export default function KontaktDrawer({
             <PhoneIcon size={15} /> {kontakt.phone || '—'}
             {kontakt.obor ? ` · obor: ${kontakt.obor}` : ''} <SegmentBadge kontakt={kontakt} />
           </p>
-          {kontakt.web && (
+          {kontakt.web && rodinaOf(segmentOf(kontakt)) !== 'obor' && (
             <p className="meta-line">
               <GlobeIcon size={15} />{' '}
               <a href={kontakt.web} target="_blank" rel="noreferrer">
@@ -776,6 +804,7 @@ export default function KontaktDrawer({
               jen po zájmu v hovoru; u architekta (veřejný import) a na kartě, kterou Volající právě volá, ano */}
           {'email' in kontakt && <p className="meta-line">e-mail: {kontakt.email || '—'}</p>}
           {segmentOf(kontakt) === 'architekt' && <ArchitektUdaje kontakt={kontakt} icoVidi={icoVidi(session.role)} />}
+          {rodinaOf(segmentOf(kontakt)) === 'obor' && <OborUdaje kontakt={kontakt} icoVidi={icoVidi(session.role)} />}
           <div className="info-box skryto-box">{SKRYTO_NAPOVEDA}</div>
           <ZavolatBlok kontakt={kontakt} />
           <button className="pill-btn" onClick={onClose}>
@@ -803,7 +832,7 @@ export default function KontaktDrawer({
           {/* migrace 057: změněno = poslední změna jako sloupec Změněno v seznamu (z něj, jinak updated_at) */}
           naposledy volal/a: {kontakt.last_caller || '—'} · změněno {formatDateTime(zmenenoKdy(kontakt))}
         </p>
-        {kontakt.web && (
+        {kontakt.web && rodinaOf(segmentOf(kontakt)) !== 'obor' && (
           <p className="meta-line">
             <GlobeIcon size={15} />{' '}
             <a href={kontakt.web} target="_blank" rel="noreferrer">
@@ -820,6 +849,7 @@ export default function KontaktDrawer({
           </p>
         )}
         {segmentOf(kontakt) === 'architekt' && <ArchitektUdaje kontakt={kontakt} icoVidi={icoVidi(session.role)} />}
+        {rodinaOf(segmentOf(kontakt)) === 'obor' && <OborUdaje kontakt={kontakt} icoVidi={icoVidi(session.role)} />}
         {/* migrace 045: cizí zámek Volající dostane jen jako zamceno, bez toho, kdo kartu volá */}
         {!readOnly && (kontakt.zamceno ?? kontakt.lock_by !== null) && (
           <div className="info-box">

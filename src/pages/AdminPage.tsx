@@ -10,12 +10,14 @@ import { audio } from '../audio';
 import { useSession } from '../auth';
 import DovolaniTlacitko from '../components/DovolaniTlacitko';
 import { HvezdaPrepinac } from '../components/Hvezda';
+import { HodnoceniVSeznamu } from '../components/JejichWeb';
 import KontaktDrawer from '../components/KontaktDrawer';
 import { usePeople } from '../components/PersonPicker';
 import SeznamFiltry from '../components/SeznamFiltry';
 import { PRAZDNE_FILTRY, filtrJenSvoje, filtryNaServer, type StavFiltru } from '../filtry';
 import { isAdminRole, isSuperAdmin } from '../roles';
 import { icoVidi } from '../segment';
+import { useNiky, viditelneNiky } from '../obory';
 import {
   ALL_CEKANI,
   ALL_KOSE,
@@ -93,6 +95,8 @@ const PAGE_SIZE = 50;
 // Šest buněk Skryto cizího kontaktu (kontrola 193) zůstává beze změny, řádek se do strany neposouvá (e2e O61a a O62).
 export default function AdminPage() {
   const session = useSession();
+  // migrace 064: zástupný text hledání zmíní firmu, jen když jsou v appce niky oboru
+  const sNikami = viditelneNiky(useNiky()).length > 0;
   const isAdmin = isAdminRole(session.role);
   const isSuper = isSuperAdmin(session.role);
   const [searchParams] = useSearchParams();
@@ -282,13 +286,13 @@ export default function AdminPage() {
         statusPocty={isSuper ? statusCounts : undefined}
         statusSoucet={isSuper ? totalAll : undefined}
         hledatAria="Hledat v kontaktech"
-        hledatPlaceholder={
+        hledatPlaceholder={(
           !isSuper
             ? 'Hledat jméno, studio, telefon, web, město, IČO, e-mail architekta; e-mail chaty a poznámku jen u mých…'
             : icoVidi(session.role)
               ? 'Hledat jméno, studio, telefon, web, e-mail, město, IČO, poznámku…'
               : 'Hledat jméno, studio, telefon, web, e-mail, město, poznámku…'
-        }
+        ).replace('studio', sNikami ? 'studio, firmu' : 'studio')}
         razeni={
           <RazeniSelect
             value={razeni}
@@ -460,6 +464,8 @@ export default function AdminPage() {
                     ) : (
                       <span className="muted">nemá</span>
                     )}
+                    {/* migrace 064 (návrh 6.4): u firmy oboru písmeno hodnocení webu, věta jako title */}
+                    <HodnoceniVSeznamu kontakt={r} />
                   </td>
                   {cekani ? (
                     <td role="cell" style={{ whiteSpace: 'nowrap' }} className="ceka-cell" data-label="čeká">

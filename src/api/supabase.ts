@@ -18,6 +18,7 @@ import type {
   MeInfo,
   MojiFiltry,
   MyStats,
+  OborNika,
   OznaceneFiltry,
   ResolveCallArgs,
   Role,
@@ -35,6 +36,7 @@ import type {
   UserStats,
   VysledekDovolani,
   ZapisHovoruVysledek,
+  ZavolatJinde,
   ZavolatPolozka,
   ZavolatSeznam,
 } from './types';
@@ -95,6 +97,11 @@ const razeni060Nezna = (razeni: string | null | undefined, e: unknown): boolean 
   && (e.kod === 'PGRST202' || e.message.startsWith(`Neplatné řazení: ${razeni}.`));
 /** Funkce s těmi parametry na serveru není (PGRST202): nová funkce nebo nový parametr na serveru bez migrace. */
 const neniNaServeru = (e: unknown): boolean => e instanceof RpcChyba && e.kod === 'PGRST202';
+/**
+ * Nika oboru na serveru bez migrace 028 (next_contact bez p_segment). Obecná, bez jména niky (návrh 6.4); starý server
+ * nemá ani migraci 064, takže obor nezná vůbec.
+ */
+export const BEZ_064_OBOR = 'Server ještě neumí volat tenhle obor (chybí na něm migrace 064). Chaty volat jde.';
 
 /** Filtry z migrace 060 jen zapnuté: prázdné pole, false a null se serveru neposílají (server bez 060 je nezná). */
 function filtry060(f: FiltryMlceni | null | undefined): Record<string, unknown> {
@@ -186,10 +193,34 @@ export const supabaseApi: Api = {
       // takže chaty se zkusí znovu bez segmentu a volání nestojí. Architekty NIKDY: dostali by
       // chatu pod přepínačem „Architekti" (revize 28. 9.).
       if (!(e instanceof RpcChyba) || e.kod !== 'PGRST202') throw e;
-      if (segment !== 'chata') {
+      if (segment === 'architekt') {
         throw new Error('Server ještě neumí volat architekty (chybí na něm migrace 028). Chaty volat jde.');
       }
+      // Od migrace 064 (obory): nika oboru na serveru bez 028 NIKDY jako chata, obecná hláška bez jména niky
+      if (segment !== 'chata') throw new Error(BEZ_064_OBOR);
       return rpc<Kontakt | null>('next_contact', { p_token: token });
+    }
+  },
+
+  async oborNiky(token: string): Promise<OborNika[]> {
+    // app_obor_niky (migrace 064): server bez 064 funkci nemá (PGRST202) = žádná nika, appka jako dřív
+    try {
+      const r = await rpc<OborNika[] | null>('app_obor_niky', { p_token: token });
+      return Array.isArray(r) ? r : [];
+    } catch (e) {
+      if (neniNaServeru(e)) return [];
+      throw e;
+    }
+  },
+
+  async zavolatJinde(token: string, segment: Segment): Promise<ZavolatJinde[]> {
+    // app_zavolat_jinde (migrace 064): server bez 064 = nic jinde
+    try {
+      const r = await rpc<ZavolatJinde[] | null>('app_zavolat_jinde', { p_token: token, p_segment: segment });
+      return Array.isArray(r) ? r : [];
+    } catch (e) {
+      if (neniNaServeru(e)) return [];
+      throw e;
     }
   },
 

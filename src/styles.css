@@ -1624,6 +1624,175 @@ body.pig-layer .drawer {
    s boxem (Albert 19. 10. 2026). */
 
 /* ---------------------------------------------------------------------------
+   Obory (migrace 064, Albert 7. 11. 2026; návrh oborů 6.2 až 6.7). Jen tokeny palety. Přepínač má dvě řady: první
+   Chaty · Architekti · Obory, druhá niky (jen po volbě „Obory“); obě se vejdou na telefon 360 px (druhá se zalomí).
+   --------------------------------------------------------------------------- */
+
+.segment-switch-wrap > .segment-switch:not(:last-child) {
+  margin-bottom: 8px;
+}
+
+/* obory mají zelenou, ať je rozdíl proti chatám (oranžová) a architektům (inkoust) vidět na první pohled */
+.segmented.segment-switch button.active.obor,
+.segment-niky button.nika.active {
+  background: var(--green);
+  color: var(--paper-on-dark);
+}
+
+/* druhá řada: samostatné pilulky, které se zalomí (segmented pilulka by se na telefonu nevešla) */
+.segmented.segment-niky {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  background: transparent;
+  overflow: visible;
+}
+
+.segmented.segment-niky button.nika {
+  font-size: 15px;
+  padding: 6px 14px;
+  border: var(--border);
+  border-radius: var(--r-pill);
+  background: var(--cream-deep);
+  box-shadow: var(--shadow-hard-sm);
+}
+
+.segmented.segment-niky button.nika:last-child {
+  border-right: var(--border);
+}
+
+.nika-stav {
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  border: 2px solid currentColor;
+  border-radius: var(--r-pill);
+  padding: 0 6px;
+  margin-left: 4px;
+}
+
+@media (max-width: 480px) {
+  .segment-switch-wrap .segmented.segment-switch:not(.segment-niky) button {
+    font-size: 15px;
+    padding: 7px 11px;
+    gap: 4px;
+  }
+  .segmented.segment-niky button.nika {
+    font-size: 14px;
+    padding: 5px 11px;
+  }
+}
+
+.segmented.segment-filter.s-niky {
+  flex-wrap: wrap;
+}
+
+.badge.seg-obor {
+  background: var(--green);
+  color: var(--paper-on-dark);
+}
+
+.call-card.seg-obor .call-row .k {
+  min-width: 96px;
+}
+
+.call-card.seg-obor .call-row.jejich-web-radek {
+  align-items: flex-start;
+}
+
+/* panel „jejich web“ (karta hovoru a detail kontaktu) */
+.jejich-web {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.jejich-web p,
+.jejich-web ul {
+  margin: 0;
+}
+
+.jejich-web-veta {
+  font-weight: 700;
+}
+
+.jejich-web-nedostatky {
+  padding-left: 18px;
+  font-size: 14.5px;
+}
+
+.jejich-web-den {
+  font-size: 12px;
+}
+
+.badge.hodnoceni-webu.green {
+  background: var(--green);
+  color: var(--paper-on-dark);
+}
+
+.badge.hodnoceni-webu.red {
+  background: var(--pink);
+  color: var(--paper-on-dark);
+}
+
+.email-potvrd {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--ink-soft);
+}
+
+.obor-udaje {
+  border-top: 2px dashed var(--ink-soft);
+  margin: 10px 0;
+  padding-top: 8px;
+}
+
+.obor-udaje .jejich-web {
+  margin: 4px 0 0;
+}
+
+/* řádek „Máš naplánovaný hovor“ v jiném segmentu */
+.zavolat-jinde {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+/* stránka „Jak volat“ */
+.jak-volat {
+  max-width: 720px;
+  margin: 0 auto;
+}
+
+.jak-volat .card h2 {
+  font-size: var(--fs-title);
+  margin: 18px 0 6px;
+}
+
+.jak-volat .card h2:first-child {
+  margin-top: 0;
+}
+
+.jak-volat .card h3 {
+  font-size: 17px;
+  margin: 14px 0 4px;
+}
+
+.jak-volat .card p,
+.jak-volat .card ul,
+.jak-volat .card ol {
+  margin: 0 0 10px;
+  line-height: 1.45;
+}
+
+/* ---------------------------------------------------------------------------
    Zvukové menu (tři kanály: aplikace / Prokchop / hudba)
    Albert 2026-09-03: Prokchop je hlasitý a hraje často, klikání tlačítek chce
    člověk slyšet pořád — proto má každý kanál vlastní vypínač i posuvník.

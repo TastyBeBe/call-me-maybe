@@ -1,31 +1,75 @@
-// Segment klienta: chaty a architekti (migrace 028, docs/ARCHITEKTI.md oddíl 1 a 9).
+// Segment klienta: chaty a architekti (migrace 028, docs/ARCHITEKTI.md oddíl 1 a 9) a od migrace 064 (Albert 7. 11. 2026)
+// niky rodiny obor (autoservis, stavby, topeni, elektro … z registru obor_niky, src/obory.ts).
 //
 // Tohle je JEDINÉ místo v appce, které ví, odkud se segment bere (sloupec `segment`
 // z RPC), a jediné místo, které čte a ukládá volbu „koho voláš" v localStorage.
 // Sloupec `obor` je jen popisek pro lidi (u testovacích kontaktů „test"), podle něj se
 // segment NIKDY neurčuje.
 
-import type { Kontakt, Segment } from './api/types';
+import type { Kontakt, Rodina, Segment } from './api/types';
 import { isAdminRole } from './roles';
 
 /** Volba ve volání, per zařízení (jako ostatní klíče `volacka_*`). */
 export const LS_SEGMENT = 'volacka_segment';
 
-/** Oba segmenty v pořadí, ve kterém je appka ukazuje. */
+/**
+ * Chaty a architekti v pořadí, ve kterém je appka ukazuje. Niky oboru jdou za nimi, štítky a pořadí z registru
+ * (app_obor_niky, src/obory.ts); appka žádnou niku nezná jménem (návrh oborů 6.1).
+ */
 export const SEGMENTY: readonly Segment[] = ['chata', 'architekt'];
 
+/** Tři rodiny (migrace 064): podle nich se rozhoduje rozložení karty, nápovědy a texty. */
+export const RODINY: readonly Rodina[] = ['chata', 'architekt', 'obor'];
+
+/** Tvar klíče niky jako CHECK obor_niky.klic na serveru (migrace 064): malá písmena a číslice, 2 až 24 znaků. */
+const KLIC_NIKY = /^[a-z][a-z0-9]{1,23}$/;
+
+/** Je hodnota klíč niky oboru (tvarem; jestli je v registru, ví src/obory.ts)? chata, architekt a obor nikdy. */
+export function jeKlicNiky(s: unknown): s is string {
+  return typeof s === 'string' && KLIC_NIKY.test(s) && s !== 'chata' && s !== 'architekt' && s !== 'obor';
+}
+
 /**
- * Koho volající volá. Přijme jen 'chata' nebo 'architekt'; cokoli jiného (smetí, stará
- * hodnota, nedostupný localStorage) = 'chata' (RC-14): next_contact na neznámou hodnotu
- * hází chybu, takže smetí v localStorage by jinak zastavilo volání chat.
+ * Rodina segmentu (migrace 064, návrh 6.1): null, prázdné a chata = chata, architekt = architekt, klíč niky = obor.
+ * Hodnota, která nemá tvar klíče niky (smetí), je chata jako dřív (RC-14); server jiné hodnoty než z registru nepošle.
  */
-export function loadCallSegment(): Segment {
+export function rodinaOf(seg: string | null | undefined): Rodina {
+  if (seg === 'architekt') return 'architekt';
+  return jeKlicNiky(seg) ? 'obor' : 'chata';
+}
+
+/** Patří segment do rodiny obor (některá nika)? */
+export function jeObor(seg: string | null | undefined): boolean {
+  return rodinaOf(seg) === 'obor';
+}
+
+/**
+ * Koho volající volá. Přijme 'architekt', od migrace 064 i niku, která je v `niky` (klíče nik, které smí teď volat,
+ * z registru app_obor_niky); cokoli jiného (smetí, stará hodnota, nika, která už zapnutá není, nedostupný localStorage)
+ * = 'chata' (RC-14): next_contact na neznámou nebo vypnutou hodnotu hází chybu, takže smetí v localStorage by jinak
+ * zastavilo volání chat. Bez seznamu nik (registr ještě není načtený) jen chata a architekt.
+ */
+export function loadCallSegment(niky: readonly string[] = []): Segment {
   try {
-    return localStorage.getItem(LS_SEGMENT) === 'architekt' ? 'architekt' : 'chata';
+    const v = localStorage.getItem(LS_SEGMENT);
+    if (v === 'architekt') return 'architekt';
+    return jeKlicNiky(v) && niky.includes(v) ? v : 'chata';
   } catch {
     return 'chata';
   }
 }
+
+/** Uložená volba je nika (tvarem)? CallPage pak s první kartou počká na registr nik, ať niku nepřepne na chaty. */
+export function ulozenaNika(): boolean {
+  try {
+    return jeKlicNiky(localStorage.getItem(LS_SEGMENT));
+  } catch {
+    return false;
+  }
+}
+
+/** Událost po změně volby „koho voláš“ (menu ukáže odkaz „jak volat“, jen když je zvolená nika). */
+export const UDALOST_SEGMENT = 'cmm:segment-changed';
 
 export function saveCallSegment(s: Segment): void {
   try {
@@ -33,11 +77,28 @@ export function saveCallSegment(s: Segment): void {
   } catch {
     // localStorage nedostupné: volba platí do reloadu
   }
+  if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
+    window.dispatchEvent(new CustomEvent(UDALOST_SEGMENT, { detail: { segment: s } }));
+  }
 }
 
-/** Segment kontaktu. Bez sloupce `segment` (server bez migrace 028) je to chata. */
+/** Uložená volba bez kontroly registru (null = nic uloženého nebo nedostupný localStorage); jen pro menu a „Jak volat“. */
+export function ulozenaVolba(): string | null {
+  try {
+    return localStorage.getItem(LS_SEGMENT);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Segment kontaktu. Bez sloupce `segment` (server bez migrace 028) je to chata. Od migrace 064 vrací niku oboru tak, jak
+ * přišla (nikdy ji nepřevede na chatu; dřív „cokoli kromě architekta = chata“); smetí bez tvaru klíče = chata.
+ */
 export function segmentOf(k: Pick<Kontakt, 'segment'> | null | undefined): Segment {
-  return k?.segment === 'architekt' ? 'architekt' : 'chata';
+  const s = k?.segment;
+  if (s === 'architekt') return 'architekt';
+  return jeKlicNiky(s) ? s : 'chata';
 }
 
 /**

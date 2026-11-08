@@ -1,7 +1,7 @@
 // DEMO režim: in-memory mock implementující stejné rozhraní jako Supabase RPC.
 // Umožňuje plně proklikat UI bez backendu. Data žijí jen v paměti (reload = reset).
 
-import { icoVidi, segmentOf } from '../segment';
+import { icoVidi, rodinaOf, segmentOf } from '../segment';
 import { pracovniDenPo, pracovniDnyMezi, prahaNaIso, zacatekDnePraha } from '../praha';
 import type {
   CekaniKind,
@@ -26,6 +26,7 @@ import type {
   MeInfo,
   MojiFiltry,
   MyStats,
+  OborNika,
   OznaceneFiltry,
   OznaceniKategorie,
   PravidloStav,
@@ -605,6 +606,153 @@ const kontakty: Kontakt[] = [
     last_our_reply_at: daysAgo(15),
   }),
 ];
+
+/* ---------------------------------------------------------------------------
+   Obory (migrace 064, Albert 7. 11. 2026; návrh oborů oddíl 6). Registr nik zrcadlí seed serveru: čtyři niky ve stavu
+   priprava (žádná zapnutá), volají všichni volající (R9, Albert 8. 11. 2026), ceny jako u architektů (R12). Dokud nika
+   není zapnutá, appka ji volajícím neukáže a next_contact ji odmítne stejnou hláškou jako server.
+   Ukázkové firmy oborů (jen vymyšlená data: názvy „Ukázka / Vzor / Příklad“, adresy example.cz, telefony s předvolbou
+   999, která v ČR neexistuje, IČO s neplatným kontrolním součtem) se do demo dat přidají jen na požádání:
+   zapniDemoObory (testy) nebo localStorage `volacka_demo_obory` = čárkami oddělené klíče nik, které se zapnou (např.
+   „autoservis“; „vse“ zapne všechny čtyři), nastavené PŘED načtením appky. Bez toho jsou demo data jako před 064.
+   --------------------------------------------------------------------------- */
+
+interface MockNika extends OborNika {
+  stav: NonNullable<OborNika['stav']>;
+  volaji_vsichni: boolean;
+}
+
+/** Ukázkový text stránky „Jak volat“ (obsah na serveru píše živá session z orchestrator/obory/niky/<nika>/volani.md). */
+const JAK_VOLAT_UKAZKA = [
+  '## Kdy volat',
+  'Dopoledne mezi 9. a 11. hodinou, kdy dílna ještě nemá plno. V poledne a po 16. hodině raději ne.',
+  '',
+  '## Jak začít',
+  '- **Nemá vlastní web:** „Dobrý den, připravil jsem pro vás ukázku webu, můžu vám ji poslat e-mailem?“',
+  '- **Slabý web:** řekni jeden konkrétní nedostatek z karty, nikdy písmeno hodnocení.',
+  '- **Dobrý web:** poděkuj a nabídni ukázku jen tehdy, když o ni stojí.',
+  '',
+  '## Co ukázka obsahuje',
+  'Úvod s jejich službami, kontakt s telefonem na jedno klepnutí a mapu. Nic tím nevzniká a nic neplatí.',
+  '',
+  '## Když řeknou „nemám čas“',
+  '1. Zeptej se, jestli můžeš ukázku jen poslat e-mailem.',
+  '2. Když ne, poděkuj a zapiš Odmítnuto.',
+  '',
+  '## Do poznámky',
+  'Jednou větou, co dělají a kam jezdí.',
+].join('\n');
+
+const oborNikyMock: MockNika[] = [
+  { klic: 'autoservis', nazev: 'Autoservisy', nazev_mnozne: 'autoservisy', nazev_akuzativ: 'autoservis', nazev_jednotne: 'Autoservis', ikona: 'autoservis', poradi: 1 },
+  { klic: 'stavby', nazev: 'Stavby', nazev_mnozne: 'stavební firmy', nazev_akuzativ: 'stavební firmu', nazev_jednotne: 'Stavební firma', ikona: 'stavby', poradi: 2 },
+  { klic: 'topeni', nazev: 'Topení', nazev_mnozne: 'topenáři', nazev_akuzativ: 'topenáře', nazev_jednotne: 'Topenář', ikona: 'topeni', poradi: 3 },
+  { klic: 'elektro', nazev: 'Elektro', nazev_mnozne: 'elektrikáři', nazev_akuzativ: 'elektrikáře', nazev_jednotne: 'Elektrikář', ikona: 'elektro', poradi: 4 },
+].map((n) => ({
+  ...n,
+  cena_web_vzor: '7 000 Kč',
+  hosting_vzor: '1 000 Kč ročně',
+  cena_funkce_vzor: 'podle domluvy',
+  jak_volat: n.klic === 'autoservis' ? JAK_VOLAT_UKAZKA : null,
+  smi_volat: false,
+  stav: 'priprava' as const,
+  stav_od: daysAgo(1),
+  stav_duvod: null,
+  volaji_vsichni: true,
+}));
+
+/** obor_volajici (migrace 064): lidé, kteří smí niku volat, když volaji_vsichni není true. Seed prázdný. */
+const oborVolajiciMock: { segment: string; user_id: number }[] = [];
+
+/** app_segment_platny: chata, architekt nebo klíč z registru (v jakémkoli stavu). */
+function segmentPlatnyMock(s: unknown): boolean {
+  return s === 'chata' || s === 'architekt' || (typeof s === 'string' && oborNikyMock.some((n) => n.klic === s));
+}
+
+/** obor_smi_volat (migrace 064, R9): nika zapnuto a všichni, nebo člověk z obor_volajici. */
+function oborSmiVolat(userId: number, klic: string): boolean {
+  const n = oborNikyMock.find((x) => x.klic === klic);
+  return !!n && n.stav === 'zapnuto' && (n.volaji_vsichni || oborVolajiciMock.some((v) => v.segment === klic && v.user_id === userId));
+}
+
+/** app_je_obor (migrace 064): rodina obor = cokoli kromě chata a architekt (null nikdy). */
+function jeOborMock(s: string | null | undefined): boolean {
+  return !!s && s !== 'chata' && s !== 'architekt';
+}
+
+/** Den konce kontroly webů v ukázkových datech (YYYY-MM-DD). */
+const WEB_HODNOCENO_DO = '2026-11-06';
+
+/** Vymyšlené firmy oborů: každá kombinace stavu webu a hodnocení aspoň jednou (autoservis), ostatní niky po dvou. */
+function demoFirmyOboru(): Kontakt[] {
+  const f = (id: number, segment: string, p: Partial<Kontakt>): Kontakt =>
+    k({ id, segment, obor: segment, phone: `+420 999 000 ${id}`, web_hodnoceno_do: WEB_HODNOCENO_DO, ...p });
+  return [
+    // autoservis: priorita 1 (nemá skutečný web)
+    f(400, 'autoservis', { firma: 'Autoservis Ukázka s.r.o.', name: 'Petr Ukázka', mesto: 'Brno', email: 'servis@ukazka-autoservis.example.cz', web: null, ma_web: 'nemá web', web_stav: 'zadny', web_priorita: 1, ico_firma: '33333333' }),
+    f(401, 'autoservis', { firma: 'Pneuservis Vzor', name: null, obor: 'pneuservis, geometrie', mesto: 'Olomouc', web_stav: 'jen_socialni', web_priorita: 1, web_socialni: 'https://www.facebook.com/pneuservis.vzor.example', ma_web: 'nemá web' }),
+    f(402, 'autoservis', { firma: 'Karosárna Příklad', name: 'Jana Příkladová', mesto: 'Tábor', email: 'info@karosarna-priklad.example.cz', web_stav: 'zaparkovany', web_priorita: 1, ma_web: 'nemá web' }),
+    f(403, 'autoservis', { firma: 'Servis Vzorová dílna', mesto: 'Kolín', web_stav: 'jiny_web', web_priorita: 1, ma_web: 'nemá web' }),
+    f(404, 'autoservis', { firma: 'Auto Ukázkov', mesto: 'Písek', web_stav: 'katalog', web_priorita: 1, ma_web: 'nemá web' }),
+    // priorita 2 (slabý web D až F)
+    f(405, 'autoservis', { firma: 'Autodílna Vzor a syn', name: 'Karel Vzor', mesto: 'Plzeň', email: 'dilna@vzor-autodilna.example.cz', web: 'https://vzor-autodilna.example.cz', ma_web: 'má web', web_stav: 'potvrzeny', web_hodnoceni: 'D', web_priorita: 2, web_duvod: 'Na mobilu se nedá zavolat jedním klepnutím. Na webu chybí otevírací doba.' }),
+    f(406, 'autoservis', { firma: 'Příklad Motor', mesto: 'Jihlava', web: 'https://priklad-motor.example.cz', ma_web: 'má web', web_stav: 'potvrzeny', web_hodnoceni: 'E', web_priorita: 2, web_duvod: 'Web působí zastarale.' }),
+    f(407, 'autoservis', { firma: 'Ukázka Auto Centrum', mesto: 'Zlín', web: 'https://ukazka-centrum.example.cz', ma_web: 'má web', web_stav: 'nepotvrzeny', web_hodnoceni: 'F', web_priorita: 2, web_duvod: 'Na mobilu se stránka špatně zobrazuje. Na webu zůstal text ze šablony. Web má rozbitou češtinu.' }),
+    // priorita 3 (web se nenačetl)
+    f(408, 'autoservis', { firma: 'Servis Vzorník', mesto: 'Kladno', web: 'https://vzornik-servis.example.cz', ma_web: 'má web', web_stav: 'nenacten', web_priorita: 3 }),
+    // priorita 4 (průměrný C)
+    f(409, 'autoservis', { firma: 'Autoservis Příkladná', mesto: 'Liberec', email: 'kontakt@prikladna.example.cz', web: 'https://prikladna.example.cz', ma_web: 'má web', web_stav: 'potvrzeny', web_hodnoceni: 'C', web_priorita: 4, web_duvod: 'Na webu chybí přehled služeb.' }),
+    // priorita 6 (nehodnocen) a bez priority
+    f(410, 'autoservis', { firma: 'Vzor Garage', mesto: 'Opava', web: 'https://vzor-garage.example.cz', ma_web: 'má web', web_stav: 'roboti', web_priorita: 6 }),
+    f(411, 'autoservis', { firma: 'Ukázková pneu', mesto: 'Most', web: 'https://ukazkova-pneu.example.cz', ma_web: 'má web', web_stav: 'nekontrolovan', web_priorita: null, web_hodnoceno_do: null }),
+    // priorita 5 (dobrý web B, pak A úplně nakonec)
+    f(412, 'autoservis', { firma: 'Autoservis Vzorný', mesto: 'Hradec Králové', web: 'https://vzorny-autoservis.example.cz', ma_web: 'má web', web_stav: 'potvrzeny', web_hodnoceni: 'B', web_priorita: 5 }),
+    f(413, 'autoservis', { firma: 'Příklad Premium Servis', mesto: 'Pardubice', web: 'https://priklad-premium.example.cz', ma_web: 'má web', web_stav: 'potvrzeny', web_hodnoceni: 'A', web_priorita: 5 }),
+    // ostatní niky
+    f(420, 'stavby', { firma: 'Stavby Ukázka s.r.o.', name: 'Tomáš Ukázka', mesto: 'Brno', web_stav: 'zadny', web_priorita: 1, ma_web: 'nemá web' }),
+    f(421, 'stavby', { firma: 'Rekonstrukce Vzor', mesto: 'Praha 9', web: 'https://rekonstrukce-vzor.example.cz', ma_web: 'má web', web_stav: 'potvrzeny', web_hodnoceni: 'D', web_priorita: 2, web_duvod: 'Na webu nejsou fotky jejich práce.' }),
+    f(430, 'topeni', { firma: 'Topenář Příklad', name: 'Jiří Příklad', mesto: 'Ostrava', web_stav: 'jen_socialni', web_priorita: 1, web_socialni: 'https://www.instagram.com/topenar.priklad.example', ma_web: 'nemá web' }),
+    f(431, 'topeni', { firma: 'Tepelná čerpadla Vzor', mesto: 'Český Krumlov', web: 'https://cerpadla-vzor.example.cz', ma_web: 'má web', web_stav: 'potvrzeny', web_hodnoceni: 'C', web_priorita: 4, web_duvod: 'Na webu není, kam jezdí.' }),
+    f(440, 'elektro', { firma: 'Elektro Ukázka', name: 'Martin Ukázka', mesto: 'Karlovy Vary', web_stav: 'zadny', web_priorita: 1, ma_web: 'nemá web' }),
+    f(441, 'elektro', { firma: 'Elektroinstalace Vzor', mesto: 'Teplice', web: 'https://elektro-vzor.example.cz', ma_web: 'má web', web_stav: 'potvrzeny', web_hodnoceni: 'E', web_priorita: 2, web_duvod: 'Na webu visí stará akce.' }),
+  ];
+}
+
+let demoOboryPridane = false;
+
+/**
+ * Přidá vymyšlené firmy oborů do demo dat (jednou) a zapne vybrané niky (stav zapnuto; „vse“ = všechny). Jen DEMO a testy;
+ * server niky zapíná živá session na Albertovo slovo (obor_niky.stav).
+ */
+export function zapniDemoObory(klice: readonly string[]): void {
+  if (!demoOboryPridane) {
+    demoOboryPridane = true;
+    kontakty.push(...demoFirmyOboru());
+  }
+  const vse = klice.includes('vse');
+  for (const n of oborNikyMock) if (vse || klice.includes(n.klic)) n.stav = 'zapnuto';
+}
+
+/** Jen DEMO a testy: nastaví stav niky (zkouska, pozastaveno …), jako by ho změnila živá session. */
+export function nastavStavNikyDemo(klic: string, stav: MockNika['stav'], volajiVsichni?: boolean): void {
+  const n = oborNikyMock.find((x) => x.klic === klic);
+  if (!n) throw new Error(`Nika ${klic} v demu není.`);
+  n.stav = stav;
+  n.stav_od = new Date().toISOString();
+  if (volajiVsichni !== undefined) n.volaji_vsichni = volajiVsichni;
+}
+
+/** localStorage `volacka_demo_obory` (jen DEMO): niky, které se při načtení appky zapnou, a s nimi ukázkové firmy. */
+function demoOboryZUloziste(): void {
+  let v: string | null = null;
+  try {
+    v = typeof localStorage !== 'undefined' ? localStorage.getItem('volacka_demo_obory') : null;
+  } catch {
+    v = null;
+  }
+  const klice = (v ?? '').split(',').map((s) => s.trim()).filter(Boolean);
+  if (klice.length > 0) zapniDemoObory(klice);
+}
 
 const callLog: CallLogRow[] = [
   { id: nextCallLogId++, kontakt_id: 2, user_id: 2, outcome: 'nedovolano', created_at: daysAgo(12) },
@@ -1439,9 +1587,10 @@ function kartaPro(u: MockUser, c: Kontakt): Kontakt {
 
 /** Stejná kontrola jako v SQL funkcích migrace 028 (null = vše jen v seznamech). */
 function checkSegment(s: unknown, nullOk: boolean): void {
-  if (s === 'chata' || s === 'architekt') return;
+  // ⚠ Od migrace 064 (obory): i klíč niky z registru (app_segment_platny), hláška jako na serveru
+  if (segmentPlatnyMock(s)) return;
   if (nullOk && (s === null || s === undefined)) return;
-  fail(`Neplatný segment: ${s === null || s === undefined || s === '' ? '(nic)' : String(s)}. Povolené: chata, architekt.`);
+  fail(`Neplatný segment: ${s === null || s === undefined || s === '' ? '(nic)' : String(s)}. Povolené: chata, architekt nebo obor z registru.`);
 }
 
 function mayPick(u: MockUser, target: number | null | undefined, what: string): void {
@@ -2048,6 +2197,19 @@ export function vrstvaFronty(segment: string, web: string | null | undefined, ma
   if (segment !== 'architekt') return 0;
   if (maVlastniWeb(web, maWeb)) return 1;
   return nedovolani >= 2 ? 2 : 0;
+}
+
+/**
+ * Pořadí firmy ve frontě niky oboru (obor_poradi_fronty, db/migration_064_segment_obory.sql; R7, Albert 8. 11. 2026),
+ * menší napřed, rozhoduje až za vrstvou (vrstvaFronty, u niky vždy 0), v něm náhodně: 2 × skupina + 1 za dvě a víc
+ * nedovolání. Skupina 0 = priorita 1, 2 a 3 (jedna hodnota, takže se promíchají náhodou; zdroj čísla se nečte),
+ * 1 = 4, 2 = 6 a bez priority, 3 = 5 se známkou jinou než A, 4 = 5 se známkou A. Chata a architekt vždy 0 (beze změny).
+ * Musí zůstat shodné se serverem (kontrola 255).
+ */
+export function poradiFronty(segment: string, priorita: number | null | undefined, hodnoceni: string | null | undefined, nedovolani: number): number {
+  if (!jeOborMock(segment)) return 0;
+  const skupina = priorita === 1 || priorita === 2 || priorita === 3 ? 0 : priorita === 4 ? 1 : priorita === 5 && hodnoceni === 'A' ? 4 : priorita === 5 ? 3 : 2;
+  return skupina * 2 + (nedovolani >= 2 ? 1 : 0);
 }
 
 export function cenaNezadanaMock(p: string | null | undefined): boolean {
@@ -2727,6 +2889,14 @@ const mockApiZaklad: Api = {
     // Výchozí 'chata' jako server: starý bundle volá bez segmentu a nesmí dostat architekta.
     // Výslovné null nebo smetí = chyba (migrace 028).
     checkSegment(segment, false);
+    // Od migrace 064 (obory): nika jen ve stavu zapnuto a jen pro toho, kdo ji smí volat (R9), hlášky jako na serveru
+    if (jeOborMock(segment)) {
+      const n = oborNikyMock.find((x) => x.klic === segment)!;
+      if (n.stav !== 'zapnuto') fail(`Obor ${n.nazev} zatím není spuštěný.`);
+      if (!n.volaji_vsichni && !oborVolajiciMock.some((v) => v.segment === segment && v.user_id === user.id)) {
+        fail(`Obor ${n.nazev} zatím volají jen vybraní volající.`);
+      }
+    }
     const cutoff = Date.now() - 2 * 3600 * 1000;
     // 0. průchod (db/migration_036_vlastni_karta.sql, audit APP-4): vlastní platná karta
     // v tomhle segmentu napřed, nejnovější; zámek se neposouvá. Reload tak ukáže tutéž kartu.
@@ -2750,7 +2920,9 @@ const mockApiZaklad: Api = {
         (x): x is { z: MockZavolat; c: Kontakt } =>
           !!x.c &&
           VE_FRONTE(x.c.status) &&
-          segmentOf(x.c) === segment &&
+          // Od migrace 064 (návrh 6.2): na nice přijde naplánovaný hovor z kterékoli zapnuté niky rodiny, kterou smí volat
+          (segmentOf(x.c) === segment ||
+            (jeOborMock(segment) && jeOborMock(segmentOf(x.c)) && oborSmiVolat(user.id, segmentOf(x.c)))) &&
           (x.c.lock_by === null || x.c.lock_at === null || new Date(x.c.lock_at).getTime() < cutoff || x.c.lock_by === user.id)
       )
       .sort((a, b) => new Date(a.z.kdy).getTime() - new Date(b.z.kdy).getTime() || a.c.id - b.c.id)[0];
@@ -2794,7 +2966,11 @@ const mockApiZaklad: Api = {
       const v = pool.map((c) => vrstvaFronty(segment, c.web, c.ma_web, nedovolani(c)));
       const nejnizsi = Math.min(...v);
       const z = pool.filter((_, i) => v[i] === nejnizsi);
-      return z[Math.floor(Math.random() * z.length)];
+      // Od migrace 064 (R7): za vrstvou (beze změny) pořadí niky oboru, v něm náhodně; u chat a architektů vždy 0, takže z2 = z
+      const o = z.map((c) => poradiFronty(segment, c.web_priorita, c.web_hodnoceni, nedovolani(c)));
+      const nejmensi = Math.min(...o);
+      const z2 = z.filter((_, i) => o[i] === nejmensi);
+      return z2[Math.floor(Math.random() * z2.length)];
     };
     const next =
       // 1. průchod: dnes na ně nikdo nevolal
@@ -2806,6 +2982,54 @@ const mockApiZaklad: Api = {
     next.lock_at = now();
     next.updated_at = now();
     return kartaSHovorem(user, next); // volajícímu bez IČO architekta (037); klíč zavolat (050)
+  },
+
+  async oborNiky(token: string): Promise<OborNika[]> {
+    await delay(60);
+    // app_obor_niky (migrace 064): volající jen niky, které smí volat; super admin všechny i se stavem
+    const user = auth(token);
+    const zaklad = (n: MockNika): OborNika => ({
+      klic: n.klic,
+      nazev: n.nazev,
+      nazev_mnozne: n.nazev_mnozne,
+      nazev_akuzativ: n.nazev_akuzativ,
+      nazev_jednotne: n.nazev_jednotne,
+      ikona: n.ikona,
+      poradi: n.poradi,
+      cena_web_vzor: n.cena_web_vzor,
+      cena_funkce_vzor: n.cena_funkce_vzor,
+      hosting_vzor: n.hosting_vzor,
+      jak_volat: n.jak_volat,
+      smi_volat: oborSmiVolat(user.id, n.klic),
+    });
+    const sup = user.role === 'super_admin';
+    return [...oborNikyMock]
+      .sort((a, b) => (a.poradi ?? 9999) - (b.poradi ?? 9999) || a.klic.localeCompare(b.klic))
+      .filter((n) => sup || oborSmiVolat(user.id, n.klic))
+      .map((n) => (sup ? { ...zaklad(n), stav: n.stav, stav_od: n.stav_od, stav_duvod: n.stav_duvod ?? null, volaji_vsichni: n.volaji_vsichni } : zaklad(n)));
+  },
+
+  async zavolatJinde(token: string, segment: Segment): Promise<{ segment: Segment; pocet: number }[]> {
+    await delay(60);
+    // app_zavolat_jinde (migrace 064): vlastní čekající hovory, jejichž čas nastal, u kontaktu ve frontě v jiném segmentu;
+    // niky jen ty, které smí volat; volajícímu na nice se ostatní zapnuté niky nepočítají (dá mu je průchod 0b)
+    const user = auth(token);
+    if (segment === null || segment === undefined || !segmentPlatnyMock(segment)) {
+      fail(`Neplatný segment: ${segment === null || segment === undefined ? '(nic)' : String(segment)}. Povolené: chata, architekt nebo obor z registru.`);
+    }
+    const rodina = jeOborMock(segment) && oborSmiVolat(user.id, segment);
+    const pocty = new Map<string, number>();
+    for (const z of zavolatRadky) {
+      if (z.stav !== 'ceka' || z.user_id !== user.id || new Date(z.kdy).getTime() > Date.now()) continue;
+      const c = kontakty.find((x) => x.id === z.kontakt_id);
+      if (!c || !VE_FRONTE(c.status)) continue;
+      const s = segmentOf(c);
+      if (s === segment) continue;
+      if (jeOborMock(s) && !oborSmiVolat(user.id, s)) continue;
+      if (rodina && jeOborMock(s)) continue;
+      pocty.set(s, (pocty.get(s) ?? 0) + 1);
+    }
+    return [...pocty.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([s, pocet]) => ({ segment: s, pocet }));
   },
 
   async returnContact(token: string, id: number): Promise<{ ok: boolean; kontakt_id: number }> {
@@ -3311,7 +3535,9 @@ const mockApiZaklad: Api = {
       const v = archNove[key];
       if (v !== undefined && v !== null && !DPH.includes(v)) porusuje(`kontakty_${key}_check`);
     }
-    if (segmentOf(kontakt) !== 'architekt') {
+    // ⚠ Od migrace 064: CHECK kontakty_architekt_pole_check platí jen pro chaty (segment <> 'chata' or …), firma oboru
+    // pole firmy smí mít; NAHRAZUJE „!== 'architekt'“, které by niku oboru bralo jako chatu
+    if (rodinaOf(segmentOf(kontakt)) === 'chata') {
       const vysledek = ARCH_POLE.map((key) => (key in archNove ? archNove[key] : kontakt[key] ?? null));
       // zdroj čísla appka od migrace 043 nezná (server ho neposílá), CHECK tu hlídá jen pole výš
       if (vysledek.some((v) => v !== null)) {
@@ -4747,6 +4973,8 @@ function sDemoTestem(api: Api): Api {
     },
   });
 }
+
+demoOboryZUloziste();
 
 export const mockApi: Api = sDemoTestem(mockApiZaklad);
 

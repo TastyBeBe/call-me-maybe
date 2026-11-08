@@ -1211,7 +1211,8 @@ await blok('BCD', async () => {
   over('C6b', !!a2 && a2.segment === 'architekt', 'vrácený architekt je hned k dispozici ostatním');
   await api.returnContact(honza, a2.id);
 
-  await chyba('B3', () => api.nextContact(petra, 'xyz'), /Neplatný segment: xyz\. Povolené: chata, architekt\./, 'nextContact s neznámým segmentem skončí chybou');
+  // ⚠ Od migrace 064 (obory) hláška serveru „… Povolené: chata, architekt nebo obor z registru.“; NAHRAZUJE „… chata, architekt.“
+  await chyba('B3', () => api.nextContact(petra, 'xyz'), /^Neplatný segment: xyz\. Povolené: chata, architekt nebo obor z registru\.$/, 'nextContact s neznámým segmentem skončí chybou');
   await chyba('B3b', () => api.nextContact(petra, null), /Neplatný segment: \(nic\)/, 'nextContact s výslovným null skončí chybou jako server');
 
   // vyčerpat frontu architektů: jen architekti a jen ti tři volatelní

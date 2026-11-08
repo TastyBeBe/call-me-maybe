@@ -1,4 +1,4 @@
-import { useEffect, useRef, type ReactNode, type RefObject } from 'react';
+import { useEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
 import type {
   CekaniKind,
   CekaniKos,
@@ -7,14 +7,28 @@ import type {
   FlagKind,
   Kontakt,
   KontaktStatus,
+  OborNika,
   OznaceniKategorie,
   Razeni,
+  Rodina,
   Segment,
   ZnamkaFiltr,
 } from './api';
-import { CompassIcon, FlagIcon, HomeIcon, HvezdaIcon, PhoneIcon } from './icons';
+import {
+  BoltIcon,
+  BrickIcon,
+  BriefcaseIcon,
+  CompassIcon,
+  FlagIcon,
+  FlameIcon,
+  HomeIcon,
+  HvezdaIcon,
+  PhoneIcon,
+  WrenchIcon,
+} from './icons';
+import { nikaInfo, STAV_NIKY_POPISEK, useNiky, viditelneNiky } from './obory';
 import { isoDen, posunDen, prahaCas, prahaDen } from './praha';
-import { SEGMENTY, segmentOf } from './segment';
+import { jeKlicNiky, rodinaOf, SEGMENTY, segmentOf } from './segment';
 import { OWNER_USER_ID } from './roles';
 
 /** České popisky statusů kontaktu. */
@@ -176,9 +190,19 @@ const FLAG_HINTS_ARCHITEKT: Partial<Record<FlagKind, string>> = {
     'Nedokázali jsme ověřit, o kterého architekta nebo ateliér jde (registr ČKA, ARES, web). Web nejde postavit naslepo.',
 };
 
-/** Nápověda příznaku podle segmentu kontaktu (karta hovoru). */
+/** U firmy oboru (migrace 064, návrh 6.4) jde u chybi_info o to, která firma to je. */
+const FLAG_HINTS_OBOR: Partial<Record<FlagKind, string>> = {
+  chybi_info: 'Nepodařilo se ověřit, o kterou firmu jde (název, telefon a web nesedí dohromady). Web nejde postavit naslepo.',
+};
+
+/** Nápověda příznaku podle segmentu kontaktu (karta hovoru); od migrace 064 i pro niky oboru (rodina obor). */
 export function flagHint(kind: FlagKind, segment?: string): string {
-  return (segment === 'architekt' && FLAG_HINTS_ARCHITEKT[kind]) || FLAG_HINTS[kind];
+  const rodina = rodinaOf(segment);
+  return (
+    (rodina === 'architekt' && FLAG_HINTS_ARCHITEKT[kind]) ||
+    (rodina === 'obor' && FLAG_HINTS_OBOR[kind]) ||
+    FLAG_HINTS[kind]
+  );
 }
 
 export function flagHintDetail(kind: FlagKind, readOnly: boolean, segment?: string): string {
@@ -731,29 +755,73 @@ export function pravidloPopisek(m: Pick<ChatMessage, 'apply_always' | 'pravidlo_
 }
 
 /* ---------------------------------------------------------------------------
-   Segment: chaty a architekti (migrace 028, docs/ARCHITEKTI.md oddíl 9).
-   Odkud se segment bere, ví jen src/segment.ts (segmentOf).
+   Segment: chaty a architekti (migrace 028, docs/ARCHITEKTI.md oddíl 9) a od migrace 064 niky rodiny obor
+   (Albert 7. 11. 2026, návrh oborů 6.1 a 6.2). Odkud se segment bere, ví jen src/segment.ts (segmentOf, rodinaOf);
+   štítky nik jen z registru (src/obory.ts), appka žádnou niku nezná jménem.
    --------------------------------------------------------------------------- */
 
-/** Tlačítka přepínače ve volání. */
-export const SEGMENT_NAZEV: Record<Segment, string> = { chata: 'Chaty', architekt: 'Architekti' };
+/** Tlačítka přepínače ve volání (obor = tlačítko první řady „Obory“). */
+export const SEGMENT_NAZEV: Record<Rodina, string> = { chata: 'Chaty', architekt: 'Architekti', obor: 'Obory' };
 /** Eyebrow a filtry („volání · architekti"). */
-export const SEGMENT_MNOZNE: Record<Segment, string> = { chata: 'chaty', architekt: 'architekti' };
+export const SEGMENT_MNOZNE: Record<Rodina, string> = { chata: 'chaty', architekt: 'architekti', obor: 'obory' };
 /** „Po tomhle hovoru dostaneš architekta." */
-export const SEGMENT_AKUZATIV: Record<Segment, string> = { chata: 'chatu', architekt: 'architekta' };
+export const SEGMENT_AKUZATIV: Record<Rodina, string> = { chata: 'chatu', architekt: 'architekta', obor: 'firmu z oboru' };
 /** Odznak u jednoho kontaktu. */
-export const SEGMENT_JEDNOTNE: Record<Segment, string> = { chata: 'chata', architekt: 'architekt' };
+export const SEGMENT_JEDNOTNE: Record<Rodina, string> = { chata: 'chata', architekt: 'architekt', obor: 'obor' };
 
-/** Jméno kontaktu do seznamů a nadpisů: u architekta bez jména je to jeho studio. */
-export function kontaktJmeno(k: Pick<Kontakt, 'name' | 'firma'>): string {
+/** Štítek segmentu na tlačítku: chata a architekt z mapy, nika z registru (neznámá = obecné „Obory“). */
+export function segmentNazev(s: Segment): string {
+  const r = rodinaOf(s);
+  return r === 'obor' ? (nikaInfo(s)?.nazev ?? SEGMENT_NAZEV.obor) : SEGMENT_NAZEV[r];
+}
+/** „volání · autoservisy“ */
+export function segmentMnozne(s: Segment): string {
+  const r = rodinaOf(s);
+  return r === 'obor' ? (nikaInfo(s)?.nazev_mnozne ?? SEGMENT_MNOZNE.obor) : SEGMENT_MNOZNE[r];
+}
+/** „Po tomhle hovoru dostaneš autoservis.“ */
+export function segmentAkuzativ(s: Segment): string {
+  const r = rodinaOf(s);
+  return r === 'obor' ? (nikaInfo(s)?.nazev_akuzativ ?? SEGMENT_AKUZATIV.obor) : SEGMENT_AKUZATIV[r];
+}
+/** Odznak u jednoho kontaktu („Autoservis“). */
+export function segmentJednotne(s: Segment): string {
+  const r = rodinaOf(s);
+  return r === 'obor' ? (nikaInfo(s)?.nazev_jednotne ?? SEGMENT_JEDNOTNE.obor) : SEGMENT_JEDNOTNE[r];
+}
+
+/**
+ * Jméno kontaktu do seznamů a nadpisů: u architekta bez jména je to jeho studio; u firmy oboru (migrace 064) napřed
+ * název firmy, pak jméno osoby. Chaty a architekti beze změny.
+ */
+export function kontaktJmeno(k: Pick<Kontakt, 'name' | 'firma'> & { segment?: Segment | null }): string {
+  if (rodinaOf(k.segment) === 'obor') return k.firma || k.name || '(beze jména)';
   return k.name || k.firma || '(beze jména)';
 }
 
+/** Ikona niky podle `ikona` z registru; neznámá nebo chybějící = obecný kufřík. */
+const IKONY_NIK: Record<string, typeof BriefcaseIcon> = {
+  autoservis: WrenchIcon,
+  stavby: BrickIcon,
+  topeni: FlameIcon,
+  elektro: BoltIcon,
+};
+
 function SegmentIkona({ segment, size }: { segment: Segment; size: number }) {
-  return segment === 'architekt' ? <CompassIcon size={size} /> : <HomeIcon size={size} />;
+  const r = rodinaOf(segment);
+  if (r === 'architekt') return <CompassIcon size={size} />;
+  if (r === 'chata') return <HomeIcon size={size} />;
+  const ikona = nikaInfo(segment)?.ikona;
+  const I = (ikona && IKONY_NIK[ikona]) || BriefcaseIcon;
+  return <I size={size} />;
 }
 
-/** Přepínač „Koho voláš" ve volání. Volba se pamatuje na zařízení (src/segment.ts). */
+/**
+ * Přepínač „Koho voláš" ve volání. Volba se pamatuje na zařízení (src/segment.ts).
+ * Od migrace 064 (návrh 6.2): první řada Chaty · Architekti · Obory, po volbě „Obory“ druhá řada nik z registru
+ * (jen viditelné: zapnuté, super adminovi i zkouška a pozastaveno se štítkem stavu). Dokud žádná nika viditelná není,
+ * tlačítko „Obory“ chybí a přepínač je jako dřív. Obě řady se při 360 px zalomí.
+ */
 export function SegmentSwitch({
   value,
   onChange,
@@ -763,25 +831,70 @@ export function SegmentSwitch({
   onChange: (s: Segment) => void;
   disabled?: boolean;
 }) {
+  const niky = viditelneNiky(useNiky());
+  const naNice = jeKlicNiky(value);
+  const [otevreno, setOtevreno] = useState(naNice);
+  useEffect(() => {
+    if (naNice) setOtevreno(true);
+  }, [naNice]);
+  const druhaRada = niky.length > 0 && (otevreno || naNice);
   return (
-    <div className="segmented segment-switch" role="group" aria-label="Koho voláš">
-      {SEGMENTY.map((s) => (
-        <button
-          key={s}
-          type="button"
-          className={`${s}${value === s ? ' active' : ''}`}
-          aria-pressed={value === s}
-          disabled={disabled}
-          onClick={() => onChange(s)}
-        >
-          <SegmentIkona segment={s} size={18} /> {SEGMENT_NAZEV[s]}
-        </button>
-      ))}
+    <div className="segment-switch-wrap">
+      <div className="segmented segment-switch" role="group" aria-label="Koho voláš">
+        {SEGMENTY.map((s) => (
+          <button
+            key={s}
+            type="button"
+            className={`${s}${value === s ? ' active' : ''}`}
+            aria-pressed={value === s}
+            disabled={disabled}
+            onClick={() => {
+              setOtevreno(false);
+              onChange(s);
+            }}
+          >
+            <SegmentIkona segment={s} size={18} /> {segmentNazev(s)}
+          </button>
+        ))}
+        {niky.length > 0 && (
+          <button
+            type="button"
+            className={`obor${naNice ? ' active' : ''}`}
+            aria-pressed={naNice}
+            aria-expanded={druhaRada}
+            disabled={disabled}
+            onClick={() => setOtevreno((o) => !o || naNice)}
+          >
+            <BriefcaseIcon size={18} /> {SEGMENT_NAZEV.obor}
+          </button>
+        )}
+      </div>
+      {druhaRada && (
+        <div className="segmented segment-switch segment-niky" role="group" aria-label="Který obor voláš">
+          {niky.map((n) => (
+            <button
+              key={n.klic}
+              type="button"
+              className={`nika${value === n.klic ? ' active' : ''}`}
+              aria-pressed={value === n.klic}
+              disabled={disabled}
+              title={n.stav && n.stav !== 'zapnuto' ? `Obor je ve stavu ${STAV_NIKY_POPISEK[n.stav]}: fronta je prázdná, dokud ho Albert nezapne.` : undefined}
+              onClick={() => onChange(n.klic)}
+            >
+              <SegmentIkona segment={n.klic} size={16} /> {n.nazev}
+              {n.stav && n.stav !== 'zapnuto' && <span className="nika-stav">{STAV_NIKY_POPISEK[n.stav]}</span>}
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
 
-/** Filtr seznamů „vše / chaty / architekti". Výchozí vše, nepamatuje se (9.6). */
+/**
+ * Filtr seznamů „vše / chaty / architekti". Výchozí vše, nepamatuje se (9.6). Od migrace 064 za nimi viditelné niky
+ * z registru (stejné jako na přepínači); bez nich je filtr jako dřív.
+ */
 export function SegmentFilter({
   value,
   onChange,
@@ -789,12 +902,18 @@ export function SegmentFilter({
   value: Segment | '';
   onChange: (s: Segment | '') => void;
 }) {
+  const niky: OborNika[] = viditelneNiky(useNiky());
   const volby: { v: Segment | ''; label: string }[] = [
     { v: '', label: 'vše' },
-    ...SEGMENTY.map((s) => ({ v: s, label: SEGMENT_MNOZNE[s] })),
+    ...SEGMENTY.map((s) => ({ v: s, label: segmentMnozne(s) })),
+    ...niky.map((n) => ({ v: n.klic, label: n.nazev_mnozne })),
   ];
   return (
-    <div className="segmented segment-filter" role="group" aria-label="Chaty, nebo architekti">
+    <div
+      className={`segmented segment-filter${niky.length > 0 ? ' s-niky' : ''}`}
+      role="group"
+      aria-label={niky.length > 0 ? 'Segment: chaty, architekti nebo obor' : 'Chaty, nebo architekti'}
+    >
       {volby.map((o) => (
         <button
           key={o.v || 'vse'}
@@ -811,8 +930,8 @@ export function SegmentFilter({
 }
 
 /**
- * Odznak segmentu. `compact` (seznamy) = jen u architekta, ať se seznamy chat vizuálně
- * nemění; plný (detail kontaktu) u obou.
+ * Odznak segmentu. `compact` (seznamy) = jen u architekta a firmy oboru, ať se seznamy chat vizuálně
+ * nemění; plný (detail kontaktu) u všech. U niky štítek z registru (třída seg-obor).
  */
 export function SegmentBadge({
   kontakt,
@@ -822,10 +941,12 @@ export function SegmentBadge({
   compact?: boolean;
 }) {
   const s = segmentOf(kontakt);
-  if (compact && s === 'chata') return null;
+  const r = rodinaOf(s);
+  if (compact && r === 'chata') return null;
+  const nazev = r === 'obor' ? (nikaInfo(s)?.nazev_jednotne ?? 'Obor') : r === 'architekt' ? 'Architekt' : 'Chata';
   return (
-    <span className={`badge seg-${s}`} title={s === 'architekt' ? 'Architekt' : 'Chata'}>
-      <SegmentIkona segment={s} size={12} /> {SEGMENT_JEDNOTNE[s]}
+    <span className={`badge seg-${r}`} title={nazev}>
+      <SegmentIkona segment={s} size={12} /> {r === 'obor' ? segmentJednotne(s).toLowerCase() : SEGMENT_JEDNOTNE[r]}
     </span>
   );
 }

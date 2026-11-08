@@ -52,7 +52,8 @@ import PersonPicker, { usePeople } from '../components/PersonPicker';
 import SeznamFiltry from '../components/SeznamFiltry';
 import { PRAZDNE_FILTRY, filtrZapnuty, filtryOznacenych, type StavFiltru } from '../filtry';
 import { isSuperAdmin } from '../roles';
-import { segmentOf } from '../segment';
+import { jeObor, segmentOf } from '../segment';
+import { nikaInfo } from '../obory';
 import {
   ALL_FLAGS,
   ALL_OZNACENI,
@@ -329,9 +330,17 @@ export default function OznacenePage() {
           ) : stav.segment && !filtrZapnuty(stav) && druhy.length === 0 ? (
             // Filtr segmentu schoval všechny označené: „všechno je vyřešené" by lhalo (revize 28. 9.).
             <>
-              <h2>{stav.segment === 'architekt' ? 'Žádný označený architekt' : 'Žádná označená chata'}</h2>
+              <h2>
+                {jeObor(stav.segment)
+                  ? `Žádná označená firma z oboru ${nikaInfo(stav.segment)?.nazev ?? stav.segment}`
+                  : stav.segment === 'architekt'
+                    ? 'Žádný označený architekt'
+                    : 'Žádná označená chata'}
+              </h2>
               <p className="muted">
-                {stav.segment === 'architekt'
+                {jeObor(stav.segment)
+                  ? `Pod „${nikaInfo(stav.segment)?.nazev_mnozne ?? stav.segment}“ teď nikdo k zavolání ani s příznakem není. Ostatní uvidíš pod „vše".`
+                  : stav.segment === 'architekt'
                   ? 'Pod „architekti“ teď nikdo k zavolání ani s příznakem není. Ostatní uvidíš pod „vše" nebo „chaty".'
                   : 'Pod „chaty“ teď nikdo k zavolání ani s příznakem není. Ostatní uvidíš pod „vše" nebo „architekti".'}
               </p>

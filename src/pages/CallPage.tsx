@@ -1,17 +1,20 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
-import { getApi, type Kontakt, type Rating, type Segment, type VysledekHovoru } from '../api';
+import { Link, useSearchParams } from 'react-router-dom';
+import { getApi, type Kontakt, type Rating, type Segment, type VysledekHovoru, type ZavolatJinde } from '../api';
 import { audio } from '../audio';
 import { useSession } from '../auth';
-import { loadCallSegment, saveCallSegment, segmentOf } from '../segment';
+import { jeObor, loadCallSegment, rodinaOf, saveCallSegment, segmentOf, ulozenaNika } from '../segment';
+import { klicNikKVolani, nactiNiky, nikaInfo, nikaVolatelna, STAV_NIKY_POPISEK } from '../obory';
+import JejichWeb from '../components/JejichWeb';
 import {
   ConfirmModal,
   ErrorBox,
   flagHint,
   FLAG_LABELS,
   PhoneLinks,
-  SEGMENT_AKUZATIV,
-  SEGMENT_MNOZNE,
+  segmentAkuzativ,
+  segmentMnozne,
+  segmentNazev,
   SegmentSwitch,
   Spinner,
   StatusBadge,
@@ -31,6 +34,8 @@ import PrehledPanel from '../components/PrehledPanel';
 import {
   AlarmIcon,
   ArrowDownIcon,
+  BookIcon,
+  BriefcaseIcon,
   CheckIcon,
   CompassIcon,
   FlagIcon,
@@ -139,7 +144,9 @@ export default function CallPage() {
   // Koho voláš (migrace 028): ve stavu kvůli vykreslení, v refu kvůli loadNext. Segment
   // NESMÍ do závislostí loadNext: efekt níž by pak při každém kliku na přepínač vzal
   // novou kartu a starou nechal zamčenou 2 h (kontrola 75).
-  const [segment, setSegment] = useState<Segment>(loadCallSegment);
+  // Od migrace 064 (obory): nika jen ze seznamu nik, které smí teď volat (registr app_obor_niky); uložená nika, než se
+  // registr načte, počká (efekt níž), jinak chata (RC-14).
+  const [segment, setSegment] = useState<Segment>(() => loadCallSegment(klicNikKVolani()));
   const segmentRef = useRef<Segment>(segment);
   // Počítadlo požadavků: odpověď, která dorazí po přepnutí, se zahodí a její zámek vrátí.
   const reqId = useRef(0);
@@ -201,7 +208,11 @@ export default function CallPage() {
     setVytoceno(false);
     let next: Kontakt | null = null;
     try {
-      if (zavolatId !== null) {
+      if (zavolatId === null && jeObor(seg) && !nikaVolatelna(seg)) {
+        // Od migrace 064: nika, kterou přihlášený teď volat nesmí (super admin na nice ve zkoušce nebo pozastavené),
+        // má frontu prázdnou bez volání serveru (next_contact by odmítl „Obor … zatím není spuštěný.“)
+        next = null;
+      } else if (zavolatId !== null) {
         try {
           next = await getApi().zavolatVzit(session.token, zavolatId);
         } catch (e) {
@@ -276,6 +287,18 @@ export default function CallPage() {
     }
     if (nactenoPro.current !== loadNext) {
       nactenoPro.current = loadNext;
+      // Od migrace 064: uložená nika se pozná až z registru nik; první karta na něj počká (jinak by šla z chat)
+      if (ulozenaNika() && !jeObor(segmentRef.current)) {
+        const prvni = loadNext;
+        void nactiNiky(session.token).then(() => {
+          if (nactenoPro.current !== prvni) return;
+          const s = loadCallSegment(klicNikKVolani());
+          segmentRef.current = s;
+          setSegment(s);
+          void prvni('', zavolatId);
+        });
+        return;
+      }
       void loadNext('', zavolatId);
       return;
     }
@@ -323,7 +346,45 @@ export default function CallPage() {
     // rozdělaná karta: platí od dalšího kontaktu (žlutá cedulka s „Přepnout hned")
   };
 
-  const hlavicka = <SegmentSwitch value={segment} onChange={zvolitSegment} disabled={busy} />;
+  /**
+   * Od migrace 064 (návrh 6.2, záměrná změna 0.2 bod 4): vlastní naplánované hovory, jejichž čas nastal, v jiném segmentu
+   * (app_zavolat_jinde). next_contact je dává jen ve zvoleném segmentu (u niky z celé rodiny obor), takže řádek nad kartou
+   * řekne, kde čekají, a přepne jedním klepnutím. Jen přidaná informace, fronta chat a architektů se nemění.
+   */
+  const [jinde, setJinde] = useState<ZavolatJinde[]>([]);
+  const kartaId = kontakt?.id ?? null;
+  useEffect(() => {
+    let platne = true;
+    getApi()
+      .zavolatJinde(session.token, segment)
+      .then((r) => {
+        if (platne) setJinde(r.filter((x) => x.pocet > 0 && x.segment !== segment));
+      })
+      .catch(() => {
+        if (platne) setJinde([]);
+      });
+    return () => {
+      platne = false;
+    };
+  }, [session.token, segment, kartaId, empty]);
+
+  const hlavicka = (
+    <>
+      <SegmentSwitch value={segment} onChange={zvolitSegment} disabled={busy} />
+      {jinde.length > 0 && (
+        <div className="info-box zavolat-jinde" role="note">
+          {jinde.map((j) => (
+            <span key={j.segment} className="zavolat-jinde-polozka">
+              <AlarmIcon size={16} /> Máš naplánovaný hovor: {segmentNazev(j.segment)} ({j.pocet}){' '}
+              <button className="pill-btn sm" disabled={busy} onClick={() => zvolitSegment(j.segment)}>
+                Přepnout
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+    </>
+  );
 
   /**
    * Naplánovaný hovor, když je už karta na obrazovce (upozornění nebo kalendář ve stejné záložce). Tentýž hovor nic
@@ -423,7 +484,7 @@ export default function CallPage() {
 
   // Bez karty eyebrow říká zvolený segment; s kartou segment KARTY (rozdělaná chata po
   // přepnutí na architekty je pořád chata, revize 28. 9.).
-  const eyebrow = `volání · ${SEGMENT_MNOZNE[kontakt && !loading ? segmentOf(kontakt) : segment]}`;
+  const eyebrow = `volání · ${segmentMnozne(kontakt && !loading ? segmentOf(kontakt) : segment)}`;
 
   if (loading) {
     return (
@@ -439,6 +500,9 @@ export default function CallPage() {
 
   if (empty) {
     const arch = segment === 'architekt';
+    // Od migrace 064 (návrh 6.2 a 6.7): prázdná fronta niky má obecný text z registru a odkaz na „Jak volat“
+    const nika = jeObor(segment) ? nikaInfo(segment) : undefined;
+    const nikaStoji = !!nika && !nika.smi_volat;
     return (
       <div>
         <p className="eyebrow">{eyebrow}</p>
@@ -446,8 +510,19 @@ export default function CallPage() {
         {hlavicka}
         {warning && <div className="info-box">{warning}</div>}
         <div className="card empty-state">
-          <div className="big-emoji">{arch ? <CompassIcon size={56} /> : <PartyIcon size={56} />}</div>
-          {arch ? (
+          <div className="big-emoji">
+            {jeObor(segment) ? <BriefcaseIcon size={56} /> : arch ? <CompassIcon size={56} /> : <PartyIcon size={56} />}
+          </div>
+          {jeObor(segment) ? (
+            <>
+              <h2>{nikaStoji ? `Obor ${nika?.nazev ?? ''} ještě neběží.` : 'Fronta je prázdná.'}</h2>
+              <p className="muted">
+                {nikaStoji
+                  ? `Obor je ve stavu ${nika?.stav ? STAV_NIKY_POPISEK[nika.stav] : 'mimo provoz'}: fronta je prázdná, dokud ho Albert nezapne.`
+                  : `V oboru ${nika?.nazev_mnozne ?? segmentMnozne(segment)} teď nikdo k volání není.`}
+              </p>
+            </>
+          ) : arch ? (
             <>
               <h2>Architekti jsou obvolaní.</h2>
               <p className="muted">
@@ -467,9 +542,14 @@ export default function CallPage() {
             <button className="pill-btn hot" onClick={() => void loadNext()}>
               Zkusit znovu
             </button>
-            <button className="pill-btn" onClick={() => zvolitSegment(arch ? 'chata' : 'architekt')}>
-              {arch ? 'Volat chaty' : 'Volat architekty'}
+            <button className="pill-btn" onClick={() => zvolitSegment(arch || jeObor(segment) ? 'chata' : 'architekt')}>
+              {arch || jeObor(segment) ? 'Volat chaty' : 'Volat architekty'}
             </button>
+            {nika && (
+              <Link to={`/jak-volat?nika=${encodeURIComponent(nika.klic)}`} className="pill-btn" data-sfx="none">
+                <BookIcon size={16} /> Jak volat
+              </Link>
+            )}
           </div>
         </div>
       </div>
@@ -492,7 +572,11 @@ export default function CallPage() {
   }
 
   const hasWeb = !!(kontakt.web && kontakt.web.trim());
-  const architekt = segmentOf(kontakt) === 'architekt';
+  const rodina = rodinaOf(segmentOf(kontakt));
+  const architekt = rodina === 'architekt';
+  // Od migrace 064 (návrh 6.3): firma oboru má vlastní větev karty s panelem „jejich web“
+  const obor = rodina === 'obor';
+  const nikaKarty = obor ? nikaInfo(segmentOf(kontakt)) : undefined;
   const obrat = obratArchitekta(kontakt.dph_osobni, kontakt.dph_firma);
   const cekaPrepnuti = segmentOf(kontakt) !== segment;
 
@@ -508,7 +592,7 @@ export default function CallPage() {
 
       {cekaPrepnuti && (
         <div className="info-box">
-          Po tomhle hovoru dostaneš {SEGMENT_AKUZATIV[segment]}.{' '}
+          Po tomhle hovoru dostaneš {segmentAkuzativ(segment)}.{' '}
           <button className="pill-btn sm" disabled={busy} onClick={() => setModal('prepnout')}>
             Přepnout hned
           </button>
@@ -517,11 +601,18 @@ export default function CallPage() {
       {warning && <div className="info-box">{warning}</div>}
       <ErrorBox>{error}</ErrorBox>
 
-      <div className={`card call-card${architekt ? ' seg-architekt' : ''}`}>
+      <div className={`card call-card${architekt ? ' seg-architekt' : obor ? ' seg-obor' : ''}`}>
         <h2 className="call-name">
-          {architekt ? kontakt.name || kontakt.firma || '(beze jména)' : kontakt.name || '(beze jména)'}
+          {architekt
+            ? kontakt.name || kontakt.firma || '(beze jména)'
+            : obor
+              ? kontakt.firma || kontakt.name || '(beze jména)'
+              : kontakt.name || '(beze jména)'}
         </h2>
         {architekt && kontakt.name && kontakt.firma && <p className="call-sub">{kontakt.firma}</p>}
+        {obor && kontakt.name && kontakt.firma && kontakt.name !== kontakt.firma && (
+          <p className="call-sub">ptej se na: {kontakt.name}</p>
+        )}
 
         {/* Migrace 050 (Albert 21. 10. 2026): karta z kalendáře (přeplánovaný nebo naplánovaný hovor, jehož čas nastal) */}
         {kontakt.zavolat && (
@@ -540,7 +631,7 @@ export default function CallPage() {
             <div className="call-flag-head">
               <FlagIcon size={16} /> <strong>{FLAG_LABELS[kontakt.flag_kind]}</strong>
             </div>
-            <p>{flagHint(kontakt.flag_kind, architekt ? 'architekt' : 'chata')}</p>
+            <p>{flagHint(kontakt.flag_kind, segmentOf(kontakt))}</p>
             {kontakt.flag_note && <p className="flag-note">{kontakt.flag_note}</p>}
           </div>
         )}
@@ -550,7 +641,38 @@ export default function CallPage() {
           <PhoneLinks phone={kontakt.phone} onDial={() => setVytoceno(true)} />
         </div>
 
-        {architekt ? (
+        {obor ? (
+          <>
+            {/* Firma oboru (migrace 064, návrh 6.3): e-mail z veřejného importu se v hovoru potvrdí (souhlas patří
+                k adrese, kterou volající zapíše do „Mají zájem“, 4.6); bez e-mailu odznak jako u architekta. */}
+            <div className="call-row">
+              <span className="k">e-mail</span>
+              {kontakt.email ? (
+                <span>
+                  <a href={`mailto:${kontakt.email}`}>{kontakt.email}</a>{' '}
+                  <span className="email-potvrd">potvrď e-mail v hovoru</span>
+                </span>
+              ) : (
+                <span className="badge yellow">nemáme, zjisti</span>
+              )}
+            </div>
+            <div className="call-row">
+              <span className="k">město</span>
+              {kontakt.mesto ? <span>{kontakt.mesto}</span> : <span className="muted">nezjištěno</span>}
+            </div>
+            <div className="call-row">
+              <span className="k">obor</span>
+              <span>
+                {nikaKarty?.nazev_jednotne ?? segmentNazev(segmentOf(kontakt))}
+                {kontakt.obor && kontakt.obor !== 'test' && kontakt.obor !== segmentOf(kontakt) ? `: ${kontakt.obor}` : ''}
+              </span>
+            </div>
+            <div className="call-row jejich-web-radek">
+              <span className="k">jejich web</span>
+              <JejichWeb kontakt={kontakt} naKarte />
+            </div>
+          </>
+        ) : architekt ? (
           <>
             <div className="call-row">
               <span className="k">e-mail</span>
@@ -667,7 +789,7 @@ export default function CallPage() {
                   id="zajem-cena-web"
                   value={cenaWeb}
                   onChange={(e) => setCenaWeb(e.target.value)}
-                  placeholder={architekt ? 'např. 6500' : 'např. 4900'}
+                  placeholder={obor ? `např. ${nikaKarty?.cena_web_vzor ?? 'cena podle domluvy'}` : architekt ? 'např. 6500' : 'např. 4900'}
                   aria-describedby="zajem-cena-napoveda"
                   autoFocus
                 />
@@ -678,7 +800,7 @@ export default function CallPage() {
                   id="zajem-cena-hosting"
                   value={cenaHosting}
                   onChange={(e) => setCenaHosting(e.target.value)}
-                  placeholder={architekt ? 'např. 1000/rok' : 'např. 190/měs'}
+                  placeholder={obor ? `např. ${nikaKarty?.hosting_vzor ?? 'podle domluvy'}` : architekt ? 'např. 1000/rok' : 'např. 190/měs'}
                   aria-describedby="zajem-cena-napoveda"
                 />
               </div>
@@ -686,6 +808,14 @@ export default function CallPage() {
             <p id="zajem-cena-napoveda" className="muted zajem-cena-napoveda" style={{ fontSize: 12.5, margin: '-6px 0 12px' }}>
               Nech prázdné = n/a, cena zatím nedohodnutá. Až klient web bude chtít, agent se na cenu zeptá ve Zprávách
               (tebe, super admina nebo Alberta) a tu pak klientovi napíše. Doplnit ji jde i v detailu klienta.
+              {obor && (
+                <>
+                  {' '}
+                  Běžně u oborů: web {nikaKarty?.cena_web_vzor ?? 'podle domluvy'}, hosting{' '}
+                  {nikaKarty?.hosting_vzor ?? 'podle domluvy'}, funkce navíc {nikaKarty?.cena_funkce_vzor ?? 'podle domluvy'}.
+                  Domluvíš-li jinou cenu, napiš ji, platí tvoje.
+                </>
+              )}
             </p>
             <div className="field">
               <label>E-mail klienta (ověř po telefonu)</label>

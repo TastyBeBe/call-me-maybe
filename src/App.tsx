@@ -1,4 +1,4 @@
-import { Component, useEffect, useRef, type ErrorInfo, type ReactNode } from 'react';
+import { Component, useEffect, useRef, useState, type ErrorInfo, type ReactNode } from 'react';
 import {
   Link,
   Navigate,
@@ -12,6 +12,8 @@ import { audio, isSfxName } from './audio';
 import { OWNER_USER_ID, useAuth } from './auth';
 import { getConfig } from './config';
 import { isAdminRole, isSuperAdmin } from './roles';
+import { nactiNiky, useNiky, viditelneNiky, zapomenNiky } from './obory';
+import { jeKlicNiky, UDALOST_SEGMENT, ulozenaVolba } from './segment';
 
 /** Logo = Prokchopova pochroumaná hlava v party čepici (public/icons). */
 const logoUrl = import.meta.env.BASE_URL + 'icons/procop_logo_256.png';
@@ -19,6 +21,7 @@ import AdminPage from './pages/AdminPage';
 import AutomatizacePage from './pages/AutomatizacePage';
 import CallPage from './pages/CallPage';
 import HomePage from './pages/HomePage';
+import JakVolatPage from './pages/JakVolatPage';
 import KalendarPage from './pages/KalendarPage';
 import LoginPage from './pages/LoginPage';
 import MojiPage from './pages/MojiPage';
@@ -100,11 +103,39 @@ function RequireAuth({
   return <>{children}</>;
 }
 
+/**
+ * Registr nik oboru (migrace 064) se načte hned po přihlášení, ať štítky nik sedí i v seznamech a v detailu; po
+ * odhlášení se zapomene. Dokud žádná nika není zapnutá, je pro volající prázdný a appka vypadá jako dřív.
+ */
+function OboryNacitani() {
+  const { session } = useAuth();
+  const token = session?.token ?? null;
+  useEffect(() => {
+    if (token) void nactiNiky(token);
+    else zapomenNiky();
+  }, [token]);
+  return null;
+}
+
+/** Zvolená nika ve volání (jen viditelná podle registru), jinak null: menu pak ukáže odkaz „jak volat“. */
+function useZvolenaNika(): string | null {
+  const niky = viditelneNiky(useNiky());
+  const [volba, setVolba] = useState<string | null>(ulozenaVolba);
+  useEffect(() => {
+    const f = () => setVolba(ulozenaVolba());
+    window.addEventListener(UDALOST_SEGMENT, f);
+    return () => window.removeEventListener(UDALOST_SEGMENT, f);
+  }, []);
+  return jeKlicNiky(volba) && niky.some((n) => n.klic === volba) ? volba : null;
+}
+
 function TopBar() {
   const { session, logout } = useAuth();
   const zavolat = useZavolat();
   const navigate = useNavigate();
   const { demo } = getConfig();
+  // migrace 064 (návrh oborů 6.7): odkaz „jak volat“ jen při zvolené nice
+  const zvolenaNika = useZvolenaNika();
   if (!session) return null;
   const isAdmin = isAdminRole(session.role);
   const isSuper = isSuperAdmin(session.role);
@@ -131,6 +162,15 @@ function TopBar() {
         >
           volat
         </NavLink>
+        {zvolenaNika && (
+          <NavLink
+            to={`/jak-volat?nika=${encodeURIComponent(zvolenaNika)}`}
+            data-sfx="none"
+            className={({ isActive }) => `nav-pill${isActive ? ' active' : ''}`}
+          >
+            jak volat
+          </NavLink>
+        )}
         {/* Kalendář hovorů (migrace 050, Albert 21. 10. 2026): každý svůj, super admin kohokoli. Odznak = kolik
             vlastních hovorů je na dnešek a po termínu. */}
         <NavLink
@@ -230,6 +270,7 @@ export default function App() {
     <ZavolatProvider>
     <div className="page wide">
       <AudioLayer />
+      <OboryNacitani />
       <TopBar />
       <PigBoundary>
         <PigLayer />
@@ -250,6 +291,14 @@ export default function App() {
           element={
             <RequireAuth>
               <CallPage />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/jak-volat"
+          element={
+            <RequireAuth>
+              <JakVolatPage />
             </RequireAuth>
           }
         />

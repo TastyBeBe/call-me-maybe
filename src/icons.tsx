@@ -398,3 +398,62 @@ export function PartyIcon(props: IconProps) {
     </Icon>
   );
 }
+
+/* ---- ikony nik oboru (migrace 064): appka je vybírá podle `ikona` z registru obor_niky, neznámá = BriefcaseIcon ---- */
+
+/** Klíč (autoservis). */
+export function WrenchIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" />
+    </Icon>
+  );
+}
+
+/** Cihly (stavby). */
+export function BrickIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <rect x="3" y="4" width="18" height="16" rx="1" />
+      <path d="M3 9.33h18M3 14.67h18" />
+      <path d="M12 4v5.33M7.5 9.33v5.34M16.5 9.33v5.34M12 14.67V20" />
+    </Icon>
+  );
+}
+
+/** Plamen (topení). */
+export function FlameIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.07-2.14-.22-4.05 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.15.43-2.29 1-3a2.5 2.5 0 0 0 2.5 2.5z" />
+    </Icon>
+  );
+}
+
+/** Blesk (elektro). */
+export function BoltIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z" />
+    </Icon>
+  );
+}
+
+/** Kufřík: obecná ikona oboru (rodina „Obory“ a nika s neznámou ikonou). */
+export function BriefcaseIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <rect x="2" y="7" width="20" height="14" rx="2" />
+      <path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16" />
+    </Icon>
+  );
+}
+
+/** Kniha s pokyny (stránka „Jak volat“). */
+export function BookIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20" />
+    </Icon>
+  );
+}

@@ -14,6 +14,7 @@ import { dayWord, topDaysFor } from '../pig/progress';
 import { posunDen, prahaDen } from '../praha';
 import { isSuperAdmin, roleLabel } from '../roles';
 import { datumKratce } from '../rozvrh';
+import { nikaInfo } from '../obory';
 import {
   ALL_STATUSES,
   ErrorBox,
@@ -446,11 +447,16 @@ function Vydelano({ v, ja, jmeno, jaSuper }: { v: Vydelek; ja: boolean; jmeno: s
  * Filtr „vše / chaty / architekti" (migrace 028) jde do všech 15 dotazů; karty hovorů
  * výš zůstávají společné (hovor je hovor, docs/ARCHITEKTI.md 9.6).
  */
-const SOUCET_NA: Record<Segment | '', string> = {
+const SOUCET_NA: Record<'' | 'chata' | 'architekt', string> = {
   '': 'celou databázi',
   chata: 'všechny chaty',
   architekt: 'všechny architekty',
 };
+/** Od migrace 064: u niky oboru „celý obor Autoservisy“ (štítek z registru). */
+function soucetNa(s: Segment | ''): string {
+  if (s === '' || s === 'chata' || s === 'architekt') return SOUCET_NA[s as '' | 'chata' | 'architekt'];
+  return `celý obor ${nikaInfo(s)?.nazev ?? s}`;
+}
 
 function KlientiFunnel({ token }: { token: string }) {
   const [counts, setCounts] = useState<Partial<Record<KontaktStatus, number>> | null>(null);
@@ -490,7 +496,7 @@ function KlientiFunnel({ token }: { token: string }) {
       <SegmentFilter value={segment} onChange={setSegment} />
       <p className="muted" style={{ margin: '0 0 10px' }}>
         Tohle jsou <strong>kontakty</strong> v databázi, ne hovory. Součet sedí na{' '}
-        {SOUCET_NA[segment]}.
+        {soucetNa(segment)}.
       </p>
       <div className="stat-grid">
         {videt.map((s) => (

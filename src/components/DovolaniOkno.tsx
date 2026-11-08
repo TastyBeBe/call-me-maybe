@@ -37,7 +37,7 @@ import { audio } from '../audio';
 import { useSession } from '../auth';
 import { HvezdaIcon } from '../icons';
 import { OWNER_USER_ID, isSuperAdmin } from '../roles';
-import { segmentOf } from '../segment';
+import { rodinaOf, segmentOf } from '../segment';
 import {
   ErrorBox,
   OZNACENI_HINTS,
@@ -130,6 +130,8 @@ export interface DovolaniKontext {
   prodej: boolean;
   /** architekt (rozhodnutí D22: po telefonu ho automatizace napřed poprosí o krátké písemné potvrzení, fakturu až po něm) */
   architekt?: boolean;
+  /** firma oboru (migrace 064, R13): stejně jako architekt napřed krátké písemné potvrzení, fakturu až po něm */
+  obor?: boolean;
 }
 
 /**
@@ -147,7 +149,9 @@ export function coDovolani(v: VysledekDovolani, k: DovolaniKontext): string {
         : k.nahled
           ? k.architekt
             ? 'Architekt web chce: automatizace mu pošle e-mail s odkazem a poprosí o krátké písemné potvrzení, fakturu pošle až po něm.'
-            : 'Klient web chce: automatizace mu pošle e-mail s odkazem a domluví zbytek (hosting, faktura).'
+            : k.obor
+              ? 'Firma web chce: automatizace jí pošle e-mail s odkazem a poprosí o krátké písemné potvrzení, fakturu pošle až po něm.'
+              : 'Klient web chce: automatizace mu pošle e-mail s odkazem a domluví zbytek (hosting, faktura).'
           : 'Náhled ještě nemá: automatizace ho připraví (jen jeden).';
       return k.oznaceno ? `${co} Označení se uzavře.` : co;
     }
@@ -297,6 +301,8 @@ export default function DovolaniOkno({
     navrh: !!kontakt.first_proposal_at,
     prodej: PRODEJ.includes(kontakt.status),
     architekt: segmentOf(kontakt) === 'architekt',
+    // Od migrace 064 (R13, rodina !== 'chata'): firma oboru napřed potvrdí písemně jako architekt
+    obor: rodinaOf(segmentOf(kontakt)) === 'obor',
   };
   // migrace 062 (D2, D3): proč odmítnutí nejde; vypnuté volby to mají v title a věta je pod volbami
   const nejde = smiUpravit ? odmitnutiNejde(kontakt, { jaSuper, jmeno: session.display_name }, oznaceno) : null;

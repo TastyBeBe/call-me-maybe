@@ -58,7 +58,77 @@ export type Rating = 'A' | 'B' | 'C';
  * Segment klienta (migrace 028, docs/ARCHITEKTI.md 1.1): chaty a architekti se nikdy nesmí
  * smíchat. Nastavuje ho jen import nebo vědomý zásah v SQL, appka ho nemění.
  */
-export type Segment = 'chata' | 'architekt';
+export type Segment = 'chata' | 'architekt' | Nika;
+
+/**
+ * Nika rodiny obor (migrace 064, Albert 7. 11. 2026): klíč z registru `obor_niky` (autoservis, stavby, topeni, elektro…),
+ * stejná hodnota jako `kontakty.segment`. Appka žádnou niku nezná jménem: štítky, ikony, pořadí a stav čte z registru
+ * (`app_obor_niky`, src/obory.ts). `string & {}` nechá v nápovědě editoru doslovné 'chata' a 'architekt'.
+ */
+// eslint-disable-next-line @typescript-eslint/ban-types
+export type Nika = string & {};
+
+/**
+ * Rodina segmentu (migrace 064): chata, architekt, nebo obor (každá nika). Rozložení karty, nápovědy a texty se
+ * rozhodují podle rodiny (rodinaOf v src/segment.ts), ne podle jednotlivé niky.
+ */
+export type Rodina = 'chata' | 'architekt' | 'obor';
+
+/** Stav niky v registru (obor_niky.stav); frontu má jen `zapnuto`. */
+export type StavNiky = 'priprava' | 'zkouska' | 'zapnuto' | 'pozastaveno' | 'karantena';
+
+/**
+ * Řádek registru nik z RPC app_obor_niky (migrace 064). Volající dostane jen niky, které smí volat (stav zapnuto, R9);
+ * super admin všechny a navíc stav, stav_od, stav_duvod a volaji_vsichni.
+ */
+export interface OborNika {
+  klic: string;
+  /** štítek tlačítka („Autoservisy“) */
+  nazev: string;
+  /** „V oboru autoservisy teď nikdo k volání není.“ */
+  nazev_mnozne: string;
+  /** „Po tomhle hovoru dostaneš autoservis.“ */
+  nazev_akuzativ: string;
+  /** odznak u jednoho kontaktu („Autoservis“) */
+  nazev_jednotne: string;
+  ikona: string | null;
+  poradi: number | null;
+  /** zástupné texty ceny pro „Mají zájem“ (R12, Albert 8. 11. 2026); null = žádná částka */
+  cena_web_vzor: string | null;
+  cena_funkce_vzor: string | null;
+  hosting_vzor: string | null;
+  /** Markdown stránky „Jak volat“ (R11); null = zatím nic */
+  jak_volat: string | null;
+  /** smí přihlášený tuhle niku teď volat (stav zapnuto a R9) */
+  smi_volat: boolean;
+  /** jen super admin */
+  stav?: StavNiky;
+  stav_od?: string;
+  stav_duvod?: string | null;
+  volaji_vsichni?: boolean;
+}
+
+/** Stav webu firmy oboru z importu (migrace 064, návrh 5.4). */
+export type WebStav =
+  | 'potvrzeny'
+  | 'nepotvrzeny'
+  | 'roboti'
+  | 'nenacten'
+  | 'jen_socialni'
+  | 'zaparkovany'
+  | 'jiny_web'
+  | 'katalog'
+  | 'zadny'
+  | 'nekontrolovan';
+
+/** Hodnocení webu firmy A až F (jen pro volajícího; firmě se čte konkrétní nedostatek, nikdy písmeno). */
+export type WebHodnoceni = 'A' | 'B' | 'C' | 'D' | 'E' | 'F';
+
+/** Řádek app_zavolat_jinde (migrace 064): kolik vlastních naplánovaných hovorů, jejichž čas nastal, čeká v jiném segmentu. */
+export interface ZavolatJinde {
+  segment: Segment;
+  pocet: number;
+}
 
 /** DPH architekta a jeho studia zvlášť (migrace 028, CHECK na čtyři hodnoty). */
 export type DphStav = 'platce' | 'neplatce' | 'identifikovana_osoba' | 'neovereno';
@@ -216,6 +286,22 @@ export interface Kontakt {
   ico_firma?: string | null;
   dph_osobni?: DphStav | null;
   dph_firma?: DphStav | null;
+  /*
+   * ---- web firmy oboru (migrace 064, Albert 7. 11. 2026: volající má u firmy vidět její web a jeho hodnocení) ----
+   * Jen import, appka je nemění (nejsou v update_kontakt). Server je posílá jen u řádku niky oboru, i v allowlistu
+   * cizího kontaktu (app_kontakt_klice_cizi); u chat a architektů klíče chybí.
+   */
+  /** hodnocení webu A až F; na kartě s významem písmene, nikdy slovo „známka“ */
+  web_hodnoceni?: WebHodnoceni | null;
+  web_stav?: WebStav | null;
+  /** 1 nemá skutečný web, 2 slabý D až F, 3 web se nenačetl, 4 průměrný C, 5 dobrý A až B, 6 nehodnocen; řadí frontu (R7) */
+  web_priorita?: number | null;
+  /** konec kontroly webů (YYYY-MM-DD) */
+  web_hodnoceno_do?: string | null;
+  /** nejvýš dvě české věty z pevné tabulky frází (R10), jen pro volajícího */
+  web_duvod?: string | null;
+  /** první odkaz na sociální síť u firmy, která má jen profil */
+  web_socialni?: string | null;
   // ⚠ Zdroj telefonu („odkud máme číslo“) v appce není (Albert 19. 10. 2026, migrace 043; NAHRAZUJE [ALBERT 10]). Server ho od 043 neposílá.
   /**
    * Migrace 050 (Albert 21. 10. 2026, „call me at this time“): karta ve volání (next_contact, zavolat_vzit) nese
@@ -849,6 +935,16 @@ export interface Api {
    * chaty (výchozí 'chata'), na neznámou hodnotu hází chybu.
    */
   nextContact(token: string, segment: Segment): Promise<Kontakt | null>;
+  /**
+   * Registr nik pro přepínač „Koho voláš“ (app_obor_niky, migrace 064). Server bez migrace 064 funkci nemá: appka pak
+   * dostane prázdný seznam a vypadá jako dřív (jen chaty a architekti).
+   */
+  oborNiky(token: string): Promise<OborNika[]>;
+  /**
+   * Vlastní naplánované hovory, jejichž čas nastal, v jiných segmentech než `segment` (app_zavolat_jinde, migrace 064):
+   * podklad řádku „Máš naplánovaný hovor: …“ ve volání. Server bez 064 = prázdný seznam.
+   */
+  zavolatJinde(token: string, segment: Segment): Promise<ZavolatJinde[]>;
   /**
    * Vrátit svůj zamčený kontakt do fronty bez výsledku hovoru (přepnutí segmentu, migrace 028).
    * Jen vlastní zámek, jen volatelný stav a jen do 30 minut od vzetí karty; nepíše call_log.
