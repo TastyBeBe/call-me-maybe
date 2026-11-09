@@ -2751,7 +2751,7 @@ await blok050('OB1', async () => {
   const karta = txt(await page.locator('.call-card').innerText());
   over('OB1e', k?.email ? karta.includes('potvrď e-mail v hovoru') : karta.includes('nemáme, zjisti'), 'karta: pokyn potvrdit e-mail (nebo „nemáme, zjisti“)', karta.slice(0, 300));
   over('OB1f', !/(?<!po)známk/i.test(karta) && !/call-hint|Tip pro hovor|TIP PRO HOVOR/.test(await page.locator('.call-card').innerHTML()), 'karta bez slova „známka“ a bez rámečku s tipy');
-  over('OB1g', (await page.locator('nav a[href*="jak-volat"]').count()) === 1, 'se zvolenou nikou je v menu „jak volat“');
+  over('OB1g', (await page.locator('nav a[href*="jak-volat"]').count()) === 0, 'ani se zvolenou nikou v menu není „jak volat“ (stránku Albert 9. 11. 2026 odstranil)');
   await ctx.close();
 });
 await blok050('OB2', async () => {
@@ -2801,11 +2801,10 @@ await blok050('OB3', async () => {
   await jdi(page, '#/call', 600);
   const prazdna = txt(await page.locator('.empty-state').innerText().catch(() => ''));
   over('OB3a', prazdna.includes('V oboru autoservisy teď nikdo k volání není.'), 'prázdná fronta niky: obecný text', prazdna);
-  await page.locator('.empty-state a', { hasText: 'Jak volat' }).click();
-  await klid(page, 400);
-  const jak = txt(await page.locator('.jak-volat').innerText().catch(() => ''));
-  over('OB3b', /#\/jak-volat\?nika=autoservis/.test(page.url()) && jak.includes('Jak volat: Autoservisy') && jak.includes('Kdy volat') && jak.includes('Do poznámky'),
-    'stránka Jak volat ukáže text z registru pro zvolenou niku', jak.slice(0, 200));
+  // Albert 9. 11. 2026: stránka Jak volat odstraněná; prázdná fronta na ni neodkazuje a stará adresa stránku neukáže
+  over('OB3b', (await page.locator('.empty-state a', { hasText: 'Jak volat' }).count()) === 0, 'prázdná fronta niky bez odkazu na Jak volat');
+  await jdi(page, '#/jak-volat?nika=autoservis', 500);
+  over('OB3c', (await page.locator('.jak-volat').count()) === 0, 'stará adresa #/jak-volat stránku Jak volat neukáže', page.url());
   await ctx.close();
 });
 
@@ -2883,6 +2882,46 @@ await blok050('OB7', async () => {
   }
   over('OB7c', stavy.size === 10, 'karta hovoru změřena u všech deseti stavů webu', [...stavy].join(','));
   await ctx.close();
+});
+
+await blok050('HO', async () => {
+  // Albert 9. 11. 2026: oko u pole hesla (přihlášení, nový člověk a nové heslo v Lidech). Klepnutí heslo ukáže, druhé ho
+  // skryje, formulář se tím neodešle a na telefonu oko leží uvnitř pole.
+  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  await ctx.addInitScript(() => {
+    localStorage.setItem('volacka_supabase_url', ' ');
+    localStorage.setItem('volacka_sfx_enabled', '0');
+    localStorage.setItem('volacka_music_enabled', '0');
+    localStorage.setItem('volacka_pig_enabled', '0');
+  });
+  await ctx.route('**/*', (route) => {
+    const u = route.request().url();
+    if (u.startsWith(BASE) || u.startsWith('data:') || u.startsWith('blob:')) return route.continue();
+    if (/supabase/i.test(u)) supabase.push(u);
+    return route.abort();
+  });
+  const page = await ctx.newPage();
+  page.on('pageerror', (e) => chybyStranky.push(String(e)));
+  await page.goto(BASE + '#/login');
+  await page.fill('#password', 'tajne123');
+  const oko = page.locator('#password ~ button.heslo-oko');
+  const typ = () => page.getAttribute('#password', 'type');
+  over('HO1', (await oko.count()) === 1 && (await typ()) === 'password' && (await oko.getAttribute('aria-label')) === 'Zobrazit heslo'
+    && (await oko.getAttribute('type')) === 'button', 'přihlášení: oko u hesla, heslo skryté, tlačítko neodesílá formulář');
+  await oko.click();
+  over('HO2', (await typ()) === 'text' && (await page.inputValue('#password')) === 'tajne123'
+    && (await oko.getAttribute('aria-label')) === 'Skrýt heslo' && page.url().includes('login'), 'klepnutí na oko heslo ukáže a formulář neodešle');
+  await oko.click();
+  over('HO3', (await typ()) === 'password' && (await oko.getAttribute('aria-pressed')) === 'false', 'druhé klepnutí heslo zase skryje');
+  const pole = await page.locator('#password').boundingBox();
+  const ob = await oko.boundingBox();
+  over('HO4', !!pole && !!ob && ob.x >= pole.x && ob.x + ob.width <= pole.x + pole.width + 1 && ob.y >= pole.y - 1
+    && ob.y + ob.height <= pole.y + pole.height + 1, 'oko leží uvnitř pole hesla (390 px)', JSON.stringify({ pole, ob }));
+  await ctx.close();
+  const { ctx: c2, page: p2 } = await novaStranka('admin');
+  await jdi(p2, '#/uzivatele', 500);
+  over('HO5', (await p2.locator('#nu-password ~ button.heslo-oko').count()) === 1, 'Lidé: oko u hesla nového člověka');
+  await c2.close();
 });
 
 await browser.close();

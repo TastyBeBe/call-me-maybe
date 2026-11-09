@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { useSearchParams } from 'react-router-dom';
 import { getApi, type Kontakt, type Rating, type Segment, type VysledekHovoru, type ZavolatJinde } from '../api';
 import { audio } from '../audio';
 import { useSession } from '../auth';
@@ -34,7 +34,6 @@ import PrehledPanel from '../components/PrehledPanel';
 import {
   AlarmIcon,
   ArrowDownIcon,
-  BookIcon,
   BriefcaseIcon,
   CheckIcon,
   CompassIcon,
@@ -570,11 +569,6 @@ export default function CallPage() {
             <button className="pill-btn" onClick={() => zvolitSegment(arch || jeObor(segment) ? 'chata' : 'architekt')}>
               {arch || jeObor(segment) ? 'Volat chaty' : 'Volat architekty'}
             </button>
-            {nika && (
-              <Link to={`/jak-volat?nika=${encodeURIComponent(nika.klic)}`} className="pill-btn" data-sfx="none">
-                <BookIcon size={16} /> Jak volat
-              </Link>
-            )}
           </div>
         </div>
       </div>

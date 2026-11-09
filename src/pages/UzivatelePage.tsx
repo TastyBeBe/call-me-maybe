@@ -5,6 +5,7 @@ import { OWNER_USER_ID, useSession } from '../auth';
 import { ROLE_VOLBY, isSuperAdmin, roleLabel } from '../roles';
 import { ErrorBox, Spinner, errMsg } from '../ui';
 import { CheckIcon, PencilIcon } from '../icons';
+import { HesloInput } from '../components/HesloInput';
 
 /**
  * UŽIVATELÉ (migrace 023 + 024, Albert 2026-09-24). Server rozhoduje sám; tady se jen
@@ -211,9 +212,8 @@ export default function UzivatelePage() {
                         </div>
                         <div className="field">
                           <label htmlFor="ue-password">Nové heslo</label>
-                          <input
+                          <HesloInput
                             id="ue-password"
-                            type="password"
                             value={ePassword}
                             onChange={(e) => setEPassword(e.target.value)}
                             autoComplete="new-password"
@@ -336,9 +336,8 @@ export default function UzivatelePage() {
                 <label htmlFor="nu-password">
                   Heslo <span className="req">*</span>
                 </label>
-                <input
+                <HesloInput
                   id="nu-password"
-                  type="password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   autoComplete="new-password"

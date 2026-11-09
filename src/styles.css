@@ -423,6 +423,42 @@ input[type='range'] {
   width: 100%;
 }
 
+/* Pole hesla s okem (Albert 9. 11. 2026): oko vpravo uvnitř pole, text pod ním nezajede. */
+.heslo-pole {
+  position: relative;
+}
+.heslo-pole input {
+  width: 100%;
+  padding-right: 44px;
+}
+.heslo-oko {
+  position: absolute;
+  top: 50%;
+  right: 4px;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--ink);
+  opacity: 0.65;
+  cursor: pointer;
+}
+.heslo-oko:hover,
+.heslo-oko[aria-pressed='true'] {
+  opacity: 1;
+}
+.heslo-oko:focus-visible {
+  outline: 2px solid var(--orange);
+  outline-offset: 1px;
+  opacity: 1;
+}
+
 .search-input {
   border: var(--border);
   border-radius: var(--r-pill);

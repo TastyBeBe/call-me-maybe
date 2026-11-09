@@ -1571,7 +1571,7 @@ await blok('NK', async () => {
     'odznak A a B dobrý, C průměrný, D až F slabý');
 
   // O10: co appka nikdy neukáže (6.8): slovo „známka“ u hodnocení webu, zdroj čísla, rámeček s tipy na kartě
-  for (const f of ['src/components/JejichWeb.tsx', 'src/webFirmy.ts', 'src/pages/JakVolatPage.tsx', 'src/obory.ts']) {
+  for (const f of ['src/components/JejichWeb.tsx', 'src/webFirmy.ts', 'src/obory.ts']) { // JakVolatPage.tsx odstraněná 9. 11. 2026 (Albert)
     const z = odstranKomentare(readFileSync(join(ROOT, f), 'utf8'));
     over('NK10', !/(?<!po)známk/i.test(z), `${f}: žádné slovo „známka“ (hodnocení webu, návrh 6.8)`);
     over('NK10b', !/zdroj[ _]tel|odkud máme|meta_profil|Meta profil/i.test(z), `${f}: nic o zdroji čísla (migrace 043, kontrola 104)`);
@@ -1580,6 +1580,11 @@ await blok('NK', async () => {
   over('NK10c', call.includes('potvrď e-mail v hovoru') && call.includes('nemáme, zjisti') && /<JejichWeb kontakt=\{kontakt\} naKarte \/>/.test(call),
     'karta oboru: pokyn potvrdit e-mail, odznak bez e-mailu a panel „jejich web“');
   over('NK10d', !/jak_volat|<Markdown/.test(call), 'karta hovoru nečte „Jak volat“ (rámeček s tipy Albert odstranil 19. 10. 2026)');
+  // Albert 9. 11. 2026: „remove the page which says how to call … I didn't ask for this section“: stránka Jak volat, její trasa
+  // a odkazy z menu i z prázdné fronty v appce nejsou.
+  const appJv = readFileSync(join(ROOT, 'src/App.tsx'), 'utf8');
+  over('NK10e', !existsSync(join(ROOT, 'src/pages/JakVolatPage.tsx')) && !/jak-volat|JakVolatPage/.test(appJv), 'stránka Jak volat odstraněná (soubor, trasa i odkaz v menu)');
+  over('NK10f', !/jak-volat|Jak volat/.test(odstranKomentare(call)), 'prázdná fronta bez odkazu na Jak volat');
   // O11: klíče hodnocení webu v allowlistu cizího kontaktu (app_kontakt_klice_cizi z 064)
   over('NK11', ['web_hodnoceni', 'web_stav', 'web_priorita', 'web_hodnoceno_do', 'web_duvod', 'web_socialni'].every((k) => KLICE_CIZI.includes(k)),
     'KLICE_CIZI nese šest klíčů hodnocení webu');

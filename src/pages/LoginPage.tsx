@@ -4,6 +4,7 @@ import { audio } from '../audio';
 import { useAuth } from '../auth';
 import { getConfig } from '../config';
 import { ErrorBox, errMsg } from '../ui';
+import { HesloInput } from '../components/HesloInput';
 
 export default function LoginPage() {
   const { session, login } = useAuth();
@@ -57,9 +58,8 @@ export default function LoginPage() {
           </div>
           <div className="field">
             <label htmlFor="password">heslo</label>
-            <input
+            <HesloInput
               id="password"
-              type="password"
               autoComplete="current-password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
