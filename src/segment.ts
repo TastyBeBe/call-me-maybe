@@ -82,6 +82,40 @@ export function saveCallSegment(s: Segment): void {
   }
 }
 
+/** Albert 9. 11. 2026: „when they open the app and go to the call feature, by default, it opens the electricians“. */
+export const VYCHOZI_NIKA = 'elektro';
+const SS_VYCHOZI = 'volacka_vychozi_nika';
+
+/** Je výchozí nika v téhle relaci prohlížeče už vyřízená? (sessionStorage; nedostupné úložiště = ano, nic se nemění) */
+export function vychoziNikaVyrizena(): boolean {
+  try {
+    return sessionStorage.getItem(SS_VYCHOZI) !== null;
+  } catch {
+    return true;
+  }
+}
+
+/**
+ * Jednou za relaci prohlížeče (nové otevření appky): když přihlášený smí volat elektrikáře, uloží se volba „koho voláš“
+ * elektro a vrátí true. S načteným registrem, kde elektro volat nesmí, se relace jen označí (vrátí false). Bez načteného
+ * registru se nic nezmění (zkusí se znovu po načtení). Potom si volající přepíná jako dřív a jeho volba platí do zavření
+ * appky. NAHRAZUJE „začni tam, kde jsi minule skončil“ pro první otevření volání v relaci.
+ */
+export function vychoziNikaRelace(kVolani: readonly string[], registrNacten: boolean): boolean {
+  try {
+    if (sessionStorage.getItem(SS_VYCHOZI) !== null) return false;
+    if (kVolani.includes(VYCHOZI_NIKA)) {
+      sessionStorage.setItem(SS_VYCHOZI, VYCHOZI_NIKA);
+      saveCallSegment(VYCHOZI_NIKA);
+      return true;
+    }
+    if (registrNacten) sessionStorage.setItem(SS_VYCHOZI, '-');
+    return false;
+  } catch {
+    return false;
+  }
+}
+
 /** Uložená volba bez kontroly registru (null = nic uloženého nebo nedostupný localStorage); jen pro menu a „Jak volat“. */
 export function ulozenaVolba(): string | null {
   try {

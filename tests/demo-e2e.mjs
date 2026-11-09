@@ -2933,6 +2933,25 @@ await blok050('HO', async () => {
   await c2.close();
 });
 
+await blok050('VE', async () => {
+  // Albert 9. 11. 2026: po otevření appky začíná volání u elektrikářů (jednou za relaci prohlížeče), když je volající smí volat
+  const { ctx, page } = await novaStranka('petra', { ls: { volacka_demo_obory: 'autoservis,elektro', volacka_segment: 'chata' } });
+  await jdi(page, '#/call', 800);
+  const id1 = await kartaId(page);
+  const seg1 = (await stav(page)).kontakty.find((x) => x.id === id1)?.segment;
+  over('VE1', (await page.evaluate(() => localStorage.getItem('volacka_segment'))) === 'elektro' && seg1 === 'elektro',
+    'po otevření appky začíná volání u elektrikářů, i když byla uložená volba chaty', `${id1} ${seg1}`);
+  await page.evaluate(() => localStorage.setItem('volacka_segment', 'chata'));
+  await jdi(page, '#/', 400);
+  await jdi(page, '#/call', 800);
+  over('VE2', (await page.evaluate(() => localStorage.getItem('volacka_segment'))) === 'chata', 've stejné relaci zůstane volba volajícího');
+  await ctx.close();
+  const { ctx: c2, page: p2 } = await novaStranka('petra', { ls: { volacka_demo_obory: 'autoservis', volacka_segment: 'chata' } });
+  await jdi(p2, '#/call', 800);
+  over('VE3', (await p2.evaluate(() => localStorage.getItem('volacka_segment'))) === 'chata', 'bez zapnutých elektrikářů zůstane uložená volba');
+  await c2.close();
+});
+
 await browser.close();
 server.close();
 rmSync(OUT, { recursive: true, force: true });

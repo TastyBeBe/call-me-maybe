@@ -116,6 +116,11 @@ export function nactiNiky(token: string, znovu = false): Promise<readonly OborNi
 }
 
 /** Odhlášení: registr pryč (další přihlášený může vidět jiné niky). */
+/** Je registr nik pro přihlášeného načtený? (výchozí nika elektro se dá rozhodnout až s ním, src/segment.ts) */
+export function registrNacten(): boolean {
+  return nactenoPro !== null;
+}
+
 export function zapomenNiky(): void {
   nactenoPro = null;
   probiha = null;

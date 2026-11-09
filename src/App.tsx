@@ -12,7 +12,8 @@ import { audio, isSfxName } from './audio';
 import { OWNER_USER_ID, useAuth } from './auth';
 import { getConfig } from './config';
 import { isAdminRole, isSuperAdmin } from './roles';
-import { nactiNiky, OBNOVA_NIK_MS, useNiky, viditelneNiky, zapomenNiky } from './obory';
+import { klicNikKVolani, nactiNiky, OBNOVA_NIK_MS, useNiky, viditelneNiky, zapomenNiky } from './obory';
+import { vychoziNikaRelace } from './segment';
 
 /** Logo = Prokchopova pochroumaná hlava v party čepici (public/icons). */
 const logoUrl = import.meta.env.BASE_URL + 'icons/procop_logo_256.png';
@@ -110,7 +111,8 @@ function OboryNacitani() {
   const { session } = useAuth();
   const token = session?.token ?? null;
   useEffect(() => {
-    if (token) void nactiNiky(token);
+    // Albert 9. 11. 2026: po otevření appky začíná volání u elektrikářů (src/segment.ts vychoziNikaRelace), jednou za relaci
+    if (token) void nactiNiky(token).then(() => { vychoziNikaRelace(klicNikKVolani(), true); }, () => undefined);
     else zapomenNiky();
   }, [token]);
   // Obnova registru bez přihlášení znovu (recenze B9, 8. 11. 2026): nika se zapne nebo pozastaví v DB a otevřená záložka

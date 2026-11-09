@@ -3,8 +3,8 @@ import { useSearchParams } from 'react-router-dom';
 import { getApi, type Kontakt, type Rating, type Segment, type VysledekHovoru, type ZavolatJinde } from '../api';
 import { audio } from '../audio';
 import { useSession } from '../auth';
-import { jeObor, loadCallSegment, rodinaOf, saveCallSegment, segmentOf, ulozenaNika } from '../segment';
-import { jeChybaZastaraleNiky, klicNikKVolani, nactiNiky, nikaInfo, nikaVolatelna, STAV_NIKY_POPISEK, useNiky, viditelneNiky } from '../obory';
+import { jeObor, loadCallSegment, rodinaOf, saveCallSegment, segmentOf, ulozenaNika, vychoziNikaRelace, vychoziNikaVyrizena } from '../segment';
+import { jeChybaZastaraleNiky, klicNikKVolani, nactiNiky, nikaInfo, nikaVolatelna, registrNacten, STAV_NIKY_POPISEK, useNiky, viditelneNiky } from '../obory';
 import JejichWeb from '../components/JejichWeb';
 import {
   ConfirmModal,
@@ -152,7 +152,11 @@ export default function CallPage() {
   // novou kartu a starou nechal zamčenou 2 h (kontrola 75).
   // Od migrace 064 (obory): nika jen ze seznamu nik, které smí teď volat (registr app_obor_niky); uložená nika, než se
   // registr načte, počká (efekt níž), jinak chata (RC-14).
-  const [segment, setSegment] = useState<Segment>(() => loadCallSegment(klicNikKVolani()));
+  // Albert 9. 11. 2026: první otevření volání v relaci prohlížeče začne u elektrikářů, když je přihlášený smí volat.
+  const [segment, setSegment] = useState<Segment>(() => {
+    vychoziNikaRelace(klicNikKVolani(), registrNacten());
+    return loadCallSegment(klicNikKVolani());
+  });
   const segmentRef = useRef<Segment>(segment);
   // Počítadlo požadavků: odpověď, která dorazí po přepnutí, se zahodí a její zámek vrátí.
   const reqId = useRef(0);
@@ -309,6 +313,22 @@ export default function CallPage() {
           const s = loadCallSegment(klicNikKVolani());
           segmentRef.current = s;
           setSegment(s);
+          void prvni('', zavolatId);
+        });
+        return;
+      }
+      // Albert 9. 11. 2026: výchozí elektrikáři ještě nejsou v téhle relaci rozhodnutí (registr nebyl načtený): první
+      // karta počká na registr, pak se volba přečte znovu (mohla ji mezitím nastavit i appka po přihlášení)
+      if (!vychoziNikaVyrizena()) {
+        const prvni = loadNext;
+        void nactiNiky(session.token, true).then(() => {
+          if (nactenoPro.current !== prvni) return;
+          vychoziNikaRelace(klicNikKVolani(), true);
+          const s = loadCallSegment(klicNikKVolani());
+          if (s !== segmentRef.current) {
+            segmentRef.current = s;
+            setSegment(s);
+          }
           void prvni('', zavolatId);
         });
         return;

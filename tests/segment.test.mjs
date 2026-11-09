@@ -28,6 +28,14 @@ globalThis.localStorage = {
   get length() { if (hodit) throw new Error('zakázáno'); return uloziste.size; },
   key: (i) => { if (hodit) throw new Error('zakázáno'); return [...uloziste.keys()][i] ?? null; },
 };
+// sessionStorage pro výchozí niku (Albert 9. 11. 2026); `hoditSs` simuluje zakázané úložiště
+const relace = new Map();
+let hoditSs = false;
+globalThis.sessionStorage = {
+  getItem: (k) => { if (hoditSs) throw new Error('zakázáno'); return relace.has(k) ? relace.get(k) : null; },
+  setItem: (k, v) => { if (hoditSs) throw new Error('zakázáno'); relace.set(k, String(v)); },
+  removeItem: (k) => { relace.delete(k); },
+};
 // mock čeká 60 až 180 ms na každé volání; test to zkrátí na nulu
 const puvodniTimeout = globalThis.setTimeout;
 globalThis.setTimeout = (fn, _ms, ...a) => puvodniTimeout(fn, 0, ...a);
@@ -93,6 +101,21 @@ const seg = (k) => (k && k.segment === 'architekt' ? 'architekt' : 'chata');
 const ARCH = [300, 301, 302, 303];
 
 /* ---------------- A) segment.ts ---------------- */
+{
+  // Albert 9. 11. 2026: „when they open the app and go to the call feature, by default, it opens the electricians“
+  const SM = bundle.segmentModul;
+  relace.clear(); uloziste.set('volacka_segment', 'chata');
+  over('VE1', SM.vychoziNikaRelace(['autoservis', 'elektro'], true) === true && uloziste.get('volacka_segment') === 'elektro' && SM.vychoziNikaVyrizena(),
+    'první otevření v relaci: volba elektro, relace vyřízená');
+  uloziste.set('volacka_segment', 'chata');
+  over('VE2', SM.vychoziNikaRelace(['autoservis', 'elektro'], true) === false && uloziste.get('volacka_segment') === 'chata', 've stejné relaci zůstane volba volajícího');
+  relace.clear();
+  over('VE3', SM.vychoziNikaRelace([], false) === false && !SM.vychoziNikaVyrizena() && uloziste.get('volacka_segment') === 'chata', 'bez načteného registru se nic nemění ani neoznačí');
+  over('VE4', SM.vychoziNikaRelace(['autoservis'], true) === false && SM.vychoziNikaVyrizena() && uloziste.get('volacka_segment') === 'chata', 'elektro volat nesmí: relace vyřízená bez změny');
+  relace.clear(); hoditSs = true;
+  over('VE5', SM.vychoziNikaRelace(['elektro'], true) === false && SM.vychoziNikaVyrizena() && uloziste.get('volacka_segment') === 'chata', 'zakázané úložiště relace: nic se nemění');
+  hoditSs = false; relace.clear(); uloziste.delete('volacka_segment');
+}
 over('A1', loadCallSegment() === 'chata', 'bez uložené volby se volají chaty');
 uloziste.set('volacka_segment', 'architekt');
 over('A2', loadCallSegment() === 'architekt', 'uložené „architekt" se načte');
