@@ -12,7 +12,7 @@ import { audio, isSfxName } from './audio';
 import { OWNER_USER_ID, useAuth } from './auth';
 import { getConfig } from './config';
 import { isAdminRole, isSuperAdmin } from './roles';
-import { nactiNiky, OBNOVA_NIK_MS, zapomenNiky } from './obory';
+import { nactiNiky, OBNOVA_NIK_MS, useNiky, viditelneNiky, zapomenNiky } from './obory';
 
 /** Logo = Prokchopova pochroumaná hlava v party čepici (public/icons). */
 const logoUrl = import.meta.env.BASE_URL + 'icons/procop_logo_256.png';
@@ -20,6 +20,7 @@ import AdminPage from './pages/AdminPage';
 import AutomatizacePage from './pages/AutomatizacePage';
 import CallPage from './pages/CallPage';
 import HomePage from './pages/HomePage';
+import JakVolatPage from './pages/JakVolatPage';
 import KalendarPage from './pages/KalendarPage';
 import LoginPage from './pages/LoginPage';
 import MojiPage from './pages/MojiPage';
@@ -132,13 +133,19 @@ function OboryNacitani() {
   return null;
 }
 
+/** Má přihlášený v registru nik nějaké návody (Albertovy dokumenty „Jak volat“, src/navody.ts)? Jen tehdy je v menu odkaz. */
+function useMaNavody(): boolean {
+  return viditelneNiky(useNiky()).some((n) => !!n.jak_volat?.trim());
+}
+
 function TopBar() {
   const { session, logout } = useAuth();
   const zavolat = useZavolat();
   const navigate = useNavigate();
   const { demo } = getConfig();
-  // Stránka „Jak volat“ (migrace 064, návrh oborů 6.7) z appky odstraněná 9. 11. 2026 na Albertův pokyn („I didn't ask
-  // for this section“); menu ji už neukazuje.
+  // Stránka „Jak volat“ (Albert 9. 11. 2026): Albertovy návody (skript a slovníček) z registru; odkaz v menu, jen když
+  // nějaké návody v registru jsou. NAHRAZUJE odkaz jen při zvolené nice z kroku B9 (stránka s pokyny od agenta odstraněná).
+  const maNavody = useMaNavody();
   if (!session) return null;
   const isAdmin = isAdminRole(session.role);
   const isSuper = isSuperAdmin(session.role);
@@ -165,6 +172,15 @@ function TopBar() {
         >
           volat
         </NavLink>
+        {maNavody && (
+          <NavLink
+            to="/jak-volat"
+            data-sfx="none"
+            className={({ isActive }) => `nav-pill${isActive ? ' active' : ''}`}
+          >
+            jak volat
+          </NavLink>
+        )}
         {/* Kalendář hovorů (migrace 050, Albert 21. 10. 2026): každý svůj, super admin kohokoli. Odznak = kolik
             vlastních hovorů je na dnešek a po termínu. */}
         <NavLink
@@ -285,6 +301,14 @@ export default function App() {
           element={
             <RequireAuth>
               <CallPage />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/jak-volat"
+          element={
+            <RequireAuth>
+              <JakVolatPage />
             </RequireAuth>
           }
         />

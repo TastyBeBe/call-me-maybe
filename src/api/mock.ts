@@ -622,25 +622,19 @@ interface MockNika extends OborNika {
   volaji_vsichni: boolean;
 }
 
-/** Ukázkový text stránky „Jak volat“ (obsah na serveru píše živá session z orchestrator/obory/niky/<nika>/volani.md). */
+/** Ukázkové návody stránky „Jak volat“ (Albert 9. 11. 2026: dva jeho dokumenty; na serveru jsou celé v obor_niky.jak_volat). */
 const JAK_VOLAT_UKAZKA = [
-  '## Kdy volat',
-  'Dopoledne mezi 9. a 11. hodinou, kdy dílna ještě nemá plno. V poledne a po 16. hodině raději ne.',
+  '# Jak volat řemeslníkům',
+  'Ukázka skriptu pro telefonní specialisty.',
   '',
-  '## Jak začít',
-  '- **Nemá vlastní web:** „Dobrý den, připravil jsem pro vás ukázku webu, můžu vám ji poslat e-mailem?“',
-  '- **Slabý web:** řekni jeden konkrétní nedostatek z karty, nikdy písmeno hodnocení.',
-  '- **Dobrý web:** poděkuj a nabídni ukázku jen tehdy, když o ni stojí.',
+  '## Jak mluvit',
+  '- Mluvte jako normální člověk, ne jako call centrum.',
   '',
-  '## Co ukázka obsahuje',
-  'Úvod s jejich službami, kontakt s telefonem na jedno klepnutí a mapu. Nic tím nevzniká a nic neplatí.',
+  '# Slovníček webových pojmů',
+  'Ukázka slovníčku.',
   '',
-  '## Když řeknou „nemám čas“',
-  '1. Zeptej se, jestli můžeš ukázku jen poslat e-mailem.',
-  '2. Když ne, poděkuj a zapiš Odmítnuto.',
-  '',
-  '## Do poznámky',
-  'Jednou větou, co dělají a kam jezdí.',
+  '## 1 Základy',
+  '- **Doména:** Adresa webu, třeba kominictvinovak.cz.',
 ].join('\n');
 
 const oborNikyMock: MockNika[] = [
@@ -1847,7 +1841,7 @@ function mockAutomationStatus(): AutomationStatus {
 /* ---- rozvrh volání — zrcadlí db/migration_042_volajici_rozvrh.sql ---- */
 
 /** app_rozvrh_za_hodinu() na serveru; appka číslo bere z odpovědi (hovoru_za_hodinu), ne odtud. */
-const ZA_HODINU = 10;
+const ZA_HODINU = 20; // migrace 065 (Albert 9. 11. 2026): 20 hovorů za hodinu, dřív 10
 
 interface MockRozvrh {
   zamceno: boolean;

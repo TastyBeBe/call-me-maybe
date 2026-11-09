@@ -697,7 +697,7 @@ for (const kdo of ['petra', 'mikulas']) {
   await page.getByRole('button', { name: 'Nastavit rozvrh' }).click();
   await page.selectOption('#rh-0', '4');
   await page.selectOption('#rh-6', '1');
-  over('R2', /Za týden 50 hovorů/.test(await page.locator('.rozvrh-uprava').innerText()), 'úprava počítá cíl za týden (4 h + 1 h = 50 hovorů)');
+  over('R2', /Za týden 100 hovorů/.test(await page.locator('.rozvrh-uprava').innerText()), 'úprava počítá cíl za týden (4 h + 1 h = 100 hovorů, 20 za hodinu od migrace 065)');
   await page.getByRole('button', { name: 'Uložit rozvrh' }).click();
   over('R3', (await page.getByRole('button', { name: 'Uložit a zamknout' }).count()) === 1, 'Volající musí uložení potvrdit (pak už rozvrh nezmění)');
   await page.getByRole('button', { name: 'Uložit a zamknout' }).click();
@@ -2751,7 +2751,7 @@ await blok050('OB1', async () => {
   const karta = txt(await page.locator('.call-card').innerText());
   over('OB1e', k?.email ? karta.includes('potvrď e-mail v hovoru') : karta.includes('nemáme, zjisti'), 'karta: pokyn potvrdit e-mail (nebo „nemáme, zjisti“)', karta.slice(0, 300));
   over('OB1f', !/(?<!po)známk/i.test(karta) && !/call-hint|Tip pro hovor|TIP PRO HOVOR/.test(await page.locator('.call-card').innerHTML()), 'karta bez slova „známka“ a bez rámečku s tipy');
-  over('OB1g', (await page.locator('nav a[href*="jak-volat"]').count()) === 0, 'ani se zvolenou nikou v menu není „jak volat“ (stránku Albert 9. 11. 2026 odstranil)');
+  over('OB1g', (await page.locator('nav a[href*="jak-volat"]').count()) === 1, 's nikou, která má návody, je v menu „jak volat“ (Albertovy dokumenty, 9. 11. 2026)');
   await ctx.close();
 });
 await blok050('OB2', async () => {
@@ -2803,8 +2803,17 @@ await blok050('OB3', async () => {
   over('OB3a', prazdna.includes('V oboru autoservisy teď nikdo k volání není.'), 'prázdná fronta niky: obecný text', prazdna);
   // Albert 9. 11. 2026: stránka Jak volat odstraněná; prázdná fronta na ni neodkazuje a stará adresa stránku neukáže
   over('OB3b', (await page.locator('.empty-state a', { hasText: 'Jak volat' }).count()) === 0, 'prázdná fronta niky bez odkazu na Jak volat');
-  await jdi(page, '#/jak-volat?nika=autoservis', 500);
-  over('OB3c', (await page.locator('.jak-volat').count()) === 0, 'stará adresa #/jak-volat stránku Jak volat neukáže', page.url());
+  // Albert 9. 11. 2026 odpoledne: stránka Jak volat s jeho dvěma dokumenty (skript a slovníček) a přepínačem mezi nimi
+  await jdi(page, '#/jak-volat', 500);
+  const zalozky = await page.locator('.jak-volat .navody-prepinac button').allInnerTexts();
+  const obsah1 = txt(await page.locator('.jak-volat [role=tabpanel]').innerText().catch(() => ''));
+  over('OB3c', zalozky.join('|') === 'Jak volat řemeslníkům|Slovníček webových pojmů' && obsah1.includes('Ukázka skriptu') && !obsah1.includes('Ukázka slovníčku'),
+    'stránka Jak volat: přepínač dvou dokumentů, napřed skript', `${zalozky.join('|')} :: ${obsah1.slice(0, 120)}`);
+  await page.locator('.jak-volat .navody-prepinac button', { hasText: 'Slovníček' }).click();
+  await page.waitForTimeout(200);
+  const obsah2 = txt(await page.locator('.jak-volat [role=tabpanel]').innerText().catch(() => ''));
+  over('OB3d', obsah2.includes('Ukázka slovníčku') && obsah2.includes('Doména') && !obsah2.includes('Ukázka skriptu') && /dok=1/.test(page.url()),
+    'klepnutí na Slovníček ukáže slovníček', `${page.url()} :: ${obsah2.slice(0, 120)}`);
   await ctx.close();
 });
 

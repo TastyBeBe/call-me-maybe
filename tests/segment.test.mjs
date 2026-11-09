@@ -41,6 +41,7 @@ let bundle;
         "export { zapniDemoObory, nastavStavNikyDemo, poradiFronty, KLICE_CIZI } from './src/api/mock.ts';",
         "export * as oboryModul from './src/obory.ts';",
         "export * as webFirmyModul from './src/webFirmy.ts';",
+        "export * as navodyModul from './src/navody.ts';",
         "export * as pokrokModul from './src/pig/progress.ts';",
         "export { supabaseApi } from './src/api/supabase.ts';",
         "export { loadCallSegment, saveCallSegment, segmentOf } from './src/segment.ts';",
@@ -1571,7 +1572,7 @@ await blok('NK', async () => {
     'odznak A a B dobrý, C průměrný, D až F slabý');
 
   // O10: co appka nikdy neukáže (6.8): slovo „známka“ u hodnocení webu, zdroj čísla, rámeček s tipy na kartě
-  for (const f of ['src/components/JejichWeb.tsx', 'src/webFirmy.ts', 'src/obory.ts']) { // JakVolatPage.tsx odstraněná 9. 11. 2026 (Albert)
+  for (const f of ['src/components/JejichWeb.tsx', 'src/webFirmy.ts', 'src/pages/JakVolatPage.tsx', 'src/navody.ts', 'src/obory.ts']) {
     const z = odstranKomentare(readFileSync(join(ROOT, f), 'utf8'));
     over('NK10', !/(?<!po)známk/i.test(z), `${f}: žádné slovo „známka“ (hodnocení webu, návrh 6.8)`);
     over('NK10b', !/zdroj[ _]tel|odkud máme|meta_profil|Meta profil/i.test(z), `${f}: nic o zdroji čísla (migrace 043, kontrola 104)`);
@@ -1580,10 +1581,20 @@ await blok('NK', async () => {
   over('NK10c', call.includes('potvrď e-mail v hovoru') && call.includes('nemáme, zjisti') && /<JejichWeb kontakt=\{kontakt\} naKarte \/>/.test(call),
     'karta oboru: pokyn potvrdit e-mail, odznak bez e-mailu a panel „jejich web“');
   over('NK10d', !/jak_volat|<Markdown/.test(call), 'karta hovoru nečte „Jak volat“ (rámeček s tipy Albert odstranil 19. 10. 2026)');
-  // Albert 9. 11. 2026: „remove the page which says how to call … I didn't ask for this section“: stránka Jak volat, její trasa
-  // a odkazy z menu i z prázdné fronty v appce nejsou.
+  // Albert 9. 11. 2026: stránku s pokyny od agenta nechal odstranit („I didn't ask for this section“) a odpoledne místo ní chtěl
+  // svoje dva dokumenty (skript a slovníček). Stránka čte jen registr (src/navody.ts), odkaz v menu je jen s návody.
   const appJv = readFileSync(join(ROOT, 'src/App.tsx'), 'utf8');
-  over('NK10e', !existsSync(join(ROOT, 'src/pages/JakVolatPage.tsx')) && !/jak-volat|JakVolatPage/.test(appJv), 'stránka Jak volat odstraněná (soubor, trasa i odkaz v menu)');
+  const strJv = odstranKomentare(readFileSync(join(ROOT, 'src/pages/JakVolatPage.tsx'), 'utf8'));
+  over('NK10e', /path="\/jak-volat"/.test(appJv) && /useMaNavody\(\)/.test(appJv) && /rozdelNavody\(textNavodu\(/.test(strJv) && !/Kdy volat|Pokyny pro tenhle obor/.test(strJv),
+    'stránka Jak volat ukazuje jen návody z registru (Albertovy dokumenty), odkaz v menu jen s nimi');
+  const N = bundle.navodyModul;
+  const dvaDok = N.rozdelNavody('# Jak volat řemeslníkům\nÚvod.\n## Jak mluvit\n- a\n# Slovníček webových pojmů\n## 1 Základy\n- b');
+  over('NK10g', dvaDok.length === 2 && dvaDok[0].nazev === 'Jak volat řemeslníkům' && dvaDok[0].telo.startsWith('Úvod.') && dvaDok[0].telo.includes('## Jak mluvit')
+    && dvaDok[1].nazev === 'Slovníček webových pojmů' && dvaDok[1].telo === '## 1 Základy\n- b', 'návody se dělí jen podle nadpisů první úrovně', JSON.stringify(dvaDok));
+  over('NK10h', N.rozdelNavody(null).length === 0 && N.rozdelNavody('bez nadpisu')[0].nazev === 'Jak volat'
+    && N.textNavodu([{ klic: 'a', jak_volat: null }, { klic: 'b', jak_volat: 'B' }, { klic: 'c', jak_volat: 'C' }], 'c') === 'C'
+    && N.textNavodu([{ klic: 'a', jak_volat: ' ' }, { klic: 'b', jak_volat: 'B' }], 'a') === 'B' && N.textNavodu([], null) === null,
+    'text návodů: preferovaná nika, jinak první s textem, prázdný se přeskočí');
   over('NK10f', !/jak-volat|Jak volat/.test(odstranKomentare(call)), 'prázdná fronta bez odkazu na Jak volat');
   // O11: klíče hodnocení webu v allowlistu cizího kontaktu (app_kontakt_klice_cizi z 064)
   over('NK11', ['web_hodnoceni', 'web_stav', 'web_priorita', 'web_hodnoceno_do', 'web_duvod', 'web_socialni'].every((k) => KLICE_CIZI.includes(k)),

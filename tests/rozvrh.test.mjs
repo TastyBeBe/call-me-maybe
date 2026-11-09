@@ -153,8 +153,8 @@ await blok('M', async () => {
   const tyden = (h) => h.map((hodiny, i) => ({ den: i + 1, hodiny, od: hodiny > 0 ? '09:00' : null }));
 
   let r = await api.rozvrh(honza);
-  over('M1', r.nastaveny === false && r.smi_upravit === true && r.smi_psat_poznamky === true && r.hovoru_za_hodinu === 10
-    && r.dny.length === 7 && r.souhrn.stav === 'bez_rozvrhu', 'Honza bez rozvrhu ho smí nastavit (10 hovorů za hodinu)', JSON.stringify(r.souhrn));
+  over('M1', r.nastaveny === false && r.smi_upravit === true && r.smi_psat_poznamky === true && r.hovoru_za_hodinu === 20
+    && r.dny.length === 7 && r.souhrn.stav === 'bez_rozvrhu', 'Honza bez rozvrhu ho smí nastavit (20 hovorů za hodinu, migrace 065)', JSON.stringify(r.souhrn));
   await chyba('M2', () => api.rozvrh(honza, 2), /vidí jen super admin/, 'Volající cizí rozvrh nevidí');
   await chyba('M3', () => api.ulozitRozvrh(honza, 2, tyden([1, 1, 1, 1, 1, 0, 0])), /nastavuje jen super admin/, 'Volající cizí rozvrh nenastaví');
   await chyba('M3b', () => api.ulozitRozvrh(honza, -42, tyden([1, 1, 1, 1, 1, 0, 0])), /nastavuje jen super admin/,
@@ -167,8 +167,8 @@ await blok('M', async () => {
   r = await api.ulozitRozvrh(honza, 3, tyden([2.5, 2.5, 2.5, 2.5, 2.5, 2.5, 2.5]));
   const dnes = r.dny.find((d) => d.dnes);
   over('M8', r.nastaveny && r.zamceno && !r.smi_upravit && r.nastavil === 'Honza', 'po uložení je rozvrh zamčený', JSON.stringify({ z: r.zamceno, s: r.smi_upravit }));
-  over('M9', dnes && dnes.cil === 25 && r.dny.filter((d) => d.minuly).every((d) => d.pred_rozvrhem && d.cil === 0),
-    'cíl dneška 2,5 h × 10 = 25, dny před nastavením bez cíle', JSON.stringify(r.dny.map((d) => [d.den, d.cil, d.pred_rozvrhem])));
+  over('M9', dnes && dnes.cil === 50 && r.dny.filter((d) => d.minuly).every((d) => d.pred_rozvrhem && d.cil === 0),
+    'cíl dneška 2,5 h × 20 = 50 (migrace 065), dny před nastavením bez cíle', JSON.stringify(r.dny.map((d) => [d.den, d.cil, d.pred_rozvrhem])));
   await chyba('M10', () => api.ulozitRozvrh(honza, 3, tyden([1, 1, 1, 1, 1, 0, 0])), /už je nastavený/, 'podruhé Volající rozvrh nezmění');
   await chyba('M11', () => api.odemknoutRozvrh(honza, 3), /jen super admin/, 'Volající si rozvrh neodemkne');
 
