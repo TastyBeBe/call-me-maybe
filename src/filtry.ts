@@ -90,6 +90,17 @@ export function filtryNaServer(f: StavFiltru): FiltryMlceni & { status?: string;
 }
 
 /**
+ * Filtry pro počty u stavů (Albert 13. 11. 2026: „when I selected Vera, it showed that there were two, but when I clicked
+ * on the filter, it didn't show a single listing“): totéž co filtryNaServer, jen bez výběru stavu, protože počet se ptá na
+ * každý stav zvlášť. Stránka k nim přidá všechno, co posílá se seznamem (volající, hledání, čekání a koš, segment), takže
+ * číslo u stavu je přesně počet řádků, které ukáže klik na ten stav. ⚠ NAHRAZUJE počty jen podle segmentu (Kontakty, 045)
+ * a jen podle člověka a segmentu (Moji klienti, 056), které se zapnutými filtry ukazovaly čísla celé databáze.
+ */
+export function filtryBezStavu(f: StavFiltru): ReturnType<typeof filtryNaServer> {
+  return filtryNaServer({ ...f, statusy: [] });
+}
+
+/**
  * Filtry pro list_oznacene (migrace 060): ta zná jen nová pole, stav a známka jdou vždy jako pole. Kategorie označení
  * NE: list_oznacene nemá p_kategorie (druhy vybírají pilulky „Co je potřeba“ nad načtenými řádky), poslaná by skončila
  * falešnou hláškou „server bez migrace 060“ (recenze 2. 11. 2026).

@@ -1234,6 +1234,58 @@ await blok('OF', async () => {
     JSON.stringify(odeslano.map((o) => o.body.p_segment)));
 });
 
+/* ---------------- V) počty u stavů = řádky po kliknutí (Albert 13. 11. 2026) ----------------
+ * „when I selected Vera, it showed that there were two, but when I clicked on the filter, it didn't show a single listing“:
+ * Kontakty počítaly stavy jen podle segmentu a Moji klienti jen podle člověka a segmentu, takže se zapnutým volajícím nebo
+ * jiným filtrem ukazovaly čísla celé databáze. Od 13. 11. bere počet všechny zapnuté filtry seznamu kromě stavu. */
+await blok('V', async () => {
+  // V1 filtryBezStavu: bez výběru stavu, ostatní filtry zůstanou
+  const f = { ...FM.PRAZDNE_FILTRY, statusy: ['eskalace', 'zajem'], znamky: ['A'], jenHvezda: true, kategorie: ['navrh'], mlciMin: 5, mlciMax: 20 };
+  const b = FM.filtryBezStavu(f);
+  over('V1', b.status === undefined && b.statusy === undefined && b.rating === 'A' && b.jen_hvezda === true
+    && stejne(b.kategorie, ['navrh']) && b.mlci_min === 5 && b.mlci_max === 20,
+    'filtryBezStavu: bez stavu, známka, hvězda, označení a mlčení zůstanou', JSON.stringify(b));
+  over('V1b', stejne(FM.filtryBezStavu({ ...FM.PRAZDNE_FILTRY, statusy: ['hotovo'] }), {}), 'filtryBezStavu bez jiných filtrů = nic',
+    JSON.stringify(FM.filtryBezStavu({ ...FM.PRAZDNE_FILTRY, statusy: ['hotovo'] })));
+  // V2 zapojení stránek: počty u stavů a v koších posílají totéž co seznam (kromě stavu u počtů stavů)
+  const src = (p) => readFileSync(join(ROOT, p), 'utf8');
+  const admin = src('src/pages/AdminPage.tsx');
+  const moji = src('src/pages/MojiPage.tsx');
+  const pocetAdmin = admin.slice(admin.indexOf('ALL_STATUSES.map(async (s)'), admin.indexOf('setStatusCounts(Object.fromEntries(counts))'));
+  over('V2', /\.\.\.bezStavu,/.test(pocetAdmin) && /status: s,/.test(pocetAdmin) && /caller: caller \|\| null,/.test(pocetAdmin)
+    && /search: debouncedSearch\.trim\(\) \|\| null,/.test(pocetAdmin) && /cekani: cekani \|\| null,/.test(pocetAdmin)
+    && /kos: cekani \? kos \|\| null : null,/.test(pocetAdmin) && /segment: segment \|\| null,/.test(pocetAdmin),
+    'Kontakty: počet u stavu s volajícím, hledáním, čekáním, košem, segmentem a ostatními filtry');
+  const kosAdmin = admin.slice(admin.indexOf('ALL_KOSE.map(async (k)'), admin.indexOf('setKosCounts(Object.fromEntries(counts))'));
+  over('V2b', /\.\.\.naServer,/.test(kosAdmin) && /caller: caller \|\| null,/.test(kosAdmin) && /search: debouncedSearch\.trim\(\) \|\| null,/.test(kosAdmin),
+    'Kontakty: počet v koši se zapnutými filtry, volajícím a hledáním');
+  const pocetMoji = moji.slice(moji.indexOf('ALL_STATUSES.map(async (s)'), moji.indexOf('setStatusCounts(Object.fromEntries(pocty))'));
+  over('V2c', /\.\.\.bezStavu,/.test(pocetMoji) && /status: s,/.test(pocetMoji) && /search: hledani \|\| null,/.test(pocetMoji)
+    && /cekani: cekani \|\| null,/.test(pocetMoji) && /kos: cekani \? kos \|\| null : null,/.test(pocetMoji),
+    'Moji klienti: počet u stavu s hledáním, čekáním, košem a ostatními filtry');
+  const kosMoji = moji.slice(moji.indexOf('ALL_KOSE.map(async (k)'), moji.indexOf('setKosCounts(Object.fromEntries(pocty))'));
+  over('V2d', /\.\.\.filtryNaServer\(stav\),/.test(kosMoji) && /search: hledani \|\| null,/.test(kosMoji),
+    'Moji klienti: počet v koši se zapnutými filtry a hledáním');
+  // V3 chování nad mockem: s vybraným volajícím je počet u každého stavu přesně počet řádků seznamu se stejným výběrem
+  const vse = await api.listKontakty(albert, { limit: 5000 });
+  const cetnost = new Map();
+  for (const r of vse.rows) if (r.last_caller) cetnost.set(r.last_caller, (cetnost.get(r.last_caller) ?? 0) + 1);
+  const volajici = [...cetnost.entries()].sort((a, b2) => b2[1] - a[1])[0]?.[0];
+  over('V3a', !!volajici, 'mock má kontakty s posledním volajícím', JSON.stringify([...cetnost.entries()].slice(0, 5)));
+  if (volajici) {
+    const ALL = U.ALL_STATUSES;
+    let shod = 0;
+    const neshody = [];
+    for (const s of ALL) {
+      const pocetS = (await api.listKontakty(albert, { status: s, caller: volajici, limit: 1 })).total ?? -1;
+      const radky = (await api.listKontakty(albert, { statusy: [s], caller: volajici, limit: 5000 })).rows.length;
+      const celkem = (await api.listKontakty(albert, { status: s, limit: 1 })).total ?? -1;
+      if (pocetS === radky) shod += 1; else neshody.push(`${s}: počet ${pocetS}, řádků ${radky}, celá DB ${celkem}`);
+    }
+    over('V3', shod === ALL.length, `s volajícím ${volajici}: počet u stavu = řádky po kliknutí u všech ${ALL.length} stavů`, neshody.join('; '));
+  }
+});
+
 if (chyby === 0) {
   console.log(`ALL OK (${pocet} kontrol)`);
   process.exit(0);

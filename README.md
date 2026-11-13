@@ -244,6 +244,12 @@ client“.
   ⚠ Od migrace 060 (Albert 1. 11. 2026, oddíl Označení 060 níž) má filtry, hledání na serveru i řazení v Moji klienti
   i Volající, jen nad svými klienty; NAHRAZUJE „jen super admin“ a „Volající má Moji klienti beze změny“ z tohoto bodu.
   Počty u stavů a košů má dál jen super admin.
+  ⚠ Od 13. 11. 2026 (Albert: „when I selected Vera, it showed that there were two, but when I clicked on the filter, it
+  didn't show a single listing“) berou počty u stavů a košů v Kontaktech i v Moji klienti všechny zapnuté filtry seznamu
+  kromě samotného stavu (volající, hledání, čekání a koš, známka, hvězda, označení, mlčení, segment; u košů i stav), takže
+  číslo u stavu je přesně počet řádků po kliknutí na něj (`filtryBezStavu` v `src/filtry.ts`, test `tests/filtry.test.mjs`
+  blok V). NAHRAZUJE počty jen podle segmentu (Kontakty) a jen podle člověka a segmentu (Moji klienti), které se zapnutým
+  volajícím nebo jiným filtrem ukazovaly čísla celé databáze.
 - **Řazení** (Kontakty každý, Moji klienti super admin): „Řazení: výchozí“, „Podle poslední změny (od nejnovější)“
   a „Podle poslední změny (od nejstarší)“ (`RazeniSelect` v `src/ui.tsx`). Poslední změna = sloupec Změněno
   (`updated_at`): posune ji hovor, úprava v detailu, příznak a kalendář v appce, změna stavu od agenta ne (automatizace

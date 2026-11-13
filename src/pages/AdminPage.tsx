@@ -14,7 +14,7 @@ import { HodnoceniVSeznamu } from '../components/JejichWeb';
 import KontaktDrawer from '../components/KontaktDrawer';
 import { usePeople } from '../components/PersonPicker';
 import SeznamFiltry from '../components/SeznamFiltry';
-import { PRAZDNE_FILTRY, filtrJenSvoje, filtryNaServer, type StavFiltru } from '../filtry';
+import { PRAZDNE_FILTRY, filtrJenSvoje, filtryBezStavu, filtryNaServer, type StavFiltru } from '../filtry';
 import { isAdminRole, isSuperAdmin } from '../roles';
 import { icoVidi } from '../segment';
 import { useNiky, viditelneNiky } from '../obory';
@@ -147,19 +147,34 @@ export default function AdminPage() {
   }, [search]);
 
   // počty pro status dropdown (1 dotaz s limit 1 na každý status); jen super admin (migrace 045)
+  // ⚠ 13. 11. 2026 (Albert: „when I selected Vera, it showed that there were two, but when I clicked on the filter, it didn't
+  // show a single listing“): počet bere všechny zapnuté filtry seznamu kromě stavu (volající, hledání, čekání a koš, známka,
+  // hvězda, označení, mlčení, segment), takže číslo u stavu = řádky po kliknutí na něj. NAHRAZUJE počty jen podle segmentu.
+  const bezStavu = useMemo(
+    () => filtryBezStavu(filtry),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [filtry.znamky, filtry.jenHvezda, filtry.kategorie, filtry.mlciMin, filtry.mlciMax]
+  );
   useEffect(() => {
     if (!isSuper) {
       setStatusCounts({});
       return;
     }
     let alive = true;
+    // staré číslo z jiného výběru neukazovat, dokud nedorazí nové
+    setStatusCounts({});
     (async () => {
       try {
         const api = getApi();
         const counts = await Promise.all(
           ALL_STATUSES.map(async (s) => {
             const r = await api.listKontakty(session.token, {
+              ...bezStavu,
               status: s,
+              caller: caller || null,
+              search: debouncedSearch.trim() || null,
+              cekani: cekani || null,
+              kos: cekani ? kos || null : null,
               segment: segment || null,
               limit: 1,
             });
@@ -174,7 +189,7 @@ export default function AdminPage() {
     return () => {
       alive = false;
     };
-  }, [session.token, segment, tick, isSuper]);
+  }, [session.token, segment, tick, isSuper, bezStavu, caller, debouncedSearch, cekani, kos]);
 
   // počty v koších (jen když je filtr čekání zapnutý) — ať je vidět, kolik jich
   // je v tom studeném balíku, aniž by zaplavily začátek seznamu; jen super admin (migrace 045)
@@ -187,9 +202,13 @@ export default function AdminPage() {
     (async () => {
       try {
         const api = getApi();
+        // ⚠ 13. 11. 2026: počet v koši se zapnutými filtry seznamu (stav, volající, hledání …), NAHRAZUJE jen segment
         const counts = await Promise.all(
           ALL_KOSE.map(async (k) => {
             const r = await api.listKontakty(session.token, {
+              ...naServer,
+              caller: caller || null,
+              search: debouncedSearch.trim() || null,
               cekani,
               kos: k,
               segment: segment || null,
@@ -206,7 +225,7 @@ export default function AdminPage() {
     return () => {
       alive = false;
     };
-  }, [session.token, cekani, segment, tick, isSuper]);
+  }, [session.token, cekani, segment, tick, isSuper, naServer, caller, debouncedSearch]);
 
   const load = useCallback(async () => {
     const muj = ++posledniSeznam.current;

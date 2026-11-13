@@ -51,7 +51,7 @@ import { HvezdaPrepinac } from '../components/Hvezda';
 import KontaktDrawer from '../components/KontaktDrawer';
 import PersonPicker, { usePeople } from '../components/PersonPicker';
 import SeznamFiltry from '../components/SeznamFiltry';
-import { PRAZDNE_FILTRY, filtrZapnuty, filtryNaServer, type StavFiltru } from '../filtry';
+import { PRAZDNE_FILTRY, filtrZapnuty, filtryBezStavu, filtryNaServer, type StavFiltru } from '../filtry';
 import { isAdminRole, isSuperAdmin } from '../roles';
 import {
   ALL_CEKANI,
@@ -205,6 +205,14 @@ export default function MojiPage() {
   }, [load, tick]);
 
   // počty u stavů pro vybraného člověka a segment (jako Kontakty; jen super admin, migrace 056)
+  // ⚠ 13. 11. 2026 (Albert: „when I selected Vera, it showed that there were two, but when I clicked on the filter, it didn't
+  // show a single listing“): počet bere všechny zapnuté filtry kromě stavu (hledání, čekání a koš, známka, hvězda, označení,
+  // mlčení), jako Kontakty. NAHRAZUJE počty jen podle člověka a segmentu.
+  const bezStavu = useMemo(
+    () => filtryBezStavu(stav),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [stav.znamky, stav.jenHvezda, stav.kategorie, stav.mlciMin, stav.mlciMax]
+  );
   useEffect(() => {
     if (!isSuper) {
       setStatusCounts({});
@@ -217,7 +225,13 @@ export default function MojiPage() {
         const api = getApi();
         const pocty = await Promise.all(
           ALL_STATUSES.map(async (s) => {
-            const r = await api.myKontakty(session.token, 1, 0, kdo, segment || null, { status: s });
+            const r = await api.myKontakty(session.token, 1, 0, kdo, segment || null, {
+              ...bezStavu,
+              status: s,
+              search: hledani || null,
+              cekani: cekani || null,
+              kos: cekani ? kos || null : null,
+            });
             return [s, r.total ?? 0] as const;
           })
         );
@@ -229,7 +243,7 @@ export default function MojiPage() {
     return () => {
       alive = false;
     };
-  }, [session.token, isSuper, kdo, segment, tick]);
+  }, [session.token, isSuper, kdo, segment, tick, bezStavu, hledani, cekani, kos]);
 
   // počty v koších, když je filtr čekání zapnutý (jen super admin)
   useEffect(() => {
@@ -241,9 +255,15 @@ export default function MojiPage() {
     (async () => {
       try {
         const api = getApi();
+        // ⚠ 13. 11. 2026: počet v koši se zapnutými filtry (stav, hledání …), NAHRAZUJE jen člověka a segment
         const pocty = await Promise.all(
           ALL_KOSE.map(async (k) => {
-            const r = await api.myKontakty(session.token, 1, 0, kdo, segment || null, { cekani, kos: k });
+            const r = await api.myKontakty(session.token, 1, 0, kdo, segment || null, {
+              ...filtryNaServer(stav),
+              search: hledani || null,
+              cekani,
+              kos: k,
+            });
             return [k, r.total ?? 0] as const;
           })
         );
@@ -255,7 +275,8 @@ export default function MojiPage() {
     return () => {
       alive = false;
     };
-  }, [session.token, isSuper, kdo, segment, cekani, tick]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session.token, isSuper, kdo, segment, cekani, tick, bezStavu, stav.statusy, hledani]);
 
   // ⚠ od 060 řádky filtruje server každému (NAHRAZUJE klientské hledání Volajícího v načtených řádcích)
   const filtered = rows;

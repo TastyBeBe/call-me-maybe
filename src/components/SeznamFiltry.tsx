@@ -111,7 +111,8 @@ export function VyberVice<T extends string>({
 }
 
 /**
- * Sdílený řádek filtrů. `statusPocty` jen super admin (součty celé databáze, 045). `kategorie` false = bez výběru skupiny
+ * Sdílený řádek filtrů. `statusPocty` jen super admin (045); ⚠ od 13. 11. 2026 jsou to počty se všemi zapnutými filtry
+ * seznamu kromě stavu (filtryBezStavu), NAHRAZUJE „součty celé databáze“. `kategorie` false = bez výběru skupiny
  * označení (Označené mají vlastní pilulky druhů i s příznaky). `razeni` = RazeniSelect stránky, `children` = filtry navíc
  * (volající, čekání), `hledat*` = popisek a nápověda pole hledání.
  */
