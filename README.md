@@ -250,6 +250,12 @@ client“.
   číslo u stavu je přesně počet řádků po kliknutí na něj (`filtryBezStavu` v `src/filtry.ts`, test `tests/filtry.test.mjs`
   blok V). NAHRAZUJE počty jen podle segmentu (Kontakty) a jen podle člověka a segmentu (Moji klienti), které se zapnutým
   volajícím nebo jiným filtrem ukazovaly čísla celé databáze.
+- **Odkaz na e-maily v Gmailu** (Albert 13. 11. 2026: „a link to the email conversation which the automation is having
+  with them“, volba „Gmail link only“ a „the Gmail link should be only visible to the super admins“): v detailu klienta
+  řádek „e-maily: celá konverzace v Gmailu“ jen super adminovi (`src/gmail.ts`, `gmailOdkaz`): hledání všech adres klienta
+  (e-mail, adresa pro rezervace, adresa souhlasu) v Gmailu automatizace domovwebu@gmail.com v nové záložce; otevře se
+  jen tomu, kdo je do toho Gmailu přihlášený. Appka e-maily nemá a nic nového ze serveru nečte. Test `filtry.test.mjs`
+  blok G.
 - **Filtr „odpověděl, zatím nepotvrdil“** (migrace 068, Albert 13. 11. 2026: „a filter for all the clients who responded
   and the response wasn't that they refused us“): přepínač vedle „jen s hvězdou“ v Kontaktech, Moji klienti i Označených
   (`jenOdpovedel` ve `src/filtry.ts`, server `p_odpovedel` v `list_kontakty`, `my_kontakty` a `list_oznacene`). Pustí jen

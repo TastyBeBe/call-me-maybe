@@ -66,6 +66,8 @@ let textBalicku;   // blok P si z něj načte vlastní kopii mocku (ukázková d
         "export { BEZ_061_JINE } from './src/api/supabase.ts';",
         // migrace 068: filtr „Odpověděl, zatím nepotvrdil“ proti serveru bez 068
         "export { BEZ_068_ODPOVEDEL } from './src/api/supabase.ts';",
+        // 13. 11. 2026: odkaz na e-mailovou konverzaci v Gmailu automatizace (jen super admin)
+        "export * as gmailModul from './src/gmail.ts';",
         "export * as prahaModul from './src/praha.ts';",
         "export * as uiModul from './src/ui.tsx';",
         // migrace 060: stav filtrů a jeho převod na parametry serveru, okno Zavolal/a jsem
@@ -95,7 +97,7 @@ let textBalicku;   // blok P si z něj načte vlastní kopii mocku (ukázková d
 }
 const { mockApi: api, supabaseApi, BEZ_056_DEN, BEZ_056_RAZENI, BEZ_056_FILTRY, BEZ_057_HOVOR, prahaModul: P, uiModul: U } = bundle;
 const { BEZ_060_FILTRY, BEZ_060_RAZENI, BEZ_060_OZNACENE, BEZ_060_HOVOR, BEZ_060_HVEZDA, BEZ_060_PREHLED, filtryModul: FM, dovolaniModul: DM } = bundle;
-const { BEZ_061_JINE, BEZ_068_ODPOVEDEL } = bundle;
+const { BEZ_061_JINE, BEZ_068_ODPOVEDEL, gmailModul: GM } = bundle;
 
 let pocet = 0;
 let chyby = 0;
@@ -1346,6 +1348,26 @@ await blok('W', async () => {
     && (src('src/pages/MojiPage.tsx').match(/stav\.jenOdpovedel/g) ?? []).length === 2
     && (src('src/pages/OznacenePage.tsx').match(/stav\.jenOdpovedel/g) ?? []).length === 1,
     'přepínač „odpověděl, zatím nepotvrdil“ a závislosti seznamů i počtů v Kontaktech, Moji klienti a Označených');
+});
+
+/* ---------------- G) odkaz na e-mailovou konverzaci v Gmailu (Albert 13. 11. 2026) ----------------
+ * „a link to the email conversation which the automation is having with them“, volba „Gmail link only“ a „the Gmail link
+ * should be only visible to the super admins“: hledání adres klienta v Gmailu automatizace (src/gmail.ts). */
+await blok('G', async () => {
+  const u = GM.gmailOdkaz({ email: 'Info@Firma.cz' });
+  over('G1', u === 'https://mail.google.com/mail/?authuser=domovwebu%40gmail.com#search/info%40firma.cz', 'odkaz: Gmail automatizace, hledání adresy malými písmeny', u);
+  const u2 = GM.gmailOdkaz({ email: 'a@x.cz', email_rezervace: 'A@x.cz ', souhlas_email: 'b@y.cz' });
+  over('G2', u2 === 'https://mail.google.com/mail/?authuser=domovwebu%40gmail.com#search/' + encodeURIComponent('a@x.cz OR b@y.cz'),
+    'odkaz: všechny adresy klienta bez opakování (e-mail, rezervace, souhlas)', u2);
+  over('G3', GM.gmailOdkaz({ email: null }) === null && GM.gmailOdkaz({ email: 'neni adresa', souhlas_email: '' }) === null,
+    'bez platné adresy žádný odkaz');
+  const d = readFileSync(join(ROOT, 'src/components/KontaktDrawer.tsx'), 'utf8');
+  // pohled na cizí kontakt Volajícího (větev jenZaklad) končí tam, kde začíná plný detail (<div className="drawer">)
+  const zaklad = d.slice(d.indexOf('if (jenZaklad(kontakt)) {'), d.indexOf('<div className="drawer">'));
+  over('G4a', zaklad.length > 500 && /drawer-skryto/.test(zaklad), 'test našel pohled na cizí kontakt', String(zaklad.length));
+  over('G4', (d.match(/gmailOdkaz\(kontakt\)/g) ?? []).length === 2 && /\{isSuperAdmin\(session\.role\) && gmailOdkaz\(kontakt\) && \(/.test(d)
+    && !/gmailOdkaz/.test(zaklad) && /target="_blank" rel="noreferrer"[^>]*>\s*celá konverzace v Gmailu/.test(d),
+    'detail: odkaz jen super adminovi, ne v pohledu na cizí kontakt, v nové záložce');
 });
 
 if (chyby === 0) {

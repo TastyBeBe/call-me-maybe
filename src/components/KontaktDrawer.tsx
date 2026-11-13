@@ -83,11 +83,13 @@ import { HvezdaPrepinac } from './Hvezda';
 import PrehledPanel from './PrehledPanel';
 import { usePeople } from './PersonPicker';
 import ZavolatModal from './ZavolatModal';
+import { gmailOdkaz } from '../gmail';
 import {
   AlarmIcon,
   CheckIcon,
   FlagIcon,
   GlobeIcon,
+  MailIcon,
   MessageIcon,
   PhoneIcon,
   RocketIcon,
@@ -845,6 +847,17 @@ export default function KontaktDrawer({
             <RocketIcon size={15} /> nový web:{' '}
             <a href={kontakt.live_url} target="_blank" rel="noreferrer">
               {kontakt.live_url}
+            </a>
+          </p>
+        )}
+        {/* 13. 11. 2026 (Albert: „a link to the email conversation which the automation is having with them“, volba „Gmail
+            link only“ a „the Gmail link should be only visible to the super admins“): hledání adres klienta v Gmailu
+            automatizace (src/gmail.ts); otevře se jen tomu, kdo je do domovwebu@gmail.com přihlášený */}
+        {isSuperAdmin(session.role) && gmailOdkaz(kontakt) && (
+          <p className="meta-line gmail-odkaz">
+            <MailIcon size={15} /> e-maily:{' '}
+            <a href={gmailOdkaz(kontakt) ?? undefined} target="_blank" rel="noreferrer">
+              celá konverzace v Gmailu
             </a>
           </p>
         )}
