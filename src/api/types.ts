@@ -415,6 +415,8 @@ export interface MojiFiltry {
   kategorie?: OznaceniKategorie[] | null;
   mlci_min?: number | null;
   mlci_max?: number | null;
+  /** migrace 068 (Albert 13. 11. 2026): jen klient, který nám napsal, neodmítl a web ještě nepotvrdil */
+  odpovedel?: boolean | null;
 }
 
 export interface AdminMessage {
@@ -543,6 +545,8 @@ export interface ListKontaktyFilters {
   kategorie?: OznaceniKategorie[] | null;
   mlci_min?: number | null;
   mlci_max?: number | null;
+  /** migrace 068 (Albert 13. 11. 2026): jen klient, který nám napsal, neodmítl a web ještě nepotvrdil */
+  odpovedel?: boolean | null;
 }
 
 /**
@@ -552,7 +556,7 @@ export interface ListKontaktyFilters {
  * filtru stačí kterákoli (NEBO). Prázdné pole nebo null = filtr vypnutý; appka pak parametr serveru vůbec nepošle
  * (server bez 060 ho nezná). Volajícímu berou jen jeho klienty a jen jeho označení (cizí kontakt nikdy nesedí).
  */
-export type FiltryMlceni = Pick<ListKontaktyFilters, 'statusy' | 'znamky' | 'jen_hvezda' | 'kategorie' | 'mlci_min' | 'mlci_max'>;
+export type FiltryMlceni = Pick<ListKontaktyFilters, 'statusy' | 'znamky' | 'jen_hvezda' | 'kategorie' | 'mlci_min' | 'mlci_max' | 'odpovedel'>;
 
 /**
  * Označené (list_oznacene, migrace 060): kontakty s otevřeným označením k zavolání, které přihlášený vidí (Volající jen

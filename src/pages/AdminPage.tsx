@@ -120,7 +120,7 @@ export default function AdminPage() {
   const naServer = useMemo(
     () => filtryNaServer(filtry),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [filtry.statusy, filtry.znamky, filtry.jenHvezda, filtry.kategorie, filtry.mlciMin, filtry.mlciMax]
+    [filtry.statusy, filtry.znamky, filtry.jenHvezda, filtry.jenOdpovedel, filtry.kategorie, filtry.mlciMin, filtry.mlciMax]
   );
 
   const [rows, setRows] = useState<Kontakt[]>([]);
@@ -153,7 +153,7 @@ export default function AdminPage() {
   const bezStavu = useMemo(
     () => filtryBezStavu(filtry),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [filtry.znamky, filtry.jenHvezda, filtry.kategorie, filtry.mlciMin, filtry.mlciMax]
+    [filtry.znamky, filtry.jenHvezda, filtry.jenOdpovedel, filtry.kategorie, filtry.mlciMin, filtry.mlciMax]
   );
   useEffect(() => {
     if (!isSuper) {

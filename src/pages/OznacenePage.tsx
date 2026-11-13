@@ -140,7 +140,7 @@ export default function OznacenePage() {
       ...(kdo === 'bez' ? { bez_volajiciho: true } : typeof kdo === 'number' ? { user_id: kdo } : {}),
     }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [stav.statusy, stav.znamky, stav.jenHvezda, stav.mlciMin, stav.mlciMax, stav.segment, stav.razeni, hledani, kdo]
+    [stav.statusy, stav.znamky, stav.jenHvezda, stav.jenOdpovedel, stav.mlciMin, stav.mlciMax, stav.segment, stav.razeni, hledani, kdo]
   );
 
   const load = useCallback(async () => {

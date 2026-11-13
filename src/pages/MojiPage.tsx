@@ -178,7 +178,7 @@ export default function MojiPage() {
       razeni: razeni || null,
     }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [stav.statusy, stav.znamky, stav.jenHvezda, stav.kategorie, stav.mlciMin, stav.mlciMax, hledani, cekani, kos, razeni]
+    [stav.statusy, stav.znamky, stav.jenHvezda, stav.jenOdpovedel, stav.kategorie, stav.mlciMin, stav.mlciMax, hledani, cekani, kos, razeni]
   );
   const filtrZapnutyNyni = filtrZapnuty({ ...stav, hledat: hledani }) || !!cekani;
 
@@ -211,7 +211,7 @@ export default function MojiPage() {
   const bezStavu = useMemo(
     () => filtryBezStavu(stav),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [stav.znamky, stav.jenHvezda, stav.kategorie, stav.mlciMin, stav.mlciMax]
+    [stav.znamky, stav.jenHvezda, stav.jenOdpovedel, stav.kategorie, stav.mlciMin, stav.mlciMax]
   );
   useEffect(() => {
     if (!isSuper) {

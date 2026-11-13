@@ -64,6 +64,8 @@ let textBalicku;   // blok P si z něj načte vlastní kopii mocku (ukázková d
         "export { BEZ_060_FILTRY, BEZ_060_RAZENI, BEZ_060_OZNACENE, BEZ_060_HOVOR, BEZ_060_HVEZDA, BEZ_060_PREHLED } from './src/api/supabase.ts';",
         // migrace 061: pátý výsledek dovolání proti serveru bez 061
         "export { BEZ_061_JINE } from './src/api/supabase.ts';",
+        // migrace 068: filtr „Odpověděl, zatím nepotvrdil“ proti serveru bez 068
+        "export { BEZ_068_ODPOVEDEL } from './src/api/supabase.ts';",
         "export * as prahaModul from './src/praha.ts';",
         "export * as uiModul from './src/ui.tsx';",
         // migrace 060: stav filtrů a jeho převod na parametry serveru, okno Zavolal/a jsem
@@ -93,7 +95,7 @@ let textBalicku;   // blok P si z něj načte vlastní kopii mocku (ukázková d
 }
 const { mockApi: api, supabaseApi, BEZ_056_DEN, BEZ_056_RAZENI, BEZ_056_FILTRY, BEZ_057_HOVOR, prahaModul: P, uiModul: U } = bundle;
 const { BEZ_060_FILTRY, BEZ_060_RAZENI, BEZ_060_OZNACENE, BEZ_060_HOVOR, BEZ_060_HVEZDA, BEZ_060_PREHLED, filtryModul: FM, dovolaniModul: DM } = bundle;
-const { BEZ_061_JINE } = bundle;
+const { BEZ_061_JINE, BEZ_068_ODPOVEDEL } = bundle;
 
 let pocet = 0;
 let chyby = 0;
@@ -1284,6 +1286,66 @@ await blok('V', async () => {
     }
     over('V3', shod === ALL.length, `s volajícím ${volajici}: počet u stavu = řádky po kliknutí u všech ${ALL.length} stavů`, neshody.join('; '));
   }
+});
+
+/* ---------------- W) filtr „Odpověděl, zatím nepotvrdil“ (migrace 068, Albert 13. 11. 2026) ----------------
+ * „a filter for all the clients who responded and the response wasn't that they refused us“: klient nám napsal
+ * (last_client_reply_at), neodmítl a web ještě nepotvrdil. Mock zrcadlí db/migration_068_odpovedel_nepotvrdil.sql
+ * (test db/tests/test_068_odpovedel_nepotvrdil.sql). */
+await blok('W', async () => {
+  const MIMO = ['odmitnuto', 'nekontaktovat', 'nerelevantni', 'sleva_nabidnuta', 'bez_odpovedi', 'schvaleno', 'faktura_odeslana', 'zaplaceno', 'domena_pripojena', 'hotovo'];
+  const sedi = (r) => !!r.last_client_reply_at && !MIMO.includes(r.status);
+  // W1 stav filtrů a převod
+  const f = { ...FM.PRAZDNE_FILTRY, jenOdpovedel: true };
+  over('W1', FM.filtryNaServer(f).odpovedel === true && FM.filtryOznacenych(f).odpovedel === true && FM.filtryBezStavu(f).odpovedel === true
+    && FM.filtrZapnuty(f) && FM.filtrJenSvoje(f) && FM.filtryNaServer(FM.PRAZDNE_FILTRY).odpovedel === undefined,
+    'jenOdpovedel → odpovedel pro všechny tři seznamy i počty, zapnutý filtr, Volajícímu jen svoje');
+  // W2 co appka posílá: p_odpovedel jen zapnutý
+  odpoved = { status: 200, telo: JSON.stringify({ rows: [], total: 0 }) };
+  odeslano.length = 0;
+  await supabaseApi.listKontakty('tok', { limit: 5, odpovedel: true });
+  await supabaseApi.listKontakty('tok', { limit: 5 });
+  await supabaseApi.myKontakty('tok', 5, 0, null, null, { odpovedel: true });
+  odpoved = { status: 200, telo: '[]' };
+  await supabaseApi.listOznacene('tok', { odpovedel: true });
+  await supabaseApi.listOznacene('tok', {});
+  const b = odeslano.map((o) => o.body.p_odpovedel);
+  over('W2', b[0] === true && !('p_odpovedel' in odeslano[1].body) && b[2] === true && b[3] === true && !('p_odpovedel' in odeslano[4].body),
+    'p_odpovedel jen se zapnutým filtrem (list_kontakty, my_kontakty, list_oznacene)', JSON.stringify(b));
+  // W3 server bez 068: srozumitelná hláška, ostatní filtry 060 dál vlastní hlášky
+  odpoved = { status: 404, telo: '{"code":"PGRST202","message":"Could not find the function public.list_kontakty(p_odpovedel, p_token) in the schema cache"}' };
+  await chyba('W3', () => supabaseApi.listKontakty('t', { limit: 5, odpovedel: true }), presne(BEZ_068_ODPOVEDEL), 'stará DB: filtr odpovědi v Kontaktech');
+  await chyba('W3b', () => supabaseApi.myKontakty('t', 5, 0, null, null, { odpovedel: true, jen_hvezda: true }), presne(BEZ_068_ODPOVEDEL), 'stará DB: filtr odpovědi v Moji klienti');
+  await chyba('W3c', () => supabaseApi.listOznacene('t', { odpovedel: true }), presne(BEZ_068_ODPOVEDEL), 'stará DB: filtr odpovědi v Označených');
+  await chyba('W3d', () => supabaseApi.listKontakty('t', { limit: 5, jen_hvezda: true }), presne(BEZ_060_FILTRY), 'stará DB bez 060: hvězda dál hlášku 060');
+  odpoved = { status: 200, telo: '[]' };
+  // W4 mock = server: super admin dostane přesně kontakty, které podmínce sedí
+  const vse = (await api.listKontakty(albert, { limit: 5000 })).rows;
+  const ocek = serazene(vse.filter(sedi).map((r) => r.id));
+  const dostal = serazene((await api.listKontakty(albert, { limit: 5000, odpovedel: true })).rows.map((r) => r.id));
+  over('W4', ocek.length > 0 && stejne(ocek, dostal), 'mock: super admin s filtrem odpovědi = napsal, neodmítl, nepotvrdil',
+    `čekáno ${ocek.length}, dostal ${dostal.length}`);
+  // W4b mock nepustí doslova tytéž stavy jako server (db/migration_068_odpovedel_nepotvrdil.sql, test 068 je měří na
+  // vlastních kontaktech; ukázková data mocku všechny stavy s odpovědí nemají a některé ukázkové kontakty mock při čtení
+  // vrací do jejich ukázkového stavu, proto seznam ze zdroje mocku)
+  const mockSrc = readFileSync(join(ROOT, 'src/api/mock.ts'), 'utf8');
+  const mm = mockSrc.match(/const STAVY_MIMO_068: string\[\] = \[([^\]]*)\];/);
+  const mockMimo = mm ? [...mm[1].matchAll(/'([a-z_]+)'/g)].map((x) => x[1]) : [];
+  over('W4b', stejne([...mockMimo].sort(), [...MIMO].sort()), 'mock nepustí přesně stavy migrace 068', mockMimo.join(', '));
+  // W5 Volající: jen jeho klienti (cizí kontakt filtru nikdy nevyhoví), Moji klienti totéž
+  const moji = serazene((await api.myKontakty(petra, 5000, 0, null, null, null)).rows.filter(sedi).map((r) => r.id));
+  const kontaktyPetra = serazene((await api.listKontakty(petra, { limit: 200, odpovedel: true })).rows.map((r) => r.id));
+  const mojiFiltr = serazene((await api.myKontakty(petra, 5000, 0, null, null, { odpovedel: true })).rows.map((r) => r.id));
+  over('W5', stejne(moji, kontaktyPetra) && stejne(moji, mojiFiltr), 'Volající: filtr odpovědi jen nad jeho klienty (Kontakty i Moji klienti)',
+    `moji ${moji.join(',')} | kontakty ${kontaktyPetra.join(',')} | moji klienti ${mojiFiltr.join(',')}`);
+  // W6 zapojení: přepínač v řádku filtrů a obnova seznamů i počtů po jeho změně
+  const src = (pp) => readFileSync(join(ROOT, pp), 'utf8');
+  const sf = src('src/components/SeznamFiltry.tsx');
+  over('W6', /aria-label="Odpověděl, zatím nepotvrdil"/.test(sf) && /onClick=\{\(\) => zmen\(\{ jenOdpovedel: !filtry\.jenOdpovedel \}\)\}/.test(sf)
+    && (src('src/pages/AdminPage.tsx').match(/filtry\.jenOdpovedel/g) ?? []).length === 2
+    && (src('src/pages/MojiPage.tsx').match(/stav\.jenOdpovedel/g) ?? []).length === 2
+    && (src('src/pages/OznacenePage.tsx').match(/stav\.jenOdpovedel/g) ?? []).length === 1,
+    'přepínač „odpověděl, zatím nepotvrdil“ a závislosti seznamů i počtů v Kontaktech, Moji klienti a Označených');
 });
 
 if (chyby === 0) {

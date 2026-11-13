@@ -68,6 +68,9 @@ const hovorNezna = (razeni: string | null | undefined, e: unknown): boolean =>
  */
 export const BEZ_060_FILTRY =
   'Filtry stavů, známek, hvězdy, označení a mlčení server ještě neumí (chybí na něm migrace 060). Zruš je a uvidíš seznam jako dřív.';
+/** Migrace 068 (Albert 13. 11. 2026): filtr „Odpověděl, zatím nepotvrdil“ proti serveru bez 068 (PGRST202). */
+export const BEZ_068_ODPOVEDEL =
+  'Filtr „Odpověděl, zatím nepotvrdil“ server ještě neumí (chybí na něm migrace 068). Vypni ho a uvidíš seznam jako dřív.';
 export const BEZ_060_RAZENI = 'Řazení podle mlčení a hvězdy server ještě neumí (chybí na něm migrace 060). Vyber jiné řazení.';
 export const BEZ_060_OZNACENE =
   'Označení k zavolání server ještě neumí (chybí na něm migrace 060). Níž jsou jen klienti s příznakem jako dřív.';
@@ -112,6 +115,8 @@ function filtry060(f: FiltryMlceni | null | undefined): Record<string, unknown> 
     ...(f?.kategorie?.length ? { p_kategorie: f.kategorie } : {}),
     ...(typeof f?.mlci_min === 'number' ? { p_mlci_min: f.mlci_min } : {}),
     ...(typeof f?.mlci_max === 'number' ? { p_mlci_max: f.mlci_max } : {}),
+    // migrace 068 (Albert 13. 11. 2026): jen zapnutý, server bez 068 ho nezná (BEZ_068_ODPOVEDEL)
+    ...(f?.odpovedel ? { p_odpovedel: true } : {}),
   };
 }
 
@@ -289,6 +294,7 @@ export const supabaseApi: Api = {
       });
     } catch (e) {
       // migrace 060: server bez 060 nové filtry nezná (PGRST202) a řazení mlceni a hvezda odmítne
+      if (nove.p_odpovedel && neniNaServeru(e)) throw new Error(BEZ_068_ODPOVEDEL);
       if (Object.keys(nove).length > 0 && neniNaServeru(e)) throw new Error(BEZ_060_FILTRY);
       if (razeni060Nezna(f.razeni, e)) throw new Error(BEZ_060_RAZENI);
       // migrace 057: řazení podle hovoru na serveru bez 057 (nebo bez 056) srozumitelně, ostatní řazení jako u 056
@@ -330,6 +336,7 @@ export const supabaseApi: Api = {
       });
     } catch (e) {
       // migrace 060: nové filtry a řazení mlceni a hvezda na serveru bez 060 srozumitelně (jako v Kontaktech)
+      if (nove.p_odpovedel && neniNaServeru(e)) throw new Error(BEZ_068_ODPOVEDEL);
       if (Object.keys(nove).length > 0 && neniNaServeru(e)) throw new Error(BEZ_060_FILTRY);
       if (razeni060Nezna(filtry?.razeni, e)) throw new Error(BEZ_060_RAZENI);
       // migrace 057: řazení podle hovoru na serveru bez 057 srozumitelně (jako v Kontaktech)
@@ -391,6 +398,8 @@ export const supabaseApi: Api = {
         })) ?? []
       );
     } catch (e) {
+      // migrace 068: server s 060 bez 068 nezná jen p_odpovedel
+      if (f.odpovedel && neniNaServeru(e)) throw new Error(BEZ_068_ODPOVEDEL);
       if (neniNaServeru(e)) throw new Error(BEZ_060_OZNACENE);
       throw e;
     }

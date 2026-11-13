@@ -21,6 +21,8 @@ export interface StavFiltru {
   statusy: KontaktStatus[];
   znamky: ZnamkaFiltr[];
   jenHvezda: boolean;
+  /** migrace 068 (Albert 13. 11. 2026): jen klienti, kteří odpověděli, neodmítli a web ještě nepotvrdili */
+  jenOdpovedel: boolean;
   kategorie: OznaceniKategorie[];
   /** mlčí aspoň / nejvýš tolik pracovních dní (včetně); null = bez meze */
   mlciMin: number | null;
@@ -34,6 +36,7 @@ export const PRAZDNE_FILTRY: StavFiltru = {
   statusy: [],
   znamky: [],
   jenHvezda: false,
+  jenOdpovedel: false,
   kategorie: [],
   mlciMin: null,
   mlciMax: null,
@@ -60,6 +63,7 @@ export function filtrZapnuty(f: StavFiltru): boolean {
     f.statusy.length > 0 ||
     f.znamky.length > 0 ||
     f.jenHvezda ||
+    f.jenOdpovedel ||
     f.kategorie.length > 0 ||
     f.mlciMin !== null ||
     f.mlciMax !== null ||
@@ -69,7 +73,7 @@ export function filtrZapnuty(f: StavFiltru): boolean {
 
 /** Jsou zapnuté filtry, které Volajícímu berou jen jeho klienty (stav, známka, hvězda, označení, mlčení)? */
 export function filtrJenSvoje(f: StavFiltru): boolean {
-  return f.statusy.length > 0 || f.znamky.length > 0 || f.jenHvezda || f.kategorie.length > 0 || f.mlciMin !== null || f.mlciMax !== null;
+  return f.statusy.length > 0 || f.znamky.length > 0 || f.jenHvezda || f.jenOdpovedel || f.kategorie.length > 0 || f.mlciMin !== null || f.mlciMax !== null;
 }
 
 /**
@@ -118,6 +122,8 @@ export function filtryOznacenych(f: StavFiltru): Omit<FiltryMlceni, 'kategorie'>
 function filtryMlceni(f: StavFiltru): FiltryMlceni {
   return {
     ...(f.jenHvezda ? { jen_hvezda: true } : {}),
+    // migrace 068: jen zapnutý (server bez 068 parametr nezná)
+    ...(f.jenOdpovedel ? { odpovedel: true } : {}),
     ...(f.kategorie.length > 0 ? { kategorie: [...f.kategorie] } : {}),
     ...(f.mlciMin !== null ? { mlci_min: f.mlciMin } : {}),
     ...(f.mlciMax !== null ? { mlci_max: f.mlciMax } : {}),

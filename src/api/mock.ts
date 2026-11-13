@@ -2571,9 +2571,13 @@ function checkFiltry060(f: FiltryMlceni | null | undefined): void {
   }
 }
 
+/** Migrace 068: stavy, které filtr „Odpověděl, zatím nepotvrdil“ nepustí (doslova jako server). */
+const STAVY_MIMO_068: string[] = ['odmitnuto', 'nekontaktovat', 'nerelevantni', 'sleva_nabidnuta', 'bez_odpovedi',
+  'schvaleno', 'faktura_odeslana', 'zaplaceno', 'domena_pripojena', 'hotovo'];
+
 /** Je zapnutý aspoň jeden nový filtr (Volajícímu pak sedí jen jeho klienti)? */
 function filtr060(f: FiltryMlceni | null | undefined): boolean {
-  return !!(f?.statusy?.length || f?.znamky?.length || f?.jen_hvezda || f?.kategorie?.length
+  return !!(f?.statusy?.length || f?.znamky?.length || f?.jen_hvezda || f?.odpovedel || f?.kategorie?.length
     || typeof f?.mlci_min === 'number' || typeof f?.mlci_max === 'number');
 }
 
@@ -2586,6 +2590,8 @@ function sedi060(c: Kontakt, f: FiltryMlceni | null | undefined, od: number | nu
   if (f.statusy?.length && !f.statusy.includes(c.status)) return false;
   if (f.znamky?.length && !f.znamky.includes((c.rating ?? 'bez') as ZnamkaFiltr)) return false;
   if (f.jen_hvezda && !c.hvezda_at) return false;
+  // migrace 068 (db/migration_068_odpovedel_nepotvrdil.sql): napsal, neodmítl, web ještě nepotvrdil
+  if (f.odpovedel && !(c.last_client_reply_at && !STAVY_MIMO_068.includes(c.status))) return false;
   if (f.kategorie?.length) {
     const o = oznaceniPro(c.id, od);
     if (!o || !f.kategorie.includes(o.kategorie)) return false;

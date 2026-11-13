@@ -250,6 +250,13 @@ client“.
   číslo u stavu je přesně počet řádků po kliknutí na něj (`filtryBezStavu` v `src/filtry.ts`, test `tests/filtry.test.mjs`
   blok V). NAHRAZUJE počty jen podle segmentu (Kontakty) a jen podle člověka a segmentu (Moji klienti), které se zapnutým
   volajícím nebo jiným filtrem ukazovaly čísla celé databáze.
+- **Filtr „odpověděl, zatím nepotvrdil“** (migrace 068, Albert 13. 11. 2026: „a filter for all the clients who responded
+  and the response wasn't that they refused us“): přepínač vedle „jen s hvězdou“ v Kontaktech, Moji klienti i Označených
+  (`jenOdpovedel` ve `src/filtry.ts`, server `p_odpovedel` v `list_kontakty`, `my_kontakty` a `list_oznacene`). Pustí jen
+  klienta, který nám napsal (`last_client_reply_at`), neodmítl a web ještě nepotvrdil: mimo Odmítnuto, Nekontaktovat,
+  Nerelevantní, Nabídnuta sleva, Archiv – neodpověděl a mimo Schváleno, Faktura odeslána, Zaplaceno, Doména připojena,
+  Hotovo (seznam doslova jako server, `STAVY_MIMO_068` v mocku). Volajícímu jen nad jeho klienty. Parametr jde jen
+  zapnutý; server bez 068 = hláška `BEZ_068_ODPOVEDEL`. Test `tests/filtry.test.mjs` blok W, server `db/tests/test_068_*`.
 - **Řazení** (Kontakty každý, Moji klienti super admin): „Řazení: výchozí“, „Podle poslední změny (od nejnovější)“
   a „Podle poslední změny (od nejstarší)“ (`RazeniSelect` v `src/ui.tsx`). Poslední změna = sloupec Změněno
   (`updated_at`): posune ji hovor, úprava v detailu, příznak a kalendář v appce, změna stavu od agenta ne (automatizace

@@ -183,6 +183,18 @@ export default function SeznamFiltry({
         >
           <HvezdaIcon size={15} plna={filtry.jenHvezda} /> jen s hvězdou
         </button>
+        {/* migrace 068 (Albert 13. 11. 2026: „a filter for all the clients who responded and the response wasn't that they
+            refused us“): klient nám napsal, neodmítl a web ještě nepotvrdil (Schváleno a dál mají své stavy) */}
+        <button
+          type="button"
+          className={`pill-btn sm odpovedel-filtr${filtry.jenOdpovedel ? ' go' : ''}`}
+          aria-pressed={filtry.jenOdpovedel}
+          aria-label="Odpověděl, zatím nepotvrdil"
+          title="Klient nám napsal, neodmítl a web ještě nepotvrdil (bez Odmítnuto, Nekontaktovat, Nerelevantní, Nabídnuta sleva, Archiv a bez Schváleno, Faktura odeslána, Zaplaceno, Doména připojena, Hotovo)"
+          onClick={() => zmen({ jenOdpovedel: !filtry.jenOdpovedel })}
+        >
+          odpověděl, zatím nepotvrdil
+        </button>
         {kategorie && (
           <VyberVice
             aria="Filtr označení"
