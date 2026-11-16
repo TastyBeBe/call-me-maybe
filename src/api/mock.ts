@@ -54,6 +54,9 @@ import type {
   VydelekProdej,
   VysledekDovolani,
   VysledekHovoru,
+  ZajemPocty,
+  ZajemPodleVolajicich,
+  ZajemRadek,
   ZapisHovoruVysledek,
   ZavolatKarta,
   ZavolatPolozka,
@@ -4873,6 +4876,50 @@ const mockApiZaklad: Api = {
       preplanovano: logs.filter((l) => l.outcome === 'preplanovano').length,
       vydelek: vydelekPro(cil.id),
     };
+  },
+
+  async zajemPodleVolajicich(token: string, segment: Segment | null = null): Promise<ZajemPodleVolajicich> {
+    await delay(100);
+    const me = auth(token);
+    // migrace 069 (db/migration_069_zajem_podle_volajicich.sql): jen super admin jako all_stats (045), pak segment
+    if (me.role !== 'super_admin') fail('Statistiky ostatních vidí jen super admin.');
+    checkSegment(segment, true);
+    const nuly = (): ZajemPocty => ({ chce_web: 0, odpovedel: 0, zajem: 0, ceka: 0 });
+    const podle = new Map<string | null, ZajemPocty>();
+    for (const c of kontakty) {
+      if (segment && segmentOf(c) !== segment) continue;
+      // doslova jako server: potvrzený web (PRODANO_STAVY = prodáno), filtr 068 (napsal, neodmítl, nepotvrdil), návrh
+      // bez odpovědi
+      const chce = PRODANO_STAVY.includes(c.status);
+      const odp = !!c.last_client_reply_at && !STAVY_MIMO_068.includes(c.status);
+      const ceka = c.status === 'navrh_odeslan' && !c.last_client_reply_at;
+      if (!chce && !odp && !ceka) continue;
+      const klic = c.last_caller ?? null;
+      const p = podle.get(klic) ?? nuly();
+      if (chce) p.chce_web += 1;
+      if (odp) p.odpovedel += 1;
+      if (ceka) p.ceka += 1;
+      p.zajem = p.chce_web + p.odpovedel;
+      podle.set(klic, p);
+    }
+    const radky: ZajemRadek[] = [...podle.entries()]
+      .filter((e): e is [string, ZajemPocty] => e[0] !== null)
+      .map(([volajici, p]) => {
+        const u = users.find((x) => x.display_name === volajici);
+        return { volajici, user_id: u?.id ?? null, active: u ? u.active : null, ...p };
+      })
+      // pořadí jako server: zájem, chce web, čeká (sestupně), pak jméno (collate "C" = pořadí znaků)
+      .sort((a, b) => b.zajem - a.zajem || b.chce_web - a.chce_web || b.ceka - a.ceka
+        || (a.volajici < b.volajici ? -1 : a.volajici > b.volajici ? 1 : 0));
+    const bez = podle.get(null) ?? nuly();
+    const celkem = nuly();
+    for (const p of podle.values()) {
+      celkem.chce_web += p.chce_web;
+      celkem.odpovedel += p.odpovedel;
+      celkem.zajem += p.zajem;
+      celkem.ceka += p.ceka;
+    }
+    return { radky, bez_volajiciho: bez, celkem };
   },
 };
 

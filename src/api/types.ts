@@ -929,6 +929,32 @@ export interface StatistikyVolani {
   vydelek: Vydelek;
 }
 
+/**
+ * Počty klientů jednoho řádku tabulky „Zájem podle volajících“ (zajem_podle_volajicich, migrace 069, Albert 15. 11. 2026).
+ * chce_web = stav schvaleno a dál (web potvrdil); odpovedel = napsal, neodmítl a web ještě nepotvrdil (filtr 068);
+ * zajem = chce_web + odpovedel (Albertovo „interested“); ceka = navrh_odeslan bez odpovědi. Jsou to KONTAKTY, ne hovory.
+ */
+export interface ZajemPocty {
+  chce_web: number;
+  odpovedel: number;
+  zajem: number;
+  ceka: number;
+}
+
+/** Řádek volajícího (kontakty.last_caller, jako filtr Volající v Kontaktech); účet podle jména, bez účtu null. */
+export interface ZajemRadek extends ZajemPocty {
+  volajici: string;
+  user_id: number | null;
+  active: boolean | null;
+}
+
+/** zajem_podle_volajicich: řádky (jen volající s aspoň jedním klientem), klienti bez volajícího a celkem. Jen super admin. */
+export interface ZajemPodleVolajicich {
+  radky: ZajemRadek[];
+  bez_volajiciho: ZajemPocty;
+  celkem: ZajemPocty;
+}
+
 /** Jednotné API rozhraní — implementuje ho reálný Supabase klient i demo mock. */
 export interface Api {
   login(username: string, password: string): Promise<Session>;
@@ -1123,4 +1149,10 @@ export interface Api {
   zavolatVzit(token: string, id: number): Promise<Kontakt>;
   /** Nerelevantní, přeplánované a výdělek: svoje každý, cizí (userId) jen super admin. */
   statistikyVolani(token: string, userId?: number | null): Promise<StatistikyVolani>;
+  /**
+   * Tabulka „Zájem podle volajících“ ve Statistikách (migrace 069, Albert 15. 11. 2026): klienti, kteří web potvrdili,
+   * odpověděli a ještě nepotvrdili, a návrhy bez odpovědi, po volajících (kontakty.last_caller). Jen super admin;
+   * `segment` null = vše (jako Kontakty). Server bez 069 = chyba BEZ_069_ZAJEM.
+   */
+  zajemPodleVolajicich(token: string, segment?: Segment | null): Promise<ZajemPodleVolajicich>;
 }

@@ -233,7 +233,8 @@ client“.
   i v den změny času) jako na serveru. Za den jsou všechna čísla jen toho dne: hovory, dovoláno, zájem, odmítnuto,
   nedovoláno, konverze, nerelevantní a přeplánováno (hovory z call_log toho dne) a prodáno (weby, které se ten den
   prodaly, podle `kontakt_prodej` jako výdělek, a u kterých měl ten člověk zájem; ne podle dne hovoru, součet dnů je
-  celkem). Výdělek, dny jako #1 prodejce a Klienti podle stavu den nemají, v pohledu dne se neukazují. Server
+  celkem). Výdělek, dny jako #1 prodejce a Klienti podle stavu den nemají, v pohledu dne se neukazují (⚠ od migrace 069
+  ani tabulka „Zájem podle volajících“, oddíl 069 níž). Server
   `all_stats(p_token, p_den)` (dál jen super admin), appka posílá `p_den` jen za den (`allStats(token, den)`).
 - **Moji klienti** (jen super admin): nad klienty vybraného člověka stejné filtry jako Kontakty: stav s počty, známka,
   čekání na odpověď s koši (zapnutí = koš „k zavolání“) a sloupcem Čeká, hledání na serveru (jméno, studio, telefon, web,
@@ -527,6 +528,31 @@ v `config.env` (do té doby ostrá appka řádek „Připomínka odeslána“ ne
   E063 (Označené a přehled super admina, Petra nic nevidí, hvězda od automatizace v Moji klienti a v detailu). Server:
   `../db/tests/test_063_oznaceni_etapa2.sql`.
 
+## Zájem podle volajících ve Statistikách 069 (Albert 15. 11. 2026)
+
+Server: `../db/migration_069_zajem_podle_volajicich.sql` (spouští se PŘED appkou; nová appka bez 069 místo tabulky ukáže
+hlášku `BEZ_069_ZAJEM` a zbytek Statistik jede dál). Albert 15. 11. 2026: „I need to be able to like view how many
+interested people we have for each [caller] … people who have responded to the preview and said they want it or just
+responded and seemed interested in it“ a na otázku, jestli takovou tabulku přidat do Statistik, „Yes, add it“.
+
+- **Tabulka „Zájem podle volajících“** (jen super admin, v pohledu Celkem pod Vyděláno a nad Klienti podle stavu;
+  komponenta `ZajemVolajicich` v `src/pages/StatsPage.tsx`): řádek na volajícího, sloupce Chce web (schválil web a dál),
+  Odpověděl (napsal, neodmítl a web ještě nepotvrdil, jako filtr „odpověděl, zatím nepotvrdil“ z 068), Zájem celkem
+  (obojí) a Čeká na odpověď (návrh odešel, klient zatím nenapsal), pak řádek „bez volajícího“ (klienti, kterým nikdo
+  nevolal: kampaně, napsali sami) a Celkem; odznak u nadpisu = zájem celkem. Jsou to kontakty, ne hovory, u toho, kdo jim
+  volal naposledy (`kontakty.last_caller`, stejně jako filtr Volající v Kontaktech, takže číslo = řádky Kontaktů s tím
+  volajícím a filtrem). Filtr segmentu jako u „Klienti podle stavu“. Věta pod tabulkou říká, proč se sloupec Chce web může
+  lišit od karty Prodáno (ta počítá jen weby, u kterých má člověk v appce zapsaný hovor se zájmem).
+- **Server** `zajem_podle_volajicich(p_token, p_segment)`: čísla i pořadí (zájem, chce web, čeká, jméno) posílá server,
+  appka nic nepočítá; Volajícímu odmítne hláškou all_stats („Statistiky ostatních vidí jen super admin.“) a appka se ho
+  za Volajícího ani neptá. `p_segment` jde jen s vybraným segmentem.
+- **Demo**: mock dělá totéž (`zajemPodleVolajicich` v `src/api/mock.ts`, potvrzené stavy `PRODANO_STAVY`, výjimky
+  filtru `STAVY_MIMO_068`).
+- **Testy**: `npm test` soubor `tests/filtry.test.mjs` blok Z (pravidla serveru nad daty mocku i s výjimkami 068, segment,
+  co appka posílá, server bez 069, zapojení stránky) a `tests/segment.test.mjs` S1b a S7h (jen super admin);
+  `npm run test:e2e` blok ZV (tabulka, filtr architekti, pohled dne, Volající ji nemá, 390 px). Server:
+  `../db/tests/test_069_zajem_podle_volajicich.sql`; kontrola 193 v repu webdomov.
+
 ## Účty a přihlášení (produkce)
 
 - Vlastní auth v Postgresu (žádný Supabase Auth): funkce `login` vrací token,
@@ -566,7 +592,7 @@ upravit ani smazat nejde, připište nový řádek.“); nový řádek s hlavič
 „jiný volající“ taky („Nový řádek nesmí mít v hlavičce …“). Detail chybu ukáže v rámečku chyby a pod polem
 poznámky i poznámky příznaku Volajícímu napíše nápovědu, když v nich řádky kolegů jsou (`maRadkyKolegu`).
 Appka: Kontakty Volajícímu bez počtů u stavů a košů a bez celkového počtu, Statistiky bez trychtýře „Klienti podle
-stavu“ a dlaždice „jako #1 prodejce“, Prokchop se na #1 neptá a swagger brýle nenabízí, detail u cizího zámku jen
+stavu“ a dlaždice „jako #1 prodejce“ (od migrace 069 i bez tabulky „Zájem podle volajících“), Prokchop se na #1 neptá a swagger brýle nenabízí, detail u cizího zámku jen
 „Kontakt je zamčený“; `allStats` a `topSeller` volá jen super admin; demo mock dělá totéž (`poznamkaBezCizich`,
 `bezDiakritiky`, `poznamkaZpet`, strop 200, `jmenaKolegu` ve vláknech); `npm test` blok S a e2e S. ⚠ NAHRAZUJE
 „text poznámek se jmény kolegů zůstává (Albert 25. 9. 2026), stejně jako `lock_by`“, „`top_prodejce` jen
@@ -696,7 +722,7 @@ který schvaluje Albert (u zprávy je vidět jeho stav).
   už nic není; hlídá `npm test` blok T a kontrola 104. NAHRAZUJE „Tip pro hovor stojí až pod tlačítky
   výsledku a poznámkou a dá se sbalit“. Eyebrow nad kartou
   říká segment karty, bez karty zvolený segment.
-- **Seznamy** (Kontakty, Moji klienti, Označené, trychtýř ve Statistikách) mají filtr
+- **Seznamy** (Kontakty, Moji klienti, Označené, trychtýř a od 069 tabulka zájmu ve Statistikách) mají filtr
   „vše / chaty / architekti", výchozí vše, nepamatuje se. Kontakty a Moji klienti filtrují
   na serveru (`p_segment` jen když není vše, i v počtech stavů a košů), Označené v appce.
   Zprávy filtr nemají, jen odznak architekta u hledaného kontaktu.
@@ -730,7 +756,7 @@ který schvaluje Albert (u zprávy je vidět jeho stav).
 | `#/`          | všichni | domů — dlaždice podle role                                       |
 | `#/call`      | všichni | fronta hovorů: přepínač chaty / architekti (028), karta kontaktu + výsledky (nedovoláno/odmítnuto/zájem, od 050 i nerelevantní a přeplánovat; `?zavolat=<id>` = karta z kalendáře); kontakt, kterému Volající ještě nevolal, bez stavu, poznámek a příznaku (045, 20. 10. 2026). Poznámka k hovoru je **nepovinná** — zájem jde uložit i bez ní (Albert 2026-09-23; dřív se při prázdné poznámce otevíralo potvrzovací okno navíc); od migrace 051 (Albert 22. 10. 2026) i bez ceny webu a hostingu, povinná je jen známka (⚠ NAHRAZUJE povinné ceny z 1. 9. 2026); od migrace 060 (Albert 1. 11. 2026) u zájmu „Velký zájem (hvězda)“ a u svého klienta přehled klienta (`kontakt_prehled`) |
 | `#/kalendar`  | všichni | kalendář hovorů (050): svůj každý, super admin kohokoli nebo všech; Po termínu, Dnes, Nadcházející, Hotové a zrušené; Zavolat teď, Hotovo, Přesunout, Zrušit; ⚠ od migrace 062 (Albert 2. 11. 2026) Hotovo u klienta mimo frontu, kterému jde zapsat dovolání, otevře okno „Zavolal/a jsem“ (NAHRAZUJE „Hotovo jen s textem“ u takového klienta); ⚠ od 3. 11. 2026 (ověření 062) si napřed přečte označení z přehledu klienta (`kontakt_prehled`), takže označený klient dostane okno s označením a kampaňová chata s označením okno „Zavolal/a jsem“, ne „Hovor je hotový?“ |
-| `#/stats`     | všichni | moje statistiky; super admin (i Albert) přes dropdown kohokoli (027) a trychtýř „Klienti podle stavu" (součty celé databáze) s filtrem segmentu (028); ⚠ trychtýř od 19. 10. 2026 a dlaždice „jako #1 prodejce“ od 20. 10. 2026 jen super admin (migrace 045, NAHRAZUJE „(admin)“): Volající vidí jen svoje čísla; od migrace 056 (Albert 27. 10. 2026) super admin i statistiky za jeden den (Celkem / Jeden den, den v Praze) |
+| `#/stats`     | všichni | moje statistiky; super admin (i Albert) přes dropdown kohokoli (027) a trychtýř „Klienti podle stavu" (součty celé databáze) s filtrem segmentu (028); ⚠ trychtýř od 19. 10. 2026 a dlaždice „jako #1 prodejce“ od 20. 10. 2026 jen super admin (migrace 045, NAHRAZUJE „(admin)“): Volající vidí jen svoje čísla; od migrace 056 (Albert 27. 10. 2026) super admin i statistiky za jeden den (Celkem / Jeden den, den v Praze); od migrace 069 (Albert 15. 11. 2026) super admin v pohledu Celkem i tabulku „Zájem podle volajících“ (chce web, odpověděl, zájem celkem, čeká na odpověď po volajících, bez volajícího a celkem, s filtrem segmentu) |
 | `#/moji`      | všichni | moji klienti (+ historie poznámek v detailu); super admin může vybrat kohokoli (027); filtr segmentu (028); od migrace 056 (Albert 27. 10. 2026) super admin stejné filtry jako Kontakty a řazení podle poslední změny, Volající beze změny; od migrace 057 sloupec posledního hovoru (Volajícímu „Můj poslední hovor“) a super admin řadí i podle něj; ⚠ od migrace 060 (Albert 1. 11. 2026) filtry, hledání na serveru a řazení i Volající nad svými klienty (NAHRAZUJE „Volající beze změny“), sloupec Mlčí, hvězda, „Zavolal/a jsem“ v přehledu detailu; ⚠ od migrace 061 (Albert 2. 11. 2026) řádky o dvou řádcích bez posunu do strany (NAHRAZUJE tabulku posouvanou v rámečku); ⚠ od migrace 062 (Albert 2. 11. 2026) „Zavolal/a jsem“ v 1. řádku i u klienta bez označení (NAHRAZUJE „jen v přehledu detailu u označení“), v detailu i bez označení, menu stavů jen se stavy, které člověk smí nastavit |
 | `#/rozvrh`    | všichni | Rozvrh (042): týden po až ne, hodiny na den a cíl (hovorů za hodinu posílá server), plnění z hovorů, hláška pozadu / v plánu / napřed, poznámky ke dnům; Volající si ho nastaví jednou, super admin vidí přehled všech, mění a odemyká |
 | `#/admin`     | všichni | Kontakty: celá databáze s filtry (i segment, 028) a fulltextem (i studio, město, IČO; IČO jen admin a super admin, 038); upravovat smí admin a super admin; počty u stavů a košů a celkový počet jen super admin (045, Volající stránkuje bez počtu); Volající stav, známku, kdo volal, čekání a poznámky jen u svých klientů, filtr stavu a hledání v poznámce jen nad nimi (045, 20. 10. 2026); od migrace 056 řazení podle poslední změny (Volajícímu jen mezi jeho klienty, cizí za nimi podle čísla); od migrace 057 Změněno i se změnami od automatizace, sloupec a řazení podle posledního hovoru (Volajícímu jen jeho hovory); od migrace 060 (Albert 1. 11. 2026) spojitelné filtry (víc stavů a známek, hvězda, označení, mlčení v pracovních dnech), sloupec Mlčí a hvězda u svých klientů (Volajícímu jen nad jeho klienty); ⚠ od migrace 061 (Albert 2. 11. 2026) řádky o dvou řádcích bez posunu do strany (NAHRAZUJE tabulku posouvanou v rámečku) a Volající nevidí příznak „Údaje z internetu“; ⚠ od migrace 062 (Albert 2. 11. 2026: „you can even add [it] to the contacts section“) „Zavolal/a jsem“ v 1. řádku u vlastních klientů, kterým ho přihlášený smí zapsat |

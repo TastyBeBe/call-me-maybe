@@ -66,6 +66,8 @@ let textBalicku;   // blok P si z něj načte vlastní kopii mocku (ukázková d
         "export { BEZ_061_JINE } from './src/api/supabase.ts';",
         // migrace 068: filtr „Odpověděl, zatím nepotvrdil“ proti serveru bez 068
         "export { BEZ_068_ODPOVEDEL } from './src/api/supabase.ts';",
+        // migrace 069: tabulka „Zájem podle volajících“ proti serveru bez 069
+        "export { BEZ_069_ZAJEM } from './src/api/supabase.ts';",
         // 13. 11. 2026: odkaz na e-mailovou konverzaci v Gmailu automatizace (jen super admin)
         "export * as gmailModul from './src/gmail.ts';",
         "export * as prahaModul from './src/praha.ts';",
@@ -97,7 +99,7 @@ let textBalicku;   // blok P si z něj načte vlastní kopii mocku (ukázková d
 }
 const { mockApi: api, supabaseApi, BEZ_056_DEN, BEZ_056_RAZENI, BEZ_056_FILTRY, BEZ_057_HOVOR, prahaModul: P, uiModul: U } = bundle;
 const { BEZ_060_FILTRY, BEZ_060_RAZENI, BEZ_060_OZNACENE, BEZ_060_HOVOR, BEZ_060_HVEZDA, BEZ_060_PREHLED, filtryModul: FM, dovolaniModul: DM } = bundle;
-const { BEZ_061_JINE, BEZ_068_ODPOVEDEL, gmailModul: GM } = bundle;
+const { BEZ_061_JINE, BEZ_068_ODPOVEDEL, BEZ_069_ZAJEM, gmailModul: GM } = bundle;
 
 let pocet = 0;
 let chyby = 0;
@@ -1368,6 +1370,119 @@ await blok('G', async () => {
   over('G4', (d.match(/gmailOdkaz\(kontakt\)/g) ?? []).length === 2 && /\{isSuperAdmin\(session\.role\) && gmailOdkaz\(kontakt\) && \(/.test(d)
     && !/gmailOdkaz/.test(zaklad) && /target="_blank" rel="noreferrer"[^>]*>\s*celá konverzace v Gmailu/.test(d),
     'detail: odkaz jen super adminovi, ne v pohledu na cizí kontakt, v nové záložce');
+});
+
+/* ---------------- Z) Zájem podle volajících (migrace 069, Albert 15. 11. 2026) ----------------
+ * Albert: „how many interested people we have for each [caller] … responded to the preview and said they want it or just
+ * responded and seemed interested in it“. Mock zrcadlí db/migration_069_zajem_podle_volajicich.sql (test
+ * db/tests/test_069_zajem_podle_volajicich.sql): po kontakty.last_caller chce_web (schválil a dál), odpovedel (filtr 068),
+ * zajem = obojí, ceka = navrh_odeslan bez odpovědi; řádky jen s nenulovým počtem, pořadí zájem, chce web, čeká, jméno;
+ * bez_volajiciho a celkem; jen super admin; p_segment jako Kontakty. Očekávání se počítá nezávisle z dat mocku (háček
+ * __volackaDemoTest), ne z mocku samotného. Vlastní čerstvá kopie mocku jako blok P: háček patří poslední načtené kopii
+ * (od bloku P té jeho), takže stav() hlavního `api` už nečte; čerstvá kopie má navíc jen ukázková data, ne změny bloků výš. */
+await blok('Z', async () => {
+  const dirZ = mkdtempSync(join(tmpdir(), 'filtry-test-z-'));
+  const fZ = join(dirZ, 'z.cjs');
+  writeFileSync(fZ, textBalicku);
+  const api = createRequire(import.meta.url)(fZ).mockApi;   // háček __volackaDemoTest teď patří téhle kopii
+  rmSync(dirZ, { recursive: true, force: true });
+  const petra = (await api.login('petra', 'volam')).token;
+  const honza = (await api.login('honza', 'volam')).token;
+  const albert = (await api.login('admin', 'admin')).token;
+  const mikulas = (await api.login('mikulas', 'mikulas')).token;
+  const PRODANO = ['schvaleno', 'faktura_odeslana', 'zaplaceno', 'domena_pripojena', 'hotovo'];
+  const MIMO_068 = ['odmitnuto', 'nekontaktovat', 'nerelevantni', 'sleva_nabidnuta', 'bez_odpovedi', ...PRODANO];
+  const lide = await api.allStats(mikulas);
+  const nuly = () => ({ chce_web: 0, odpovedel: 0, zajem: 0, ceka: 0 });
+  const ocek = (segment) => {
+    const podle = new Map();
+    for (const c of globalThis.__volackaDemoTest.stav().kontakty) {
+      if (segment && c.segment !== segment) continue;
+      const chce = PRODANO.includes(c.status);
+      const odp = !!c.last_client_reply_at && !MIMO_068.includes(c.status);
+      const ceka = c.status === 'navrh_odeslan' && !c.last_client_reply_at;
+      if (!chce && !odp && !ceka) continue;
+      const k = c.last_caller ?? null;
+      const p = podle.get(k) ?? nuly();
+      p.chce_web += chce ? 1 : 0;
+      p.odpovedel += odp ? 1 : 0;
+      p.ceka += ceka ? 1 : 0;
+      p.zajem = p.chce_web + p.odpovedel;
+      podle.set(k, p);
+    }
+    const radky = [...podle.entries()].filter(([k]) => k !== null).map(([volajici, p]) => {
+      const u = lide.find((x) => x.display_name === volajici);
+      return { volajici, user_id: u ? u.user_id : null, active: u ? u.active : null, ...p };
+    }).sort((a, b) => b.zajem - a.zajem || b.chce_web - a.chce_web || b.ceka - a.ceka || (a.volajici < b.volajici ? -1 : a.volajici > b.volajici ? 1 : 0));
+    const celkem = nuly();
+    for (const p of podle.values()) for (const k of Object.keys(celkem)) celkem[k] += p[k];
+    return { radky, bez_volajiciho: podle.get(null) ?? nuly(), celkem };
+  };
+  // klíče ve stejném pořadí jako server (volajici, user_id, active, počty), JSON tedy srovnatelný
+  const norm = (x) => JSON.stringify({
+    radky: x.radky.map((r) => ({ volajici: r.volajici, user_id: r.user_id, active: r.active, chce_web: r.chce_web, odpovedel: r.odpovedel, zajem: r.zajem, ceka: r.ceka })),
+    bez_volajiciho: { chce_web: x.bez_volajiciho.chce_web, odpovedel: x.bez_volajiciho.odpovedel, zajem: x.bez_volajiciho.zajem, ceka: x.bez_volajiciho.ceka },
+    celkem: { chce_web: x.celkem.chce_web, odpovedel: x.celkem.odpovedel, zajem: x.celkem.zajem, ceka: x.celkem.ceka },
+  });
+  // ukázková data, jak je appka v DEMO ukáže
+  const vse0 = await api.zajemPodleVolajicich(mikulas);
+  over('Z1', stejne(Object.keys(vse0).sort(), ['bez_volajiciho', 'celkem', 'radky'])
+    && vse0.radky.every((r) => stejne(Object.keys(r).sort(), ['active', 'ceka', 'chce_web', 'odpovedel', 'user_id', 'volajici', 'zajem'])
+      && r.zajem === r.chce_web + r.odpovedel && r.zajem + r.ceka > 0),
+    'výsledek: radky, bez_volajiciho a celkem; řádek jen volajici, user_id, active a čtyři počty, zájem = chce web + odpověděl, žádný nulový');
+  over('Z2', norm(vse0) === norm(ocek(null)), 'řádky, pořadí, bez volajícího a celkem = nezávislý výpočet z dat mocku (pravidla serveru 069)',
+    `${norm(vse0)} / ${norm(ocek(null))}`);
+  over('Z3', vse0.radky.some((r) => r.chce_web > 0) && vse0.radky.some((r) => r.odpovedel > 0) && vse0.radky.some((r) => r.ceka > 0),
+    'ukázková data mají u volajících chce web, odpověděl i čeká (jinak by Z nic neměřil a stránka v DEMO byla prázdná)', norm(vse0));
+  // citlivost na výjimky filtru 068: klient, který napsal a pak odmítl, a klient, který napsal a pak web schválil, do
+  // „odpověděl“ nepatří (první nikam, druhý do „chce web“). Ukázková data takové nemají; bez nich by Z2 nepoznal mock,
+  // který odpověď počítá i u odmítnutí nebo potvrzeného webu (změřeno mutací 15. 11. 2026).
+  const napsali = globalThis.__volackaDemoTest.stav().kontakty.filter((c) => c.last_client_reply_at && !MIMO_068.includes(c.status));
+  over('Z2a', napsali.length >= 2, 'ukázková data mají aspoň dva klienty, kteří napsali a neodmítli', String(napsali.length));
+  if (napsali.length >= 2) {
+    await api.updateKontakt(albert, napsali[0].id, { status: 'odmitnuto' });
+    await api.updateKontakt(albert, napsali[1].id, { status: 'schvaleno' });
+  }
+  const vse = await api.zajemPodleVolajicich(mikulas);
+  const o = ocek(null);
+  over('Z2b', norm(vse) === norm(o) && vse.celkem.odpovedel === vse0.celkem.odpovedel - 2 && vse.celkem.chce_web === vse0.celkem.chce_web + 1,
+    'odmítnutí a schválení klienta, který napsal: z „odpověděl“ pryč, schválený v „chce web“ (výjimky filtru 068)',
+    `${norm(vse)} / ${norm(o)} / před ${norm(vse0)}`);
+  const arch = await api.zajemPodleVolajicich(mikulas, 'architekt');
+  over('Z4', norm(arch) === norm(ocek('architekt')), 'segment architekt: jen jeho kontakty (jako Kontakty)', `${norm(arch)} / ${norm(ocek('architekt'))}`);
+  await chyba('Z4b', () => api.zajemPodleVolajicich(mikulas, 'xyz'),
+    presne('Neplatný segment: xyz. Povolené: chata, architekt nebo obor z registru.'), 'neplatný segment odmítnut hláškou serveru');
+  await chyba('Z5', () => api.zajemPodleVolajicich(petra), presne('Statistiky ostatních vidí jen super admin.'), 'Volající: odmítnuto jako all_stats (045)');
+  await chyba('Z5b', () => api.zajemPodleVolajicich(honza, 'chata'), presne('Statistiky ostatních vidí jen super admin.'), 'Volající se segmentem: odmítnuto');
+  const alb = await api.zajemPodleVolajicich(albert);
+  over('Z5c', norm(alb) === norm(vse), 'Albert (super admin) vidí totéž co Mikuláš');
+  // Z6 co appka posílá: p_segment jen s vybraným segmentem
+  odeslano.length = 0;
+  odpoved = { status: 200, telo: JSON.stringify({ radky: [], bez_volajiciho: nuly(), celkem: nuly() }) };
+  await supabaseApi.zajemPodleVolajicich('tok');
+  await supabaseApi.zajemPodleVolajicich('tok', 'architekt');
+  await supabaseApi.zajemPodleVolajicich('tok', null);
+  over('Z6', odeslano.length === 3 && odeslano.every((x) => x.url.endsWith('/rest/v1/rpc/zajem_podle_volajicich'))
+    && stejne(odeslano[0].body, { p_token: 'tok' }) && stejne(odeslano[1].body, { p_token: 'tok', p_segment: 'architekt' })
+    && stejne(odeslano[2].body, { p_token: 'tok' }),
+    'zajem_podle_volajicich s p_segment jen při vybraném segmentu', JSON.stringify(odeslano.map((x) => x.body)));
+  // Z7 server bez 069: srozumitelná hláška; jiná chyba serveru projde, jak přišla
+  odpoved = { status: 404, telo: '{"code":"PGRST202","message":"Could not find the function public.zajem_podle_volajicich(p_token) in the schema cache"}' };
+  await chyba('Z7', () => supabaseApi.zajemPodleVolajicich('t'), presne(BEZ_069_ZAJEM), 'stará DB: tabulka zájmu');
+  odpoved = { status: 400, telo: '{"code":"P0001","message":"Statistiky ostatních vidí jen super admin."}' };
+  await chyba('Z7b', () => supabaseApi.zajemPodleVolajicich('t'), presne('Statistiky ostatních vidí jen super admin.'), 'odmítnutí serveru projde beze změny');
+  odpoved = { status: 200, telo: '[]' };
+  // Z8 stránka: tabulka jen super adminovi, jen v pohledu Celkem, čísla ze serveru, sloupce a řádky jako na serveru
+  const st = readFileSync(join(ROOT, 'src/pages/StatsPage.tsx'), 'utf8');
+  const komp = st.slice(st.indexOf('function ZajemVolajicich('), st.indexOf('function KlientiFunnel('));
+  over('Z8', /\{isSuper && <ZajemVolajicich token=\{session\.token\} \/>\}/.test(st)
+    && (st.match(/<ZajemVolajicich/g) ?? []).length === 1
+    && /den === null \? \([\s\S]*<ZajemVolajicich[\s\S]*\) : \(/.test(st)
+    && komp.length > 500 && /\.zajemPodleVolajicich\(token, segment \|\| null\)/.test(komp)
+    && ['Chce web', 'Odpověděl', 'Zájem celkem', 'Čeká na odpověď', 'bez volajícího', 'Celkem'].every((t) => komp.includes(`>${t}<`))
+    && /data\.radky\.map/.test(komp) && /data\.celkem/.test(komp) && /<SegmentFilter value=\{segment\} onChange=\{setSegment\} \/>/.test(komp),
+    'Statistiky: tabulka jen pro super admina v pohledu Celkem, sloupce chce web, odpověděl, zájem celkem a čeká, řádek bez volajícího a celkem, filtr segmentu');
+  over('Z8b', /zájem podle volajících a klienti podle stavu jsou jen v pohledu Celkem/.test(st), 'pohled jednoho dne říká, že tabulka je jen v pohledu Celkem');
 });
 
 if (chyby === 0) {

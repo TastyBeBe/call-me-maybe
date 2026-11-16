@@ -2869,6 +2869,142 @@ table.kontakty tbody tr.selected .cena-hosting {
   font-weight: 700;
 }
 
+/* Zájem podle volajících (migrace 069, Albert 15. 11. 2026): tabulka klientů po volajících ve Statistikách, jen super admin.
+   Jazyk tabulky Kontaktů (table.kontakty), ale bez šířky 760 px: pět sloupců se vejde i na telefon. */
+.zajem-wrap {
+  margin-top: 4px;
+}
+
+table.zajem-tabulka {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 15px;
+}
+
+table.zajem-tabulka thead th {
+  text-align: left;
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 1.2px;
+  color: var(--orange);
+  padding: 12px 12px 8px;
+  border-bottom: var(--border);
+  vertical-align: bottom;
+}
+
+table.zajem-tabulka td,
+table.zajem-tabulka tbody th,
+table.zajem-tabulka tfoot th {
+  padding: 9px 12px;
+  border-bottom: 2px solid var(--butter-dot);
+  text-align: left;
+  vertical-align: middle;
+}
+
+table.zajem-tabulka .cislo {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+table.zajem-tabulka .zajem-kdo {
+  font-weight: 800;
+}
+
+table.zajem-tabulka td.zajem-celkem {
+  font-weight: 800;
+  color: var(--orange);
+}
+
+table.zajem-tabulka tr.zajem-bez .zajem-kdo {
+  font-weight: 700;
+  font-style: italic;
+  color: var(--ink-soft);
+}
+
+table.zajem-tabulka tfoot tr.zajem-soucet {
+  background: var(--butter);
+}
+
+table.zajem-tabulka tfoot td,
+table.zajem-tabulka tfoot th {
+  border-top: var(--border);
+  border-bottom: none;
+  font-weight: 800;
+}
+
+/* Telefon: tabulka o pěti sloupcích se nevejde (na 320 px rámeček 244 px, tabulka 300 px, změřeno 15. 11. 2026), a do strany
+   se neposouvá (Albert 2. 11. 2026, migrace 061: řádky o dvou řádcích místo tabulky posouvané v rámečku). Řádek = jméno
+   nahoře a pod ním čtyři čísla, každé se svým popiskem (data-label), hlavička jen pro čtečky. */
+@media (max-width: 560px) {
+  table.zajem-tabulka,
+  table.zajem-tabulka > tbody,
+  table.zajem-tabulka > tfoot {
+    display: block;
+  }
+
+  table.zajem-tabulka > thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    border: 0;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  table.zajem-tabulka tbody tr,
+  table.zajem-tabulka tfoot tr {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 4px 8px;
+    padding: 10px 12px;
+    border-bottom: 2px solid var(--butter-dot);
+  }
+
+  table.zajem-tabulka tfoot tr {
+    border-top: var(--border);
+    border-bottom: none;
+  }
+
+  table.zajem-tabulka td,
+  table.zajem-tabulka tbody th,
+  table.zajem-tabulka tfoot td,
+  table.zajem-tabulka tfoot th {
+    padding: 0;
+    border: none;
+  }
+
+  table.zajem-tabulka .zajem-kdo {
+    grid-column: 1 / -1;
+  }
+
+  table.zajem-tabulka td.cislo {
+    text-align: left;
+    font-size: 17px;
+  }
+
+  table.zajem-tabulka td[data-label]::before {
+    content: attr(data-label);
+    display: block;
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1.2;
+    color: var(--ink-soft);
+    overflow-wrap: anywhere;
+  }
+}
+
+/* úzký telefon (rámeček pod 300 px): čísla po dvou, ať se popisky jako „Odpověděl“ nelámou uprostřed slova */
+@media (max-width: 380px) {
+  table.zajem-tabulka tbody tr,
+  table.zajem-tabulka tfoot tr {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
 @media (max-width: 640px) {
   /* pilulka nikdy užší než svůj text (recenze 2. 11. 2026: na 360 px se „⏰ Přeplánovat“ dotýkal okraje, na 320 px přetekl);
      když se obě na řádek nevejdou, řádek .outcome-dalsi je zalomí pod sebe */

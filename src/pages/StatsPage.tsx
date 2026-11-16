@@ -7,6 +7,8 @@ import {
   type StatistikyVolani,
   type UserStats,
   type Vydelek,
+  type ZajemPocty,
+  type ZajemPodleVolajicich,
 } from '../api';
 import { useSession } from '../auth';
 import { ArrowLeftIcon, ArrowRightIcon } from '../icons';
@@ -318,11 +320,13 @@ export default function StatsPage() {
           {den === null ? (
             <>
               {volani && <Vydelano v={volani.vydelek} ja={selectedUser === 'me'} jmeno={shownName} jaSuper={isSuper} />}
+              {/* migrace 069 (Albert 15. 11. 2026): klienti se zájmem po volajících, jen super admin (045) */}
+              {isSuper && <ZajemVolajicich token={session.token} />}
               {isSuper && <KlientiFunnel token={session.token} />}
             </>
           ) : (
             <p className="muted stats-den-jen-celkem" style={{ margin: '14px 0 0' }}>
-              Výdělek, dny jako #1 prodejce a klienti podle stavu jsou jen v pohledu Celkem.
+              Výdělek, dny jako #1 prodejce, zájem podle volajících a klienti podle stavu jsou jen v pohledu Celkem.
             </p>
           )}
         </>
@@ -431,6 +435,117 @@ function Vydelano({ v, ja, jmeno, jaSuper }: { v: Vydelek; ja: boolean; jmeno: s
             </li>
           ))}
         </ul>
+      )}
+    </section>
+  );
+}
+
+/**
+ * ZÁJEM PODLE VOLAJÍCÍCH (migrace 069, Albert 15. 11. 2026: „I need to be able to … view how many interested people we have
+ * for each [caller] … people who have responded to the preview and said they want it or just responded and seemed
+ * interested in it“). KONTAKTY, ne hovory, u toho, kdo klientovi volal naposledy (kontakty.last_caller, stejně jako filtr
+ * Volající v Kontaktech, takže číslo = řádky Kontaktů s tím volajícím a filtrem): chce web (schválil a dál), odpověděl
+ * a ještě nepotvrdil (filtr 068), zájem celkem (obojí) a návrhy, na které klient zatím nenapsal. Řádek „bez volajícího“ =
+ * klienti, kterým nikdo nevolal (kampaně, přišli sami). Čísla i pořadí posílá server (zajem_podle_volajicich), appka nic
+ * nepočítá. Jen super admin (server Volajícímu odmítne, 045); filtr segmentu jako „Klienti podle stavu“.
+ */
+function ZajemVolajicich({ token }: { token: string }) {
+  const [data, setData] = useState<ZajemPodleVolajicich | null>(null);
+  const [chyba, setChyba] = useState('');
+  const [segment, setSegment] = useState<Segment | ''>('');
+
+  useEffect(() => {
+    let alive = true;
+    setData(null);
+    setChyba('');
+    getApi()
+      .zajemPodleVolajicich(token, segment || null)
+      .then((x) => {
+        if (alive) setData(x);
+      })
+      .catch((e) => {
+        if (alive) setChyba(errMsg(e));
+      });
+    return () => {
+      alive = false;
+    };
+  }, [token, segment]);
+
+  // data-label: na telefonu (styles.css, ≤ 560 px) je řádek o dvou řádcích s popiskem u každého čísla, bez posunu do
+  // strany (jako seznamy od migrace 061, Albert 2. 11. 2026); role drží sémantiku tabulky i při jiném zobrazení
+  const bunky = (p: ZajemPocty) => (
+    <>
+      <td role="cell" className="cislo" data-label="Chce web">{p.chce_web}</td>
+      <td role="cell" className="cislo" data-label="Odpověděl">{p.odpovedel}</td>
+      <td role="cell" className="cislo zajem-celkem" data-label="Zájem celkem">{p.zajem}</td>
+      <td role="cell" className="cislo" data-label="Čeká na odpověď">{p.ceka}</td>
+    </>
+  );
+  const bez = data?.bez_volajiciho;
+  const bezRadek = !!bez && bez.zajem + bez.ceka > 0;
+
+  return (
+    <section className="zajem-volajici">
+      <h2 className="page-title" style={{ fontSize: 22, marginTop: 28 }}>
+        Zájem podle volajících
+        {data && data.celkem.zajem > 0 && <span className="count-pill">{data.celkem.zajem}</span>}
+      </h2>
+      <SegmentFilter value={segment} onChange={setSegment} />
+      <p className="muted" style={{ margin: '0 0 10px' }}>
+        Tohle jsou <strong>klienti</strong>, ne hovory. Každý je u toho, kdo mu volal naposledy (jako filtr Volající
+        v Kontaktech). <strong>Chce web</strong> = schválil web (a dál). <strong>Odpověděl</strong> = napsal nám, neodmítl
+        a web ještě nepotvrdil (jako filtr „odpověděl, zatím nepotvrdil“). <strong>Zájem celkem</strong> = obojí.{' '}
+        <strong>Čeká na odpověď</strong> = návrh odešel a klient zatím nenapsal.
+      </p>
+      <ErrorBox>{chyba}</ErrorBox>
+      {!data && !chyba && <Spinner label="Počítám zájem podle volajících…" />}
+      {data &&
+        (data.radky.length === 0 && !bezRadek ? (
+          <p className="muted zajem-prazdne">Zatím žádný klient se zájmem ani návrh bez odpovědi.</p>
+        ) : (
+          <div className="table-wrap zajem-wrap">
+            <table className="zajem-tabulka" role="table">
+              <thead role="rowgroup">
+                <tr role="row">
+                  <th scope="col" role="columnheader">Volající</th>
+                  <th scope="col" role="columnheader" className="cislo">Chce web</th>
+                  <th scope="col" role="columnheader" className="cislo">Odpověděl</th>
+                  <th scope="col" role="columnheader" className="cislo">Zájem celkem</th>
+                  <th scope="col" role="columnheader" className="cislo">Čeká na odpověď</th>
+                </tr>
+              </thead>
+              <tbody role="rowgroup">
+                {data.radky.map((r) => (
+                  <tr key={r.volajici} role="row">
+                    <th scope="row" role="rowheader" className="zajem-kdo">
+                      {r.volajici}
+                      {r.active === false && <span className="muted"> · neaktivní</span>}
+                    </th>
+                    {bunky(r)}
+                  </tr>
+                ))}
+                {bez && bezRadek && (
+                  <tr className="zajem-bez" role="row">
+                    <th scope="row" role="rowheader" className="zajem-kdo">bez volajícího</th>
+                    {bunky(bez)}
+                  </tr>
+                )}
+              </tbody>
+              <tfoot role="rowgroup">
+                <tr className="zajem-soucet" role="row">
+                  <th scope="row" role="rowheader" className="zajem-kdo">Celkem</th>
+                  {bunky(data.celkem)}
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        ))}
+      {data && (
+        <p className="muted zajem-pozn" style={{ margin: '10px 0 0' }}>
+          {bezRadek && <>Bez volajícího = klienti, kterým nikdo z nás nevolal (kampaně, napsali sami). </>}
+          Karta Prodáno nahoře počítá jen weby, u kterých má člověk v appce zapsaný hovor se zájmem, proto se může lišit
+          od sloupce Chce web.
+        </p>
       )}
     </section>
   );

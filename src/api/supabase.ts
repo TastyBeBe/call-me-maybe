@@ -36,6 +36,7 @@ import type {
   UserStats,
   VysledekDovolani,
   ZapisHovoruVysledek,
+  ZajemPodleVolajicich,
   ZavolatJinde,
   ZavolatPolozka,
   ZavolatSeznam,
@@ -71,6 +72,9 @@ export const BEZ_060_FILTRY =
 /** Migrace 068 (Albert 13. 11. 2026): filtr „Odpověděl, zatím nepotvrdil“ proti serveru bez 068 (PGRST202). */
 export const BEZ_068_ODPOVEDEL =
   'Filtr „Odpověděl, zatím nepotvrdil“ server ještě neumí (chybí na něm migrace 068). Vypni ho a uvidíš seznam jako dřív.';
+/** Migrace 069 (Albert 15. 11. 2026): tabulka „Zájem podle volajících“ proti serveru bez 069 (PGRST202). */
+export const BEZ_069_ZAJEM =
+  'Tabulku zájmu podle volajících server ještě neumí (chybí na něm migrace 069). Ostatní statistiky fungují dál.';
 export const BEZ_060_RAZENI = 'Řazení podle mlčení a hvězdy server ještě neumí (chybí na něm migrace 060). Vyber jiné řazení.';
 export const BEZ_060_OZNACENE =
   'Označení k zavolání server ještě neumí (chybí na něm migrace 060). Níž jsou jen klienti s příznakem jako dřív.';
@@ -682,5 +686,15 @@ export const supabaseApi: Api = {
 
   async statistikyVolani(token: string, userId: number | null = null): Promise<StatistikyVolani> {
     return rpc<StatistikyVolani>('statistiky_volani', { p_token: token, p_user_id: userId });
+  },
+
+  async zajemPodleVolajicich(token: string, segment: Segment | null = null): Promise<ZajemPodleVolajicich> {
+    // Migrace 069 (Albert 15. 11. 2026): p_segment jen s vybraným segmentem (jako Kontakty); server bez 069 funkci nezná
+    try {
+      return await rpc<ZajemPodleVolajicich>('zajem_podle_volajicich', { p_token: token, ...(segment ? { p_segment: segment } : {}) });
+    } catch (e) {
+      if (neniNaServeru(e)) throw new Error(BEZ_069_ZAJEM);
+      throw e;
+    }
   },
 };

@@ -166,6 +166,8 @@ async function blok(id, fn) {
 // Běží před bloky, které mění data (hovory, poznámky); co tu změní (příznak, zámek, poznámka), vrátí.
 await blok('S', async () => {
   await chyba('S1', () => api.allStats(petra), /^Statistiky ostatních vidí jen super admin/, 'all_stats Volajícímu odmítnut');
+  // migrace 069 (Albert 15. 11. 2026): klienti se zájmem po volajících jsou čísla jiných lidí (045)
+  await chyba('S1b', () => api.zajemPodleVolajicich(petra), /^Statistiky ostatních vidí jen super admin/, 'zajem_podle_volajicich (klienti po volajících) Volajícímu odmítnut');
   const vsichni = await api.allStats(mikulas);
   const petraVsech = vsichni.find((u) => u.user_id === 2);
   const mojeP = await api.myStats(petra);
@@ -335,6 +337,9 @@ await blok('S', async () => {
     'Statistiky: trychtýř „Klienti podle stavu“ (součty celé databáze) jen pro super admina');
   over('S7b', /if \(isSuper\) \{\s*const all = await api\.allStats/.test(stats), 'Statistiky volají allStats jen pro super admina');
   over('S7f', /\{isSuper && \(\s*<div className="card stat-card">\s*<div className="stat-value">\{topDays\}/.test(stats), 'Statistiky: dlaždice „jako #1 prodejce“ jen pro super admina');
+  // migrace 069 (Albert 15. 11. 2026): tabulka „Zájem podle volajících“ (počty klientů všech volajících) jen super admin
+  over('S7h', /\{isSuper && <ZajemVolajicich/.test(stats) && (stats.match(/<ZajemVolajicich/g) ?? []).length === 1,
+    'Statistiky: tabulka „Zájem podle volajících“ jen pro super admina');
   const picker = readFileSync(join(ROOT, 'src/components/PersonPicker.tsx'), 'utf8');
   over('S7c', /if \(!superAdmin\) \{\s*setPeople\(\[\]\);\s*return;/.test(picker), 'výběr člověka (PersonPicker) volá allStats jen pro super admina');
   const uziv = readFileSync(join(ROOT, 'src/pages/UzivatelePage.tsx'), 'utf8');

@@ -1389,6 +1389,94 @@ await blok050('E 390', async () => {
   await ctx.close();
 });
 
+/* ============ ZV) Zájem podle volajících ve Statistikách (migrace 069, Albert 15. 11. 2026) ============ */
+// Albert: „how many interested people we have for each [caller] … responded to the preview and said they want it or just
+// responded and seemed interested in it“. Super admin vidí tabulku (čísla = pravidla serveru 069 nad daty DEMO, počítaná
+// tady nezávisle), filtr segmentu ji přepočítá, v pohledu jednoho dne není; Volající ji nevidí a appka se na ni ani neptá;
+// na telefonu bez vodorovného posunu.
+const PRODANO_ZV = ['schvaleno', 'faktura_odeslana', 'zaplaceno', 'domena_pripojena', 'hotovo'];
+const MIMO_068_ZV = ['odmitnuto', 'nekontaktovat', 'nerelevantni', 'sleva_nabidnuta', 'bez_odpovedi', ...PRODANO_ZV];
+/** Očekávané řádky tabulky jako text („Jméno chce odpověděl zájem čeká“), pak bez volajícího a Celkem. */
+function ocekZajem(kontakty, segment) {
+  const podle = new Map();
+  for (const c of kontakty) {
+    if (segment && c.segment !== segment) continue;
+    const chce = PRODANO_ZV.includes(c.status);
+    const odp = !!c.last_client_reply_at && !MIMO_068_ZV.includes(c.status);
+    const ceka = c.status === 'navrh_odeslan' && !c.last_client_reply_at;
+    if (!chce && !odp && !ceka) continue;
+    const k = c.last_caller ?? null;
+    const p = podle.get(k) ?? [0, 0, 0, 0];
+    p[0] += chce ? 1 : 0;
+    p[1] += odp ? 1 : 0;
+    p[3] += ceka ? 1 : 0;
+    p[2] = p[0] + p[1];
+    podle.set(k, p);
+  }
+  const radky = [...podle.entries()].filter(([k]) => k !== null)
+    .sort((a, b) => b[1][2] - a[1][2] || b[1][0] - a[1][0] || b[1][3] - a[1][3] || (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0))
+    .map(([k, p]) => `${k} ${p.join(' ')}`);
+  const bez = podle.get(null);
+  if (bez && bez[2] + bez[3] > 0) radky.push(`bez volajícího ${bez.join(' ')}`);
+  const celkem = [0, 0, 0, 0];
+  for (const p of podle.values()) for (let i = 0; i < 4; i++) celkem[i] += p[i];
+  radky.push(`Celkem ${celkem.join(' ')}`);
+  return radky;
+}
+// innerText dá buňky oddělené tabulátorem (textContent by je slepil); hlavička je velkými písmeny (CSS), proto ta textContent
+const radkyZajmu = async (page) => (await page.locator('.zajem-volajici table.zajem-tabulka tbody tr, .zajem-volajici table.zajem-tabulka tfoot tr').allInnerTexts()).map(txt);
+await blok050('ZV mikulas', async () => {
+  const { ctx, page } = await novaStranka('mikulas');
+  await jdi(page, '#/stats', 900);
+  const hlavicky = (await page.locator('.zajem-volajici table.zajem-tabulka thead th').allTextContents()).map(txt);
+  over('ZV1', JSON.stringify(hlavicky) === JSON.stringify(['Volající', 'Chce web', 'Odpověděl', 'Zájem celkem', 'Čeká na odpověď']),
+    'super admin: tabulka Zájem podle volajících se sloupci chce web, odpověděl, zájem celkem a čeká na odpověď', hlavicky.join(' | '));
+  const vse = await radkyZajmu(page);
+  const ocV = ocekZajem((await stav(page)).kontakty, null);
+  over('ZV2', JSON.stringify(vse) === JSON.stringify(ocV) && vse.length >= 4,
+    'řádky volajících v pořadí serveru, bez volajícího a celkem = pravidla 069 nad daty DEMO', `${vse.join(' | ')} / ${ocV.join(' | ')}`);
+  const pill = txt(await page.locator('.zajem-volajici h2 .count-pill').innerText(KRATKE).catch(() => ''));
+  over('ZV2b', pill === ocV[ocV.length - 1].split(' ')[3], 'odznak u nadpisu = zájem celkem', `${pill} / ${ocV[ocV.length - 1]}`);
+  await page.locator('.zajem-volajici .segment-filter').getByRole('button', { name: 'architekti', exact: true }).click();
+  await klid(page, 500);
+  const arch = await radkyZajmu(page);
+  const ocA = ocekZajem((await stav(page)).kontakty, 'architekt');
+  const vsZ = (await volani(page)).filter((v) => v.fn === 'zajemPodleVolajicich');
+  over('ZV3', JSON.stringify(arch) === JSON.stringify(ocA) && vsZ.some((v) => v.args[0] === 'architekt'),
+    'filtr architekti: tabulka jen z architektů (server dostal segment)', `${arch.join(' | ')} / ${ocA.join(' | ')}`);
+  await page.selectOption('#obdobi-select', 'den');
+  await klid(page, 600);
+  const t = txt(await page.evaluate(() => document.body.innerText));
+  over('ZV4', (await page.locator('.zajem-volajici').count()) === 0 && /zájem podle volajících a klienti podle stavu jsou jen v pohledu Celkem/.test(t),
+    'v pohledu jednoho dne tabulka není a stránka řekne proč');
+  await ctx.close();
+});
+await blok050('ZV petra', async () => {
+  const { ctx, page } = await novaStranka('petra');
+  await jdi(page, '#/stats', 900);
+  over('ZV5', (await page.locator('.zajem-volajici').count()) === 0 && !(await volani(page)).some((v) => v.fn === 'zajemPodleVolajicich'),
+    'Volající tabulku nevidí a appka se na ni ani neptá (045)');
+  await ctx.close();
+});
+// telefon: řádky o dvou řádcích (jméno, pod ním čtyři čísla s popiskem), nic se neposouvá do strany ani v rámečku tabulky
+// (Albert 2. 11. 2026, migrace 061); 390 px a 320 px, změřeno 15. 11. 2026: tabulka o pěti sloupcích přetékala o 21 a 56 px
+for (const sirka of [390, 320]) {
+  await blok050(`ZV ${sirka}`, async () => {
+    const { ctx, page } = await novaStranka('mikulas', { sirka, vyska: 844 });
+    await jdi(page, '#/stats', 900);
+    const w = await page.evaluate(() => document.documentElement.scrollWidth);
+    const tab = await page.locator('.zajem-volajici table.zajem-tabulka').evaluate((e) => ({ s: e.scrollWidth, c: e.parentElement.clientWidth })).catch(() => null);
+    over(`ZV6 ${sirka}`, w <= sirka && !!tab && tab.s <= tab.c + 1, `tabulka zájmu se na telefonu (${sirka} px) vejde bez vodorovného posunu`,
+      `stránka ${w}, tabulka ${JSON.stringify(tab)}`);
+    const popisky = await page.locator('.zajem-volajici table.zajem-tabulka tbody td').evaluateAll((tds) =>
+      tds.map((td) => getComputedStyle(td, '::before').content));
+    const hlavicka = await page.locator('.zajem-volajici table.zajem-tabulka thead').evaluate((e) => e.getBoundingClientRect().height);
+    over(`ZV7 ${sirka}`, popisky.length >= 4 && popisky.every((c) => /Chce web|Odpověděl|Zájem celkem|Čeká na odpověď/.test(c)) && hlavicka <= 1,
+      `telefon (${sirka} px): u každého čísla popisek, hlavička tabulky jen pro čtečky`, `${popisky.slice(0, 4).join(' | ')}; hlavička ${hlavicka}`);
+    await ctx.close();
+  });
+}
+
 /* ============ A) Cena při „Mají zájem“ nepovinná, nedohodnutá = „n/a“ (migrace 051, Albert 22. 10. 2026) ============ */
 // Albert: „make the web and hosting price optional at Mají zájem“ a „there's n/a on the hosting and on the prices when we
 // haven't arranged them yet“. Volající uloží zájem jen se známkou; Moji klienti, detail i výdělek ukážou „n/a“.
