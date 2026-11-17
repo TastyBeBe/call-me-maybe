@@ -38,6 +38,11 @@
 // Migrace 063 (Albert 1. 11. 2026, druhá etapa: po lhůtě na zavolání pošle automatizace jednu připomínku e-mailem): pod lhůtou
 // „Připomínka odeslána <den>“, když ji řádek nese (ozn_pripominka_at, jen u označení, které přihlášený vidí). Lhůta sama dál
 // „Lhůta na zavolání do …“: platí, ať je přepínač připomínek zapnutý, nebo ne.
+// ⚠ Přehled vedení úkol 11 (Albert 17. 11. 2026, rozložení filtrů) NAHRAZUJE výběr člověka a segment nad řádkem filtrů
+// a pilulky „Co je potřeba“ pod ním mimo filtry: panel FiltrPanel (1. řada člověk · segment · hledání, 2. řada filtry
+// s řazením vpravo, pod ní pilulky „Co je potřeba“, 3. řada čipy a „Zrušit vše“; na telefonu okno „Filtry (n)“). Vybrané
+// druhy jsou ve stavu filtrů (stav.druhy), takže „Zrušit vše“ je zruší i s výběrem člověka; hledání má jedno sdílené
+// zpoždění (useZpozdeneHledani). Druhy se dál vybírají tady nad načtenými řádky, parametry serveru beze změny.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getApi, type Kontakt, type OznaceneFiltry } from '../api';
@@ -46,10 +51,10 @@ import { audio } from '../audio';
 import { useSession } from '../auth';
 import { ZrusitOznaceniOkno } from '../components/DovolaniOkno';
 import DovolaniTlacitko from '../components/DovolaniTlacitko';
+import FiltrPanel, { useZpozdeneHledani } from '../components/FiltrPanel';
 import { HvezdaPrepinac } from '../components/Hvezda';
 import KontaktDrawer from '../components/KontaktDrawer';
 import PersonPicker, { usePeople } from '../components/PersonPicker';
-import SeznamFiltry from '../components/SeznamFiltry';
 import { PRAZDNE_FILTRY, filtrZapnuty, filtryOznacenych, type StavFiltru } from '../filtry';
 import { isSuperAdmin } from '../roles';
 import { jeObor, segmentOf } from '../segment';
@@ -108,8 +113,9 @@ export default function OznacenePage() {
   // čí klienty: null = všichni (super admin) nebo svoji (Volající), číslo = jeden člověk, 'bez' = bez volajícího
   const [kdo, setKdo] = useState<number | 'bez' | null>(null);
   const [stav, setStav] = useState<StavFiltru>(PRAZDNE_FILTRY);
-  const [druhy, setDruhy] = useState<string[]>([]);
-  const [hledani, setHledani] = useState('');
+  // pilulky „Co je potřeba“ ve stavu filtrů (úkol 11: „Zrušit vše“ je zruší)
+  const druhy = stav.druhy;
+  const setDruhy = (d: string[]) => setStav({ ...stav, druhy: d });
   const [rows, setRows] = useState<Kontakt[]>([]);
   // server bez migrace 060: jen příznaky (list_flagged) a hláška
   const [stary, setStary] = useState(false);
@@ -125,11 +131,8 @@ export default function OznacenePage() {
   // odpověď staršího požadavku (jiný člověk ve výběru) se zahodí, jako v Kontaktech
   const posledni = useRef(0);
 
-  // hledání na serveru, 300 ms po posledním písmenu (jako Kontakty)
-  useEffect(() => {
-    const t = setTimeout(() => setHledani(stav.hledat.trim()), 300);
-    return () => clearTimeout(t);
-  }, [stav.hledat]);
+  // hledání na serveru, 300 ms po posledním písmenu (jako Kontakty; od úkolu 11 sdílené zpoždění)
+  const hledani = useZpozdeneHledani(stav.hledat);
 
   const filtry: OznaceneFiltry = useMemo(
     () => ({
@@ -242,6 +245,11 @@ export default function OznacenePage() {
   };
 
   const nicNeniVubec = rows.length === 0 && !filtrZapnuty(stav) && !stav.segment && kdo === null;
+  // čip člověka a „Zrušit vše“ (úkol 11): zpět na všechny (super admin) nebo svoje (Volající)
+  const vsechnyLidi = () => {
+    setKdo(null);
+    setSelected(null);
+  };
 
   return (
     <div>
@@ -259,59 +267,79 @@ export default function OznacenePage() {
           : 'chybí e-mail nebo nevíme, o jaký objekt jde.'}
       </p>
 
-      <PersonPicker
-        people={people}
-        value={typeof kdo === 'number' ? kdo : null}
-        onChange={(id) => {
-          setKdo(id);
-          setSelected(null);
-        }}
-        label="Čí klienty zobrazit"
-        allOption="Všechny"
-        bezVolajiciho="Bez volajícího"
-        bezVybrano={kdo === 'bez'}
-        onBezVolajiciho={() => {
-          setKdo('bez');
-          setSelected(null);
-        }}
-      />
-
-      <SeznamFiltry
+      <FiltrPanel
         filtry={stav}
-        onChange={(f) => {
+        onFiltry={(f) => {
           if (f.segment !== stav.segment) setSelected(null);
           setStav(f);
         }}
+        // řada 1: čí klienty (jen super admin, i „Bez volajícího“, PersonPicker jako dřív; úkol 10 sem dá výběr lidí)
+        lide={
+          <PersonPicker
+            people={people}
+            value={typeof kdo === 'number' ? kdo : null}
+            onChange={(id) => {
+              setKdo(id);
+              setSelected(null);
+            }}
+            label="Čí klienty zobrazit"
+            allOption="Všechny"
+            bezVolajiciho="Bez volajícího"
+            bezVybrano={kdo === 'bez'}
+            onBezVolajiciho={() => {
+              setKdo('bez');
+              setSelected(null);
+            }}
+          />
+        }
+        lideCip={
+          kdo === null
+            ? null
+            : {
+                text:
+                  kdo === 'bez'
+                    ? 'Bez volajícího'
+                    : `Volající: ${kdo === session.user_id ? 'já' : (people.find((p) => p.user_id === kdo)?.display_name ?? 'vybraný člověk')}`,
+                zrus: vsechnyLidi,
+              }
+        }
+        onZrusVse={vsechnyLidi}
         kategorie={false}
-        className="oznacene-filtry"
-        hledatAria="Hledat v označených"
-        hledatPlaceholder="Hledat jméno, studio, telefon, web, e-mail, město, poznámku…"
+        hledat={{ aria: 'Hledat v označených', placeholder: 'Hledat jméno, studio, telefon, web, e-mail, město, poznámku…' }}
         razeni={<RazeniSelect value={stav.razeni} onChange={(r) => setStav({ ...stav, razeni: r })} jenMojeHovory={!jaSuper} />}
+        // pilulky „Co je potřeba“ s počty z načtených řádků (druhy vybírá appka, jako p_druhy na serveru)
+        extra={
+          volbyDruhu.length > 0 ? (
+            <div className="flag-filter-bar oznacene-druhy" role="group" aria-label="Co je potřeba">
+              <span className="filtr-skupina-popisek" aria-hidden="true">
+                Co je potřeba
+              </span>
+              <button type="button" className={`pill-btn sm${druhy.length === 0 ? ' go' : ''}`} aria-pressed={druhy.length === 0} onClick={() => setDruhy([])}>
+                Vše ({rows.length})
+              </button>
+              {volbyDruhu.map((v) => {
+                const ano = druhy.includes(v.druh);
+                return (
+                  <button
+                    key={v.druh}
+                    type="button"
+                    className={`pill-btn sm${ano ? ' go' : ''}`}
+                    aria-pressed={ano}
+                    onClick={() => setDruhy(ano ? druhy.filter((d) => d !== v.druh) : [...druhy, v.druh])}
+                    style={ano ? undefined : { borderColor: v.barva, color: v.barva }}
+                  >
+                    {v.text} ({pocty[v.druh] ?? 0})
+                  </button>
+                );
+              })}
+            </div>
+          ) : null
+        }
+        vysledky={loading ? null : filtered.length}
+        className="oznacene-filtry"
       />
 
       {stary && <div className="info-box">{BEZ_060_OZNACENE}</div>}
-
-      {volbyDruhu.length > 0 && (
-        <div className="flag-filter-bar oznacene-druhy" role="group" aria-label="Co je potřeba">
-          <button className={`pill-btn sm${druhy.length === 0 ? ' go' : ''}`} aria-pressed={druhy.length === 0} onClick={() => setDruhy([])}>
-            Vše ({rows.length})
-          </button>
-          {volbyDruhu.map((v) => {
-            const ano = druhy.includes(v.druh);
-            return (
-              <button
-                key={v.druh}
-                className={`pill-btn sm${ano ? ' go' : ''}`}
-                aria-pressed={ano}
-                onClick={() => setDruhy(ano ? druhy.filter((d) => d !== v.druh) : [...druhy, v.druh])}
-                style={ano ? undefined : { borderColor: v.barva, color: v.barva }}
-              >
-                {v.text} ({pocty[v.druh] ?? 0})
-              </button>
-            );
-          })}
-        </div>
-      )}
 
       <ErrorBox>{error}</ErrorBox>
       {/* živá oblast je na stránce dřív než věta, čtečka ji tak přečte (zápis hovoru, „Vyřešeno“ v řádku) */}

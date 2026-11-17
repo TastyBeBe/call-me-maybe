@@ -169,28 +169,62 @@ const prepinac = (page, s) => page.locator(`.segment-switch button.${s}`);
  * řádku filtrů ('' = první na stránce, '.moji-filtry'), `hodnoty` = co zaškrtnout ([] = vše).
  */
 async function vyber(page, aria, hodnoty, obal = '') {
-  const tl = page.locator(`${obal} button[aria-label="${aria}"]`.trim()).first();
-  await tl.click();
-  const panel = page.locator(`${obal} .vyber-vice-panel`.trim()).first();
-  await panel.waitFor({ timeout: 4000 });
-  if (hodnoty.length === 0) {
-    await panel.locator('label.vse input').check();
-  } else {
-    for (const box of await panel.locator('input[value]').all()) {
-      const v = await box.getAttribute('value');
-      if (hodnoty.includes(v) !== (await box.isChecked())) await box.click();
+  // ⚠ úkol 11 (Albert 17. 11. 2026): na telefonu jsou filtry v okně „Filtry (n)“, vFiltrech ho otevře a po sobě zavře
+  await vFiltrech(page, async () => {
+    const tl = page.locator(`${obal} button[aria-label="${aria}"]`.trim()).first();
+    await tl.click();
+    const panel = page.locator(`${obal} .vyber-vice-panel`.trim()).first();
+    await panel.waitFor({ timeout: 4000 });
+    if (hodnoty.length === 0) {
+      await panel.locator('label.vse input').check();
+    } else {
+      for (const box of await panel.locator('input[value]').all()) {
+        const v = await box.getAttribute('value');
+        if (hodnoty.includes(v) !== (await box.isChecked())) await box.click();
+      }
     }
-  }
-  await page.keyboard.press('Escape');
-  await page.waitForTimeout(80);
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(80);
+  });
 }
-/** Texty voleb výběru víc hodnot (otevře a zavře panel). */
+/** Texty voleb výběru víc hodnot (otevře a zavře panel; na telefonu i okno filtrů). */
 async function volbyVyberu(page, aria, obal = '') {
-  await page.locator(`${obal} button[aria-label="${aria}"]`.trim()).first().click();
-  const texty = (await page.locator(`${obal} .vyber-vice-panel label`.trim()).allInnerTexts()).map((x) => x.replace(/\s+/g, ' ').trim());
-  await page.keyboard.press('Escape');
-  await page.waitForTimeout(80);
-  return texty;
+  return vFiltrech(page, async () => {
+    await page.locator(`${obal} button[aria-label="${aria}"]`.trim()).first().click();
+    const texty = (await page.locator(`${obal} .vyber-vice-panel label`.trim()).allInnerTexts()).map((x) => x.replace(/\s+/g, ' ').trim());
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(80);
+    return texty;
+  });
+}
+/**
+ * Přehled vedení úkol 11 (Albert 17. 11. 2026, rozložení filtrů): na telefonu (do 640 px) jsou filtry seznamů (osoba, stav,
+ * známka, mlčí, čekání s koši, hvězda, odpověděl, řazení, „Co je potřeba“) v okně, které otevře tlačítko „Filtry (n)“; venku
+ * zůstane segment, hledání a čipy zapnutých filtrů. otevriFiltry okno otevře, když je tlačítko vidět a okno zavřené (vrátí,
+ * jestli ho otevřela); zavriFiltry ho zavře tlačítkem dole; vFiltrech udělá krok s otevřeným oknem a po sobě ho zavře. Na
+ * počítači nedělají nic. ⚠ NAHRAZUJE klikání na filtry na telefonu přímo ve stránce (bloky U, F056, R057 a O060 na 390 px).
+ */
+async function otevriFiltry(page) {
+  const tl = page.locator('button.filtr-telefon-btn').first();
+  if ((await tl.count()) === 0 || !(await tl.isVisible())) return false;
+  if ((await tl.getAttribute('aria-expanded')) === 'true') return false;
+  await tl.click();
+  await page.locator('.filtr-sheet').waitFor({ timeout: 4000 });
+  return true;
+}
+async function zavriFiltry(page) {
+  const hotovo = page.locator('.filtr-sheet button.filtr-sheet-hotovo');
+  if ((await hotovo.count()) === 0) return;
+  await hotovo.click();
+  await page.locator('.filtr-sheet').waitFor({ state: 'detached', timeout: 4000 });
+}
+async function vFiltrech(page, krok) {
+  const otevrela = await otevriFiltry(page);
+  try {
+    return await krok();
+  } finally {
+    if (otevrela) await zavriFiltry(page);
+  }
 }
 const filtr = (page, text) => page.locator('.segment-filter button', { hasText: new RegExp(`^${text}$`) });
 const nazvyVolani = (vs) => vs.map((v) => v.fn);
@@ -1681,13 +1715,15 @@ for (const sirka of [1280, 390]) {
   await blok050(`F056 ${sirka}`, async () => {
     const { ctx, page } = await novaStranka('admin', { sirka, vyska: sirka < 768 ? 844 : 900 });
     await jdi(page, '#/moji', 700);
-    await page.selectOption('#person-picker', String(UID.petra));
+    // ⚠ úkol 11: na telefonu je výběr člověka, čekání, koše a řazení v okně „Filtry (n)“ (vFiltrech)
+    await vFiltrech(page, () => page.selectOption('#person-picker', String(UID.petra)));
     await klid(page, 700);
     const f = (aria) => page.locator(`.moji-filtry select[aria-label="${aria}"]`);
     // ⚠ migrace 060: stav a známka jsou výběr víc hodnot (tlačítko se stejným aria-label), NAHRAZUJE dva rozbalovací seznamy
     const v = (aria) => page.locator(`.moji-filtry button[aria-label="${aria}"]`);
-    over(`F56a ${sirka}`, (await v('Filtr statusu').count()) === 1 && (await v('Filtr známky').count()) === 1 && (await f('Filtr čekání na odpověď').count()) === 1
-      && (await f('Řazení').count()) === 1 && (await page.locator('.moji-filtry .search-input').count()) === 1, 'super admin má v Moji klienti filtry jako Kontakty');
+    const f56a = await vFiltrech(page, async () => (await v('Filtr statusu').count()) === 1 && (await v('Filtr známky').count()) === 1
+      && (await f('Filtr čekání na odpověď').count()) === 1 && (await f('Řazení').count()) === 1);
+    over(`F56a ${sirka}`, f56a && (await page.locator('.moji-filtry .search-input').count()) === 1, 'super admin má v Moji klienti filtry jako Kontakty');
     const s = await stav(page);
     const klienti = s.kontakty.filter((k) => k.last_caller === 'Petra' || s.callLog.some((l) => l.user_id === UID.petra && l.kontakt_id === k.id));
     const radky = page.locator('table.kontakty tbody tr');
@@ -1714,15 +1750,16 @@ for (const sirka of [1280, 390]) {
     await page.fill('.moji-filtry .search-input', '');
     await page.waitForTimeout(450);
     await klid(page, 600);
-    await f('Filtr čekání na odpověď').selectOption('ceka_prvni');
+    await vFiltrech(page, () => f('Filtr čekání na odpověď').selectOption('ceka_prvni'));
     await klid(page, 600);
     const cek = await seznam();
-    over(`F56e ${sirka}`, (await page.locator('.moji-kose button').count()) === 5 && cek?.args[4]?.cekani === 'ceka_prvni' && cek?.args[4]?.kos === 'k_zavolani',
+    const kose = await vFiltrech(page, () => page.locator('.moji-kose button').count());
+    over(`F56e ${sirka}`, kose === 5 && cek?.args[4]?.cekani === 'ceka_prvni' && cek?.args[4]?.kos === 'k_zavolani',
       'filtr čekání zapne koš „k zavolání“ a koše jako Kontakty', JSON.stringify(cek?.args[4]));
-    await f('Filtr čekání na odpověď').selectOption('');
+    await vFiltrech(page, () => f('Filtr čekání na odpověď').selectOption(''));
     await klid(page, 600);
     // řazení podle poslední změny: kontakt upravený teď je od nejnovější první, od nejstarší poslední
-    await f('Řazení').selectOption('zmena_nejnovejsi');
+    await vFiltrech(page, () => f('Řazení').selectOption('zmena_nejnovejsi'));
     await klid(page, 600);
     const jmeno = await jmenoRadku(radky.last());
     await radky.last().click();
@@ -1735,7 +1772,7 @@ for (const sirka of [1280, 390]) {
     await klid(page, 300);
     over(`F56f ${sirka}`, (await jmenoRadku(radky.first())) === jmeno && (await radky.count()) === klienti.length,
       'od nejnovější změny: právě upravený kontakt je první', `${await jmenoRadku(radky.first())} / ${jmeno}`);
-    await f('Řazení').selectOption('zmena_nejstarsi');
+    await vFiltrech(page, () => f('Řazení').selectOption('zmena_nejstarsi'));
     await klid(page, 600);
     const raz = await seznam();
     over(`F56g ${sirka}`, (await jmenoRadku(radky.last())) === jmeno && raz?.args[4]?.razeni === 'zmena_nejstarsi',
@@ -1826,14 +1863,15 @@ for (const sirka of [1280, 390]) {
     const { ctx, page } = await novaStranka('admin', { sirka, vyska: sirka < 768 ? 844 : 900 });
     await jdi(page, '#/admin', 700);
     const sel = page.locator('.filter-bar select[aria-label="Řazení"]');
-    const volby = await sel.locator('option').evaluateAll((os) => os.map((o) => o.value));
+    // ⚠ úkol 11: na telefonu je řazení v okně „Filtry (n)“ (vFiltrech)
+    const volby = await vFiltrech(page, () => sel.locator('option').evaluateAll((os) => os.map((o) => o.value)));
     const hl = await sloupce(page);
     // ⚠ migrace 060: i mlceni a hvezda (šest řazení, NAHRAZUJE čtyři)
     over(`R57a ${sirka}`, JSON.stringify(volby) === JSON.stringify(['', 'zmena_nejnovejsi', 'zmena_nejstarsi', 'hovor_nejnovejsi', 'hovor_nejstarsi', 'mlceni', 'hvezda'])
       && hl.includes('Změněno') && hl.includes('Poslední hovor'), 'Kontakty: šest řazení a sloupec Poslední hovor', JSON.stringify({ volby, hl }));
     // od nejnovější změny: první je kontakt s nejpozdější poslední změnou (prodej z tohoto týdne, stav změnila automatizace,
     // appka ho naposledy upravila před 5 dny) a Změněno ukazuje poslední změnu, ne updated_at
-    await sel.selectOption('zmena_nejnovejsi');
+    await vFiltrech(page, () => sel.selectOption('zmena_nejnovejsi'));
     await klid(page, 600);
     const s = await stav(page);
     const nej = [...s.kontakty].sort((a, b) => new Date(b.posledni_zmena) - new Date(a.posledni_zmena))[0];
@@ -1844,7 +1882,7 @@ for (const sirka of [1280, 390]) {
       'od nejnovější změny: první kontakt změněný automatizací, Změněno ukazuje poslední změnu (ne updated_at)',
       JSON.stringify({ prvni: await jmenoRadku(radky.first()), nej: nej.name, zm: zm[0], pz: nej.posledni_zmena, upd: nej.updated_at }));
     // od posledního hovoru: první má nejnovější hovor (kohokoli), sloupec ukazuje jeho datum a čas, bez hovoru na konci
-    await sel.selectOption('hovor_nejnovejsi');
+    await vFiltrech(page, () => sel.selectOption('hovor_nejnovejsi'));
     await klid(page, 600);
     const hov = await bunkySloupce(page, hl.indexOf('Poslední hovor'));
     const maxH = Math.max(...s.kontakty.map((k) => hovorMs(s, k.id) ?? 0));
@@ -1856,13 +1894,13 @@ for (const sirka of [1280, 390]) {
       JSON.stringify({ hov: hov.slice(0, 4), sHovorem, razeni: v?.args[0]?.razeni }));
     // Moji klienti Petry (super admin): sloupec Poslední hovor s hovory všech (kontakt 2: Honza volal později než Petra)
     await jdi(page, '#/moji', 700);
-    await page.selectOption('#person-picker', String(UID.petra));
+    await vFiltrech(page, () => page.selectOption('#person-picker', String(UID.petra)));
     await klid(page, 700);
     const hlM = await sloupce(page);
     const k2 = s.kontakty.find((k) => k.id === 2);
     const radek2 = page.locator('table.kontakty tbody tr', { hasText: k2.name }).first();
     const b2 = txt(await radek2.locator('td').nth(hlM.indexOf('Poslední hovor')).innerText());
-    const volbyM = await page.locator('.moji-filtry select[aria-label="Řazení"] option').evaluateAll((os) => os.map((o) => o.value));
+    const volbyM = await vFiltrech(page, () => page.locator('.moji-filtry select[aria-label="Řazení"] option').evaluateAll((os) => os.map((o) => o.value)));
     over(`R57d ${sirka}`, hlM.includes('Poslední hovor') && b2 === (await casCs(page, new Date(hovorMs(s, 2)).toISOString())) && hovorMs(s, 2) > hovorMs(s, 2, UID.petra)
       && volbyM.includes('hovor_nejnovejsi') && volbyM.includes('hovor_nejstarsi'),
       'Moji klienti super admina: poslední hovor kohokoli (i kolegy), řazení podle hovoru', JSON.stringify({ hlM, b2, volbyM }));
@@ -1925,13 +1963,14 @@ for (const sirka of [1280, 390]) {
     const lhuta = txt(await radky.first().locator('.lhuta-cell').innerText());
     over(`O60b ${sirka}`, /^Lhůta na zavolání do \d{1,2}\. \d{1,2}\. \d{4}/.test(lhuta) && !/E-mail mu půjde|Připomínka e-mailem/.test(await page.locator('body').innerText()),
       'lhůta: „Lhůta na zavolání do …“, bez slibu e-mailu (připomínku řídí přepínač, odeslanou ukáže řádek pod lhůtou)', lhuta);
-    const pilulky = (await page.locator('.oznacene-druhy button').allInnerTexts()).map(txt);
+    // ⚠ úkol 11: na telefonu jsou pilulky „Co je potřeba“ i „jen s hvězdou“ v okně „Filtry (n)“ (vFiltrech)
+    const pilulky = (await vFiltrech(page, () => page.locator('.oznacene-druhy button').allInnerTexts())).map(txt);
     over(`O60c ${sirka}`, pilulky.includes('Neodpověděl na návrh (1)') && pilulky.includes('Neodpověděl na změny (1)') && pilulky.some((p) => /^Chybí e-mail \(1\)$/.test(p)),
       'pilulky druhů s počty (označení i příznaky)', pilulky.join(' | '));
-    await page.locator('.oznacene-druhy button', { hasText: 'Neodpověděl na změny' }).click();
+    await vFiltrech(page, () => page.locator('.oznacene-druhy button', { hasText: 'Neodpověděl na změny' }).click());
     await page.waitForTimeout(150);
     over(`O60d ${sirka}`, (await radky.count()) === 1 && /Na Kopci/.test(await radky.first().innerText()), 'pilulka „Neodpověděl na změny“ nechá jen 94');
-    await page.locator('.oznacene-druhy button', { hasText: /^Vše/ }).click();
+    await vFiltrech(page, () => page.locator('.oznacene-druhy button', { hasText: /^Vše/ }).click());
     await page.waitForTimeout(150);
     // okno Zavolal/a jsem u 93: pět výsledků (061), „Mluvili jsme“ chce text, hvězda je zaškrtnutá (93 hvězdu má)
     const s0 = await stav(page);
@@ -1973,7 +2012,7 @@ for (const sirka of [1280, 390]) {
     await page.locator('.drawer-close').click();
     await klid(page, 300);
     // filtr jen s hvězdou: 94 (93 je po dovolání pryč, hvězda zůstala, ale označení ani příznak nemá)
-    await page.locator('button[aria-label="Jen s hvězdou"]').click();
+    await vFiltrech(page, () => page.locator('button[aria-label="Jen s hvězdou"]').click());
     await klid(page, 600);
     const sHvezdou = await radky.allInnerTexts();
     over(`O60j ${sirka}`, sHvezdou.length === 1 && /Na Kopci/.test(sHvezdou[0]), 'jen s hvězdou: 94', sHvezdou.map((r) => r.slice(0, 40)).join(' | '));
@@ -2026,9 +2065,13 @@ await blok050('O060 kontakty petra', async () => {
   const v = (await volani(page)).filter((x) => x.fn === 'listKontakty' && x.args[0]?.limit === 50).pop();
   over('O60q', jmena.length === ozn.length && ozn.length >= 1 && !jmena.some((j) => /Na Samotě/.test(j)) && JSON.stringify(v?.args[0]?.kategorie) === '["navrh"]',
     'Volající: filtr „Neodpověděl na návrh“ jen jeho označení (96 Honzovo ne), jde na server', `${jmena.length} / ${ozn.join()}`);
-  await page.getByRole('button', { name: 'Zrušit filtry' }).click();
+  // ⚠ úkol 11 (Albert 17. 11. 2026): „Zrušit vše“ v řadě čipů NAHRAZUJE „Zrušit filtry“; předvolby mlčení jsou v rozbalovacím
+  // výběru „Mlčí“ (tlačítko aria-label „Filtr mlčení“) jako stav a známka, NAHRAZUJE předvolby přímo v řádku filtrů
+  await page.getByRole('button', { name: 'Zrušit vše', exact: true }).click();
   await klid(page, 600);
+  await page.locator('button[aria-label="Filtr mlčení"]').click();
   await page.locator('button.mlci-predvolba', { hasText: '10+' }).click();
+  await page.keyboard.press('Escape');
   await klid(page, 700);
   const v2 = (await volani(page)).filter((x) => x.fn === 'listKontakty' && x.args[0]?.limit === 50).pop();
   over('O60r', v2?.args[0]?.mlci_min === 10 && (await radky.allInnerTexts()).every((r) => !/—\s*$/.test(r)), 'předvolba 10+: mlčí aspoň 10 pracovních dní, jde na server');
@@ -3038,6 +3081,172 @@ await blok050('VE', async () => {
   await jdi(p2, '#/call', 800);
   over('VE3', (await p2.evaluate(() => localStorage.getItem('volacka_segment'))) === 'chata', 'bez zapnutých elektrikářů zůstane uložená volba');
   await c2.close();
+});
+
+/* ============ FP (Přehled vedení úkol 11, Albert 17. 11. 2026): rozložení filtrů v Kontaktech, Moji klienti a Označených ============ */
+// Albert: filtry jsou „super messy and clunky … not in terms of the content, but how they are positioned and structured“ (spec
+// docs/superpowers/specs/2026-11-17-prehled-vedeni-design.md §7.4). Tři řady: 1. osoba · segment · hledání, 2. stav · známka ·
+// neodpověděl · mlčí · čekání (+ koše) · hvězda · odpověděl · řazení vpravo, 3. čipy zapnutých filtrů s křížkem a „Zrušit vše“
+// (zruší i osobu, čekání, koš a „Co je potřeba“, segment nechá). Telefon (do 640 px): venku segment, hledání, „Filtry (n)“
+// a čipy, ostatní v jednom okně. Filtry, parametry serveru a viditelnost se nemění (měří bloky výš i tests/filtrpanel.test.mjs).
+const RADA2_FP = {
+  '#/admin': ['Filtr statusu', 'Filtr známky', 'Filtr označení', 'Filtr mlčení', 'Filtr čekání na odpověď', 'Jen s hvězdou', 'Odpověděl, zatím nepotvrdil', 'Řazení'],
+  '#/moji': ['Filtr statusu', 'Filtr známky', 'Filtr označení', 'Filtr mlčení', 'Filtr čekání na odpověď', 'Jen s hvězdou', 'Odpověděl, zatím nepotvrdil', 'Řazení'],
+  '#/oznacene': ['Filtr statusu', 'Filtr známky', 'Filtr mlčení', 'Jen s hvězdou', 'Odpověděl, zatím nepotvrdil', 'Řazení'],
+};
+/** Rozložení panelu filtrů na počítači (běží ve stránce). */
+function zmerFP() {
+  const r1 = document.querySelector('.filtr-panel .filtr-rada-1');
+  const r2 = document.querySelector('.filtr-panel .filtr-rada-2');
+  const raz = r2?.querySelector('select[aria-label="Řazení"]');
+  const r1b = r1?.getBoundingClientRect();
+  const r2b = r2?.getBoundingClientRect();
+  const rzb = raz?.getBoundingClientRect();
+  const druh = (e) => (e.id === 'person-picker' ? 'osoba' : e.matches('select') ? 'volajici' : e.matches('.segment-filter') ? 'segment' : 'hledat');
+  return {
+    panelu: document.querySelectorAll('.filtr-panel').length,
+    r1: r1 ? [...r1.querySelectorAll('select[aria-label="Filtr volajícího"], #person-picker, .segment-filter, input.search-input')].map(druh) : [],
+    r2: r2 ? [...r2.querySelectorAll('button.vyber-vice-btn, button.pill-btn, select')].map((e) => e.getAttribute('aria-label')) : [],
+    podSebou: !!r1b && !!r2b && r1b.bottom <= r2b.top + 0.5,
+    razeniVpravo: !!rzb && !!r2b && Math.abs(rzb.right - r2b.right) <= 2 && rzb.top - r2b.top <= 4,
+    cipy: [...document.querySelectorAll('.filtr-panel .filtr-cip')].map((c) => c.textContent.replace(/\s+/g, ' ').trim()),
+    sirka: document.documentElement.scrollWidth,
+  };
+}
+for (const kdo of ['admin', 'petra']) {
+  await blok050(`FP1 ${kdo}`, async () => {
+    const { ctx, page } = await novaStranka(kdo);
+    for (const hash of ['#/admin', '#/moji', '#/oznacene']) {
+      await jdi(page, hash, 700);
+      const m = await page.evaluate(zmerFP);
+      // osoba: Kontakty výběr volajícího pro každého (Volající „Naposledy volal/a já“ jako dřív), jinde jen super admin
+      const osoba = hash === '#/admin' ? ['volajici'] : kdo === 'admin' ? ['osoba'] : [];
+      over(`FP1 ${kdo} ${hash}`, m.panelu === 1 && JSON.stringify(m.r1) === JSON.stringify([...osoba, 'segment', 'hledat'])
+        && JSON.stringify(m.r2) === JSON.stringify(RADA2_FP[hash]) && m.podSebou && m.razeniVpravo && m.cipy.length === 0 && m.sirka <= 1280,
+        `${kdo} ${hash}: řada 1 osoba · segment · hledání, řada 2 filtry s řazením vpravo nahoře, bez čipů`, JSON.stringify(m));
+    }
+    await ctx.close();
+  });
+}
+await blok050('FP2', async () => {
+  const { ctx, page } = await novaStranka('admin');
+  await jdi(page, '#/admin', 700);
+  await filtr(page, 'architekti').click();
+  await page.selectOption('select[aria-label="Filtr volajícího"]', 'Petra');
+  await vyber(page, 'Filtr statusu', ['zajem']);
+  await page.locator('button[aria-label="Filtr mlčení"]').click();
+  await page.locator('button.mlci-predvolba', { hasText: '10+' }).click();
+  await page.keyboard.press('Escape');
+  await page.selectOption('select[aria-label="Filtr čekání na odpověď"]', 'ceka_prvni');
+  await page.locator('button[aria-label="Jen s hvězdou"]').click();
+  await klid(page, 700);
+  const cipy = (await page.evaluate(zmerFP)).cipy;
+  over('FP2a', JSON.stringify(cipy) === JSON.stringify(['Volající: Petra', 'Stav: Mají zájem', 'Mlčí 10+ prac. dní', 'Čeká na první odpověď', 'K zavolání (7–30 dní)', 'Jen s hvězdou']),
+    'čipy zapnutých filtrů v pořadí řad: osoba, stav, mlčí, čekání, koš, hvězda (segment čip nemá)', JSON.stringify(cipy));
+  const posledni = async () => (await volani(page)).filter((v) => v.fn === 'listKontakty' && v.args[0]?.limit === 50).pop()?.args[0];
+  await page.locator('.filtr-cip', { hasText: 'Jen s hvězdou' }).click();
+  await klid(page, 600);
+  const a = await posledni();
+  over('FP2b', !!a && !a.jen_hvezda && a.status === 'zajem' && a.mlci_min === 10 && a.cekani === 'ceka_prvni' && a.kos === 'k_zavolani' && a.caller === 'Petra'
+    && a.segment === 'architekt' && (await page.locator('button[aria-label="Jen s hvězdou"]').getAttribute('aria-pressed')) === 'false',
+    'křížek čipu zruší jen svůj filtr, ostatní jdou na server dál', JSON.stringify(a));
+  await page.getByRole('button', { name: 'Zrušit vše', exact: true }).click();
+  await klid(page, 700);
+  const b = await posledni();
+  over('FP2c', !!b && b.segment === 'architekt' && !b.status && !b.statusy && !b.mlci_min && !b.cekani && !b.kos && !b.caller && !b.jen_hvezda
+    && (await page.locator('.filtr-cip').count()) === 0 && (await page.locator('select[aria-label="Filtr čekání na odpověď"]').inputValue()) === ''
+    && (await page.locator('select[aria-label="Filtr volajícího"]').inputValue()) === '' && (await page.locator('.filtr-kose').count()) === 0
+    && (await filtr(page, 'architekti').getAttribute('aria-pressed')) === 'true',
+    'Zrušit vše: zruší stav, mlčení, čekání, koš, hvězdu i volajícího, segment nechá', JSON.stringify(b));
+  await ctx.close();
+});
+await blok050('FP3', async () => {
+  const { ctx, page } = await novaStranka('admin');
+  await jdi(page, '#/oznacene', 700);
+  const radky = page.locator('table.kontakty tbody tr');
+  const vse = await radky.count();
+  await page.locator('.oznacene-druhy button', { hasText: 'Neodpověděl na návrh' }).click();
+  await page.waitForTimeout(150);
+  const jen = await radky.count();
+  const cipy = (await page.locator('.filtr-cip').allInnerTexts()).map(txt);
+  await page.getByRole('button', { name: 'Zrušit vše', exact: true }).click();
+  await klid(page, 600);
+  over('FP3', vse > jen && jen >= 1 && JSON.stringify(cipy) === JSON.stringify(['Neodpověděl na návrh']) && (await radky.count()) === vse
+    && (await page.locator('.oznacene-druhy button', { hasText: /^Vše/ }).getAttribute('aria-pressed')) === 'true',
+    'Označené: pilulka „Co je potřeba“ má čip a Zrušit vše ji zruší', `${vse} → ${jen} → ${await radky.count()} | ${cipy.join(', ')}`);
+  await ctx.close();
+});
+for (const [w, h] of [[390, 844], [360, 780], [320, 700]]) {
+  await blok050(`FP4 ${w}`, async () => {
+    const { ctx, page } = await novaStranka('admin', { sirka: w, vyska: h });
+    await jdi(page, '#/admin', 700);
+    const tl = page.locator('button.filtr-telefon-btn');
+    const zav = await page.evaluate(() => ({
+      sirka: document.documentElement.scrollWidth,
+      rada2: document.querySelectorAll('.filtr-rada-2').length,
+      venku: !!document.querySelector('.filtr-panel .segment-filter') && !!document.querySelector('.filtr-panel input.search-input'),
+    }));
+    over(`FP4a ${w}`, (await tl.isVisible()) && txt(await tl.innerText()) === 'Filtry' && zav.rada2 === 0 && zav.venku && zav.sirka <= w,
+      'telefon: venku segment, hledání a „Filtry“, ostatní filtry v okně, bez posunu do strany', JSON.stringify(zav));
+    await tl.click();
+    const okno = page.locator('.filtr-sheet[role="dialog"]');
+    await okno.waitFor({ timeout: 4000 });
+    await page.waitForTimeout(300); // okno vyjíždí 200 ms
+    const ot = await page.evaluate(() => {
+      const o = document.querySelector('.filtr-sheet');
+      const r = o.getBoundingClientRect();
+      const hotovo = o.querySelector('.filtr-sheet-hotovo')?.getBoundingClientRect();
+      return {
+        sirka: document.documentElement.scrollWidth,
+        vOkne: r.left >= -0.5 && r.right <= innerWidth + 0.5 && r.bottom <= innerHeight + 0.5 && r.top >= -0.5,
+        hotovo: !!hotovo && hotovo.top >= r.top && hotovo.bottom <= innerHeight + 0.5 && hotovo.right <= innerWidth + 0.5,
+        ovladace: [...o.querySelectorAll('select[aria-label], button[aria-label], #person-picker')].map((e) => e.getAttribute('aria-label') ?? e.id),
+        doStrany: o.scrollWidth > o.clientWidth + 0.5,
+      };
+    });
+    over(`FP4b ${w}`, RADA2_FP['#/admin'].concat('Filtr volajícího').every((a) => ot.ovladace.includes(a)) && ot.vOkne && ot.hotovo && ot.sirka <= w && !ot.doStrany,
+      'okno Filtry: osoba, všechny filtry i řazení, celé na obrazovce, tlačítko dole vidět, nic do strany', JSON.stringify(ot));
+    await okno.locator('button[aria-label="Filtr statusu"]').click();
+    await okno.locator('.vyber-vice-panel input[value="zajem"]').check();
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(120);
+    const porad = await okno.count();
+    await okno.locator('.filtr-sheet-hotovo').click();
+    await klid(page, 600);
+    const fokus = await page.evaluate(() => document.activeElement?.classList.contains('filtr-telefon-btn') ?? false);
+    const cipy = (await page.locator('.filtr-cip').allInnerTexts()).map(txt);
+    over(`FP4c ${w}`, porad === 1 && (await okno.count()) === 0 && txt(await tl.innerText()) === 'Filtry (1)' && fokus
+      && JSON.stringify(cipy) === JSON.stringify(['Stav: Mají zájem']) && (await page.evaluate(() => document.documentElement.scrollWidth)) <= w,
+      'Escape zavře jen výběr stavu, Hotovo okno; tlačítko „Filtry (1)“ dostane fokus, čip stavu je venku, bez posunu do strany',
+      `${porad} ${await tl.innerText()} fokus=${fokus} ${cipy.join(', ')}`);
+    await tl.click();
+    await okno.waitFor({ timeout: 4000 });
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(150);
+    over(`FP4d ${w}`, (await okno.count()) === 0, 'Escape bez otevřeného výběru zavře okno filtrů');
+    await ctx.close();
+  });
+}
+await blok050('FP5 petra 320', async () => {
+  // Volající na telefonu 320 px: v okně tytéž filtry jako dřív (v Kontaktech jeho výběr volajícího, v Moji klienti
+  // a Označených žádný výběr člověka), stránka se do strany neposouvá se zavřeným ani otevřeným oknem
+  const { ctx, page } = await novaStranka('petra', { sirka: 320, vyska: 700 });
+  for (const hash of ['#/admin', '#/moji', '#/oznacene']) {
+    await jdi(page, hash, 700);
+    const zavreno = await page.evaluate(() => document.documentElement.scrollWidth);
+    const m = await vFiltrech(page, async () => {
+      await page.waitForTimeout(300);
+      return page.evaluate(() => ({
+        sirka: document.documentElement.scrollWidth,
+        ovladace: [...document.querySelectorAll('.filtr-sheet select[aria-label], .filtr-sheet button[aria-label], .filtr-sheet #person-picker')]
+          .map((e) => e.getAttribute('aria-label') ?? e.id).filter((a) => !/^Zavřít/.test(a)),
+      }));
+    });
+    const cekam = hash === '#/admin' ? ['Filtr volajícího', ...RADA2_FP[hash]] : RADA2_FP[hash];
+    over(`FP5 ${hash}`, JSON.stringify(m.ovladace) === JSON.stringify(cekam) && zavreno <= 320 && m.sirka <= 320,
+      `Volající (${hash}, 320 px): v okně tytéž filtry jako dřív, bez posunu do strany`, JSON.stringify({ zavreno, ...m }));
+  }
+  await ctx.close();
 });
 
 await browser.close();

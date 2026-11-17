@@ -1,13 +1,21 @@
 // KOMBINOVATELNÉ FILTRY SEZNAMŮ (migrace 060, Albert 1. 11. 2026: „the same combinable filters in Kontakty, Moji klienti
-// and Označené“). Jeden stav filtrů pro všechny tři stránky (sdílený řádek filtrů v components/SeznamFiltry.tsx) a jeho
-// převod na parametry serveru. Bez Reactu, používají ho stránky i testy (tests/filtry.test.mjs).
+// and Označené“). Jeden stav filtrů pro všechny tři stránky (panel filtrů components/FiltrPanel.tsx s řadou filtrů
+// components/SeznamFiltry.tsx) a jeho převod na parametry serveru. Bez Reactu, používají ho stránky i testy
+// (tests/filtry.test.mjs, tests/filtrpanel.test.mjs).
 //
 // Co platí (docs/ROLE-A-VIDITELNOST.md, oddíl 060): všechny zapnuté filtry najednou (A ZÁROVEŇ), z hodnot jednoho filtru
 // kterákoli (NEBO). Volajícímu berou jen jeho klienty a jen jeho označení; cizí kontakt nesedí nikdy a klíče mlčení,
 // označení ani hvězdy nedostane (hlídá server, mock stejně). Filtry se drží ve stavu stránky: zavření detailu ani výběr
 // jiného člověka je nezruší; adresa stránky je nenese (filtry seznamů se nepamatují, docs/ARCHITEKTI.md 9.6).
+//
+// Přehled vedení úkol 11 (Albert 17. 11. 2026, rozložení filtrů): ve stavu jsou i čekání s košem (Kontakty, Moji klienti)
+// a pilulky „Co je potřeba“ (Označené, `druhy`), ať je „Zrušit vše“ zruší spolu s ostatními (zrusVse; segment zůstane jako
+// dřív). ⚠ NAHRAZUJE čekání, koš a druhy ve vlastním stavu stránek, které „Zrušit filtry“ nechávalo zapnuté. Převod na
+// parametry serveru se nemění (čekání a koš posílá stránka sama jako dřív, druhy vybírá appka nad načtenými řádky).
 
 import type {
+  CekaniKind,
+  CekaniKos,
   FiltryMlceni,
   KontaktStatus,
   OznaceniKategorie,
@@ -29,6 +37,12 @@ export interface StavFiltru {
   mlciMax: number | null;
   razeni: Razeni | '';
   hledat: string;
+  /** čekání na odpověď (migrace 014; Kontakty a Moji klienti), '' = vypnuto */
+  cekani: CekaniKind | '';
+  /** koš čekání podle stáří; platí jen se zapnutým čekáním ('' = všechny koše) */
+  kos: CekaniKos | '';
+  /** Označené: pilulky „Co je potřeba“ (kategorie označení a druhy příznaků), vybírá appka nad načtenými řádky */
+  druhy: string[];
 }
 
 export const PRAZDNE_FILTRY: StavFiltru = {
@@ -42,7 +56,38 @@ export const PRAZDNE_FILTRY: StavFiltru = {
   mlciMax: null,
   razeni: '',
   hledat: '',
+  cekani: '',
+  kos: '',
+  druhy: [],
 };
+
+/**
+ * „Zrušit vše“ (úkol 11, Albert 17. 11. 2026): zruší každý filtr stavu i čekání, koš a pilulky „Co je potřeba“, hledání
+ * a řazení (jako dřív „Zrušit filtry“); segment zůstane jako dřív. Výběr člověka (řada 1) vrací stránka sama (onZrusVse).
+ */
+export function zrusVse(f: StavFiltru): StavFiltru {
+  return { ...PRAZDNE_FILTRY, segment: f.segment };
+}
+
+/** Je co rušit? (zrusVse by změnilo něco jiného než segment) */
+export function lzeZrusit(f: StavFiltru): boolean {
+  return (
+    filtrZapnuty(f) ||
+    f.razeni !== '' ||
+    f.hledat !== '' ||
+    f.cekani !== '' ||
+    f.kos !== '' ||
+    f.druhy.length > 0
+  );
+}
+
+/**
+ * Zapnutí nebo vypnutí čekání: zapnutí rovnou zvolí koš „k zavolání“, aby začátek seznamu nezaplavili klienti, kteří mlčí
+ * rok (Albert 2026-09-07), vypnutí koš zruší. Stejně jako dřív výběr čekání v Kontaktech a Moji klienti.
+ */
+export function sCekanim(f: StavFiltru, cekani: CekaniKind | ''): StavFiltru {
+  return { ...f, cekani, kos: cekani ? 'k_zavolani' : '' };
+}
 
 /** Předvolby „Mlčí aspoň“ (pracovní dny): 5+ je hranice označení k zavolání. */
 export const MLCI_PREDVOLBY = [5, 10, 20, 30] as const;
@@ -55,6 +100,19 @@ export function mlciZPole(text: string): number | null {
   const t = text.trim();
   if (!/^\d+$/.test(t)) return null;
   return Math.min(Number(t), MLCI_STROP);
+}
+
+/**
+ * Zapnuté mlčení slovy (tlačítko „Mlčí: …“ a čip, úkol 11): „10+ prac. dní“, „nejvýš 20 prac. dní“, „5–20 prac. dní“,
+ * „3 prac. dny“; bez mezí null.
+ */
+export function mlciRozsah(min: number | null, max: number | null): string | null {
+  const dni = (n: number) => (n === 1 ? 'prac. den' : n >= 2 && n <= 4 ? 'prac. dny' : 'prac. dní');
+  if (min === null && max === null) return null;
+  if (max === null) return `${min}+ prac. dní`;
+  if (min === null) return `nejvýš ${max} ${dni(max)}`;
+  if (min === max) return `${min} ${dni(min)}`;
+  return `${min}–${max} prac. dní`;
 }
 
 /** Je zapnutý aspoň jeden filtr kromě segmentu a řazení? (prázdný stav „nic nenalezeno“ vs. „zatím nic“) */

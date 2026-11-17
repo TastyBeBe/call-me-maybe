@@ -242,6 +242,17 @@ export function SearchIcon(props: IconProps) {
   );
 }
 
+/** Filtry (tlačítko „Filtry (n)“ seznamů na telefonu, úkol 11): tři zkracující se čáry (lucide list-filter). */
+export function FiltrIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="M3 6h18" />
+      <path d="M7 12h10" />
+      <path d="M10 18h4" />
+    </Icon>
+  );
+}
+
 export function GlobeIcon(props: IconProps) {
   return (
     <Icon {...props}>

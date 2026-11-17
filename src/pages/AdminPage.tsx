@@ -1,32 +1,23 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import {
-  getApi,
-  type CekaniKind,
-  type CekaniKos,
-  type Kontakt,
-} from '../api';
+import { getApi, type Kontakt } from '../api';
 import { audio } from '../audio';
 import { useSession } from '../auth';
 import DovolaniTlacitko from '../components/DovolaniTlacitko';
+import FiltrPanel, { useZpozdeneHledani } from '../components/FiltrPanel';
 import { HvezdaPrepinac } from '../components/Hvezda';
 import { HodnoceniVSeznamu } from '../components/JejichWeb';
 import KontaktDrawer from '../components/KontaktDrawer';
 import { usePeople } from '../components/PersonPicker';
-import SeznamFiltry from '../components/SeznamFiltry';
 import { PRAZDNE_FILTRY, filtrJenSvoje, filtryBezStavu, filtryNaServer, type StavFiltru } from '../filtry';
 import { isAdminRole, isSuperAdmin } from '../roles';
 import { icoVidi } from '../segment';
 import { useNiky, viditelneNiky } from '../obory';
 import {
-  ALL_CEKANI,
   ALL_KOSE,
   ALL_STATUSES,
-  CEKANI_HINTS,
-  CEKANI_LABELS,
   ErrorBox,
   FlagBadge,
-  KOS_LABELS,
   MlceniBunka,
   RazeniSelect,
   SegmentBadge,
@@ -93,6 +84,10 @@ const PAGE_SIZE = 50;
 // (DovolaniTlacitko), na telefonu jen ikona; jen u vlastních řádků, které přihlášený smí zapsat (dovolatSmi: nikdy u cizího
 // kontaktu Volajícího, ve frontě volání, u Nekontaktovat, Nerelevantní, Odmítnuto ani u nabídnuté slevy bez označení).
 // Šest buněk Skryto cizího kontaktu (kontrola 193) zůstává beze změny, řádek se do strany neposouvá (e2e O61a a O62).
+// ⚠ Přehled vedení úkol 11 (Albert 17. 11. 2026, rozložení filtrů) NAHRAZUJE řádek filtrů se segmentem nad ním a výběrem
+// volajícího a čekání uprostřed: panel FiltrPanel (1. řada volající · segment · hledání, 2. řada filtry s čekáním a řazením
+// vpravo, pod ní koše, 3. řada čipy a „Zrušit vše“; na telefonu okno „Filtry (n)“). Čekání a koš jsou ve stavu filtrů
+// (Zrušit vše je zruší i s volajícím), hledání má jedno sdílené zpoždění (useZpozdeneHledani). Parametry serveru beze změny.
 export default function AdminPage() {
   const session = useSession();
   // migrace 064: zástupný text hledání zmíní firmu, jen když jsou v appce niky oboru
@@ -106,15 +101,17 @@ export default function AdminPage() {
   const segment = filtry.segment;
   const [caller, setCaller] = useState('');
   // čekání na odpověď (migrace 014); při zapnutí se rovnou zapne koš „k zavolání",
-  // aby začátek seznamu nezaplavili klienti, kteří mlčí rok (Albert 2026-09-07)
-  const [cekani, setCekani] = useState<CekaniKind | ''>('');
-  const [kos, setKos] = useState<CekaniKos | ''>('');
+  // aby začátek seznamu nezaplavili klienti, kteří mlčí rok (Albert 2026-09-07; sCekanim v src/filtry.ts).
+  // Od úkolu 11 ve stavu filtrů (Zrušit vše je zruší).
+  const cekani = filtry.cekani;
+  const kos = filtry.kos;
   const [kosCounts, setKosCounts] = useState<Record<string, number>>({});
   // Migrace 056 (Albert 27. 10. 2026: „sort them … from the newest to the oldest updated client“): řazení podle poslední
   // změny (sloupec Změněno); '' = výchozí pořadí. Volajícímu server řadí podle změny jen jeho klienty, cizí jsou za nimi.
   const razeni = filtry.razeni;
   const search = filtry.hledat;
-  const [debouncedSearch, setDebouncedSearch] = useState(search);
+  // hledání na serveru se sdíleným zpožděním (300 ms po posledním písmenu, jako Moji klienti a Označené)
+  const debouncedSearch = useZpozdeneHledani(search);
   const [page, setPage] = useState(0);
   // nové filtry pro server; mění se jen s nimi (ne s každým písmenem hledání, to jde se zpožděním)
   const naServer = useMemo(
@@ -137,14 +134,8 @@ export default function AdminPage() {
   // jinak by po rychlém přepnutí filtru pod „chaty" zůstali architekti (revize 28. 9.).
   const posledniSeznam = useRef(0);
 
-  // debounce fulltextu
-  useEffect(() => {
-    const t = setTimeout(() => {
-      setDebouncedSearch(search);
-      setPage(0);
-    }, 300);
-    return () => clearTimeout(t);
-  }, [search]);
+  // nové hledání = zase od první strany
+  useEffect(() => setPage(0), [debouncedSearch]);
 
   // počty pro status dropdown (1 dotaz s limit 1 na každý status); jen super admin (migrace 045)
   // ⚠ 13. 11. 2026 (Albert: „when I selected Vera, it showed that there were two, but when I clicked on the filter, it didn't
@@ -296,22 +287,56 @@ export default function AdminPage() {
         {total !== null && total > 0 && <span className="count-pill">{total}</span>}
       </h1>
 
-      <SeznamFiltry
+      <FiltrPanel
         filtry={filtry}
-        onChange={(f) => {
+        onFiltry={(f) => {
           setFiltry(f);
           setPage(0);
         }}
-        statusPocty={isSuper ? statusCounts : undefined}
-        statusSoucet={isSuper ? totalAll : undefined}
-        hledatAria="Hledat v kontaktech"
-        hledatPlaceholder={(
-          !isSuper
-            ? 'Hledat jméno, studio, telefon, web, město, IČO, e-mail architekta; e-mail chaty a poznámku jen u mých…'
-            : icoVidi(session.role)
-              ? 'Hledat jméno, studio, telefon, web, e-mail, město, IČO, poznámku…'
-              : 'Hledat jméno, studio, telefon, web, e-mail, město, poznámku…'
-        ).replace('studio', sNikami ? 'studio, firmu' : 'studio')}
+        // řada 1: volající (super admin kohokoli, Volající „Naposledy volal/a já“, jako dřív; úkol 10 sem dá výběr lidí)
+        lide={
+          <select
+            value={caller}
+            onChange={(e) => {
+              setCaller(e.target.value);
+              setPage(0);
+            }}
+            aria-label="Filtr volajícího"
+          >
+            <option value="">Všichni volající</option>
+            {isSuper ? (
+              callers.map((c) => (
+                <option key={c.user_id} value={c.display_name}>
+                  {c.user_id === session.user_id ? `Já (${c.display_name})` : c.display_name}
+                </option>
+              ))
+            ) : (
+              <option value={session.display_name}>Naposledy volal/a já</option>
+            )}
+          </select>
+        }
+        lideCip={
+          caller
+            ? {
+                text: isSuper ? `Volající: ${caller}` : 'Naposledy volal/a já',
+                zrus: () => {
+                  setCaller('');
+                  setPage(0);
+                },
+              }
+            : null
+        }
+        onZrusVse={() => setCaller('')}
+        hledat={{
+          aria: 'Hledat v kontaktech',
+          placeholder: (
+            !isSuper
+              ? 'Hledat jméno, studio, telefon, web, město, IČO, e-mail architekta; e-mail chaty a poznámku jen u mých…'
+              : icoVidi(session.role)
+                ? 'Hledat jméno, studio, telefon, web, e-mail, město, IČO, poznámku…'
+                : 'Hledat jméno, studio, telefon, web, e-mail, město, poznámku…'
+          ).replace('studio', sNikami ? 'studio, firmu' : 'studio'),
+        }}
         razeni={
           <RazeniSelect
             value={razeni}
@@ -322,46 +347,10 @@ export default function AdminPage() {
             jenMojeHovory={!isSuper}
           />
         }
-      >
-        <select
-          value={caller}
-          onChange={(e) => {
-            setCaller(e.target.value);
-            setPage(0);
-          }}
-          aria-label="Filtr volajícího"
-        >
-          <option value="">Všichni volající</option>
-          {isSuper ? (
-            callers.map((c) => (
-              <option key={c.user_id} value={c.display_name}>
-                {c.user_id === session.user_id ? `Já (${c.display_name})` : c.display_name}
-              </option>
-            ))
-          ) : (
-            <option value={session.display_name}>Naposledy volal/a já</option>
-          )}
-        </select>
-        <select
-          value={cekani}
-          onChange={(e) => {
-            const v = e.target.value as CekaniKind | '';
-            setCekani(v);
-            // zapnutí filtru = rovnou pracovní koš, vypnutí = zrušit koš
-            setKos(v ? 'k_zavolani' : '');
-            setPage(0);
-          }}
-          aria-label="Filtr čekání na odpověď"
-          title={cekani ? CEKANI_HINTS[cekani] : 'Klienti, kteří nám neodpověděli'}
-        >
-          <option value="">Čekání: vše</option>
-          {ALL_CEKANI.map((c) => (
-            <option key={c} value={c}>
-              {CEKANI_LABELS[c]}
-            </option>
-          ))}
-        </select>
-      </SeznamFiltry>
+        pocty={isSuper ? { stavy: statusCounts, soucet: totalAll, kose: kosCounts } : undefined}
+        cekani
+        vysledky={total}
+      />
 
       {!isSuper && (
         <p className="muted skryto-napoveda" style={{ fontSize: 13.5, margin: '0 0 10px' }}>
@@ -375,33 +364,6 @@ export default function AdminPage() {
                 : ' Podle poslední změny se řadí jen tvoji klienti, ostatní kontakty jsou za nimi.'
             : ''}
         </p>
-      )}
-
-      {cekani && (
-        <div className="flag-filter-bar">
-          {ALL_KOSE.map((k) => (
-            <button
-              key={k}
-              className={`pill-btn sm${kos === k ? ' go' : ''}`}
-              onClick={() => {
-                setKos(kos === k ? '' : k);
-                setPage(0);
-              }}
-            >
-              {KOS_LABELS[k]}
-              {kosCounts[k] !== undefined ? ` (${kosCounts[k]})` : ''}
-            </button>
-          ))}
-          <button
-            className={`pill-btn sm${kos === '' ? ' go' : ''}`}
-            onClick={() => {
-              setKos('');
-              setPage(0);
-            }}
-          >
-            Vše
-          </button>
-        </div>
       )}
 
       <ErrorBox>{error}</ErrorBox>

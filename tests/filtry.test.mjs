@@ -347,12 +347,15 @@ await blok('U', async () => {
   // ⚠ migrace 060 (Albert 1. 11. 2026: „Callers get ALL filters in Moji klienti too … but only over their own clients“)
   // NAHRAZUJE U3 „filtry jen za super admina (ostatním null)“ a U4 „Volajícímu původní hledání beze změny“: sdílený řádek
   // filtrů má každý, filtry jdou serveru za každého (jen zapnuté), hledání na serveru i za Volajícího
-  over('U3', /const isSuper = isSuperAdmin\(session\.role\);/.test(moji) && /<SeznamFiltry\s[\s\S]{0,600}className="moji-filtry"/.test(moji)
+  // ⚠ Přehled vedení úkol 11 (Albert 17. 11. 2026, rozložení filtrů): sdílený panel FiltrPanel (tři řady, čipy, na telefonu
+  // „Filtry (n)“) NAHRAZUJE <SeznamFiltry> přímo na stránce (U3) a vlastní setTimeout hledání na každé stránce (U4): jedno
+  // zpoždění useZpozdeneHledani (300 ms jako dřív) v src/components/FiltrPanel.tsx; podrobně tests/filtrpanel.test.mjs
+  over('U3', /const isSuper = isSuperAdmin\(session\.role\);/.test(moji) && /<FiltrPanel\s[\s\S]{0,1600}className="moji-filtry"/.test(moji)
     && /\.\.\.filtryNaServer\(stav\),\s*search: hledani \|\| null,/.test(moji) && !/isSuper\s*\?\s*\{\s*status:/.test(moji)
     && /getApi\(\)\.myKontakty\(session\.token, MOJI_LIMIT, 0, kdo, segment \|\| null, filtry\)/.test(moji),
-    'Moji klienti: filtry a řazení každý (sdílený řádek filtrů), serveru jen zapnuté');
-  over('U4', !/if \(!isSuper\) return;\s*const t = setTimeout/.test(moji) && /setTimeout\(\(\) => setHledani\(search\.trim\(\)\), 300\)/.test(moji)
-    && !/placeholder="Hledat jméno, studio, město, telefon, web, e-mail, poznámku…"/.test(moji),
+    'Moji klienti: filtry a řazení každý (sdílený panel filtrů), serveru jen zapnuté');
+  over('U4', !/if \(!isSuper\) return;\s*const t = setTimeout/.test(moji) && /const hledani = useZpozdeneHledani\(search\);/.test(moji)
+    && !/setTimeout\(/.test(moji) && !/placeholder="Hledat jméno, studio, město, telefon, web, e-mail, poznámku…"/.test(moji),
     'Moji klienti: hledání jde na server se zpožděním i za Volajícího (ne v načtených řádcích)');
   const admin = readFileSync(join(ROOT, 'src/pages/AdminPage.tsx'), 'utf8');
   over('U5', /<RazeniSelect\s+value=\{razeni\}/.test(admin) && /razeni: razeni \|\| null,/.test(admin), 'Kontakty: výběr řazení jde do list_kontakty');
@@ -989,11 +992,12 @@ await blok('O', async () => {
   const ozn = src('src/pages/OznacenePage.tsx');
   const drawer = src('src/components/KontaktDrawer.tsx');
   const call = src('src/pages/CallPage.tsx');
-  over('O16', /<SeznamFiltry\s/.test(admin) && (admin.match(/jenZaklad\(r\) \? <Skryto \/> :/g) ?? []).length === 6 && /<MlceniBunka kontakt=\{r\} \/>/.test(admin)
+  // ⚠ úkol 11 (Albert 17. 11. 2026): sdílený panel FiltrPanel NAHRAZUJE <SeznamFiltry> přímo na stránce (O16, O16b)
+  over('O16', /<FiltrPanel\s/.test(admin) && (admin.match(/jenZaklad\(r\) \? <Skryto \/> :/g) ?? []).length === 6 && /<MlceniBunka kontakt=\{r\} \/>/.test(admin)
     && /<HvezdaPrepinac kontakt=\{r\}/.test(admin) && /\.\.\.naServer,/.test(admin),
-    'Kontakty: sdílený řádek filtrů, šest pomlček jenZaklad zůstává, sloupec Mlčí, hvězda u jména, nové filtry do list_kontakty');
-  over('O16b', /<SeznamFiltry\s/.test(moji) && /<MlceniBunka kontakt=\{r\} \/>/.test(moji) && /<HvezdaPrepinac kontakt=\{r\}/.test(moji),
-    'Moji klienti: sdílený řádek filtrů pro každého, sloupec Mlčí, hvězda');
+    'Kontakty: sdílený panel filtrů, šest pomlček jenZaklad zůstává, sloupec Mlčí, hvězda u jména, nové filtry do list_kontakty');
+  over('O16b', /<FiltrPanel\s/.test(moji) && /<MlceniBunka kontakt=\{r\} \/>/.test(moji) && /<HvezdaPrepinac kontakt=\{r\}/.test(moji),
+    'Moji klienti: sdílený panel filtrů pro každého, sloupec Mlčí, hvězda');
   // ⚠ migrace 061 (Albert 2. 11. 2026, kompaktní řádek): „Zrušit označení“ je v řádku vedle „Vyřešeno“, proto
   // {jaSuper && r.ozn_kategorie && (…)}; NAHRAZUJE kotvu {jaSuper && (<button …> uvnitř {r.ozn_kategorie && …} z 060
   over('O16c', /getApi\(\)\.listOznacene\(session\.token, filtry\)/.test(ozn) && /if \(errMsg\(e\) !== BEZ_060_OZNACENE\) throw e;\s*\/\/[^\n]*\n\s*r = await getApi\(\)\.listFlagged\(/.test(ozn)

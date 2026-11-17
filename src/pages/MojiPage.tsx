@@ -35,33 +35,27 @@
 // (DovolaniTlacitko, okno DovolaniOkno se šesti výsledky), na telefonu jen ikona; jen u klienta, kterému ho přihlášený smí
 // zapsat (dovolatSmi: ne ve frontě volání, u Nekontaktovat, Nerelevantní, Odmítnuto ani u nabídnuté slevy bez označení).
 // Řádek se tím nikam neposouvá do strany (360 až 1920 px, e2e O61a a O62). Po zápisu se seznam načte znovu.
+// ⚠ Přehled vedení úkol 11 (Albert 17. 11. 2026, rozložení filtrů) NAHRAZUJE výběr člověka nad segmentem a řádek filtrů
+// s čekáním uprostřed a koši pod ním: panel FiltrPanel (1. řada člověk · segment · hledání, 2. řada filtry s čekáním
+// a řazením vpravo, pod ní koše, 3. řada čipy a „Zrušit vše“; na telefonu okno „Filtry (n)“). Čekání a koš jsou ve stavu
+// filtrů; „Zrušit vše“ je zruší a vrátí i výběr člověka na „Já“. Hledání má jedno sdílené zpoždění (useZpozdeneHledani).
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import {
-  getApi,
-  type CekaniKind,
-  type CekaniKos,
-  type Kontakt,
-  type MojiFiltry,
-} from '../api';
+import { getApi, type Kontakt, type MojiFiltry } from '../api';
 import { audio } from '../audio';
 import { useSession } from '../auth';
 import DovolaniTlacitko from '../components/DovolaniTlacitko';
+import FiltrPanel, { useZpozdeneHledani } from '../components/FiltrPanel';
 import { HvezdaPrepinac } from '../components/Hvezda';
 import KontaktDrawer from '../components/KontaktDrawer';
 import PersonPicker, { usePeople } from '../components/PersonPicker';
-import SeznamFiltry from '../components/SeznamFiltry';
 import { PRAZDNE_FILTRY, filtrZapnuty, filtryBezStavu, filtryNaServer, type StavFiltru } from '../filtry';
 import { isAdminRole, isSuperAdmin } from '../roles';
 import {
-  ALL_CEKANI,
   ALL_KOSE,
   ALL_STATUSES,
-  CEKANI_HINTS,
-  CEKANI_LABELS,
   ErrorBox,
   FlagBadge,
-  KOS_LABELS,
   MlceniBunka,
   RazeniSelect,
   SegmentBadge,
@@ -148,9 +142,9 @@ export default function MojiPage() {
   const segment = stav.segment;
   const search = stav.hledat;
   const razeni = stav.razeni;
-  const [cekani, setCekani] = useState<CekaniKind | ''>('');
-  const [kos, setKos] = useState<CekaniKos | ''>('');
-  const [hledani, setHledani] = useState('');
+  // čekání a koš ve stavu filtrů (úkol 11: „Zrušit vše“ je zruší)
+  const cekani = stav.cekani;
+  const kos = stav.kos;
   const [statusCounts, setStatusCounts] = useState<Record<string, number>>({});
   const [kosCounts, setKosCounts] = useState<Record<string, number>>({});
   const [tick, setTick] = useState(0);
@@ -162,11 +156,8 @@ export default function MojiPage() {
   const kohoJmeno = cizi ? people.find((p) => p.user_id === userId)?.display_name ?? '' : '';
   const kdo = cizi ? userId : null;
 
-  // hledání na serveru, 300 ms po posledním písmenu (jako Kontakty; ⚠ od 060 i pro Volajícího)
-  useEffect(() => {
-    const t = setTimeout(() => setHledani(search.trim()), 300);
-    return () => clearTimeout(t);
-  }, [search]);
+  // hledání na serveru, 300 ms po posledním písmenu (jako Kontakty; ⚠ od 060 i pro Volajícího; od úkolu 11 sdílené zpoždění)
+  const hledani = useZpozdeneHledani(search);
 
   // co jde serveru: jen zapnuté filtry (server bez 056 a 060 nic nového nedostane, dokud je nikdo nezapne)
   const filtry: MojiFiltry = useMemo(
@@ -302,6 +293,11 @@ export default function MojiPage() {
   };
 
   const soucet = Object.values(statusCounts).reduce((a, b) => a + b, 0);
+  // čip „Klienti: …“ a „Zrušit vše“ (úkol 11): zpět na vlastní klienty
+  const zpetNaMe = () => {
+    setUserId(session.user_id);
+    setSelected(null);
+  };
   const poradiText =
     razeni === 'zmena_nejnovejsi'
       ? 'naposledy změnění nahoře'
@@ -325,61 +321,34 @@ export default function MojiPage() {
         {total > 0 && <span className="count-pill">{total}</span>}
       </h1>
 
-      <PersonPicker
-        people={people}
-        value={userId}
-        onChange={(id) => {
-          setUserId(id ?? session.user_id);
-          setSelected(null);
-        }}
-        label="Čí klienty zobrazit"
-      />
-
-      <SeznamFiltry
+      <FiltrPanel
         filtry={stav}
-        onChange={(f) => {
+        onFiltry={(f) => {
           if (f.segment !== stav.segment) setSelected(null);
           setStav(f);
         }}
-        statusPocty={isSuper ? statusCounts : undefined}
-        statusSoucet={isSuper ? soucet : undefined}
-        className="moji-filtry"
-        hledatAria="Hledat v klientech"
-        hledatPlaceholder="Hledat jméno, studio, telefon, web, e-mail, město, IČO, poznámku…"
+        // řada 1: čí klienty (jen super admin, PersonPicker jako dřív; úkol 10 sem dá výběr lidí)
+        lide={
+          <PersonPicker
+            people={people}
+            value={userId}
+            onChange={(id) => {
+              setUserId(id ?? session.user_id);
+              setSelected(null);
+            }}
+            label="Čí klienty zobrazit"
+          />
+        }
+        lideCip={cizi ? { text: `Klienti: ${kohoJmeno || 'vybraný člověk'}`, zrus: zpetNaMe } : null}
+        onZrusVse={zpetNaMe}
+        hledat={{ aria: 'Hledat v klientech', placeholder: 'Hledat jméno, studio, telefon, web, e-mail, město, IČO, poznámku…' }}
         razeni={<RazeniSelect value={razeni} onChange={(r) => setStav({ ...stav, razeni: r })} jenMojeHovory={!isSuper} />}
-      >
-        <select
-          value={cekani}
-          onChange={(e) => {
-            const v = e.target.value as CekaniKind | '';
-            setCekani(v);
-            // zapnutí filtru = rovnou pracovní koš „k zavolání“, vypnutí = zrušit koš (jako Kontakty)
-            setKos(v ? 'k_zavolani' : '');
-          }}
-          aria-label="Filtr čekání na odpověď"
-          title={cekani ? CEKANI_HINTS[cekani] : 'Klienti, kteří nám neodpověděli'}
-        >
-          <option value="">Čekání: vše</option>
-          {ALL_CEKANI.map((c) => (
-            <option key={c} value={c}>
-              {CEKANI_LABELS[c]}
-            </option>
-          ))}
-        </select>
-      </SeznamFiltry>
-      {cekani && (
-        <div className="flag-filter-bar moji-kose">
-          {ALL_KOSE.map((k) => (
-            <button key={k} className={`pill-btn sm${kos === k ? ' go' : ''}`} onClick={() => setKos(kos === k ? '' : k)}>
-              {KOS_LABELS[k]}
-              {kosCounts[k] !== undefined ? ` (${kosCounts[k]})` : ''}
-            </button>
-          ))}
-          <button className={`pill-btn sm${kos === '' ? ' go' : ''}`} onClick={() => setKos('')}>
-            Vše
-          </button>
-        </div>
-      )}
+        pocty={isSuper ? { stavy: statusCounts, soucet, kose: kosCounts } : undefined}
+        cekani
+        koseClassName="moji-kose"
+        vysledky={loading ? null : total}
+        className="moji-filtry"
+      />
 
       <ErrorBox>{error}</ErrorBox>
       {/* migrace 062: věta po zápisu hovoru v živé oblasti (čtečka ji přečte, jako Označené) */}

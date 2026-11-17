@@ -3075,7 +3075,7 @@ table.zajem-tabulka tfoot th {
    Označení k zavolání, hvězda, kombinovatelné filtry a přehled klienta (migrace 060, Albert 1. 11. 2026).
    --------------------------------------------------------------------------- */
 
-/* sdílený řádek filtrů (SeznamFiltry): výběr víc hodnot, hvězda, mlčení, zrušit filtry */
+/* řada filtrů seznamů (SeznamFiltry, od úkolu 11 řada 2 panelu FiltrPanel): výběr víc hodnot, hvězda, mlčení, zrušit vše */
 .vyber-vice {
   position: relative;
 }
@@ -3148,11 +3148,26 @@ table.zajem-tabulka tfoot th {
   gap: 5px;
 }
 
+/* Mlčí (úkol 11): obsah rozbalovacího výběru „Mlčí: …“, předvolby nahoře a od–do pod nimi.
+   ⚠ NAHRAZUJE pole a předvolby přímo v řádku filtrů (mlci-filtr jako inline skupina). */
 .mlci-filtr {
-  display: inline-flex;
-  align-items: center;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 4px 2px;
+}
+
+.mlci-predvolby,
+.mlci-rozsah {
+  display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 6px;
+}
+
+/* předvolby i od–do se na počítači vejdou každé na jeden řádek */
+.mlci-vyber .vyber-vice-panel {
+  min-width: 280px;
 }
 
 .mlci-filtr-popisek {
@@ -3174,6 +3189,328 @@ table.zajem-tabulka tfoot th {
   display: inline-flex;
   align-items: center;
   gap: 4px;
+}
+
+/* ---------- Panel filtrů seznamů (Přehled vedení úkol 11, Albert 17. 11. 2026: filtry „super messy and clunky … not in
+   terms of the content, but how they are positioned and structured“) ----------
+   Kontakty, Moji klienti a Označené (components/FiltrPanel.tsx): 1. řada osoba · segment · hledání, 2. řada filtry s řazením
+   vpravo nahoře (SeznamFiltry), pod ní koše čekání a pilulky „Co je potřeba“, 3. řada čipy zapnutých filtrů a „Zrušit vše“.
+   Telefon (do 640 px, useTelefon): segment, hledání, „Filtry (n)“ a čipy; ostatní v okně odspodu nad sloupcem prasátka.
+   ⚠ NAHRAZUJE jeden zalamovaný řádek filtrů se segmentem a osobou nad ním a koši a pilulkami pod ním. */
+.filtr-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 12px 0 18px;
+}
+
+.filtr-rada {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+}
+
+.filtr-panel .segment-filter {
+  margin: 0;
+}
+
+.filtr-lide:empty {
+  display: none;
+}
+
+.filtr-lide select {
+  min-width: 150px;
+}
+
+/* PersonPicker (Moji klienti, Označené) v řadě 1: popisek vedle výběru, ne nad ním */
+.filtr-rada-1 .filtr-lide .field {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+}
+
+.filtr-rada-1 .filtr-lide .field > label {
+  white-space: nowrap;
+}
+
+.filtr-rada-1 .filtr-lide .field select {
+  width: auto;
+  max-width: 240px;
+}
+
+/* hledání bere zbytek řady 1; když vedle něj nezbude 320 px, spadne na vlastní řádek přes celou šířku */
+.filtr-hledat {
+  flex: 1 1 320px;
+  min-width: min(320px, 100%);
+}
+
+/* řada 2: filtry vlevo (zalomí se pod sebe), řazení vpravo nahoře */
+.filtr-panel .filter-bar.filtr-rada-2 {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 8px 16px;
+  margin: 0;
+}
+
+.filtr-volby {
+  flex: 1 1 520px;
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+}
+
+.filtr-razeni {
+  flex: 0 0 auto;
+  margin-left: auto;
+}
+
+.filtr-prepinace {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 8px 10px;
+}
+
+/* zapnuté čekání žlutě jako zapnutý výběr stavu a známky */
+.filter-bar select.cekani-select.zapnuto {
+  background: var(--yellow);
+}
+
+/* koše čekání a pilulky „Co je potřeba“ pod řadou 2 (s krátkým popiskem skupiny) */
+.filtr-panel .flag-filter-bar {
+  margin: 0;
+  align-items: center;
+}
+
+.filtr-skupina-popisek {
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--ink-soft);
+  margin-right: 2px;
+}
+
+/* řada 3: čipy zapnutých filtrů (žlutá jako zapnutý výběr); klik zruší ten filtr */
+.filtr-cipy {
+  gap: 6px 8px;
+}
+
+.filtr-cip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 100%;
+  font-family: var(--font-ui);
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.25;
+  text-align: left;
+  color: var(--ink);
+  background: var(--yellow);
+  border: 2px solid var(--ink);
+  border-radius: var(--r-pill);
+  box-shadow: 0 2px 0 var(--ink);
+  padding: 4px 8px 4px 12px;
+  cursor: pointer;
+  transition: transform 60ms ease, box-shadow 60ms ease;
+}
+
+.filtr-cip svg {
+  flex: none;
+  opacity: 0.65;
+}
+
+.filtr-cip:hover svg {
+  opacity: 1;
+}
+
+.filtr-cip:active {
+  transform: translateY(2px);
+  box-shadow: var(--shadow-press);
+}
+
+.filtr-cip:focus-visible,
+.pill-btn.filtr-telefon-btn:focus-visible,
+.filtr-panel .vyber-vice-btn:focus-visible,
+.filtr-panel .pill-btn:focus-visible {
+  outline: 3px solid var(--orange);
+  outline-offset: 2px;
+}
+
+/* telefon: segment a hledání přes celou šířku, pod nimi „Filtry (n)“ s čipy */
+.filtr-panel.je-telefon {
+  gap: 10px;
+}
+
+.filtr-panel.je-telefon .filtr-hledat {
+  flex: none;
+  min-width: 0;
+}
+
+.pill-btn.filtr-telefon-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 34px;
+}
+
+.pill-btn.filtr-telefon-btn.zapnuto {
+  background: var(--yellow);
+}
+
+.filtr-panel.je-telefon .filtr-cip,
+.filtr-panel.je-telefon .zrusit-filtry {
+  min-height: 34px;
+}
+
+/* okno filtrů odspodu, nad sloupcem prasátka (pig.css z-index 1001) i nad ním samotným (1000) */
+.filtr-sheet-scrim {
+  position: fixed;
+  inset: 0;
+  background: rgba(34, 30, 51, 0.45);
+  z-index: 1002;
+  animation: filtrScrim 160ms ease-out;
+}
+
+.filtr-sheet {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 1002;
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100vh - 28px);
+  max-height: calc(100dvh - 28px);
+  background: var(--cream);
+  border: var(--border);
+  border-bottom: none;
+  border-radius: var(--r-card) var(--r-card) 0 0;
+  animation: filtrSheet 200ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes filtrSheet {
+  from {
+    transform: translateY(32px);
+    opacity: 0.4;
+  }
+}
+
+@keyframes filtrScrim {
+  from {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .filtr-sheet,
+  .filtr-sheet-scrim {
+    animation: none;
+  }
+}
+
+.filtr-sheet-hlava {
+  position: relative;
+  flex: none;
+  padding: 16px 64px 6px 18px;
+}
+
+.filtr-sheet-nadpis {
+  font-size: 21px;
+  font-weight: 800;
+  margin: 0;
+}
+
+.filtr-sheet-hlava .drawer-close {
+  top: 12px;
+  right: 14px;
+}
+
+.filtr-sheet-telo {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 8px 18px 16px;
+}
+
+.filtr-sheet-pata {
+  flex: none;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 18px calc(14px + env(safe-area-inset-bottom));
+  border-top: 2px dashed var(--butter-dot);
+}
+
+/* v okně jde všechno pod sebe přes celou šířku; rozbalovací výběr (stav, známka, mlčí …) se rozbalí přímo v okně */
+.filtr-sheet .filtr-lide .field {
+  margin: 0;
+}
+
+.filtr-sheet .filter-bar.filtr-rada-2,
+.filtr-sheet .filtr-volby {
+  flex: none;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  align-items: stretch;
+  gap: 10px;
+  margin: 0;
+}
+
+.filtr-sheet .vyber-vice-btn {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  text-align: left;
+  padding: 9px 14px;
+}
+
+.filtr-sheet .vyber-vice-panel {
+  position: static;
+  max-width: none;
+  max-height: none;
+  margin-top: 6px;
+  border-width: 2px;
+  box-shadow: none;
+}
+
+.filtr-sheet .vyber-vice-volba {
+  padding: 7px 2px;
+}
+
+.filtr-sheet select {
+  width: 100%;
+  padding: 9px 10px;
+}
+
+.filtr-sheet .filtr-prepinace {
+  display: flex;
+}
+
+/* popisek skupiny („Čeká“, „Co je potřeba“) v okně nad pilulkami */
+.filtr-sheet .filtr-skupina-popisek {
+  flex-basis: 100%;
+  margin: 2px 0 0;
+}
+
+.filtr-sheet .pill-btn.sm {
+  padding: 7px 14px;
+}
+
+.filtr-sheet .filtr-razeni-rada {
+  display: block;
+  margin: 0;
+  padding-top: 12px;
+  border-top: 2px dashed var(--butter-dot);
 }
 
 /* odznak skupiny označení a buňka Mlčí v seznamech */
@@ -3426,10 +3763,6 @@ table.kontakty.kompakt td.radek-akce {
   /* sloupec nástrojů prasátka (pig.css, z-index 1001) má vlastní pruh vlevo: výběr se pod něj nesmí schovat */
   body.pig-layer .vyber-vice-panel {
     left: 70px;
-  }
-
-  .mlci-filtr {
-    width: 100%;
   }
 }
 
