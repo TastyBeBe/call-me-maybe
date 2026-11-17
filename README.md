@@ -553,6 +553,27 @@ responded and seemed interested in it“ a na otázku, jestli takovou tabulku p�
   `npm run test:e2e` blok ZV (tabulka, filtr architekti, pohled dne, Volající ji nemá, 390 px). Server:
   `../db/tests/test_069_zajem_podle_volajicich.sql`; kontrola 193 v repu webdomov.
 
+## Zobrazený stav klienta jen pro jednoho člověka 071 (Albert 17. 11. 2026)
+
+Server: `../db/migration_071_zobrazeny_stav.sql` (spouští se PŘED appkou; appka bez 071 na serveru dostane od
+`zobrazene_stavy` PGRST202, vezme to jako prázdný seznam a ukazuje skutečné stavy). Albert 17. 11. 2026: volající VeraP má
+u dvou svých klientů vidět „Zaplaceno“ a ve Statistikách dva prodeje s výdělkem, „make sure that it's only visible there for
+her and for other people including us it stays tagged correctly“. Žádná nová stránka ani část appky.
+
+- **Načtení**: `src/zobrazeni.ts` po přihlášení jednou načte vlastní řádky přihlášeného (`zobrazeneStavy`, RPC
+  `zobrazene_stavy`; komponenta `ZobrazeniNacitani` v `src/App.tsx`), po odhlášení je zapomene. Cizí řádky server
+  nevydá nikomu, ani super adminovi.
+- **Jen popisek**: `StatusBadge` s `kontaktId` (Moji klienti, Označené, Kontakty, karta ve volání, detail), popisek
+  stávajícího stavu v menu stavu detailu (hodnota zůstává skutečný stav, takže uložení bez změny stav nemění; položka
+  zobrazeného stavu se neukáže dvakrát), řádek stavu v přehledu klienta a věta okna „Zavolal/a jsem“. Logika, filtry,
+  počty a zápisy jdou dál se skutečným `Kontakt.status`.
+- **Čísla**: Prodáno (`my_stats`) a Vyděláno (`statistiky_volani`, jen vlastní pohled) počítá server; appka nic nepočítá.
+  Super admin, který si člověka vybere, vidí skutečná čísla (`all_stats`, výdělek s cizím id).
+- **Demo**: mock nikomu zobrazený stav nedává (`zobrazeneStavy` vrátí prázdný seznam).
+- **Testy**: `npm test` soubor `tests/zobrazeni.test.mjs` (modul, odznak, co jde serveru a server bez 071, demo, okno
+  dovolání, zapojení míst se stavem) a `tests/volani.test.mjs` AU5 (věta změny stavu); server
+  `../db/tests/test_071_zobrazeny_stav.sql`, kontrola 270 v repu webdomov (automatizace o tabulce neví).
+
 ## Účty a přihlášení (produkce)
 
 - Vlastní auth v Postgresu (žádný Supabase Auth): funkce `login` vrací token,
