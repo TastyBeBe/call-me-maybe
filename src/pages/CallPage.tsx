@@ -775,7 +775,7 @@ export default function CallPage() {
         {!jenZaklad(kontakt) && (
           <div className="call-row">
             <span className="k">status</span>
-            <StatusBadge status={kontakt.status} />
+            <StatusBadge status={kontakt.status} kontaktId={kontakt.id} />
             {kontakt.last_caller && (
               <span className="muted" style={{ fontSize: 13 }}>
                 naposledy volal/a {kontakt.last_caller}

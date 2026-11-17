@@ -50,6 +50,7 @@ import {
   maNahled,
   useOkno,
 } from '../ui';
+import { zobrazenyStav } from '../zobrazeni';
 
 /** Nejvýš znaků poznámky dovolání (jako poznámka z hovoru v resolve_call, 2 000). */
 export const DOVOLANI_MAX = 2000;
@@ -178,11 +179,13 @@ export function coDovolani(v: VysledekDovolani, k: DovolaniKontext): string {
  * admin tam odmítnutí v okně má a server mu případně řekne, proč nejde.
  */
 export function odmitnutiNejde(
-  k: Pick<Kontakt, 'status' | 'last_caller'>,
+  k: Pick<Kontakt, 'status' | 'last_caller'> & { id?: number },
   ja: { jaSuper: boolean; jmeno: string },
   oznaceno: boolean
 ): string | null {
-  const stav = STATUS_LABELS[k.status] ?? k.status;
+  // migrace 071: ve větě zobrazený stav přihlášeného (src/zobrazeni.ts); rozhoduje dál skutečný stav k.status
+  const stavKUkazani = zobrazenyStav(k.id, k.status);
+  const stav = STATUS_LABELS[stavKUkazani] ?? stavKUkazani;
   if (PRODEJ.includes(k.status)) {
     return `Klient už web objednal (stav ${stav}): odmítnutí tady zapsat nejde. Napište, co řekl, do „Mluvili jsme“ nebo „Nic z toho výše“; stav se mění v detailu klienta s důvodem.`;
   }

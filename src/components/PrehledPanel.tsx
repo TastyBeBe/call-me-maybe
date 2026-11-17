@@ -33,6 +33,7 @@ import {
 } from '../ui';
 import DovolaniOkno, { ZrusitOznaceniOkno } from './DovolaniOkno';
 import DovolaniTlacitko from './DovolaniTlacitko';
+import { useZobrazeneStavy, zobrazenyStav } from '../zobrazeni';
 
 /** Prázdný přehled od automatizace (Albert 1. 11. 2026: jen fakta, text doplní automatizace). */
 export const PREHLED_PRAZDNY = 'Přehled doplní automatizace po další e-mailové výměně.';
@@ -41,11 +42,14 @@ const ZDROJ: Record<string, string> = { 'e-mail': 'e-mail', hovor: 'hovor', zpra
 
 const datum = (iso: string | null | undefined) => (iso ? formatDatumPraha(iso) : null);
 
-/** Řádky faktů (jen ty, které něco říkají). `kratce` = karta ve volání: bez stavu (ten je na kartě zvlášť). */
-function radkyFaktu(f: PrehledFakta, kratce: boolean): { klic: string; text: string }[] {
+/**
+ * Řádky faktů (jen ty, které něco říkají). `kratce` = karta ve volání: bez stavu (ten je na kartě zvlášť). `stav` = stav
+ * k ukázání (migrace 071: zobrazený stav přihlášeného, src/zobrazeni.ts), jinak f.stav ze serveru.
+ */
+function radkyFaktu(f: PrehledFakta, kratce: boolean, stav: PrehledFakta['stav'] = f.stav): { klic: string; text: string }[] {
   const r: { klic: string; text: string }[] = [];
-  if (!kratce && f.stav) {
-    r.push({ klic: 'stav', text: `${STATUS_LABELS[f.stav] ?? f.stav}${f.stav_od ? ` od ${datum(f.stav_od)}` : ''}` });
+  if (!kratce && stav) {
+    r.push({ klic: 'stav', text: `${STATUS_LABELS[stav] ?? stav}${f.stav_od ? ` od ${datum(f.stav_od)}` : ''}` });
   }
   if (f.hvezda?.at) {
     // migrace 063: hvězda od automatizace „dala ji automatizace … · důvod“ (důvod napsal worker podle zprávy klienta)
@@ -107,6 +111,8 @@ export default function PrehledPanel({
 }) {
   const session = useSession();
   const jaSuper = isSuperAdmin(session.role);
+  // migrace 071: překreslit, až se načtou zobrazené stavy přihlášeného (řádek stavu ve faktech)
+  useZobrazeneStavy();
   const [data, setData] = useState<KontaktPrehled | null>(null);
   const [nacteno, setNacteno] = useState(false);
   const [okno, setOkno] = useState<null | 'zapis' | 'zrusit'>(null);
@@ -135,7 +141,7 @@ export default function PrehledPanel({
   }, [nacti]);
   if (!nacteno || !data) return null;
   const f = data.fakta ?? {};
-  const fakta = radkyFaktu(f, naKarte);
+  const fakta = radkyFaktu(f, naKarte, f.stav ? zobrazenyStav(kontakt.id, f.stav) : f.stav);
   const p = data.prehled;
   const maText = !!p && (!!p.ted || !!p.klient_chce?.length || !!p.poslali_jsme?.length || !!p.pozor?.length);
   const o = f.oznaceni ?? null;

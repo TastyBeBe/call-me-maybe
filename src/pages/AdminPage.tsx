@@ -463,7 +463,7 @@ export default function AdminPage() {
                     <DovolaniTlacitko kontakt={r} onDovolano={onDovolano} jenIkonaNaTelefonu />
                   </td>
                   {/* 2. řádek: údaje s malým popiskem (data-label), zalomí se podle šířky */}
-                  <td role="cell">{jenZaklad(r) ? <Skryto /> : <StatusBadge status={r.status} />}</td>
+                  <td role="cell">{jenZaklad(r) ? <Skryto /> : <StatusBadge status={r.status} kontaktId={r.id} />}</td>
                   <td role="cell" data-label="známka">{jenZaklad(r) ? <Skryto /> : r.rating ? <span className="badge rating">{r.rating}</span> : '—'}</td>
                   {/* migrace 060: u cizího kontaktu pomlčka uvnitř MlceniBunka (server klíče mlčení ani označení nepošle) */}
                   <td role="cell" className="mlci-cell">

@@ -955,6 +955,16 @@ export interface ZajemPodleVolajicich {
   celkem: ZajemPocty;
 }
 
+/**
+ * Zobrazený stav kontaktu jen pro přihlášeného (zobrazene_stavy, migrace 071, Albert 17. 11. 2026): stav, který u toho
+ * kontaktu uvidí JEN on (odznak a popisek stavu, src/zobrazeni.ts); skutečný stav (`Kontakt.status`) se nemění a logika,
+ * filtry i zápisy jdou dál s ním. Prodáno a Vyděláno s ním počítá server (my_stats, statistiky_volani).
+ */
+export interface ZobrazenyStav {
+  kontakt_id: number;
+  stav: KontaktStatus;
+}
+
 /** Jednotné API rozhraní — implementuje ho reálný Supabase klient i demo mock. */
 export interface Api {
   login(username: string, password: string): Promise<Session>;
@@ -1155,4 +1165,9 @@ export interface Api {
    * `segment` null = vše (jako Kontakty). Server bez 069 = chyba BEZ_069_ZAJEM.
    */
   zajemPodleVolajicich(token: string, segment?: Segment | null): Promise<ZajemPodleVolajicich>;
+  /**
+   * Vlastní zobrazené stavy přihlášeného (migrace 071, Albert 17. 11. 2026): jen jeho řádky [{kontakt_id, stav}], nikdy
+   * cizí (ani super adminovi). Appka jimi nahradí jen popisek stavu (src/zobrazeni.ts). Server bez 071 = prázdný seznam.
+   */
+  zobrazeneStavy(token: string): Promise<ZobrazenyStav[]>;
 }

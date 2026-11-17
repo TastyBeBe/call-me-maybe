@@ -436,7 +436,7 @@ export default function OznacenePage() {
                       <OznaceniBadge kategorie={r.ozn_kategorie} /> <EmailSeVratil kontakt={r} /> <FlagBadge kontakt={r} />
                     </td>
                     <td role="cell" className="ozn-status">
-                      <StatusBadge status={r.status} />
+                      <StatusBadge status={r.status} kontaktId={r.id} />
                     </td>
                     {/* počet pracovních dní je od naší poslední zprávy, „mlčí od“ u návrhu od prvního návrhu: dvě různá data,
                         každé se svým popiskem (recenze 2. 11. 2026, NAHRAZUJE „6 prac. dní od 1. 9.“) */}

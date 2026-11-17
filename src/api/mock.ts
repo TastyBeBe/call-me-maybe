@@ -58,6 +58,7 @@ import type {
   ZajemPodleVolajicich,
   ZajemRadek,
   ZapisHovoruVysledek,
+  ZobrazenyStav,
   ZavolatKarta,
   ZavolatPolozka,
   ZavolatSeznam,
@@ -4876,6 +4877,14 @@ const mockApiZaklad: Api = {
       preplanovano: logs.filter((l) => l.outcome === 'preplanovano').length,
       vydelek: vydelekPro(cil.id),
     };
+  },
+
+  async zobrazeneStavy(token: string): Promise<ZobrazenyStav[]> {
+    await delay(40);
+    // zobrazene_stavy (migrace 071): server vrací jen vlastní řádky přihlášeného; demo zobrazený stav nemá nikomu
+    // (Prodáno a Vyděláno s ním počítá jen server, test db/tests/test_071_zobrazeny_stav.sql)
+    auth(token);
+    return [];
   },
 
   async zajemPodleVolajicich(token: string, segment: Segment | null = null): Promise<ZajemPodleVolajicich> {

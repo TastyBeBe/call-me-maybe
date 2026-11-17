@@ -443,7 +443,7 @@ export default function MojiPage() {
                   </td>
                   {/* 2. řádek: údaje s malým popiskem (data-label), zalomí se podle šířky */}
                   <td role="cell">
-                    <StatusBadge status={r.status} />
+                    <StatusBadge status={r.status} kontaktId={r.id} />
                   </td>
                   <td role="cell" className="znamka-cell" data-label="známka">
                     {jenZaklad(r) ? <Skryto /> : r.rating ? <span className="badge rating">{r.rating}</span> : <span className="muted">—</span>}

@@ -1171,10 +1171,12 @@ await blok('AU', async () => {
     && styl.length > 0 && !/min-width/.test(styl),
     'Označené: „e-mail se vrátil“ v buňce Co je potřeba hned za skupinou a před příznakem; styl bez min-width', styl.trim().slice(0, 120));
   // F11: věta u důvodu změny stavu (stará „Důvod si přečte automatizace a podle něj pokračuje …“ mimo komentáře nikde)
+  // ⚠ migrace 071 (17. 11. 2026): „Z „…““ je popisek ZOBRAZENÉHO stavu přihlášeného (zobrazeny, src/zobrazeni.ts; bez řádku
+  // zobrazeny_stav = skutečný stav), NAHRAZUJE kotvu se STATUS_LABELS[kontakt.status]
   const drawer = readFileSync(join(ROOT, 'src/components/KontaktDrawer.tsx'), 'utf8');
   const bezKomentaru = drawer.replace(/\{\/\*[\s\S]*?\*\/\}/g, '').replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
   over('AU5', U.DUVOD_STAVU_NAPOVEDA === 'Důvod čte automatizace jen u Odmítnuto (u architekta i u Nekontaktovat). Pokyn pro agenta napište do Vzkazů agentovi.'
-    && /<p className="muted duvod-stavu-napoveda"[^>]*>\s*Z „\{STATUS_LABELS\[kontakt\.status\] \?\? kontakt\.status\}“ na „\{STATUS_LABELS\[status\] \?\? status\}“\.\{' '\}\s*\{DUVOD_STAVU_NAPOVEDA\}\s*<\/p>/.test(drawer)
+    && /<p className="muted duvod-stavu-napoveda"[^>]*>\s*Z „\{STATUS_LABELS\[zobrazeny\] \?\? zobrazeny\}“ na „\{STATUS_LABELS\[status\] \?\? status\}“\.\{' '\}\s*\{DUVOD_STAVU_NAPOVEDA\}\s*<\/p>/.test(drawer)
     && !/přečte\s+automatizace|podle\s+něj\s+pokračuje/.test(bezKomentaru) && /<KontaktThreads\s/.test(drawer),
     'detail: u změny stavu věta „Důvod čte automatizace jen u Odmítnuto (u architekta i u Nekontaktovat). Pokyn pro agenta napište do Vzkazů agentovi.“, starý slib nikde, Vzkazy agentovi v detailu jsou');
 });

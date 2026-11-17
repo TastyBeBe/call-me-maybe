@@ -96,6 +96,7 @@ import {
   SendIcon,
   XIcon,
 } from '../icons';
+import { useZobrazenyStav } from '../zobrazeni';
 
 /**
  * Migrace 045, recenze 20. 10. 2026: Volající dostává řádky kolegů v poznámce jako „jiný volající“ a jsou pro něj
@@ -672,6 +673,9 @@ export default function KontaktDrawer({
   // řádek vloží) dostane osobní IČO jen, když kontakt smí upravit (audit APP-5).
   const onSaved = (updated: Kontakt) => predatStrance?.(bezCizihoIco(updated));
   const [status, setStatus] = useState<KontaktStatus>(kontakt.status);
+  // Migrace 071 (Albert 17. 11. 2026): zobrazený stav přihlášeného u tohohle kontaktu (src/zobrazeni.ts), jen popisek;
+  // hodnota v menu a uložení zůstávají skutečný stav (kontakt.status)
+  const zobrazeny = useZobrazenyStav(kontakt.id, kontakt.status);
   // Migrace 059 (Albert 30. 10. 2026): změna stavu chce krátký důvod (server ho bez něj odmítne; Albert ho mít nemusí).
   // Pole se ukáže, jen když se stav v rozbalovacím seznamu změní; důvod jde serveru jako status_duvod.
   const [duvod, setDuvod] = useState('');
@@ -910,7 +914,7 @@ export default function KontaktDrawer({
         {obsahJenCteni ? (
           <>
             <p className="meta-line" style={{ marginTop: 14 }}>
-              status: <StatusBadge status={kontakt.status} />
+              status: <StatusBadge status={kontakt.status} kontaktId={kontakt.id} />
               {kontakt.rating && (
                 <>
                   {' '}
@@ -946,9 +950,13 @@ export default function KontaktDrawer({
               {/* migrace 062 (D19): jen stavy, které člověk smí nastavit (stávající vždy) */}
               <select value={status} onChange={(e) => setStatus(e.target.value as KontaktStatus)}>
                 {stavyVMenu(kontakt).map((s) => (
-                  <option key={s} value={s}>
-                    {STATUS_LABELS[s]}
-                  </option>
+                  // migrace 071: stávající (skutečný) stav nese popisek zobrazeného stavu, položka se stejným popiskem se
+                  // neukáže dvakrát; hodnota je skutečný stav, takže uložení beze změny stav nemění
+                  s !== kontakt.status && s === zobrazeny ? null : (
+                    <option key={s} value={s}>
+                      {STATUS_LABELS[s === kontakt.status ? zobrazeny : s]}
+                    </option>
+                  )
                 ))}
               </select>
             </div>
@@ -968,7 +976,7 @@ export default function KontaktDrawer({
                 {/* audit 2. 11. 2026 (R4): důvod čte automatizace jen u Odmítnuto a u architekta i u Nekontaktovat
                     (DUVOD_STAVU_NAPOVEDA v ui.tsx, ⚠ NAHRAZUJE „Důvod si přečte automatizace a podle něj pokračuje …“) */}
                 <p className="muted duvod-stavu-napoveda" style={{ fontSize: 13.5, margin: '6px 0 0' }}>
-                  Z „{STATUS_LABELS[kontakt.status] ?? kontakt.status}“ na „{STATUS_LABELS[status] ?? status}“.{' '}
+                  Z „{STATUS_LABELS[zobrazeny] ?? zobrazeny}“ na „{STATUS_LABELS[status] ?? status}“.{' '}
                   {DUVOD_STAVU_NAPOVEDA}
                 </p>
                 {/* migrace 062 (D19): změna na Nekontaktovat, Nerelevantní nebo Odmítnuto zruší čekající hovory klienta */}

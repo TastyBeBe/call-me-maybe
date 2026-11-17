@@ -30,6 +30,7 @@ import { nikaInfo, STAV_NIKY_POPISEK, useNiky, viditelneNiky } from './obory';
 import { isoDen, posunDen, prahaCas, prahaDen } from './praha';
 import { jeKlicNiky, rodinaOf, SEGMENTY, segmentOf } from './segment';
 import { OWNER_USER_ID } from './roles';
+import { useZobrazenyStav } from './zobrazeni';
 
 /** České popisky statusů kontaktu. */
 export const STATUS_LABELS: Record<KontaktStatus, string> = {
@@ -112,11 +113,14 @@ export const STATUS_COLORS: Record<KontaktStatus, { bg: string; fg: string }> = 
 };
 
 // třída status-badge (20. 10. 2026): podle ní e2e ověří, že detail cizího kontaktu Volajícího žádný stav neukazuje
-export function StatusBadge({ status }: { status: KontaktStatus }) {
-  const c = STATUS_COLORS[status] ?? { bg: '#fdf6e9', fg: '#221e33' };
+// Migrace 071 (Albert 17. 11. 2026): s `kontaktId` odznak ukáže zobrazený stav přihlášeného u toho kontaktu
+// (src/zobrazeni.ts, zobrazene_stavy), jinak skutečný; mění se jen popisek a barva, nikdy data
+export function StatusBadge({ status, kontaktId }: { status: KontaktStatus; kontaktId?: number | null }) {
+  const s = useZobrazenyStav(kontaktId, status);
+  const c = STATUS_COLORS[s] ?? { bg: '#fdf6e9', fg: '#221e33' };
   return (
     <span className="badge status-badge" style={{ background: c.bg, color: c.fg }}>
-      {STATUS_LABELS[status] ?? status}
+      {STATUS_LABELS[s] ?? s}
     </span>
   );
 }

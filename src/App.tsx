@@ -14,6 +14,7 @@ import { getConfig } from './config';
 import { isAdminRole, isSuperAdmin } from './roles';
 import { klicNikKVolani, nactiNiky, OBNOVA_NIK_MS, useNiky, viditelneNiky, zapomenNiky } from './obory';
 import { vychoziNikaRelace } from './segment';
+import { nactiZobrazeneStavy, zapomenZobrazeneStavy } from './zobrazeni';
 
 /** Logo = Prokchopova pochroumaná hlava v party čepici (public/icons). */
 const logoUrl = import.meta.env.BASE_URL + 'icons/procop_logo_256.png';
@@ -131,6 +132,20 @@ function OboryNacitani() {
       document.removeEventListener('visibilitychange', obnov);
       window.clearInterval(casovac);
     };
+  }, [token]);
+  return null;
+}
+
+/**
+ * Zobrazené stavy přihlášeného (migrace 071, Albert 17. 11. 2026): jen jeho vlastní, načtené jednou za přihlášení; po
+ * odhlášení se zapomenou. Mění jen popisek stavu u jeho kontaktů (src/zobrazeni.ts); bez řádků appka beze změny.
+ */
+function ZobrazeniNacitani() {
+  const { session } = useAuth();
+  const token = session?.token ?? null;
+  useEffect(() => {
+    if (token) void nactiZobrazeneStavy(token);
+    else zapomenZobrazeneStavy();
   }, [token]);
   return null;
 }
@@ -283,6 +298,7 @@ export default function App() {
     <div className="page wide">
       <AudioLayer />
       <OboryNacitani />
+      <ZobrazeniNacitani />
       <TopBar />
       <PigBoundary>
         <PigLayer />

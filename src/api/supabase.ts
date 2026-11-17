@@ -40,6 +40,7 @@ import type {
   ZavolatJinde,
   ZavolatPolozka,
   ZavolatSeznam,
+  ZobrazenyStav,
 } from './types';
 
 /**
@@ -694,6 +695,18 @@ export const supabaseApi: Api = {
       return await rpc<ZajemPodleVolajicich>('zajem_podle_volajicich', { p_token: token, ...(segment ? { p_segment: segment } : {}) });
     } catch (e) {
       if (neniNaServeru(e)) throw new Error(BEZ_069_ZAJEM);
+      throw e;
+    }
+  },
+
+  async zobrazeneStavy(token: string): Promise<ZobrazenyStav[]> {
+    // zobrazene_stavy (migrace 071, Albert 17. 11. 2026): jen vlastní řádky přihlášeného; server bez 071 funkci nemá
+    // (PGRST202) = žádný zobrazený stav, appka ukazuje skutečné stavy jako dřív
+    try {
+      const r = await rpc<ZobrazenyStav[] | null>('zobrazene_stavy', { p_token: token });
+      return Array.isArray(r) ? r : [];
+    } catch (e) {
+      if (neniNaServeru(e)) return [];
       throw e;
     }
   },

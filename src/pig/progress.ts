@@ -12,6 +12,8 @@
  * Everything a user "has" (spent chops, owned hats, the chosen hat, which milestones already
  * fired) is per-user localStorage. Počítadla jdou vždy ze skutečných čísel v my_stats —
  * simulace ani ladicí přepisy tady nejsou.
+ * Od migrace 071 (Albert 17. 11. 2026) počítá server do my_stats.sold i vlastní zobrazený stav prodeje přihlášeného
+ * (zobrazeny_stav, jen jeho vlastní pohled); appka tu dál nic nepřepisuje.
  */
 export type CounterKey = 'calls' | 'accepted' | 'sold';
 export interface Counters { calls: number; accepted: number; sold: number }
