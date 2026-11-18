@@ -18,7 +18,7 @@ import {
 import { useSession } from '../auth';
 import LidePicker from '../components/LidePicker';
 import { ArrowLeftIcon, ArrowRightIcon } from '../icons';
-import { VYBER_JA, clovekZ, rozbalVyber, shrnutiVyberu, type Vyber } from '../lide';
+import { VYBER_JA, clovekZ, odkazPrehleduLidi, rozbalVyber, shrnutiVyberu, type Vyber } from '../lide';
 import { dayWord, topDaysFor } from '../pig/progress';
 import { posunDen, prahaDen } from '../praha';
 import { isSuperAdmin } from '../roles';
@@ -83,7 +83,9 @@ export default function StatsPage() {
   // změny (jen svoje čísla, výběr nevidí).
   const [vyber, setVyber] = useState<Vyber>(VYBER_JA);
   const lide = useMemo(() => (allStats ?? []).map(clovekZ), [allStats]);
-  const vybrani = isSuper ? rozbalVyber(vyber, lide, session.user_id) : [session.user_id];
+  // prázdný výběr panel nedovolí; kdyby přišel, serveru nesmí jít lide [] (= všichni), takže znamená jen sebe
+  const rozbaleno = isSuper ? rozbalVyber(vyber, lide, session.user_id) : [session.user_id];
+  const vybrani = rozbaleno !== null && rozbaleno.length === 0 ? [session.user_id] : rozbaleno;
   const vybraniKlic = JSON.stringify(vybrani);
   // jeden člověk (i tým o jednom člověku) = dosavadní pohled; víc lidí nebo všichni = součet ze serveru
   const jeden = vybrani !== null && vybrani.length === 1 ? vybrani[0] : null;
@@ -106,7 +108,10 @@ export default function StatsPage() {
   const [denChyba, setDenChyba] = useState('');
   const [denNacita, setDenNacita] = useState(false);
   const dnes = prahaDen(new Date());
-  // úkol 10: součet víc lidí (prehled_lide) za období stránky
+  // úkol 10: součet víc lidí (prehled_lide) za období stránky: Celkem = posledních 730 dní (víc server nevezme, data jsou
+  // od 2. 9. 2026), jeden den = ten den
+  const kombiOd = den ?? (posunDen(dnes, -730) < '2020-01-01' ? '2020-01-01' : posunDen(dnes, -730));
+  const kombiDo = den ?? dnes;
   const [kombi, setKombi] = useState<PrehledObalka<DataLide> | null>(null);
   const [kombiChyba, setKombiChyba] = useState('');
   const [kombiNacita, setKombiNacita] = useState(false);
@@ -155,9 +160,8 @@ export default function StatsPage() {
     };
   }, [session.token, volaniUid, kombinace]);
 
-  // víc lidí: součet ze serveru (prehled_lide, jen super admin); Celkem = posledních 730 dní (víc server nevezme, data jsou
-  // od 2. 9. 2026), jeden den = ten den; obě měny (jako výdělek jednoho člověka eura zvlášť, nikdy dohromady); server bez
-  // migrace 073 = BEZ_073_LIDE
+  // víc lidí: součet ze serveru (prehled_lide, jen super admin) za kombiOd až kombiDo; obě měny (jako výdělek jednoho člověka
+  // eura zvlášť, nikdy dohromady); server bez migrace 073 = BEZ_073_LIDE
   useEffect(() => {
     let alive = true;
     setKombi(null);
@@ -167,9 +171,8 @@ export default function StatsPage() {
       return;
     }
     setKombiNacita(true);
-    const od = den ?? (posunDen(dnes, -730) < '2020-01-01' ? '2020-01-01' : posunDen(dnes, -730));
     getApi()
-      .prehledLide(session.token, { od, do: den ?? dnes, lide: vybrani, mena: 'obe' })
+      .prehledLide(session.token, { od: kombiOd, do: kombiDo, lide: vybrani, mena: 'obe' })
       .then((x) => {
         if (alive) setKombi(x);
       })
@@ -183,7 +186,7 @@ export default function StatsPage() {
       alive = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session.token, kombinace, vybraniKlic, den, dnes]);
+  }, [session.token, kombinace, vybraniKlic, kombiOd, kombiDo]);
 
   useEffect(() => {
     let alive = true;
@@ -232,8 +235,9 @@ export default function StatsPage() {
 
   const shownName = ja ? session.display_name : allStats?.find((u) => u.user_id === shownUid)?.display_name ?? '';
   const kdoKombinace = shrnutiVyberu(vyber, lide, session.user_id);
-  // „Porovnat v Přehledu“: lidé vedle sebe (#/prehled/lide, úkol 13); bez lide = všichni
-  const odkazPrehled = `/prehled/lide${vybrani ? `?lide=${vybrani.join(',')}` : ''}`;
+  // „Porovnat v Přehledu“: lidé vedle sebe (#/prehled/lide, úkol 13) se stejným obdobím a výběrem (tym, nebo lide; oprava po
+  // recenzi 18. 11. 2026, bod 7, NAHRAZUJE odkaz jen s lide)
+  const odkazPrehled = odkazPrehleduLidi(vyber, lide, session.user_id, kombiOd, kombiDo);
   const nacita = loading || nacitaDen || (kombinace && kombiNacita);
 
   return (
@@ -392,7 +396,11 @@ export default function StatsPage() {
   );
 }
 
-/** Karty součtu víc lidí v pořadí dosavadních karet jednoho člověka (hovory, pak výsledky, pak peníze). */
+/**
+ * Karty součtu víc lidí v pořadí dosavadních karet jednoho člověka (hovory, pak výsledky, pak peníze). „dovolano“ tu NENÍ
+ * serverová metrika dovolano (všechny výsledky kromě nedovoláno), ale dosavadní „Dovoláno“ Statistik: zájem + odmítnutí
+ * (konverze.jmenovatel, totéž co reached z all_stats; oprava po recenzi 18. 11. 2026, bod 1).
+ */
 const KARTY_KOMBINACE: MetrikaCloveka[][] = [
   ['hovory', 'dovolano', 'zajem', 'konverze', 'pocet_prodeju'],
   ['odmitnuto', 'nerelevantni', 'preplanovano', 'unikatni_klienti', 'navrhy'],
@@ -417,6 +425,23 @@ function hodnotyMetriky(m: Metrika): string[] {
   if (PROCENTA.includes(m.klic)) return [`${cislo(m.hodnota * 100, 1)}\u00a0%`];
   if (HODINY.includes(m.klic)) return [`${cislo(m.hodnota, 1)}\u00a0h`];
   return [cislo(m.hodnota, m.klic === 'vysledku_za_hodinu' ? 1 : 0)];
+}
+
+/**
+ * Dosavadní „Dovoláno“ Statistik ze součtu: zájem + odmítnutí = jmenovatel konverze (nerelevantní ani přeplánované se
+ * nepočítají), stejné číslo jako „Dovoláno“ jednoho člověka.
+ */
+function dovolanoStatistik(konverze: Metrika): Metrika {
+  return {
+    ...konverze,
+    klic: 'dovolano',
+    nazev: 'Dovoláno',
+    hodnota: konverze.jmenovatel,
+    castky: [],
+    citatel: null,
+    jmenovatel: null,
+    duvod: konverze.kvalita === 'dostupne' ? null : konverze.duvod,
+  };
 }
 
 function KartaMetriky({ m, hot = false }: { m: Metrika; hot?: boolean }) {
@@ -446,26 +471,31 @@ function KartaMetriky({ m, hot = false }: { m: Metrika; hot?: boolean }) {
  */
 function KombinovaneStatistiky({ data, kdo, den, odkaz }: { data: PrehledObalka<DataLide>; kdo: string; den: string | null; odkaz: string }) {
   const m = data.data.soucet.metriky;
+  const karta = (k: MetrikaCloveka): Metrika => (k === 'dovolano' ? dovolanoStatistik(m.konverze) : m[k]);
   const lidi = data.data.radky.filter((r) => r.druh === 'osoba').length;
+  // bez výběru lidí (Všichni) je v součtu i řádek Nepřiřazeno (návrhy a prodeje bez připsaného člověka, kontrakt §5.5)
+  const iNeprirazene = data.data.radky.some((r) => r.druh === 'neprirazeno');
   const varovani = data.meta.varovani.filter((v) => v.kod !== 'MENY_ODDELENE' && v.kod !== 'CASOVAC_OD');
   return (
     <section className="stats-kombinace" aria-label={`Statistiky dohromady: ${kdo}`}>
       <p className="muted stats-kombinace-popis" style={{ margin: '10px 0 0' }}>
         <strong>{kdo}</strong> dohromady ({lidi === 1 ? '1 člověk' : lidi >= 2 && lidi <= 4 ? `${lidi} lidé` : `${lidi} lidí`}) ·{' '}
-        {den === null ? 'celkem' : <><strong>{formatDenSRokem(den)}</strong> (den v Praze)</>} · čísla jsou součet vybraných lidí.{' '}
+        {den === null ? 'celkem' : <><strong>{formatDenSRokem(den)}</strong> (den v Praze)</>} · čísla jsou součet vybraných lidí
+        {iNeprirazene ? ' a klientů bez přiřazeného člověka' : ''}.{' '}
         <Link to={odkaz} className="stats-porovnat">
           Porovnat v Přehledu <ArrowRightIcon size={15} />
         </Link>
       </p>
+      {/* stejné vysvětlení jako u jednoho člověka (dovoláno = jmenovatel konverze); prodeje jsou ze serveru u posledního zájmu */}
       <p className="muted" style={{ margin: '4px 0 0' }}>
-        dovoláno = hovory s jiným výsledkem než nedovoláno (i nerelevantní a přeplánované) · konverze = zájem / (zájem +
-        odmítnuto) · prodeje = klient web schválil (a dál), u toho, kdo zapsal poslední zájem
+        dovoláno = odmítli + zájem (nerelevantní ani přeplánované se nepočítají) · konverze = zájem / dovoláno · prodeje =
+        klient web schválil (a dál), u toho, kdo zapsal poslední zájem
       </p>
       {KARTY_KOMBINACE.map((rada, i) => (
         // peníze jako výdělek jednoho člověka (vydelek-grid): širší karty, ať se částka vejde i na telefonu
         <div key={i} className={`stat-grid${rada.includes('hodnota_prodeju') ? ' stat-grid-penize' : ''}`} style={i > 0 ? { marginTop: 16 } : undefined}>
           {rada.map((k) => (
-            <KartaMetriky key={k} m={m[k]} hot={k === 'zajem'} />
+            <KartaMetriky key={k} m={karta(k)} hot={k === 'zajem'} />
           ))}
         </div>
       ))}

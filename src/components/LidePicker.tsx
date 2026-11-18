@@ -16,7 +16,7 @@
 
 import { useEffect, useId, useMemo, useRef, useState, type FocusEvent as ReactFocusEvent, type KeyboardEvent as ReactKeyboardEvent, type Ref } from 'react';
 import { getApi, type UserStats } from '../api';
-import { useSession } from '../auth';
+import { useAuth, useSession } from '../auth';
 import { SearchIcon, UsersIcon, XIcon } from '../icons';
 import {
   VYBER_BEZ_VOLAJICIHO,
@@ -25,6 +25,7 @@ import {
   clenoveTymu,
   hledaniSedi,
   rozbalVyber,
+  sJenAktivnimi,
   shrnutiVyberu,
   skupinyLidi,
   stejnyVyber,
@@ -117,16 +118,9 @@ export function LidePanel({
       .map((t) => ({ klic: `tym-${t.id}`, text: `${t.nazev} (${clenoveTymu(t.id!, lide, jenAktivni).length})`, vyber: { druh: 'tym' as const, tymId: t.id!, ids: [], ...s } })),
     ...(allowBezVolajiciho ? [{ klic: 'bez', text: 'Bez volajícího', vyber: { ...VYBER_BEZ_VOLAJICIHO, ...s } }] : []),
   ];
-  const prepniAktivni = (zap: boolean) => {
-    const { jenAktivni: _puvodni, ...bezPriznaku } = value;
-    if (zap && value.druh === 'vybrani' && !value.bezVolajiciho) {
-      // zaškrtnutí neaktivní se odškrtnou (v seznamu nebudou vidět); kdyby nezbyl nikdo, zůstane jen přihlášený
-      const zbyli = value.ids.filter((id) => lide.find((c) => c.id === id)?.active !== false);
-      onChange(zbyli.length > 0 ? vyberZIds(zbyli, lide, ja, true) : { ...VYBER_JA, jenAktivni: true });
-      return;
-    }
-    onChange(zap ? { ...value, jenAktivni: true } : bezPriznaku);
-  };
+  // zaškrtnutí neaktivní se odškrtnou (v seznamu nebudou vidět); kdyby nezbyl nikdo (i tým bez aktivních), výběr přejde na Já
+  // (oprava po recenzi 18. 11. 2026, bod 4: nikdy prázdný výběr pod „Tým X (0)“)
+  const prepniAktivni = (zap: boolean) => onChange(sJenAktivnimi(value, lide, ja, zap));
   const nalezene = skupiny
     .map((t) => ({ ...t, clenove: t.clenove.filter((c) => hledaniSedi(c, hledat)) }))
     .filter((t) => t.clenove.length > 0);
@@ -265,11 +259,19 @@ export default function LidePicker({
   const tlacitko = useRef<HTMLButtonElement>(null);
   const hledatPole = useRef<HTMLInputElement>(null);
   const bylOtevreno = useRef(false);
+  // vrátit fokus na tlačítko po zavření? Jen když panel zavřel člověk (Escape, Hotovo, křížek, tlačítko, závoj okna);
+  // ne když fokus odešel Tabem jinam nebo klikl mimo (oprava po recenzi 18. 11. 2026, bod 2)
+  const vratitFokus = useRef(false);
+  // pojistka (oprava po recenzi, bod 8): výběr jen pro přihlášeného super admina, i kdyby stránka poslala lidi
+  const superAdmin = isSuperAdmin(useAuth().session?.role);
   const idPanelu = useId();
   const idPopisku = useId();
   const idNadpisu = useId();
 
-  const zavri = () => setOtevreno(false);
+  const zavri = (vratit: boolean) => {
+    vratitFokus.current = vratit;
+    setOtevreno(false);
+  };
   const otevri = () => {
     // v okně „Filtry“ panelu filtrů (telefon) se panel rozbalí přímo v něm, jinak na telefonu vlastní okno odspodu
     setRezim(obal.current?.closest('.filtr-sheet') ? 'vlozeny' : telefon ? 'okno' : 'pod');
@@ -279,14 +281,17 @@ export default function LidePicker({
 
   // jiná šířka (otočení telefonu) panel zavře, ať nezůstane v režimu, který k obrazovce nepatří
   useEffect(() => {
+    vratitFokus.current = false;
     setOtevreno(false);
   }, [telefon]);
 
-  // po otevření fokus do panelu (počítač: hledání; okno a rozbalený panel: první předvolba), po zavření zpět na tlačítko
+  // po otevření fokus do panelu (počítač: hledání; okno a rozbalený panel: první předvolba), po zavření zpět na tlačítko, jen
+  // když ho zavřel člověk (Escape, Hotovo, křížek, tlačítko); Tab ven a klik mimo nechají fokus tam, kam šel
   useEffect(() => {
     if (!otevreno) {
-      if (bylOtevreno.current) tlacitko.current?.focus();
+      if (bylOtevreno.current && vratitFokus.current) tlacitko.current?.focus();
       bylOtevreno.current = false;
+      vratitFokus.current = false;
       return;
     }
     bylOtevreno.current = true;
@@ -306,7 +311,7 @@ export default function LidePicker({
     }
     if (rezim !== 'pod') return;
     const mimo = (e: MouseEvent | TouchEvent) => {
-      if (obal.current && !obal.current.contains(e.target as Node)) setOtevreno(false);
+      if (obal.current && !obal.current.contains(e.target as Node)) zavri(false);
     };
     document.addEventListener('mousedown', mimo);
     document.addEventListener('touchstart', mimo);
@@ -316,14 +321,22 @@ export default function LidePicker({
     };
   }, [otevreno, rezim]);
 
-  const klavesa = (e: ReactKeyboardEvent<HTMLDivElement>) => {
-    if (e.key === 'Escape') {
-      // zavře jen tenhle panel (okno filtrů pod ním zůstane otevřené)
-      e.stopPropagation();
+  // Escape s otevřeným panelem zavře panel, ať je fokus kdekoli: v panelu, na tlačítku, nebo jinde v okně „Filtry“ (jako
+  // rozbalovací výběry řady filtrů, Rozbalovac v SeznamFiltry.tsx; oprava po recenzi 18. 11. 2026, bod 3). Okno filtrů pod
+  // ním zůstane: FiltrPanel napřed zavře otevřený výběr (.lide-picker-panel), a ten je v DOM ještě během téže klávesy.
+  useEffect(() => {
+    if (!otevreno) return;
+    const escape = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
       e.preventDefault();
-      zavri();
-      return;
-    }
+      vratitFokus.current = true;
+      setOtevreno(false);
+    };
+    document.addEventListener('keydown', escape);
+    return () => document.removeEventListener('keydown', escape);
+  }, [otevreno]);
+
+  const klavesa = (e: ReactKeyboardEvent<HTMLDivElement>) => {
     const kde = panel.current;
     if (!kde) return;
     const cil = e.target as HTMLElement;
@@ -353,12 +366,12 @@ export default function LidePicker({
       }
     }
   };
-  // pod tlačítkem: fokus mimo výběr (Tab dál) panel zavře
+  // pod tlačítkem: fokus mimo výběr (Tab dál) panel zavře a fokus nechá tam, kam šel
   const fokusPryc = (e: ReactFocusEvent<HTMLDivElement>) => {
-    if (rezim === 'pod' && otevreno && obal.current && e.relatedTarget instanceof Node && !obal.current.contains(e.relatedTarget)) setOtevreno(false);
+    if (rezim === 'pod' && otevreno && obal.current && e.relatedTarget instanceof Node && !obal.current.contains(e.relatedTarget)) zavri(false);
   };
 
-  if (lide.length === 0) return null;
+  if (lide.length === 0 || !superAdmin) return null;
   const shrnuti = shrnutiVyberu(value, lide, ja);
   const zapnuto = !!vychozi && !stejnyVyber(value, vychozi);
   const obsah = (
@@ -390,7 +403,7 @@ export default function LidePicker({
         aria-controls={otevreno ? idPanelu : undefined}
         aria-label={`${popisek ?? 'Lidé'}: ${shrnuti}`}
         title={shrnuti}
-        onClick={() => (otevreno ? zavri() : otevri())}
+        onClick={() => (otevreno ? zavri(true) : otevri())}
         onKeyDown={(e) => {
           if (e.key === 'ArrowDown' && !otevreno) {
             e.preventDefault();
@@ -418,7 +431,8 @@ export default function LidePicker({
       )}
       {otevreno && rezim === 'okno' && (
         <>
-          <div className="lide-sheet-scrim" aria-hidden="true" onClick={zavri} />
+          {/* závoj modálního okna zavře okno jako křížek (fokus zpět na tlačítko, jinak by po zavření okna nebyl nikde) */}
+          <div className="lide-sheet-scrim" aria-hidden="true" onClick={() => zavri(true)} />
           <div
             ref={panel}
             className="lide-sheet lide-picker-panel okno"
@@ -432,14 +446,14 @@ export default function LidePicker({
               <h2 className="lide-sheet-nadpis" id={idNadpisu}>
                 {popisek ?? 'Výběr lidí'}
               </h2>
-              <button type="button" className="drawer-close lide-sheet-zavrit" aria-label="Zavřít výběr lidí" onClick={zavri}>
+              <button type="button" className="drawer-close lide-sheet-zavrit" aria-label="Zavřít výběr lidí" onClick={() => zavri(true)}>
                 <XIcon size={18} />
               </button>
             </div>
             <div className="lide-sheet-telo">{obsah}</div>
             <div className="lide-sheet-pata">
               <span className="lide-sheet-vyber">{shrnuti}</span>
-              <button type="button" className="pill-btn go lide-sheet-hotovo" onClick={zavri}>
+              <button type="button" className="pill-btn go lide-sheet-hotovo" onClick={() => zavri(true)}>
                 Hotovo
               </button>
             </div>

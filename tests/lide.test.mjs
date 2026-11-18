@@ -124,6 +124,8 @@ try {
     "export { default as LidePicker } from './src/components/LidePicker.tsx';",
     "export { renderToStaticMarkup } from 'react-dom/server';",
     "export { createElement } from 'react';",
+    // oprava po recenzi (bod 8): pojistka uvnitř výběru (jen super admin) čte přihlášení z AuthProvider
+    "export { AuthProvider, LS_SESSION } from './src/auth.tsx';",
   ]);
 } catch (e) {
   over('K0', false, 'src/components/LidePicker.tsx nejde sestavit (výběr lidí chybí)', String(e.message).split('\n').slice(0, 2).join(' | '));
@@ -222,6 +224,33 @@ await blok('L', async () => {
     && /074/.test(BEZ) && /server ještě neumí/.test(BEZ),
     'server bez 074: jeden člověk znovu dnešním voláním, víc lidí hláška „chybí migrace 074“, jiná chyba projde, Já bez pokusu o 074',
     JSON.stringify({ jeden, zaznam, viceChyba, jinaChyba, ja, BEZ }));
+  // oprava po recenzi (bod 4): „jen aktivní“ nikdy nenechá prázdný výběr pod nápisem „Tým X (0)“, přepne na Já jako u vybraných
+  const STARI = [...LIDE, { id: 5, display_name: 'Starý', role: 'super_admin', active: false, manager_id: null },
+    { id: 50, display_name: 'Bývalý', role: 'admin', active: false, manager_id: 5 }];
+  const A = (v, zap) => (typeof L.sJenAktivnimi === 'function' ? L.sJenAktivnimi(v, STARI, JA, zap) : null);
+  const a1 = A({ druh: 'tym', tymId: 5, ids: [] }, true);
+  const a2 = A({ druh: 'vybrani', ids: [42, 50] }, true);
+  const a3 = A({ druh: 'vybrani', ids: [42, 41, 40] }, true);
+  const a4 = A({ druh: 'tym', tymId: 4, ids: [] }, true);
+  const a5 = A({ druh: 'tym', tymId: 4, ids: [], jenAktivni: true }, false);
+  const a6 = A(L.VYBER_VSICHNI, true);
+  over('L14', !!a1 && a1.druh === 'ja' && a1.jenAktivni === true && L.shrnutiVyberu(a1, STARI, JA) === 'Já'
+    && a2?.druh === 'ja' && a2?.jenAktivni === true && a3?.druh === 'vybrani' && stejne(a3?.ids, [41, 40])
+    && a4?.druh === 'tym' && a4?.tymId === 4 && a4?.jenAktivni === true && L.shrnutiVyberu(a4, STARI, JA) === 'Tým PavelB (3)'
+    && a5?.druh === 'tym' && a5?.jenAktivni === undefined && a6?.druh === 'vsichni' && a6?.jenAktivni === true
+    && L.rozbalVyber(a1, STARI, JA).length === 1,
+    '„jen aktivní“: tým bez aktivních lidí = Já (nikdy prázdný výběr ani „Tým Starý (0)“), vybraní bez neaktivních, jinak jen příznak',
+    JSON.stringify([a1, a2, a3, a4, a5, a6]));
+  // oprava po recenzi (bod 7): odkaz „Porovnat v Přehledu“ ve formátu úkolu 13 (období a výběr: tym, nebo lide)
+  const O = (v) => (typeof L.odkazPrehleduLidi === 'function' ? L.odkazPrehleduLidi(v, LIDE, JA, '2024-11-19', '2026-11-18') : null);
+  const odkazy = [O({ druh: 'tym', tymId: 1, ids: [] }), O({ druh: 'vybrani', ids: [41, 40] }), O(L.VYBER_VSICHNI),
+    O({ ...L.VYBER_VSICHNI, jenAktivni: true }), O({ druh: 'tym', tymId: 4, ids: [], jenAktivni: true })];
+  const aktivniIds = LIDE.filter((c) => c.active).map((c) => c.id).sort((x, y) => x - y).join(',');
+  over('L15', stejne(odkazy, ['/prehled/lide?od=2024-11-19&do=2026-11-18&tym=1', '/prehled/lide?od=2024-11-19&do=2026-11-18&lide=40,41',
+    '/prehled/lide?od=2024-11-19&do=2026-11-18', `/prehled/lide?od=2024-11-19&do=2026-11-18&lide=${aktivniIds}`,
+    '/prehled/lide?od=2024-11-19&do=2026-11-18&lide=4,40,41']),
+    'odkaz do Přehledu: #/prehled/lide?od=…&do=… a tým jako tym=<id>, vybraní (i „jen aktivní“) jako lide=<id vzestupně>, Všichni bez lidí',
+    JSON.stringify(odkazy));
 });
 
 /* ---------------- M) DEMO mock jako kontrakt §6 a §5.5 ---------------- */
@@ -337,6 +366,14 @@ await blok('M', async () => {
   over('M9', money?.hodnota === null && Array.isArray(money?.castky) && money.castky.length === 1 && money.castky[0].mena === 'CZK'
     && /^-?\d+\.\d{2}$/.test(money.castky[0].hodnota ?? '0.00') && s?.metriky?.hovory?.castky?.length === 0 && s?.metriky?.hovory?.citatel === null,
     'peníze: hodnota null, částky po měnách jako text na 2 místa (výchozí CZK); počty bez částek a bez čitatele', JSON.stringify(money));
+  // oprava po recenzi (bod 1): Statistiky „Dovoláno“ = zájem + odmítnutí (reached z all_stats), v součtu konverze.jmenovatel
+  const dvaRoky = (() => { const [y, mm, d] = DNES.split('-').map(Number); return new Date(Date.UTC(y, mm - 1, d - 730)).toISOString().slice(0, 10); })();
+  const dva = await api.prehledLide(albert, { od: dvaRoky, do: DNES, lide: [2, 3] });
+  const all = await api.allStats(albert);
+  const reached = (uid) => all.find((u) => u.user_id === uid)?.reached ?? -1;
+  over('M11', dva?.data?.soucet?.metriky?.konverze?.jmenovatel === reached(2) + reached(3) && reached(2) + reached(3) > 0,
+    'součet Petry a Honzy: zájem + odmítnutí (konverze.jmenovatel) = součet jejich „Dovoláno“ z all_stats (reached)',
+    `${dva?.data?.soucet?.metriky?.konverze?.jmenovatel} / ${reached(2)} + ${reached(3)}`);
   const vsichni = await api.prehledLide(albert, { od, do: DNES });
   const osoby = (vsichni?.data?.radky ?? []).filter((r) => r.druh === 'osoba').map((r) => r.user_id);
   over('M10', stejne(serazene(osoby), [1, 2, 3, 4, 5]) && vsichni?.meta?.filtr?.lide === null && stejne(vsichni?.data?.radky?.[0]?.metriky?.hovory?.proklik?.filtr?.vyber,
@@ -400,6 +437,9 @@ await blok('S', async () => {
   }
   over('S5', bez073 === API.BEZ_073_LIDE && /073/.test(API.BEZ_073_LIDE ?? '') && posledni().fn === 'prehled_lide' && stejne(posledni().body, { p_token: 't', p_filtr: { lide: [2, 3] } }),
     'prehled_lide: {p_token, p_filtr}; server bez 073 = hláška „chybí migrace 073“', `${bez073} ${JSON.stringify(posledni())}`);
+  // oprava po recenzi (bod 5): neradit „Všichni“ (sám bývá p_user_ids), radit „Já“ nebo jednoho člověka do aktualizace serveru
+  over('S5b', /074/.test(API.BEZ_074_LIDE ?? '') && !/Všichni/.test(API.BEZ_074_LIDE ?? '') && /Já/.test(API.BEZ_074_LIDE ?? '') && /jednoho člověka/.test(API.BEZ_074_LIDE ?? ''),
+    'hláška bez 074 radí „Já“ nebo jednoho člověka, ne „Všichni“', API.BEZ_074_LIDE);
   odpoved = { status: 400, telo: '{"code":"P0001","message":"Podle volajícího můžete filtrovat jen sebe."}' };
   let projde = '';
   try {
@@ -419,13 +459,21 @@ await blok('K', async () => {
   }
   const h = K.createElement;
   const nic = () => {};
-  const tl = K.renderToStaticMarkup(h(K.LidePicker, { value: { druh: 'tym', tymId: 1, ids: [] }, onChange: nic, lide: LIDE, ja: JA, popisek: 'Čí klienty zobrazit' }));
+  // oprava po recenzi (bod 8): výběr se vykreslí jen přihlášenému super adminovi (pojistka i uvnitř komponenty)
+  const prihlas = (role) => localStorage.setItem(K.LS_SESSION ?? 'volacka_session', JSON.stringify({ token: 'demo-1-x', user_id: 1, display_name: 'Albert', role }));
+  const sPrihlasenim = (props) => K.renderToStaticMarkup(h(K.AuthProvider ?? 'div', null, h(K.LidePicker, props)));
+  prihlas('super_admin');
+  const tl = sPrihlasenim({ value: { druh: 'tym', tymId: 1, ids: [] }, onChange: nic, lide: LIDE, ja: JA, popisek: 'Čí klienty zobrazit' });
   const tlText = /<button[^>]*lide-picker-btn[^>]*>([\s\S]*?)<\/button>/.exec(tl)?.[1]?.replace(/<[^>]+>/g, '').trim() ?? '';
   over('K1', /Můj tým \(3\)/.test(tlText) && /aria-expanded="false"/.test(tl) && /aria-haspopup="dialog"/.test(tl) && !/lide-picker-panel/.test(tl)
     && /Čí klienty zobrazit/.test(tl) && /class="[^"]*lide-picker[^"]*"/.test(tl),
     'zavřený výběr: tlačítko s textem výběru, aria-expanded false, popisek, panel ještě není', tlText);
-  over('K2', K.renderToStaticMarkup(h(K.LidePicker, { value: { druh: 'ja', ids: [] }, onChange: nic, lide: [], ja: JA })) === '',
+  over('K2', sPrihlasenim({ value: { druh: 'ja', ids: [] }, onChange: nic, lide: [], ja: JA }) === '',
     'bez seznamu lidí (Volající: allStats jen super admin) se výběr nevykreslí');
+  prihlas('admin');
+  const volajici = sPrihlasenim({ value: { druh: 'ja', ids: [] }, onChange: nic, lide: LIDE, ja: JA });
+  prihlas('super_admin');
+  over('K2b', volajici === '' && /lide-picker-btn/.test(tl), 'Volající výběr nedostane ani s neprázdným seznamem lidí (pojistka isSuperAdmin uvnitř výběru)', volajici.slice(0, 80));
   const panel = (v, navic = {}) => K.renderToStaticMarkup(h(K.LidePanel, { value: v, onChange: nic, lide: LIDE, ja: JA, hledat: '', onHledat: nic, ...navic }));
   const p = panel({ druh: 'tym', tymId: 2, ids: [] });
   const predvolby = [...p.matchAll(/<button[^>]*class="[^"]*lide-predvolba[^"]*"[^>]*aria-pressed="(true|false)"[^>]*>([\s\S]*?)<\/button>/g)].map((x) => `${x[2].replace(/<[^>]+>/g, '').trim()}${x[1] === 'true' ? '*' : ''}`);
@@ -446,6 +494,15 @@ await blok('K', async () => {
   const hledej = panel({ druh: 'ja', ids: [] }, { hledat: 'ver' });
   const nalezeni = [...hledej.matchAll(/<input[^>]*type="checkbox"[^>]*value="(\d+)"[^>]*>/g)].map((x) => Number(x[1]));
   over('K7', stejne(serazene(nalezeni), [40, 41]), 'hledání v panelu ukáže jen lidi, kterým sedí jméno (VeraP, VeraB)', JSON.stringify(nalezeni));
+  // oprava po recenzi (bod 4): předvolba týmu bez aktivních lidí („Tým Starý (0)“) s „jen aktivní“ v panelu není (neaktivní
+  // vedoucí se neukazuje), bez „jen aktivní“ je i s neaktivními; prázdný výběr po zapnutí „jen aktivní“ hlídá L14
+  const sStarym = (aktivni) => K.renderToStaticMarkup(h(K.LidePanel, { value: { druh: 'ja', ids: [], ...(aktivni ? { jenAktivni: true } : {}) }, onChange: nic, hledat: '',
+    onHledat: nic, ja: JA, lide: [...LIDE, { id: 5, display_name: 'Starý', role: 'super_admin', active: false, manager_id: null }] }));
+  const predvolbyStari = (html) => [...html.matchAll(/<button[^>]*lide-predvolba[^>]*>([^<]*)<\/button>/g)].map((x) => x[1]);
+  const sAktivnimi = predvolbyStari(sStarym(true));
+  const bezAktivnich = predvolbyStari(sStarym(false));
+  over('K8', !sAktivnimi.some((x) => /Starý/.test(x)) && !sAktivnimi.some((x) => /\(0\)/.test(x)) && bezAktivnich.includes('Tým Starý (1)'),
+    '„jen aktivní“: tým bez aktivních lidí v předvolbách není (žádné „(0)“), bez „jen aktivní“ je', JSON.stringify({ sAktivnimi, bezAktivnich }));
 });
 
 /* ---------------- W) zapojení stránek (zdrojový text) ---------------- */
@@ -492,6 +549,15 @@ await blok('W', async () => {
     'LidePicker: seznam lidí (allStats) jen pro super admina, klávesnice (šipky, Escape), aria-expanded');
   const pkg = src('package.json');
   over('W6', /node tests\/lide\.test\.mjs/.test(pkg), 'npm test pouští tests/lide.test.mjs');
+  // oprava po recenzi (bod 6): neznámé jméno při návratu bez 074 = chyba, nikdy caller null (= bez filtru)
+  const navrat = /const seznam = \(f: ListKontaktyFilters\) => \{[\s\S]*?\n  \};/.exec(admin)?.[0] ?? '';
+  over('W7', navrat.length > 100 && !/display_name \?\? null/.test(navrat) && /throw new Error\(/.test(navrat),
+    'Kontakty: návrat bez 074 bez jména vybraného člověka hodí chybu (ne caller null = bez filtru)', navrat.slice(0, 160));
+  // oprava po recenzi (body 1 a 7): Statistiky víc lidí bez serverového „dovolano“, odkaz z odkazPrehleduLidi
+  const komb = stats.slice(stats.indexOf('function KombinovaneStatistiky('));
+  over('W8', /odkazPrehleduLidi\(/.test(stats) && /konverze\.jmenovatel/.test(stats) && !/m\.dovolano|m\[['"]dovolano['"]\]/.test(komb)
+    && /nerelevantní ani přeplánované se nepočítají/.test(komb),
+    'Statistiky víc lidí: „Dovoláno“ = zájem + odmítnutí (konverze.jmenovatel) s dnešním vysvětlením, odkaz s obdobím a výběrem');
 });
 
 if (chyby === 0) {

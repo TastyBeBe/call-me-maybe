@@ -191,6 +191,8 @@ export function stejnyVyber(a: Vyber, b: Vyber): boolean {
  */
 export type LideDotaz = { druh: 'vsichni' } | { druh: 'ja' } | { druh: 'lide'; ids: number[] } | { druh: 'bez' };
 
+// Prázdný výběr appka nikdy nevytvoří (panel nedovolí odškrtnout posledního, „jen aktivní“ přejde na Já přes sJenAktivnimi);
+// větev pro [] níž je jen pojistka, aby serveru nikdy nešlo [] (= všichni).
 export function lideDotaz(v: Vyber, lide: readonly Clovek[], ja: number): LideDotaz {
   if (v.bezVolajiciho) return { druh: 'bez' };
   const ids = rozbalVyber(v, lide, ja);
@@ -214,7 +216,36 @@ export async function sLidmi<T>(d: LideDotaz, nove: () => Promise<T>, jeden: (id
   }
 }
 
-const bezHacku = (s: string): string => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+/**
+ * Přepínač „jen aktivní“ (oprava po recenzi 18. 11. 2026, bod 4): zapnutý vyřadí neaktivní z vybraných lidí; když by po něm
+ * nezbyl nikdo (vybraní jen neaktivní, nebo tým, ve kterém nikdo aktivní není), výběr přejde na Já. Prázdný výběr tak nikdy
+ * nevznikne a tlačítko nikdy neukáže „Tým X (0)“ (server by [] bral jako všechny). Vypnutý jen sundá příznak.
+ */
+export function sJenAktivnimi(v: Vyber, lide: readonly Clovek[], ja: number, zap: boolean): Vyber {
+  const { jenAktivni: _puvodni, ...bezPriznaku } = v;
+  if (!zap) return bezPriznaku;
+  if (v.bezVolajiciho) return { ...v, jenAktivni: true };
+  if (v.druh === 'vybrani') {
+    const zbyli = v.ids.filter((id) => lide.find((c) => c.id === id)?.active !== false);
+    return zbyli.length > 0 ? vyberZIds(zbyli, lide, ja, true) : { ...VYBER_JA, jenAktivni: true };
+  }
+  if (v.druh === 'tym' && clenoveTymu(v.tymId ?? ja, lide, true).length === 0) return { ...VYBER_JA, jenAktivni: true };
+  return { ...v, jenAktivni: true };
+}
+
+/**
+ * Odkaz „Porovnat v Přehledu“ ze Statistik (oprava po recenzi, bod 7) ve formátu adresy Přehledu (plán, úkol 13):
+ * `/prehled/lide?od=…&do=…` a výběr: tým jako `tym=<id>`, vybraní lidé (i tým nebo Všichni s „jen aktivní“) jako
+ * `lide=<id vzestupně>`, Všichni bez lidí. HashRouter z toho udělá `#/prehled/lide?…`.
+ */
+export function odkazPrehleduLidi(v: Vyber, lide: readonly Clovek[], ja: number, od: string, doDne: string): string {
+  const obdobi = `od=${od}&do=${doDne}`;
+  if (v.druh === 'tym' && !v.jenAktivni && !v.bezVolajiciho) return `/prehled/lide?${obdobi}&tym=${v.tymId ?? ja}`;
+  const ids = rozbalVyber(v, lide, ja);
+  return ids === null || ids.length === 0 ? `/prehled/lide?${obdobi}` : `/prehled/lide?${obdobi}&lide=${ids.join(',')}`;
+}
+
+const bezHacku = (s: string): string => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
 
 /** Hledání v panelu: jméno bez ohledu na diakritiku a velikost písmen; prázdný text = každý. */
 export function hledaniSedi(c: Clovek, text: string): boolean {

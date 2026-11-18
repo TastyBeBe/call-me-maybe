@@ -3634,6 +3634,27 @@ await blok050('LP1 klávesnice', async () => {
     && (await tl.getAttribute('aria-expanded')) === 'false',
     'mezerník odškrtne prvního (já, Můj tým napřed): ze Všech zůstanou 4 lidé (user_ids), Escape zavře a vrátí fokus na tlačítko',
     JSON.stringify({ prvni, poMezerniku, fokusTl, posl }));
+  // oprava po recenzi (bod 2): Tab z posledního prvku panelu ven panel zavře a fokus nechá na dalším prvku stránky (ne na tlačítku)
+  await tl.click();
+  await panel.waitFor(KRATKE);
+  await panel.locator('.lide-aktivni input').focus();
+  await page.keyboard.press('Tab');
+  await page.waitForTimeout(150);
+  const poTabu = await page.evaluate(() => ({
+    btn: document.activeElement?.classList.contains('lide-picker-btn') ?? false,
+    vPanelu: !!document.activeElement?.closest('.lide-picker-panel'),
+    segment: !!document.activeElement?.closest('.segment-filter'),
+  }));
+  const zavrenoTabem = (await panel.count()) === 0;
+  // oprava po recenzi (bod 3): Escape s fokusem na tlačítku (panel otevřený) panel zavře
+  await tl.click();
+  await panel.waitFor(KRATKE);
+  await tl.focus();
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(150);
+  over('LP1e', zavrenoTabem && !poTabu.btn && !poTabu.vPanelu && poTabu.segment && (await panel.count()) === 0 && (await tl.getAttribute('aria-expanded')) === 'false',
+    'Tab z panelu ven: panel zavřený a fokus na dalším prvku (segment), ne zpátky na tlačítku; Escape s fokusem na tlačítku panel zavře',
+    JSON.stringify({ poTabu, zavrenoTabem }));
   await ctx.close();
 });
 await blok050('LP2 dva lidé a tým', async () => {
@@ -3675,8 +3696,10 @@ await blok050('LP3 Statistiky víc lidí', async () => {
   const odkaz = await page.locator('a.stats-porovnat').getAttribute('href').catch(() => null);
   const hovoryKarta = await karta(page, 'Hovory');
   await snimek(page, 'statistiky-tym-1280');
+  // oprava po recenzi (bod 7): odkaz ve formátu úkolu 13 s obdobím (posledních 730 dní) a týmem
+  const odkazOcek = `#/prehled/lide?od=${v?.args[0]?.od}&do=${denP(Date.now())}&tym=1`;
   over('LP3a', (await page.locator('.stats-kombinace').count()) === 1 && hovoryKarta === String(hovory) && hovory > 0
-    && JSON.stringify(v?.args[0]?.lide) === '[1,2,5]' && v?.args[0]?.do === denP(Date.now()) && /#\/prehled\/lide\?lide=1,2,5$/.test(odkaz ?? '')
+    && JSON.stringify(v?.args[0]?.lide) === '[1,2,5]' && v?.args[0]?.do === denP(Date.now()) && odkaz === odkazOcek
     && (await page.locator('.vydelek').count()) === 0 && (await page.locator('.zajem-volajici').count()) === 1,
     'Statistiky Můj tým: karty ze součtu prehled_lide, odkaz „Porovnat v Přehledu“, bez výdělku jednoho člověka, tabulka 069 zůstane',
     JSON.stringify({ hovory, hovoryKarta, args: v?.args, odkaz }));
@@ -3693,6 +3716,20 @@ await blok050('LP3 Statistiky víc lidí', async () => {
   over('LP3c', (await page.locator('.stats-kombinace').count()) === 0 && (await page.locator('.vydelek-celkem').count()) === 1 && (await karta(page, 'Hovorů')) !== null
     && (await volani(page)).some((x) => x.fn === 'statistikyVolani' && x.args[0] === UID.petra),
     'jeden člověk: dosavadní pohled (karty, výdělek Petry)');
+  // oprava po recenzi (bod 1): „Dovoláno“ Petry + Honzy dohromady = součet jejich „Dovoláno“ jednotlivě (zájem + odmítnutí)
+  const dovPetra = Number(await karta(page, 'Dovoláno'));
+  await jenClovek(page, UID.honza);
+  await klid(page, 800);
+  const dovHonza = Number(await karta(page, 'Dovoláno'));
+  await vLidech(page, (panel) => panel.locator('.lide-radek[data-user-id="2"] input[type="checkbox"]').check());
+  await klid(page, 900);
+  const dovSpolu = Number(await karta(page, 'Dovoláno'));
+  const odkazDva = await page.locator('a.stats-porovnat').getAttribute('href').catch(() => null);
+  const popis = txt(await page.locator('.stats-kombinace').innerText().catch(() => ''));
+  over('LP3d', (await page.locator('.stats-kombinace').count()) === 1 && dovPetra + dovHonza > 0 && dovSpolu === dovPetra + dovHonza
+    && /nerelevantní ani přeplánované se nepočítají/.test(popis) && /&lide=2,3$/.test(odkazDva ?? ''),
+    'Statistiky Petra + Honza: „Dovoláno“ = součet jejich „Dovoláno“ jednotlivě (stejné číslo jako u jednoho člověka), odkaz s lide=2,3',
+    JSON.stringify({ dovPetra, dovHonza, dovSpolu, odkazDva }));
   await ctx.close();
 });
 await blok050('LP4 Volající', async () => {
@@ -3756,6 +3793,8 @@ await blok050('LP6 390 v okně filtrů', async () => {
   await page.waitForTimeout(250);
   const m = await page.evaluate(() => ({ sirka: document.documentElement.scrollWidth, okno: !!document.querySelector('.lide-sheet') }));
   await snimek(page, 'kontakty-filtry-vyber-390');
+  // oprava po recenzi (bod 3): Escape s fokusem jinde v okně (tlačítko stavu) zavře napřed otevřený výběr lidí, okno zůstane
+  await page.locator('.filtr-sheet button[aria-label="Filtr statusu"]').focus();
   await page.keyboard.press('Escape');
   await page.waitForTimeout(200);
   const porad = await page.locator('.filtr-sheet').count();
@@ -3763,7 +3802,8 @@ await blok050('LP6 390 v okně filtrů', async () => {
   await page.keyboard.press('Escape');
   await page.waitForTimeout(200);
   over('LP6', !m.okno && m.sirka <= 390 && porad === 1 && panelPryc === 0 && (await page.locator('.filtr-sheet').count()) === 0,
-    'telefon v okně Filtry: výběr lidí se rozbalí v okně (žádné druhé okno), Escape zavře napřed výběr, pak okno filtrů', JSON.stringify({ m, porad, panelPryc }));
+    'telefon v okně Filtry: výběr lidí se rozbalí v okně (žádné druhé okno), Escape (i s fokusem jinde v okně) zavře napřed výběr, pak okno filtrů',
+    JSON.stringify({ m, porad, panelPryc }));
   await ctx.close();
 });
 await blok050('LP7 Rozvrh a Zprávy', async () => {
@@ -3790,6 +3830,47 @@ await blok050('LP7 Rozvrh a Zprávy', async () => {
   const vo = (await volani(page)).filter((v) => v.fn === 'listOznacene').pop();
   over('LP7c', vo?.args[0]?.bez_volajiciho === true && !vo?.args[0]?.user_ids && (await lideText(page)) === 'Bez volajícího',
     'Označené: předvolba „Bez volajícího“ jako dřív (p_bez_volajiciho), bez výběru lidí', JSON.stringify(vo?.args));
+  await ctx.close();
+});
+
+// oprava po recenzi (bod 6): server bez migrace 074. Háček mocku `selhani` odmítne každé volání s výběrem lidí hláškou
+// BEZ_074_LIDE (tak ji appka dostane ze supabase.ts na PGRST202). Jeden vybraný člověk = stránka zavolá znovu dnešním voláním
+// jednoho člověka; víc lidí = hláška „chybí migrace 074“ v chybě stránky.
+const BEZ_074_E2E = /export const BEZ_074_LIDE =\s*'([^']+)';/.exec(readFileSync(join(ROOT, 'src/api/supabase.ts'), 'utf8'))?.[1] ?? 'chybí BEZ_074_LIDE';
+const NAVRAT_074 = {
+  '#/admin': { fn: 'listKontakty', jeden: (a) => a[0]?.caller === 'Petra' && !a[0]?.user_ids && a[0]?.limit === 50 },
+  '#/moji': { fn: 'myKontakty', jeden: (a) => a[2] === UID.petra && !a[4]?.user_ids },
+  '#/oznacene': { fn: 'listOznacene', jeden: (a) => a[0]?.user_id === UID.petra && !a[0]?.user_ids },
+  '#/kalendar': { fn: 'zavolatSeznam', jeden: (a) => a[0] === UID.petra && !a[3] },
+  '#/zpravy': { fn: 'listThreads', jeden: (a) => a[2] === UID.petra && !a[3] },
+};
+await blok050('LP8 server bez 074', async () => {
+  const { ctx, page } = await novaStranka('admin');
+  await page.evaluate((bez) => {
+    globalThis.__volackaDemoTest.selhani = (fn, args) =>
+      /"user_ids":\[\d/.test(JSON.stringify(args)) || ((fn === 'zavolatSeznam' || fn === 'listThreads') && Array.isArray(args[3]) && args[3].length > 0) ? bez : null;
+  }, BEZ_074_E2E);
+  const vysledky = {};
+  for (const [hash, { fn, jeden }] of Object.entries(NAVRAT_074)) {
+    await jdi(page, hash, 700);
+    const pred = (await volani(page)).length;
+    await jenClovek(page, UID.petra);
+    await klid(page, 700);
+    const po = (await volani(page)).slice(pred).filter((v) => v.fn === fn);
+    const chyba1 = await page.locator('.error-box').count();
+    await vLidech(page, (panel) => panel.locator('.lide-radek[data-user-id="3"] input[type="checkbox"]').check());
+    await klid(page, 700);
+    const chyba2 = txt(await page.locator('.error-box').first().innerText().catch(() => ''));
+    vysledky[hash] = {
+      odmitnuto074: po.some((v) => v.ok === false && v.chyba === BEZ_074_E2E),
+      navrat: po.some((v) => v.ok === true && jeden(v.args)),
+      bezChyby: chyba1 === 0,
+      hlaska: chyba2 === BEZ_074_E2E,
+    };
+  }
+  over('LP8', Object.values(vysledky).every((r) => r.odmitnuto074 && r.navrat && r.bezChyby && r.hlaska) && Object.keys(vysledky).length === 5,
+    'server bez 074 na pěti stránkách: jeden člověk = znovu dnešní volání jednoho člověka bez chyby, dva lidé = hláška „chybí migrace 074“',
+    JSON.stringify(vysledky));
   await ctx.close();
 });
 

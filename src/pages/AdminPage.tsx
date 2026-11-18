@@ -44,6 +44,9 @@ import {
 
 const PAGE_SIZE = 50;
 
+/** Server bez migrace 074 a vybraný člověk, jehož jméno appka nezná (seznam lidí se nenačetl): filtrovat podle něj nejde. */
+const BEZ_JMENA_VOLAJICIHO = 'Kontakty podle vybraného člověka teď filtrovat nejdou: server ještě nemá migraci 074 a jméno toho člověka appka nezná. Načtěte stránku znovu.';
+
 // KONTAKTY — celou databázi vidí od migrace 023 všichni (Albert 2026-09-24).
 // Server u kontaktu ukazuje jméno volajícího jen tomu, komu patří (a jeho super
 // adminovi); ostatním „jiný volající". Filtr podle volajícího: super admin kohokoli
@@ -157,7 +160,13 @@ export default function AdminPage() {
     return sLidmi(
       dotaz,
       () => api.listKontakty(session.token, { ...f, ...lidePar }),
-      (id) => api.listKontakty(session.token, { ...f, caller: lide.find((c) => c.id === id)?.display_name ?? null })
+      (id) => {
+        // server bez 074 filtruje volajícího jen jménem; bez jména chyba, nikdy caller null (= bez filtru, všechny kontakty;
+        // oprava po recenzi 18. 11. 2026, bod 6)
+        const jmeno = lide.find((c) => c.id === id)?.display_name;
+        if (!jmeno) throw new Error(BEZ_JMENA_VOLAJICIHO);
+        return api.listKontakty(session.token, { ...f, caller: jmeno });
+      }
     );
   };
   const [statusCounts, setStatusCounts] = useState<Record<string, number>>({});

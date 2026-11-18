@@ -639,14 +639,17 @@ super admina v Kontaktech, `#user-select` ve Statistikách, `#kalendar-kdo` a `#
   (`button.lide-predvolba`, zapnutá `aria-pressed`; v Označených i **Bez volajícího**), hledání člověka bez ohledu na
   diakritiku, lidé po týmech (`.lide-skupina`, Můj tým napřed, další podle jména vedoucího, nakonec Bez týmu) se zaškrtnutím
   (`.lide-radek[data-user-id]`, `input[type=checkbox][value=<id>]`), u týmu **vše** a **nic**, u člověka **jen** (vybere jen
-  jeho) a dole **jen aktivní** (vyřadí neaktivní ze seznamu a z předvoleb). Tým = super admin a všichni s jeho `manager_id`
+  jeho) a dole **jen aktivní** (vyřadí neaktivní ze seznamu a z předvoleb; když by po zapnutí nezbyl nikdo, třeba tým, ve
+  kterém nikdo aktivní není, výběr přejde na Já, nikdy „Tým X (0)“ ani prázdný výběr). Výběr se vykreslí jen přihlášenému super
+  adminovi (pojistka `isSuperAdmin` i uvnitř komponenty, navíc k podmínce stránky). Tým = super admin a všichni s jeho `manager_id`
   (super admini volají taky); **Všichni** = bez filtru lidí (i neaktivní, jako dřív „Všichni volající“ a „Všechny“), se
   zapnutým „jen aktivní“ všichni aktivní jmenovitě. Zaškrtnutí lidé, kteří jsou celý tým, se ukážou jako ten tým; všichni
   zaškrtnutí ručně zůstanou „N lidí“ (Všichni je bez filtru, zaškrtnutí ne). Změna platí hned (jako výběr stavu); prázdný výběr
   nejde (poslední zaškrtnutý se odškrtnout nedá, „nic“ se pak vypne).
 - **Klávesnice a čtečka**: tlačítko má `aria-haspopup="dialog"` a `aria-expanded`, šipka dolů panel otevře; v panelu šipky
-  nahoru a dolů mezi hledáním a lidmi, Home a End, mezerník (i Enter) zaškrtne, Escape zavře jen panel a vrátí fokus na
-  tlačítko. Na počítači panel visí pod tlačítkem (zavře ho klik nebo fokus mimo, fokus po otevření v hledání), na telefonu
+  nahoru a dolů mezi hledáním a lidmi, Home a End, mezerník (i Enter) zaškrtne. Escape zavře otevřený panel, ať je fokus
+  kdekoli (v panelu, na tlačítku, jinde v okně „Filtry“), a vrátí fokus na tlačítko (jako Hotovo a křížek); Tab ven z panelu
+  ani klik mimo fokus nevrací, panel jen zavřou. Na počítači panel visí pod tlačítkem (fokus po otevření v hledání), na telefonu
   (do 640 px) je to okno odspodu přes celou šířku (`.lide-sheet`, `aria-modal`, Tab zůstane v okně, dole „Hotovo“), v okně
   „Filtry“ panelu filtrů se rozbalí přímo v něm (`.lide-picker-panel.vlozeny`; Escape zavře napřed výběr, pak okno filtrů).
 - **Co jde serveru** (`lideDotaz` a `sLidmi` v `src/lide.ts`): Já = dnešní volání sebe (Kontakty `p_caller` se svým jménem,
@@ -654,15 +657,20 @@ super admina v Kontaktech, `#user-select` ve Statistikách, `#kalendar-kdo` a `#
   `p_vsichni`), Bez volajícího = `p_bez_volajiciho`, jinak `p_user_ids` (migrace 074, kontrakt §6): sjednocení dnešního filtru
   jednoho člověka za každého vybraného, nikdy spolu s `p_caller`, `p_user_id` ani `p_vsichni`. Moji klienti „Všichni“ =
   klienti všech lidí jmenovitě (`my_kontakty` bez člověka znamená „svoji“). Server bez 074 (PGRST202): s jedním vybraným
-  člověkem stránka zavolá znovu dnešní volání jednoho člověka, s víc lidmi ukáže „Výběr víc lidí server ještě neumí (chybí na
-  něm migrace 074). …“ (`BEZ_074_LIDE`). Stejný výběr jde i do počtů u stavů a košů (Kontakty, Moji klienti).
+  člověkem stránka zavolá znovu dnešní volání jednoho člověka (Kontakty se jménem toho člověka; když ho appka nezná, ukáže
+  chybu, nikdy nefiltruje bez volajícího), s víc lidmi ukáže „Výběr víc lidí server ještě neumí (chybí na něm migrace 074). Než
+  se server aktualizuje, vyberte Já nebo jednoho člověka.“ (`BEZ_074_LIDE`). Stejný výběr jde i do počtů u stavů a košů
+  (Kontakty, Moji klienti).
 - **Statistiky**: jeden vybraný člověk (i tým o jednom člověku) = přesně dosavadní pohled (karty, den, výdělek, tabulka 069);
   víc lidí (tým, Všichni, kdokoli zaškrtnutý) = **kombinované karty** ze součtu `prehled_lide` (řádek „Celkem“, migrace 073,
-  názvy a čísla ze serveru: hovory, dovoláno, hovory se zájmem, konverze, prodeje, odmítnuto, nerelevantní, přeplánováno,
-  různí klienti, návrhy, hodnota prodejů a provize po měnách; částečná čísla s poznámkou) za Celkem (posledních 730 dní, víc
-  server nevezme) nebo za vybraný den, pod nimi tabulka 069 a klienti podle stavu jako dřív, a odkaz **„Porovnat v Přehledu“**
-  (`#/prehled/lide?lide=<id>`, stránka přijde v úkolu 13). Server bez 073: „Součty víc lidí server ještě neumí (chybí na něm
-  migrace 073). …“ (`BEZ_073_LIDE`).
+  názvy a čísla ze serveru: hovory, hovory se zájmem, konverze, prodeje, odmítnuto, nerelevantní, přeplánováno, různí klienti,
+  návrhy, hodnota prodejů a provize po měnách; částečná čísla s poznámkou) za Celkem (posledních 730 dní, víc server nevezme)
+  nebo za vybraný den, pod nimi tabulka 069 a klienti podle stavu jako dřív, a odkaz **„Porovnat v Přehledu“** ve formátu
+  adresy Přehledu (`#/prehled/lide?od=…&do=…&tym=<id>` u týmu, jinak `&lide=<id>`; Všichni bez lidí; stránka přijde v úkolu
+  13). **„Dovoláno“ je i tady dosavadní číslo Statistik** (odmítli + zájem, nerelevantní ani přeplánované se nepočítají =
+  `konverze.jmenovatel`), takže Petra + Honza = součet jejich „Dovoláno“; serverovou metriku `dovolano` (všechny výsledky kromě
+  nedovoláno) Statistiky neukazují (oprava po recenzi 18. 11. 2026). Server bez 073: „Součty víc lidí server ještě neumí
+  (chybí na něm migrace 073). …“ (`BEZ_073_LIDE`).
 - **Rozvrh**: výběr zúží přehled plnění na vybrané lidi; úprava rozvrhu je dál pro jednoho člověka (koho výběr ukazuje, když
   je to jeden člověk, nebo na koho super admin v přehledu klikne). **Kalendář**, **Zprávy**, **Kontakty**, **Moji klienti**,
   **Označené**: výběr místo dosavadního jednoho člověka; čip výběru („Volající: …“, „Klienti: …“) vrátí výchozí výběr stránky
@@ -673,11 +681,13 @@ super admina v Kontaktech, `#user-select` ve Statistikách, `#kalendar-kdo` a `#
   super admin, filtr jako server, řádek za každého vybraného a součet, odpracovaný čas podle §5.14). ⚠ Mock píše u výběru
   cizího člověka v Moji klienti, Označených a Zprávách větu serveru „… vidí jen jeho super admin.“ (NAHRAZUJE „… vidí jen
   super admin.“).
-- **Testy**: `npm test` soubor `tests/lide.test.mjs` (předvolby, texty, co jde serveru a návrat proti serveru bez 074, mock
-  jako kontrakt, `supabase.ts`, komponenta vykreslená na serveru, zapojení sedmi stránek) a upravené `segment.test.mjs` S4c
+- **Testy**: `npm test` soubor `tests/lide.test.mjs` (předvolby, texty, „jen aktivní“ bez prázdného výběru, odkaz do Přehledu,
+  co jde serveru a návrat proti serveru bez 074, mock jako kontrakt i „Dovoláno“ = zájem + odmítnutí, `supabase.ts`, komponenta
+  vykreslená na serveru i pojistka pro Volajícího, zapojení sedmi stránek) a upravené `segment.test.mjs` S4c
   a S7c, `filtry.test.mjs` F6, U3, O16c, V2 a V2b, `filtrpanel.test.mjs` FP13d; `npm run test:e2e` blok LP (klávesnice,
-  dva lidé a tým v Kontaktech, Statistiky víc lidí, Volající bez výběru, telefon 390 a 320 px, okno filtrů, Rozvrh, Zprávy,
-  Označené Bez volajícího; `E2E_SNIMKY=/složka` uloží snímky) a bloky, které dřív vybíraly člověka v rozbalovacím seznamu
+  Tab ven a Escape na tlačítku, dva lidé a tým v Kontaktech, Statistiky víc lidí i „Dovoláno“ Petry + Honzy, Volající bez
+  výběru, telefon 390 a 320 px, okno filtrů, Rozvrh, Zprávy, Označené Bez volajícího, LP8 server bez 074 na pěti stránkách přes
+  háček `selhani`; `E2E_SNIMKY=/složka` uloží snímky) a bloky, které dřív vybíraly člověka v rozbalovacím seznamu
   (pomocníci `jenClovek`, `predvolba`, `lideText`, `vLidech`: L4, S, K, E, A, D056, F056, R057, O060, O062i, FP).
 
 ## Časovač práce a důvod odmítnutí návrhu (Přehled vedení úkol 12, Albert 17. 11. 2026)

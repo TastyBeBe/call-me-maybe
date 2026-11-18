@@ -125,9 +125,11 @@ export const BEZ_072_DUVOD = 'Důvod odmítnutí server ještě neumí (chybí n
 /**
  * Migrace 074 (Přehled vedení, Albert 17. 11. 2026, D7): výběr lidí (p_user_ids) na pěti seznamech proti serveru bez 074
  * (PGRST202). Appka parametr posílá jen s výběrem, který není „jen já“ ani „všichni“; s jedním vybraným člověkem pak stránka
- * zavolá znovu dnešní volání jednoho člověka (sLidmi v src/lide.ts), s víc lidmi ukáže tuhle hlášku.
+ * zavolá znovu dnešní volání jednoho člověka (sLidmi v src/lide.ts), s víc lidmi ukáže tuhle hlášku. ⚠ Oprava po recenzi
+ * (18. 11. 2026, bod 5) NAHRAZUJE radu „Vyberte jednoho člověka, Já nebo Všichni“: Všichni bývá sám výběr lidí (Moji klienti,
+ * „jen aktivní“), takže hláška radí jen Já nebo jednoho člověka.
  */
-export const BEZ_074_LIDE = 'Výběr víc lidí server ještě neumí (chybí na něm migrace 074). Vyberte jednoho člověka, Já nebo Všichni.';
+export const BEZ_074_LIDE = 'Výběr víc lidí server ještě neumí (chybí na něm migrace 074). Než se server aktualizuje, vyberte Já nebo jednoho člověka.';
 /** Migrace 073 (Přehled vedení): součty víc lidí ve Statistikách (prehled_lide) proti serveru bez 073 (PGRST202). */
 export const BEZ_073_LIDE = 'Součty víc lidí server ještě neumí (chybí na něm migrace 073). Vyberte jednoho člověka.';
 /** Výběr lidí pro server: jen neprázdný (null a [] = dnešní volání bez p_user_ids). */
