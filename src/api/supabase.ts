@@ -10,7 +10,22 @@ import type {
   ChatMessage,
   ChatThread,
   DruhSignalu,
+  DataAkce,
+  DataDefinice,
+  DataDodani,
+  DataFinance,
+  DataKlienti,
+  DataKomunikace,
+  DataKontakt,
+  DataKvalita,
   DataLide,
+  DataMoznosti,
+  DataPipeline,
+  DataPrognoza,
+  DataRada,
+  DataRadky,
+  DataSouhrn,
+  DataTrychtyr,
   DuvodOdmitnutiKod,
   FazeOdmitnuti,
   FiltryMlceni,
@@ -18,6 +33,7 @@ import type {
   Kontakt,
   KontaktPrehled,
   ListKontaktyFilters,
+  MetrikaRadyKlic,
   ListKontaktyResult,
   MeInfo,
   MojiFiltry,
@@ -26,6 +42,7 @@ import type {
   OznaceneFiltry,
   PrehledFiltrVstup,
   PrehledObalka,
+  RadkyZdroj,
   ResolveCallArgs,
   Role,
   Rozvrh,
@@ -47,6 +64,7 @@ import type {
   ZavolatPolozka,
   ZavolatSeznam,
   ZobrazenyStav,
+  ZrnitostRady,
 } from './types';
 
 /**
@@ -132,6 +150,20 @@ export const BEZ_072_DUVOD = 'Důvod odmítnutí server ještě neumí (chybí n
 export const BEZ_074_LIDE = 'Výběr víc lidí server ještě neumí (chybí na něm migrace 074). Než se server aktualizuje, vyberte Já nebo jednoho člověka.';
 /** Migrace 073 (Přehled vedení): součty víc lidí ve Statistikách (prehled_lide) proti serveru bez 073 (PGRST202). */
 export const BEZ_073_LIDE = 'Součty víc lidí server ještě neumí (chybí na něm migrace 073). Vyberte jednoho člověka.';
+/**
+ * Migrace 073 (Přehled vedení úkol 13, Albert 17. 11. 2026): stránka Přehledu proti serveru bez 073 (PGRST202 u kterékoli
+ * funkce prehled_*). Přehled pak ukáže chybu s touhle větou, nikdy ukázková data místo skutečných (koordinátor 18. 11. 2026).
+ */
+export const BEZ_073_PREHLED = 'Přehled potřebuje migraci 073. Server ji zatím nemá, takže čísla Přehledu ještě nejdou ukázat.';
+/** Volání funkce Přehledu (073): PGRST202 = BEZ_073_PREHLED, jiná chyba projde doslova. */
+async function prehledRpc<T>(fn: string, body: Record<string, unknown>): Promise<T> {
+  try {
+    return await rpc<T>(fn, body);
+  } catch (e) {
+    if (neniNaServeru(e)) throw new Error(BEZ_073_PREHLED);
+    throw e;
+  }
+}
 /** Výběr lidí pro server: jen neprázdný (null a [] = dnešní volání bez p_user_ids). */
 const sVyberem = (ids: number[] | null | undefined): ids is number[] => Array.isArray(ids) && ids.length > 0;
 
@@ -806,6 +838,59 @@ export const supabaseApi: Api = {
       if (neniNaServeru(e)) throw new Error(BEZ_073_LIDE);
       throw e;
     }
+  },
+
+  // Přehled vedení, ostatní funkce migrace 073 (úkol 13, kontrakt §5): parametry doslova jako server, p_filtr beze změny
+  async prehledMoznosti(token: string): Promise<PrehledObalka<DataMoznosti>> {
+    return prehledRpc('prehled_moznosti', { p_token: token });
+  },
+  async prehledSouhrn(token: string, filtr: PrehledFiltrVstup | null = null): Promise<PrehledObalka<DataSouhrn>> {
+    return prehledRpc('prehled_souhrn', { p_token: token, p_filtr: filtr });
+  },
+  async prehledRada(token: string, metrika: MetrikaRadyKlic, zrnitost: ZrnitostRady = 'den', filtr: PrehledFiltrVstup | null = null): Promise<PrehledObalka<DataRada>> {
+    return prehledRpc('prehled_rada', { p_token: token, p_metrika: metrika, p_zrnitost: zrnitost, p_filtr: filtr });
+  },
+  async prehledTrychtyr(token: string, filtr: PrehledFiltrVstup | null = null): Promise<PrehledObalka<DataTrychtyr>> {
+    return prehledRpc('prehled_trychtyr', { p_token: token, p_filtr: filtr });
+  },
+  async prehledPipeline(token: string, filtr: PrehledFiltrVstup | null = null): Promise<PrehledObalka<DataPipeline>> {
+    return prehledRpc('prehled_pipeline', { p_token: token, p_filtr: filtr });
+  },
+  async prehledKlienti(token: string, filtr: PrehledFiltrVstup | null = null): Promise<PrehledObalka<DataKlienti>> {
+    return prehledRpc('prehled_klienti', { p_token: token, p_filtr: filtr });
+  },
+  async prehledKomunikace(token: string, filtr: PrehledFiltrVstup | null = null): Promise<PrehledObalka<DataKomunikace>> {
+    return prehledRpc('prehled_komunikace', { p_token: token, p_filtr: filtr });
+  },
+  async prehledFinance(token: string, filtr: PrehledFiltrVstup | null = null): Promise<PrehledObalka<DataFinance>> {
+    return prehledRpc('prehled_finance', { p_token: token, p_filtr: filtr });
+  },
+  async prehledDodani(token: string, filtr: PrehledFiltrVstup | null = null): Promise<PrehledObalka<DataDodani>> {
+    return prehledRpc('prehled_dodani', { p_token: token, p_filtr: filtr });
+  },
+  async prehledPrognoza(token: string, filtr: PrehledFiltrVstup | null = null): Promise<PrehledObalka<DataPrognoza>> {
+    return prehledRpc('prehled_prognoza', { p_token: token, p_filtr: filtr });
+  },
+  async prehledKvalita(token: string): Promise<PrehledObalka<DataKvalita>> {
+    return prehledRpc('prehled_kvalita', { p_token: token });
+  },
+  async prehledAkce(token: string, filtr: PrehledFiltrVstup | null = null): Promise<PrehledObalka<DataAkce>> {
+    return prehledRpc('prehled_akce', { p_token: token, p_filtr: filtr });
+  },
+  async prehledRadky(
+    token: string,
+    zdroj: RadkyZdroj,
+    filtr: PrehledFiltrVstup | null = null,
+    kurzor: string | null = null,
+    limit = 50
+  ): Promise<PrehledObalka<DataRadky>> {
+    return prehledRpc('prehled_radky', { p_token: token, p_zdroj: zdroj, p_filtr: filtr, p_kurzor: kurzor, p_limit: limit });
+  },
+  async prehledKontakt(token: string, kontaktId: number): Promise<PrehledObalka<DataKontakt>> {
+    return prehledRpc('prehled_kontakt', { p_token: token, p_kontakt_id: kontaktId });
+  },
+  async prehledDefinice(token: string): Promise<PrehledObalka<DataDefinice>> {
+    return prehledRpc('prehled_definice', { p_token: token });
   },
 
   async zobrazeneStavy(token: string): Promise<ZobrazenyStav[]> {

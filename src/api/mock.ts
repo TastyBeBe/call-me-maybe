@@ -5,7 +5,63 @@ import { icoVidi, rodinaOf, segmentOf } from '../segment';
 import { pracovniDenPo, pracovniDnyMezi, prahaNaIso, zacatekDnePraha } from '../praha';
 import type {
   AtribucePrehledu,
+  BodRady,
+  CastkaJedna,
   CastkaMeny,
+  CenaRozbor,
+  CenaStav,
+  CilPrehledu,
+  DataAkce,
+  DataDefinice,
+  DataDodani,
+  DataFinance,
+  DataKlienti,
+  DataKomunikace,
+  DataKontakt,
+  DataKvalita,
+  DataMoznosti,
+  DataPipeline,
+  DataPrognoza,
+  DataRada,
+  DataRadky,
+  DataSouhrn,
+  DataTrychtyr,
+  DuvodRadku,
+  GmailSync,
+  JednotkaMetriky,
+  KategorieVyuctovani,
+  KrokPoNavrhu,
+  KrokTrychtyre,
+  MetrikaRadyKlic,
+  ObnovaHostingu,
+  OsobaMoznosti,
+  OsobaPrehledu,
+  PasmoStari,
+  PoctyDruhu,
+  PrehledProklik,
+  PripadAkce,
+  RadekAkce,
+  RadekDimenze,
+  RadekFaktury,
+  RadekHovory,
+  RadekKontakty,
+  RadekNaklady,
+  RadekOdmitnuti,
+  RadekPlatby,
+  RadekPrace,
+  RadekPrehledu,
+  RadekProdeje,
+  RadekProvize,
+  RadekZpravy,
+  RadkyZdroj,
+  SignalAkce,
+  SignalKod,
+  SkupinaCekani,
+  Starnuti,
+  TymPrehledu,
+  UdalostKontaktu,
+  ZdrojStav,
+  ZrnitostRady,
   CekaniKind,
   CekaniKos,
   AdminMessage,
@@ -2974,8 +3030,11 @@ const HODINA_MS = 3600000;
 const USEK_MEZERA_MS = 30 * 60000;
 const SIGNAL_RETEZ_MS = 150000;
 
-/** Kontrola a normalizace p_filtr (kontrakt §2.7). */
-function prehledFiltr(vstup: unknown): PrehledFiltr {
+/**
+ * Kontrola a normalizace p_filtr (kontrakt §2.7). `sVyberem` (úkol 13): jen prehled_radky smí poslat vyber (proklik.filtr beze
+ * změny, §2.8), jinde „Neplatný filtr: vyber“.
+ */
+function prehledFiltr(vstup: unknown, sVyberem = false): PrehledFiltr {
   const f = (vstup === null || vstup === undefined ? {} : vstup) as Record<string, unknown>;
   if (typeof f !== 'object' || Array.isArray(f)) fail('Neplatný filtr: p_filtr');
   for (const k of Object.keys(f)) if (!FILTR_KLICE.includes(k)) fail(`Neplatný filtr: ${k}`);
@@ -3014,7 +3073,7 @@ function prehledFiltr(vstup: unknown): PrehledFiltr {
     if (typeof f.k_datu !== 'string' || Number.isNaN(Date.parse(f.k_datu)) || Date.parse(f.k_datu) > Date.now()) fail('Neplatný filtr: k_datu');
     kDatu = f.k_datu;
   }
-  if (f.vyber !== undefined && f.vyber !== null) fail('Neplatný filtr: vyber');
+  const vyber = f.vyber === undefined || f.vyber === null ? null : sVyberem ? vyberFiltru(f.vyber) : fail('Neplatný filtr: vyber');
   return {
     od: odDen,
     do: doDen,
@@ -3026,7 +3085,7 @@ function prehledFiltr(vstup: unknown): PrehledFiltr {
     mena: volba('mena', ['CZK', 'EUR', 'obe'] as const, 'CZK'),
     zaklad: volba('zaklad', ['prirozeny', 'aktivita', 'prodej', 'faktura', 'platba'] as const, 'prirozeny'),
     k_datu: kDatu,
-    vyber: null,
+    vyber,
   };
 }
 
@@ -3070,6 +3129,9 @@ interface SurovyRadek {
   sla: { hodiny: number | null }[];
   hotove: number;
   poTerminu: number;
+  /** úkol 13: výplaty provizí člověka v období a do konce období (provize_vyplaty) */
+  vyplaty: { castka: number; mena: MenaPrehledu }[];
+  vyplatyDoKonce: { castka: number; mena: MenaPrehledu }[];
 }
 
 const zaokr = (x: number, mist: number): number => Math.round(x * 10 ** mist) / 10 ** mist;
@@ -3211,7 +3273,8 @@ function surovyRadek(uid: number | null, f: PrehledFiltr, odMs: number, doMs: nu
   };
   return {
     hovory: hovory.map((l) => ({ id: l.id, kontakt_id: l.kontakt_id, outcome: l.outcome })),
-    navrhy: kontakty.filter((c) => vObdobi(c.first_proposal_at) && sedi(c) && pripsanyClovek(c, f.atribuce, kMs) === uid).map((c) => c.id),
+    // úkol 13: první návrh i u prodaných ukázkových klientů (navrhAt), jako ostatní funkce Přehledu
+    navrhy: kontakty.filter((c) => vObdobi(navrhAt(c)) && sedi(c) && pripsanyClovek(c, f.atribuce, kMs) === uid).map((c) => c.id),
     prodeje,
     provize: provize(doMs, odMs),
     provizeDoKonce: provize(doMs, -Infinity),
@@ -3223,6 +3286,11 @@ function surovyRadek(uid: number | null, f: PrehledFiltr, odMs: number, doMs: nu
         .map((z) => slaZ(z.created_at, z.stav === 'hotovo' ? z.uzavreno_at : null)),
     ],
     hotove: uid === null ? 0 : zavolatRadky.filter((z) => z.user_id === uid && z.stav === 'hotovo' && vObdobi(z.uzavreno_at) && sedi(kontakt(z.kontakt_id))).length,
+    // úkol 13: výplaty provizí (provize_vyplaty, D10) s datem výplaty v období a do konce období
+    vyplaty: uid === null ? [] : PREHLED_VYPLATY.filter((v) => !v.zruseno_at && v.user_id === uid && v.vyplaceno_dne >= f.od && v.vyplaceno_dne <= f.do && Date.parse(v.zapsano_at) <= kMs)
+      .map((v) => ({ castka: v.castka, mena: v.mena })),
+    vyplatyDoKonce: uid === null ? [] : PREHLED_VYPLATY.filter((v) => !v.zruseno_at && v.user_id === uid && v.vyplaceno_dne <= f.do && Date.parse(v.zapsano_at) <= kMs)
+      .map((v) => ({ castka: v.castka, mena: v.mena })),
     poTerminu: uid === null ? 0 : zavolatRadky.filter((z) => z.user_id === uid && z.stav === 'ceka' && Date.parse(z.kdy) < kMs && sedi(kontakt(z.kontakt_id))).length,
   };
 }
@@ -3241,6 +3309,8 @@ function sectiRadky(rs: SurovyRadek[]): SurovyRadek {
     sla: rs.flatMap((r) => r.sla),
     hotove: rs.reduce((a, r) => a + r.hotove, 0),
     poTerminu: rs.reduce((a, r) => a + r.poTerminu, 0),
+    vyplaty: rs.flatMap((r) => r.vyplaty),
+    vyplatyDoKonce: rs.flatMap((r) => r.vyplatyDoKonce),
   };
 }
 
@@ -3291,9 +3361,14 @@ function metrikyRadku(s: SurovyRadek, f: PrehledFiltr, vyber: Record<string, unk
   pocet('pocet_prodeju', s.prodeje.length);
   penize('hodnota_prodeju', s.prodeje, 'prodejů');
   penize('provize_narok', s.provize, 'prodejů');
-  // výplaty provizí demo nemá (tabulka provize_vyplaty je prázdná): ověřená nula, ne neznámo
-  dej('provize_vyplaceno', { castky: meny.map((mena) => ({ mena, hodnota: '0.00', pokryti: pokryti(0, 0) })), n: 0, pokryti: pokryti(0, 0) });
+  // ⚠ úkol 13: výplaty z provize_vyplaty (demo PREHLED_VYPLATY); NAHRAZUJE ověřenou nulu úkolu 10 (tabulka byla prázdná)
+  penize('provize_vyplaceno', s.vyplaty, 'výplat');
   penize('provize_zbyva', s.provizeDoKonce, 'prodejů');
+  // zbývá = nárok do konce období − výplaty do konce období, po měnách (neznámý nárok bez přesné částky zůstane null, R7)
+  out.provize_zbyva.castky = out.provize_zbyva.castky.map((c) => ({
+    ...c,
+    hodnota: c.hodnota === null ? null : castkaText(Number(c.hodnota) - s.vyplatyDoKonce.filter((v) => v.mena === c.mena).reduce((a, v) => a + v.castka, 0)),
+  }));
   const useky = s.useky;
   const hodiny = zaokr(useky.reduce((a, u) => a + (u.do - u.od), 0) / HODINA_MS, 2);
   const odhady = useky.filter((u) => u.odhad).length;
@@ -3328,26 +3403,12 @@ function metrikyRadku(s: SurovyRadek, f: PrehledFiltr, vyber: Record<string, unk
   return out;
 }
 
-/** meta.zdroje prehled_lide (§5.5, pořadí registru §3.8): od kdy zdroj existuje a poslední záznam. */
+/**
+ * meta.zdroje prehled_lide (§5.5, pořadí registru §3.8). ⚠ Úkol 13: z registru zdrojů Přehledu (rozsahZdroje níž), aby historie,
+ * výplaty a návrhy seděly s ostatními funkcemi; NAHRAZUJE vlastní výčet úkolu 10 (historie a výplaty tam byly vždy prázdné).
+ */
 function zdrojePrehleduLidi(): PrehledMeta['zdroje'] {
-  const rozsah = (zdroj: string, casy: (string | null | undefined)[]) => {
-    const s = casy.filter((x): x is string => !!x).sort();
-    return { zdroj, od: s[0] ?? null, aktualni_k: s[s.length - 1] ?? null };
-  };
-  return [
-    rozsah('hovory', callLog.map((l) => l.created_at)),
-    rozsah('dovolani', oznaceniRadky.map((o) => o.zavolano_at)),
-    { zdroj: 'kontakty', od: null, aktualni_k: kontakty.map((c) => c.updated_at).sort().pop() ?? null },
-    rozsah('prodeje', [...kontaktProdej.values()].map((p) => p.prodano_at)),
-    rozsah('navrhy', kontakty.map((c) => c.first_proposal_at)),
-    rozsah('slevy', [...slevy.values()].flat().map((e) => e.created_at)),
-    { zdroj: 'historie', od: null, aktualni_k: null },
-    rozsah('casovac', praceAktivita.map((p) => p.at)),
-    { zdroj: 'vyplaty', od: null, aktualni_k: null },
-    rozsah('oznaceni', oznaceniRadky.map((o) => o.oznaceno_at)),
-    rozsah('zavolat', zavolatRadky.map((z) => z.created_at)),
-    rozsah('rozvrh', [...rozvrhy.values()].map((r) => r.nastaveno_at)),
-  ];
+  return zdrojeMeta(['hovory', 'dovolani', 'kontakty', 'prodeje', 'navrhy', 'slevy', 'historie', 'casovac', 'vyplaty', 'oznaceni', 'zavolat', 'rozvrh']);
 }
 
 /** prehled_lide (kontrakt §5.5). */
@@ -3411,6 +3472,2113 @@ function prehledLideMock(me: MockUser, vstup: PrehledFiltrVstup | null | undefin
     meta: { vygenerovano, k_datu: f.k_datu ?? vygenerovano, casove_pasmo: 'Europe/Prague', filtr: f, zdroje: zdrojePrehleduLidi(), varovani },
     data: { atribuce: f.atribuce, radky, soucet },
   };
+}
+
+/* ---- Přehled vedení: ostatní funkce migrace 073 (úkol 13; kontrakt docs/superpowers/specs/2026-11-17-prehled-kontrakt.md §2,
+   §3 a §5.1 až §5.17; Albert 17. 11. 2026, D1 až D12) ----
+   Stejná pravidla jako prehled_lide výš: stráž super admina před čímkoli dalším, filtr p_filtr jako server (§2.7), peníze po
+   měnách filtru jako text na 2 místa (CZK a EUR nikdy dohromady), neznámá cena jen v pokrytí (nikdy 0), nedostupné bez čísla
+   s důvodem, proklik na řádky prehled_radky ze STEJNÝCH jednotek, ze kterých se počítá karta (součet řádků = karta).
+   Demo nemá kontakt_historie: stav kontaktu je dnešní a historie „začíná“ 30 hodin před načtením dema (jako po nasazení 072),
+   takže bloky z historie jsou nedostupné nebo částečné a varování HISTORIE_OD je vidět. Nové tabulky a události 072/073
+   (faktury a platby, náklady, cíle, výplaty, zprávy z Gmailu, joby, tick, důvod zpětně) mají v demu vlastní ukázkové řádky
+   níž, vždy u existujících ukázkových klientů; řádky kontaktů a call_log jsou společné s ostatními stránkami a nemění se. */
+
+type ZdrojKlicPrehledu =
+  | 'hovory' | 'dovolani' | 'kontakty' | 'prodeje' | 'navrhy' | 'slevy' | 'faktury' | 'platby' | 'historie' | 'tymy' | 'casovac'
+  | 'gmail' | 'duvody' | 'naklady' | 'cile' | 'vyplaty' | 'snimky' | 'oznaceni' | 'zavolat' | 'rozvrh' | 'jobs' | 'tick';
+
+/** Registr zdrojů (§3.8), v tomhle pořadí i v meta.zdroje. */
+const ZDROJE_PREHLEDU: { zdroj: ZdrojKlicPrehledu; nazev: string }[] = [
+  { zdroj: 'hovory', nazev: 'Hovory' },
+  { zdroj: 'dovolani', nazev: 'Zápisy „Zavolal/a jsem“' },
+  { zdroj: 'kontakty', nazev: 'Kontakty (stav)' },
+  { zdroj: 'prodeje', nazev: 'Prodeje' },
+  { zdroj: 'navrhy', nazev: 'Návrhy webu' },
+  { zdroj: 'slevy', nazev: 'Nabídky za polovinu' },
+  { zdroj: 'faktury', nazev: 'Faktury' },
+  { zdroj: 'platby', nazev: 'Platby' },
+  { zdroj: 'historie', nazev: 'Historie změn kontaktů' },
+  { zdroj: 'tymy', nazev: 'Historie týmů' },
+  { zdroj: 'casovac', nazev: 'Časovač práce' },
+  { zdroj: 'gmail', nazev: 'Zprávy z Gmailu' },
+  { zdroj: 'duvody', nazev: 'Důvody odmítnutí' },
+  { zdroj: 'naklady', nazev: 'Náklady' },
+  { zdroj: 'cile', nazev: 'Cíle' },
+  { zdroj: 'vyplaty', nazev: 'Výplaty provizí' },
+  { zdroj: 'snimky', nazev: 'Denní snímky' },
+  { zdroj: 'oznaceni', nazev: 'Označení k zavolání' },
+  { zdroj: 'zavolat', nazev: 'Naplánované hovory' },
+  { zdroj: 'rozvrh', nazev: 'Rozvrh' },
+  { zdroj: 'jobs', nazev: 'Práce automatizace' },
+  { zdroj: 'tick', nazev: 'Běh automatizace' },
+];
+
+type SkupinaStavu = 'fronta' | 'otevrene' | 'prodano' | 'ztraceno' | 'archiv' | 'vyrazeno';
+/** Stavy a skupiny reportingu (§3.1). */
+const STAVY_PREHLEDU: { klic: KontaktStatus; nazev: string; skupina: SkupinaStavu }[] = [
+  { klic: 'nekontaktovano', nazev: 'Nekontaktováno', skupina: 'fronta' },
+  { klic: 'nedovolano', nazev: 'Nedovoláno', skupina: 'fronta' },
+  { klic: 'zajem', nazev: 'Mají zájem', skupina: 'otevrene' },
+  { klic: 'web_ve_vyrobe', nazev: 'Web ve výrobě', skupina: 'otevrene' },
+  { klic: 'navrh_odeslan', nazev: 'Návrh odeslán', skupina: 'otevrene' },
+  { klic: 'ceka_na_klienta', nazev: 'Čeká na klienta', skupina: 'otevrene' },
+  { klic: 'upravy_ve_vyrobe', nazev: 'Úpravy ve výrobě', skupina: 'otevrene' },
+  { klic: 'sleva_nabidnuta', nazev: 'Nabídnuta sleva', skupina: 'otevrene' },
+  { klic: 'pozdeji', nazev: 'Ozve se později', skupina: 'otevrene' },
+  { klic: 'pozastaveno', nazev: 'Pozastaveno', skupina: 'otevrene' },
+  { klic: 'eskalace', nazev: 'Eskalace', skupina: 'otevrene' },
+  { klic: 'schvaleno', nazev: 'Schváleno', skupina: 'prodano' },
+  { klic: 'faktura_odeslana', nazev: 'Faktura odeslána', skupina: 'prodano' },
+  { klic: 'zaplaceno', nazev: 'Zaplaceno', skupina: 'prodano' },
+  { klic: 'domena_pripojena', nazev: 'Doména připojena', skupina: 'prodano' },
+  { klic: 'hotovo', nazev: 'Hotovo', skupina: 'prodano' },
+  { klic: 'odmitnuto', nazev: 'Odmítnuto', skupina: 'ztraceno' },
+  { klic: 'bez_odpovedi', nazev: 'Archiv – neodpověděl', skupina: 'archiv' },
+  { klic: 'nerelevantni', nazev: 'Nerelevantní', skupina: 'vyrazeno' },
+  { klic: 'nekontaktovat', nazev: 'Nekontaktovat', skupina: 'vyrazeno' },
+];
+const nazevStavu = (s: KontaktStatus): string => STAVY_PREHLEDU.find((x) => x.klic === s)?.nazev ?? s;
+const skupinaStavu = (s: KontaktStatus): SkupinaStavu => STAVY_PREHLEDU.find((x) => x.klic === s)?.skupina ?? 'fronta';
+const OTEVRENE_STAVY: KontaktStatus[] = STAVY_PREHLEDU.filter((s) => s.skupina === 'otevrene').map((s) => s.klic);
+const DODANI_STAVY: KontaktStatus[] = ['web_ve_vyrobe', 'navrh_odeslan', 'upravy_ve_vyrobe', 'schvaleno', 'faktura_odeslana', 'zaplaceno', 'domena_pripojena', 'hotovo'];
+
+/** Signály akčního seznamu (§3.9). */
+const SIGNALY_AKCI: { kod: SignalKod; nazev: string; dalsi_krok: string }[] = [
+  { kod: 'klient_ceka', nazev: 'Klient napsal a čeká na odpověď', dalsi_krok: 'Odpovědět klientovi' },
+  { kod: 'navrh_mlci', nazev: 'Mlčí po návrhu víc než 5 pracovních dní, hovor není naplánovaný', dalsi_krok: 'Zavolat, jestli se na návrh podíval' },
+  { kod: 'hovor_po_terminu', nazev: 'Naplánovaný hovor je po termínu', dalsi_krok: 'Zavolat (hovor je po termínu)' },
+  { kod: 'faktura_nepotvrzena', nazev: 'Faktura bez potvrzené platby déle než 14 dní', dalsi_krok: 'Ověřit platbu faktury' },
+  { kod: 'schvaleno_bez_faktury', nazev: 'Web schválený, faktura neodešla do 3 dnů', dalsi_krok: 'Vystavit fakturu' },
+  { kod: 'sleva_konci', nazev: 'Nabídka za polovinu končí do 2 dnů', dalsi_krok: 'Zavolat před koncem nabídky' },
+  { kod: 'otazka', nazev: 'Otevřená otázka automatizace pro Alberta nebo super admina', dalsi_krok: 'Odpovědět na otázku automatizace' },
+];
+const KATEGORIE_VYUCTOVANI: { klic: KategorieVyuctovani; nazev: string }[] = [
+  { klic: 'provize', nazev: 'Provize' },
+  { klic: 'claude', nazev: 'Claude (předplatné)' },
+  { klic: 'lovable', nazev: 'Lovable (předplatné)' },
+  { klic: 'domena', nazev: 'Domény' },
+  { klic: 'hosting', nazev: 'Hosting (náš náklad)' },
+  { klic: 'jine', nazev: 'Jiné' },
+];
+const METRIKY_CILU: DataDefinice['metriky_cilu'] = [
+  { klic: 'prodane_weby', nazev: 'Prodané weby', metrika: 'pocet_prodeju', v_mene: false, cele_cislo: true },
+  { klic: 'hodnota_prodeju', nazev: 'Hodnota prodejů', metrika: 'hodnota_prodeju', v_mene: true, cele_cislo: false },
+  { klic: 'inkaso', nazev: 'Inkaso', metrika: 'inkaso', v_mene: true, cele_cislo: false },
+  { klic: 'hovory', nazev: 'Hovory', metrika: 'hovory', v_mene: false, cele_cislo: true },
+  { klic: 'zajem', nazev: 'Hovory se zájmem', metrika: 'zajem', v_mene: false, cele_cislo: true },
+  { klic: 'odpracovane_hodiny', nazev: 'Odpracované hodiny', metrika: 'odpracovane_hodiny', v_mene: false, cele_cislo: false },
+];
+const VAROVANI_SABLONY: DataDefinice['varovani'] = [
+  { kod: 'HISTORIE_OD', sablona: 'Historie změn stavů a cen začíná {datum}; dřívější průchody fázemi nejsou známé.' },
+  { kod: 'CASOVAC_OD', sablona: 'Časovač práce běží od {datum}; dny před ním jsou odhad z výsledků hovorů, bez časovače.' },
+  { kod: 'ZDROJ_OD', sablona: 'Zdroj „{nazev}“ se eviduje od {datum}; dřívější data nejsou známá.' },
+  { kod: 'GMAIL_CHYBI', sablona: 'Zprávy z Gmailu se zatím nesynchronizují (žádná úspěšná synchronizace).' },
+  { kod: 'GMAIL_ZASTARALE', sablona: 'Poslední úspěšná synchronizace Gmailu byla {cas}.' },
+  { kod: 'TICK_ZASTARALY', sablona: 'Automatizace naposledy běžela {cas}; čísla mohou být starší.' },
+  { kod: 'MENY_ODDELENE', sablona: 'Částky v CZK a EUR se nikdy nesčítají; každá měna je zvlášť.' },
+  { kod: 'KRAJ_JEN_OBORY', sablona: 'Kraj známe jen u firem oborů; chaty a architekti jsou v „Neznámý kraj“.' },
+  { kod: 'PROVIZE_POSLEDNI_ZAJEM', sablona: 'Provize se počítá vždy podle posledního, kdo zapsal zájem (pravidlo výdělku), bez ohledu na zvolenou atribuci.' },
+  { kod: 'K_DATU_MINULOST', sablona: 'Čísla jsou k {cas}; bloky bez historie (kdo psal naposledy, mlčení) jsou jen pro dnešek.' },
+  { kod: 'NAKLADY_OVERIT', sablona: 'Počet nákladů, jejichž částka čeká na ověření: {n}.' },
+  { kod: 'ODHAD', sablona: 'Odhad do konce měsíce je nevalidovaný odhad z naší historie, ne závazek.' },
+  { kod: 'ZAKLAD_JEN_KLIENTI', sablona: 'Základ „{zaklad}“ mění jen tabulky klientů; karty a ostatní tabulky mají svůj přirozený základ.' },
+];
+const ATRIBUCE_VOLBY: DataMoznosti['atribuce'] = [
+  { klic: 'posledni_zajem', nazev: 'Poslední, kdo zapsal zájem (jako výdělek)', vychozi: true },
+  { klic: 'prvni_zajem', nazev: 'První, kdo zapsal zájem', vychozi: false },
+  { klic: 'spravuje', nazev: 'Kdo klienta teď vede', vychozi: false },
+];
+const ZAKLADY_VOLBY: DataMoznosti['zaklady'] = [
+  { klic: 'prirozeny', nazev: 'Přirozený základ každého čísla', vychozi: true },
+  { klic: 'aktivita', nazev: 'Klienti s hovorem v období', vychozi: false },
+  { klic: 'prodej', nazev: 'Klienti prodaní v období', vychozi: false },
+  { klic: 'faktura', nazev: 'Klienti s fakturou v období', vychozi: false },
+  { klic: 'platba', nazev: 'Klienti s platbou v období', vychozi: false },
+];
+
+interface KatalogMetriky {
+  klic: string;
+  nazev: string;
+  jednotka: JednotkaMetriky;
+  zaklad: string;
+  zdroje: ZdrojKlicPrehledu[];
+  /** zdroj řádků prokliku (§2.8); null = žádný seznam řádků hodnotu nereprodukuje (R19) */
+  radky: RadkyZdroj | null;
+  definice: string;
+}
+/** Katalog metrik verze 1 (§3.11, 70 metrik v pořadí kontraktu); na serveru tabulka prehled_metriky ze seedu 073. */
+const KATALOG_PREHLEDU: KatalogMetriky[] = ([
+  ['hodnota_prodeju', 'Hodnota prodejů', 'mena', 'prodej', 'prodeje kontakty', 'prodeje', 'Součet ceny prodejů s datem prodeje v období (cena podle pravidla výdělku: přijatá nabídka za polovinu, jinak cena webu; jen přesné ceny, rozsahy a neznámé v pokrytí).'],
+  ['inkaso', 'Inkaso', 'mena', 'platba', 'platby faktury', 'platby', 'Platby potvrzené super adminem (D3) v období: částka faktur, které potvrzení jmenuje, jinak cena prodeje (částečně); stav zaplaceno bez události = odvozená platba.'],
+  ['pocet_prodeju', 'Počet prodejů', 'pocet', 'prodej', 'prodeje kontakty', 'prodeje', 'Počet klientů v prodaném stavu k datu s datem prodeje v období (každý klient jednou).'],
+  ['plneni_cile', 'Plnění cíle', 'podil', 'prodej', 'prodeje kontakty cile', 'prodeje', 'Hodnota prodejů ÷ cíl hodnoty prodejů pro stejný rozsah lidí, měnu a období, které období filtru obsahuje; bez cíle null.'],
+  ['uspesnost', 'Úspěšnost návrhů', 'podil', 'uzavreni', 'navrhy prodeje kontakty', 'kontakty', 'Vyhrané ÷ (vyhrané + ztracené) mezi klienty s návrhem uzavřenými v období; ztracené = odmítnuto po návrhu (i sleva_vyprsela); otevřené mimo.'],
+  ['otevrene', 'Otevřené obchody', 'pocet_a_mena', 'k_datu', 'kontakty navrhy slevy', 'kontakty', 'Klienti v otevřených stavech k datu a známá hodnota (cena nabídky za polovinu, jinak cena webu).'],
+  ['odhad_mesic', 'Odhad do konce měsíce', 'mena', 'k_datu', 'kontakty navrhy slevy', 'kontakty', 'Potvrzené prodeje měsíce + \u03a3 známá otevřená hodnota × historická míra „fáze → prodáno do konce měsíce“; nevalidovaný odhad.'],
+  ['k_zasahu', 'Případy k zásahu', 'pocet', 'k_datu', 'kontakty zavolat faktury platby', 'akce', 'Počet různých klientů v akčním seznamu (prehled_akce) se stejným filtrem.'],
+  ['hovory', 'Hovory', 'pocet', 'aktivita', 'hovory', 'hovory', 'Řádky call_log v období (pokusy, ne klienti; dovolání „Zavolal/a jsem“ nejsou hovory, Albert 1. 11. 2026).'],
+  ['unikatni_klienti', 'Různí klienti', 'pocet', 'aktivita', 'hovory', 'kontakty', 'Počet různých kontaktů s aspoň jedním hovorem v období.'],
+  ['dovolano', 'Dovoláno', 'pocet', 'aktivita', 'hovory', 'hovory', 'Hovory s výsledkem jiným než nedovolano (zájem, odmítnuto, nerelevantní, přeplánováno); není to reached z all_stats.'],
+  ['mira_dovolani', 'Míra dovolání', 'podil', 'aktivita', 'hovory', 'hovory', 'dovolano ÷ hovory.'],
+  ['zajem', 'Hovory se zájmem', 'pocet', 'aktivita', 'hovory', 'hovory', 'Hovory s výsledkem zajem.'],
+  ['odmitnuto', 'Odmítnuto v hovoru', 'pocet', 'aktivita', 'hovory', 'hovory', 'Hovory s výsledkem odmitnuto (odmítnutí hovoru, ne ztráta obchodu).'],
+  ['nerelevantni', 'Nerelevantní', 'pocet', 'aktivita', 'hovory', 'hovory', 'Hovory s výsledkem nerelevantni.'],
+  ['preplanovano', 'Přeplánováno', 'pocet', 'aktivita', 'hovory', 'hovory', 'Hovory s výsledkem preplanovano.'],
+  ['konverze', 'Telefonní konverze', 'podil', 'aktivita', 'hovory', 'hovory', 'zajem ÷ (zajem + odmitnuto) z hovorů v období (jako dnešní Statistiky); není to úspěšnost obchodu.'],
+  ['navrhy', 'Návrhy', 'pocet', 'navrh', 'navrhy hovory', 'kontakty', 'Klienti s prvním návrhem (first_proposal_at) v období, připsaní podle atribuce.'],
+  ['provize_narok', 'Provize – nárok', 'mena', 'prodej', 'prodeje hovory', 'provize', '30 % z ceny webu prodejů v období (bez hostingu, pravidlo app_vydelek; vždy atribuce posledni_zajem); CZK zaokrouhleně na koruny, EUR na centy.'],
+  ['provize_vyplaceno', 'Provize – vyplaceno', 'mena', 'vyplata', 'vyplaty', 'provize', 'Součet výplat provizí (provize_vyplaty) s datem výplaty v období.'],
+  ['provize_zbyva', 'Provize – zbývá vyplatit', 'mena', 'vyplata', 'prodeje hovory vyplaty', 'provize', 'Nárok s datem prodeje do konce období − výplaty do konce období (může být záporné).'],
+  ['odpracovane_hodiny', 'Odpracované hodiny', 'h', 'aktivita', 'hovory dovolani casovac', 'prace', 'Součet pracovních úseků (D5, §5.14) začínajících v období.'],
+  ['vysledku_za_hodinu', 'Výsledků za hodinu', 'podil', 'aktivita', 'hovory dovolani casovac', 'prace', 'Počet kotev (výsledky hovorů a dovolání) v úsecích ÷ odpracované hodiny; může být víc než 1.'],
+  ['planovane_hodiny', 'Plánované hodiny', 'h', 'aktivita', 'rozvrh', null, 'Hodiny podle dnešní šablony rozvrhu pro dny období od nastavení rozvrhu.'],
+  ['plneni_planu', 'Plnění plánu', 'podil', 'aktivita', 'hovory dovolani casovac rozvrh', 'prace', 'odpracovane_hodiny ÷ planovane_hodiny; může být víc než 1.'],
+  ['sla_prvni_kontakt_median', 'Doba do zavolání (medián)', 'h', 'aktivita', 'oznaceni zavolat', 'kontakty', 'Medián hodin od označení (oznaceni.oznaceno_at) nebo naplánování (zavolat.created_at) do zavolání; začátek v období, nezavolané v pokrytí jako neznámé.'],
+  ['sla_prvni_kontakt_p90', 'Doba do zavolání (90. percentil)', 'h', 'aktivita', 'oznaceni zavolat', 'kontakty', 'percentile_cont(0.9) téhož.'],
+  ['naplanovane_hotove', 'Naplánované hovory hotové', 'pocet', 'aktivita', 'zavolat', 'kontakty', 'Řádky zavolat se stavem hotovo uzavřené v období.'],
+  ['naplanovane_po_terminu', 'Naplánované hovory po termínu', 'pocet', 'k_datu', 'zavolat', 'kontakty', 'Řádky zavolat ve stavu ceka s časem před k_datu.'],
+  ['rychlost_navrhu_median', 'Rychlost návrhu (medián)', 'd', 'navrh', 'hovory navrhy', 'kontakty', 'Medián dní od prvního zájmu (call_log zajem) do prvního návrhu; pokrytí: zname = s návrhem, nezname = čekají (cenzurované).'],
+  ['rychlost_navrhu_p90', 'Rychlost návrhu (90. percentil)', 'd', 'navrh', 'hovory navrhy', 'kontakty', 'percentile_cont(0.9) téhož.'],
+  ['slevy_nabidnuto', 'Nabídky za polovinu odeslané', 'pocet', 'navrh', 'slevy', 'kontakty', 'Klienti s první událostí sleva_odeslana v období.'],
+  ['slevy_prijato', 'Nabídky za polovinu přijaté', 'pocet', 'navrh', 'slevy', 'kontakty', 'Z nich klienti prodaní po nabídce (do k_datu).'],
+  ['slevy_mira_prijeti', 'Míra přijetí nabídky', 'podil', 'navrh', 'slevy', 'kontakty', 'slevy_prijato ÷ slevy_nabidnuto (otevřené v pokrytí jako neznámé).'],
+  ['koncentrace_top1', 'Podíl největšího klienta', 'podil', 'prodej', 'prodeje kontakty', 'prodeje', 'Hodnota největšího prodeje ÷ hodnota prodejů v období, jedna měna.'],
+  ['koncentrace_top5', 'Podíl 5 největších klientů', 'podil', 'prodej', 'prodeje kontakty', 'prodeje', 'Součet 5 největších ÷ hodnota prodejů v období, jedna měna.'],
+  ['zpravy_nedoruceno', 'Nedoručené e-maily', 'pocet', 'zprava', 'gmail', 'zpravy', 'Zprávy email_zpravy s druhem nedoruceno v období.'],
+  ['zpravy_automaticke', 'Automatické odpovědi', 'pocet', 'zprava', 'gmail', 'zpravy', 'Zprávy s druhem automaticka_odpoved v období.'],
+  ['mira_odpovedi_po_navrhu', 'Odpověděli po návrhu', 'podil', 'navrh', 'navrhy gmail', 'kontakty', 'Klienti s návrhem v období, kteří po návrhu lidsky odpověděli (Gmail, jinak last_client_reply_at částečně) ÷ klienti s návrhem.'],
+  ['nejasne_vazby', 'Nejasně přiřazené zprávy', 'pocet', 'zprava', 'gmail', 'zpravy', 'Zprávy s vazbou nejasne v období (seznam ke kontrole).'],
+  ['nereagoval_na_nabidku', 'Nereagoval ani na nabídku za polovinu', 'pocet', 'uzavreni', 'slevy', 'odmitnuti', 'Události sleva_vyprsela v období (různí klienti).'],
+  ['mlci_po_navrhu', 'Mlčí po návrhu', 'pocet', 'k_datu', 'kontakty navrhy', 'odmitnuti', 'Otevření klienti s návrhem, mlčí víc než 5 pracovních dní (kontakt_mlci_pd ≥ 5); jen pro dnešek.'],
+  ['ztraty_bez_duvodu', 'Ztráty bez důvodu', 'pocet', 'uzavreni', 'duvody navrhy', 'odmitnuti', 'Klienti ztracení po návrhu v období bez řádku v odmitnuti.'],
+  ['prodeje_mimo_prodej', 'Prodeje, kde klient už není v prodaném stavu', 'pocet', 'prodej', 'prodeje kontakty', 'prodeje', 'Řádky kontakt_prodej s datem v období, jejichž klient k datu není v prodaném stavu (v pocet_prodeju nejsou).'],
+  ['faktury_pocet', 'Vystavené faktury', 'pocet', 'faktura', 'faktury platby', 'faktury', 'Události faktura_odeslana v období (doplňkové faktury taky; nejsou nový prodej).'],
+  ['faktury_web', 'Fakturováno – web', 'mena', 'faktura', 'faktury platby', 'faktury', 'Součet části „web“ faktur v období, kde ji text faktury uvádí.'],
+  ['faktury_hosting', 'Fakturováno – hosting', 'mena', 'faktura', 'faktury platby', 'faktury', 'Součet části „hosting“ faktur v období.'],
+  ['faktury_celkem', 'Fakturováno celkem', 'mena', 'faktura', 'faktury platby', 'faktury', 'Součet celkových částek faktur v období.'],
+  ['pohledavky_pocet', 'Nezaplacené faktury', 'pocet', 'k_datu', 'faktury platby', 'faktury', 'Faktury k datu bez potvrzené platby (§5.9).'],
+  ['pohledavky_castka', 'Nezaplaceno', 'mena', 'k_datu', 'faktury platby', 'faktury', 'Součet celkových částek nezaplacených faktur k datu.'],
+  ['slevy_castka', 'Poskytnuté slevy', 'mena', 'prodej', 'prodeje kontakty', 'prodeje', '\u03a3 (původní cena − nabídnutá cena) u prodejů po nabídce za polovinu v období, kde obě ceny jdou přečíst ve stejné měně.'],
+  ['hosting_rocne', 'Hosting ročně', 'mena', 'k_datu', 'prodeje kontakty', 'prodeje', '\u03a3 roční ceny hostingu prodaných klientů k datu (cena hostingu je roční, PLAYBOOK); jen přesné.'],
+  ['hosting_mrr', 'Hosting měsíčně (MRR)', 'mena', 'k_datu', 'prodeje kontakty', 'prodeje', 'hosting_rocne ÷ 12 (na 2 desetinná místa).'],
+  ['hosting_arr', 'Hosting ročně (ARR)', 'mena', 'k_datu', 'prodeje kontakty', 'prodeje', 'hosting_mrr × 12.'],
+  ['naklady_provize', 'Náklady – provize', 'mena', 'naklad', 'prodeje hovory', 'naklady', 'provize_narok v období jako náklad.'],
+  ['naklady_claude', 'Náklady – Claude', 'mena', 'naklad', 'naklady', 'naklady', 'Rozpis řádků kategorie claude do období (§2.12).'],
+  ['naklady_lovable', 'Náklady – Lovable', 'mena', 'naklad', 'naklady', 'naklady', 'Totéž pro lovable.'],
+  ['naklady_domena', 'Náklady – domény', 'mena', 'naklad', 'naklady', 'naklady', 'Totéž pro domena.'],
+  ['naklady_hosting', 'Náklady – hosting', 'mena', 'naklad', 'naklady', 'naklady', 'Totéž pro hosting (náš náklad, ne příjem).'],
+  ['naklady_jine', 'Náklady – jiné', 'mena', 'naklad', 'naklady', 'naklady', 'Totéž pro jine.'],
+  ['naklady_celkem', 'Náklady celkem', 'mena', 'naklad', 'naklady prodeje', 'naklady', 'Součet všech kategorií včetně provizí.'],
+  ['vysledek', 'Výsledek', 'mena', 'platba', 'platby naklady', null, 'inkaso − naklady_celkem v období, po měnách; bez nákladů není zisk = tržba.'],
+  ['domeny_pripojene', 'Připojené domény', 'pocet', 'aktivita', 'kontakty', 'kontakty', 'Události domena_pripojena v období.'],
+  ['prognoza_potvrzene', 'Potvrzené prodeje měsíce', 'mena', 'prodej', 'prodeje kontakty', 'prodeje', 'Hodnota prodejů od prvního dne měsíce k_datu do k_datu.'],
+  ['prognoza_pravdepodobnost', 'Míra „fáze → prodáno do konce měsíce“', 'podil', 'k_datu', 'kontakty navrhy slevy', 'kontakty', 'Podíl klientů, kteří za posledních 180 dní vstoupili do fáze a prodali se do tolika dní, kolik zbývá do konce měsíce.'],
+  ['prognoza_zakladni', 'Odhad – základní', 'mena', 'k_datu', 'kontakty navrhy slevy', 'kontakty', 'prognoza_potvrzene + \u03a3 známá otevřená hodnota × míra fáze.'],
+  ['prognoza_jen_jiste', 'Odhad – jen jisté', 'mena', 'k_datu', 'prodeje kontakty', 'prodeje', 'Jen prognoza_potvrzene.'],
+  ['kvalita_navrhy_bez_emailu', 'Návrhy bez e-mailu', 'pocet', 'k_datu', 'navrhy kontakty', 'kontakty', 'Klienti s návrhem a bez e-mailu.'],
+  ['kvalita_nejasne_vazby', 'Nejasně přiřazené zprávy', 'pocet', 'k_datu', 'gmail', 'zpravy', 'Všechny zprávy email_zpravy s vazbou nejasne.'],
+  ['kvalita_platby_bez_faktury', 'Platby bez faktury', 'pocet', 'k_datu', 'platby faktury', 'platby', 'Platby, jejichž částka je cena prodeje, ne faktura.'],
+] as [string, string, JednotkaMetriky, string, string, RadkyZdroj | null, string][]).map(([klic, nazev, jednotka, zaklad, zdroje, radky, definice]) => ({
+  klic, nazev, jednotka, zaklad, zdroje: zdroje.split(' ') as ZdrojKlicPrehledu[], radky, definice,
+}));
+const KATALOG_MAPA = new Map(KATALOG_PREHLEDU.map((m) => [m.klic, m]));
+/** Klíče tabulek, které proklik smí vybrat navíc ke katalogu (§7 VyberKlic). */
+const VYBER_TABULKY = ['trychtyr', 'po_navrhu', 'stavy_kohorty', 'pipeline_faze', 'kohorta_mesic', 'kalibrace_znamky', 'kalibrace_hvezdy',
+  'klienti_segment', 'klienti_obor', 'klienti_kraj', 'hodnoceni_webu', 'sablony', 'cekani_na_nas', 'cekani_na_klienta', 'duvody', 'dodani_faze',
+  'blokace', 'pohyby'];
+/** Povolené vyber.metrika podle zdroje řádků (§2.8). */
+const VYBER_PODLE_ZDROJE: Record<RadkyZdroj, string[]> = {
+  kontakty: ['otevrene', 'uspesnost', 'odhad_mesic', 'unikatni_klienti', 'navrhy', 'mira_odpovedi_po_navrhu', 'rychlost_navrhu_median', 'rychlost_navrhu_p90',
+    'slevy_nabidnuto', 'slevy_prijato', 'slevy_mira_prijeti', 'sla_prvni_kontakt_median', 'sla_prvni_kontakt_p90', 'naplanovane_hotove', 'naplanovane_po_terminu',
+    'domeny_pripojene', 'prognoza_pravdepodobnost', 'prognoza_zakladni', 'kvalita_navrhy_bez_emailu', 'trychtyr', 'po_navrhu', 'stavy_kohorty', 'pipeline_faze',
+    'kohorta_mesic', 'kalibrace_znamky', 'kalibrace_hvezdy', 'klienti_segment', 'klienti_obor', 'klienti_kraj', 'hodnoceni_webu', 'sablony', 'cekani_na_nas',
+    'cekani_na_klienta', 'dodani_faze', 'blokace', 'pohyby'],
+  hovory: ['hovory', 'dovolano', 'mira_dovolani', 'zajem', 'odmitnuto', 'nerelevantni', 'preplanovano', 'konverze'],
+  prodeje: ['pocet_prodeju', 'hodnota_prodeju', 'plneni_cile', 'prodeje_mimo_prodej', 'slevy_castka', 'koncentrace_top1', 'koncentrace_top5', 'prognoza_potvrzene',
+    'prognoza_jen_jiste', 'hosting_rocne', 'hosting_mrr', 'hosting_arr'],
+  faktury: ['faktury_pocet', 'faktury_web', 'faktury_hosting', 'faktury_celkem', 'pohledavky_pocet', 'pohledavky_castka'],
+  platby: ['inkaso', 'kvalita_platby_bez_faktury'],
+  naklady: ['naklady_provize', 'naklady_claude', 'naklady_lovable', 'naklady_domena', 'naklady_hosting', 'naklady_jine', 'naklady_celkem'],
+  provize: ['provize_narok', 'provize_vyplaceno', 'provize_zbyva'],
+  odmitnuti: ['duvody', 'nereagoval_na_nabidku', 'mlci_po_navrhu', 'ztraty_bez_duvodu'],
+  zpravy: ['zpravy_nedoruceno', 'zpravy_automaticke', 'nejasne_vazby', 'kvalita_nejasne_vazby'],
+  akce: ['k_zasahu'],
+  prace: ['odpracovane_hodiny', 'vysledku_za_hodinu', 'plneni_planu'],
+};
+const ZDROJE_RADKU = Object.keys(VYBER_PODLE_ZDROJE) as RadkyZdroj[];
+const VYBER_KLICE = ['metrika', 'krok', 'status', 'pasmo', 'segment', 'obor', 'kraj', 'znamka', 'user_id', 'bez_prirazeni', 'duvod', 'faze', 'kategorie', 'mena',
+  'mesic', 'od', 'do', 'signal', 'smer', 'druh', 'sablona', 'hvezda'];
+
+/** vyber (§7 Vyber): jen prehled_radky; neznámý klíč nebo špatná hodnota = „Neplatný filtr: vyber.<klíč>“. */
+function vyberFiltru(v: unknown): Record<string, unknown> {
+  if (typeof v !== 'object' || v === null || Array.isArray(v)) fail('Neplatný filtr: vyber');
+  const o = v as Record<string, unknown>;
+  for (const k of Object.keys(o)) if (!VYBER_KLICE.includes(k)) fail(`Neplatný filtr: vyber.${k}`);
+  if (typeof o.metrika !== 'string' || !(KATALOG_MAPA.has(o.metrika) || VYBER_TABULKY.includes(o.metrika))) fail('Neplatný filtr: vyber.metrika');
+  for (const k of ['od', 'do']) if (o[k] !== undefined && (typeof o[k] !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(o[k] as string))) fail(`Neplatný filtr: vyber.${k}`);
+  if (o.user_id !== undefined && !Number.isInteger(o.user_id)) fail('Neplatný filtr: vyber.user_id');
+  if (o.bez_prirazeni !== undefined && o.bez_prirazeni !== true) fail('Neplatný filtr: vyber.bez_prirazeni');
+  if (o.hvezda !== undefined && typeof o.hvezda !== 'boolean') fail('Neplatný filtr: vyber.hvezda');
+  for (const k of VYBER_KLICE) {
+    if (['metrika', 'od', 'do', 'user_id', 'bez_prirazeni', 'hvezda'].includes(k)) continue;
+    if (o[k] !== undefined && typeof o[k] !== 'string') fail(`Neplatný filtr: vyber.${k}`);
+  }
+  if (o.mena !== undefined && o.mena !== 'CZK' && o.mena !== 'EUR') fail('Neplatný filtr: vyber.mena');
+  return { ...o };
+}
+
+/* --- ukázková data jen pro Přehled (nové tabulky 072/073 a události, které řádky dema nemají) --- */
+
+/** Kdy demo začalo (ukázkové časy níž jsou od něj). */
+const PREHLED_DEMO_START = Date.now();
+const hodinZpet = (h: number): string => new Date(PREHLED_DEMO_START - h * HODINA_MS).toISOString();
+/** Okamžik dnes v Praze nejvýš `h` hodin zpět (nikdy včera, nikdy v budoucnu): ukázka, která padne do Dnes i do tohoto měsíce. */
+function dnesZpet(h: number): string {
+  const ted = PREHLED_DEMO_START;
+  const zacatek = zacatekDnePraha(denPraha(new Date(ted)));
+  return new Date(Math.min(ted - 30000, Math.max(ted - h * HODINA_MS, zacatek + 60000))).toISOString();
+}
+/** Historie kontaktů a týmů (072) v demu „začíná“ 30 hodin před načtením (jako po nasazení migrace). */
+const PREHLED_HISTORIE_OD = hodinZpet(30);
+/** Poslední tick dispečera (události tick). */
+const PREHLED_TICK_AT = hodinZpet(0.12);
+/** Platnost nabídky za polovinu ve dnech (sleva_konci: nejnovější sleva_odeslana + 14 dní, §5.13). */
+const SLEVA_PLATI_DNI = 14;
+/**
+ * První návrh prodaných ukázkových klientů a klienta 4 (na serveru first_proposal_at a události navrh_odeslan). Řádky dema
+ * vznikly před migrací 060, ostatní stránky (čekání, označení) je proto bez návrhu znají dál; jen Přehled je čte (navrhAt).
+ */
+const PREHLED_NAVRHY = new Map<number, string>([[7, daysAgo(31)], [20, daysAgo(7)], [21, daysAgo(18)], [22, daysAgo(14)], [23, daysAgo(40)], [24, daysAgo(6)], [4, daysAgo(30)]]);
+/** Ruční změny stavu na odmítnuto po návrhu (události stav_rucne „Stav: navrh_odeslan → odmitnuto“): kdy klient odmítl (R17). */
+const PREHLED_ZTRATY = new Map<number, string>([[4, dnesZpet(6)]]);
+/** Důvody zapsané zpětně (spec §6.4, zdroj zpetne): klient 4 „Mají starý web, ale nechtějí nic měnit“. */
+const PREHLED_DUVODY_ZPETNE: { id: number; kontakt_id: number; faze: FazeOdmitnuti; duvod: DuvodOdmitnutiKod; text: string | null; zdroj: 'zpetne'; zapsal: string; at: string }[] = [
+  { id: 900, kontakt_id: 4, faze: 'nahled', duvod: 'ma_web', text: 'Mají starý web a nechtějí nic měnit.', zdroj: 'zpetne', zapsal: 'zpetne:backfill', at: dnesZpet(2) },
+];
+interface UdalostPrehledu { id: number; kontakt_id: number; at: string; detail: string }
+/** Události faktura_odeslana (detail jako na serveru, čte ho app_faktura_rozbor). */
+const PREHLED_FAKTURY: UdalostPrehledu[] = [
+  { id: 9001, kontakt_id: 23, at: daysAgo(29), detail: 'faktura 20260040 (250 EUR web + 120 EUR hosting = 370 EUR), vlakno demo' },
+  { id: 9002, kontakt_id: 7, at: daysAgo(24), detail: 'faktura 20260041 (4900 Kc web = 4900 Kc), vlakno demo' },
+  { id: 9003, kontakt_id: 9, at: daysAgo(16), detail: 'faktura 20260050 (4900 Kc web = 4900 Kc), vlakno demo' },
+  { id: 9004, kontakt_id: 21, at: daysAgo(11), detail: 'faktura 20260057 (6500 Kc web + 1500 Kc hosting = 8000 Kc), vlakno demo' },
+  { id: 9005, kontakt_id: 22, at: daysAgo(9), detail: 'faktura 20260059 (3500 Kc web + 1000 Kc hosting = 4500 Kc), vlakno demo' },
+];
+/** Události platba_prijata (D3: super admin potvrdil platbu); detail jmenuje čísla faktur, nebo žádné. */
+const PREHLED_PLATBY: UdalostPrehledu[] = [
+  { id: 9101, kontakt_id: 23, at: daysAgo(27), detail: 'zaplaceno, faktura 20260040' },
+  { id: 9102, kontakt_id: 7, at: daysAgo(20), detail: 'zaplaceno, faktura 20260041' },
+  { id: 9103, kontakt_id: 21, at: daysAgo(8), detail: 'zaplaceno, faktura 20260057' },
+  { id: 9104, kontakt_id: 22, at: dnesZpet(5), detail: 'Albert potvrdil platbu v hovoru' },
+];
+interface MockNaklad {
+  id: number;
+  kategorie: Exclude<KategorieVyuctovani, 'provize'>;
+  popis: string | null;
+  castka: number;
+  mena: MenaPrehledu;
+  opakovani: 'jednorazove' | 'mesicne' | 'rocne';
+  plati_od: string;
+  plati_do: string | null;
+  kontakt_id: number | null;
+  overit: boolean;
+  zapsal_id: number;
+  zapsano_at: string;
+  zruseno_at: string | null;
+}
+const POPIS_D6 = 'Albert 17. 11. 2026 potvrdil částku; od kdy platíme, není známo, zadáno od 1. 11. 2026';
+/** Náklady (D6, seed migrace 072): tři Claude po 5 000 Kč a Lovable 500 Kč měsíčně od 1. 11. 2026; doména jednoho klienta k ověření. */
+const NAKLADY_DEMO: MockNaklad[] = [
+  ...[1, 2, 3].map((id) => ({ id, kategorie: 'claude' as const, popis: POPIS_D6, castka: 5000, mena: 'CZK' as const, opakovani: 'mesicne' as const, plati_od: '2026-11-01',
+    plati_do: null, kontakt_id: null, overit: false, zapsal_id: 1, zapsano_at: '2026-11-17T20:00:00.000Z', zruseno_at: null })),
+  { id: 4, kategorie: 'lovable', popis: POPIS_D6, castka: 500, mena: 'CZK', opakovani: 'mesicne', plati_od: '2026-11-01', plati_do: null, kontakt_id: null, overit: false,
+    zapsal_id: 1, zapsano_at: '2026-11-17T20:00:00.000Z', zruseno_at: null },
+  { id: 5, kategorie: 'domena', popis: 'Doména penzion-sumava.cz (cena z faktury registrátora)', castka: 290, mena: 'CZK', opakovani: 'rocne', plati_od: denPraha(new Date(Date.parse(daysAgo(25)))),
+    plati_do: null, kontakt_id: 7, overit: true, zapsal_id: 4, zapsano_at: daysAgo(20), zruseno_at: null },
+];
+const PREHLED_NAKLADY: MockNaklad[] = NAKLADY_DEMO.filter((n) => Date.parse(n.zapsano_at) <= PREHLED_DEMO_START);
+interface MockCil {
+  id: number;
+  metrika: CilPrehledu['metrika'];
+  obdobi_od: string;
+  obdobi_do: string;
+  user_id: number | null;
+  tym_id: number | null;
+  mena: MenaPrehledu | null;
+  hodnota: number;
+  zadal_id: number;
+  zadano_at: string;
+  zruseno_at: string | null;
+}
+const posledniDenMesice = (den: string): string => posunDen(`${posunDen(`${den.slice(0, 7)}-28`, 4).slice(0, 7)}-01`, -1);
+const DEMO_DNES = denPraha(new Date(PREHLED_DEMO_START));
+const DEMO_MESIC_OD = `${DEMO_DNES.slice(0, 7)}-01`;
+const DEMO_ZADANO = new Date(Math.min(PREHLED_DEMO_START - 60000, zacatekDnePraha(DEMO_MESIC_OD) + 3 * HODINA_MS)).toISOString();
+/** Cíle (D9): firma na tento měsíc a rok (hodnota prodejů v CZK), tým Mikuláše (prodané weby) a Petra (hovory). */
+const PREHLED_CILE: MockCil[] = [
+  { id: 1, metrika: 'hodnota_prodeju', obdobi_od: DEMO_MESIC_OD, obdobi_do: posledniDenMesice(DEMO_MESIC_OD), user_id: null, tym_id: null, mena: 'CZK', hodnota: 50000, zadal_id: 1, zadano_at: DEMO_ZADANO, zruseno_at: null },
+  { id: 2, metrika: 'prodane_weby', obdobi_od: DEMO_MESIC_OD, obdobi_do: posledniDenMesice(DEMO_MESIC_OD), user_id: null, tym_id: 4, mena: null, hodnota: 3, zadal_id: 4, zadano_at: DEMO_ZADANO, zruseno_at: null },
+  { id: 3, metrika: 'hovory', obdobi_od: DEMO_MESIC_OD, obdobi_do: posledniDenMesice(DEMO_MESIC_OD), user_id: 2, tym_id: null, mena: null, hodnota: 40, zadal_id: 1, zadano_at: DEMO_ZADANO, zruseno_at: null },
+  { id: 4, metrika: 'hodnota_prodeju', obdobi_od: `${DEMO_DNES.slice(0, 4)}-01-01`, obdobi_do: `${DEMO_DNES.slice(0, 4)}-12-31`, user_id: null, tym_id: null, mena: 'CZK', hodnota: 400000, zadal_id: 1, zadano_at: DEMO_ZADANO, zruseno_at: null },
+];
+interface MockVyplata { id: number; user_id: number; castka: number; mena: MenaPrehledu; vyplaceno_dne: string; za_obdobi_od: string | null; za_obdobi_do: string | null; poznamka: string | null; zapsal_id: number; zapsano_at: string; zruseno_at: string | null }
+/** Výplaty provizí (D10): Petře provize za Penzion Šumava. */
+const PREHLED_VYPLATY: MockVyplata[] = [
+  { id: 1, user_id: 2, castka: 1470, mena: 'CZK', vyplaceno_dne: denPraha(new Date(Date.parse(daysAgo(3)))), za_obdobi_od: null, za_obdobi_do: null, poznamka: 'Provize za Penzion Šumava', zapsal_id: 1, zapsano_at: daysAgo(3), zruseno_at: null },
+];
+const SCHRANKA_DEMO = 'domovwebu@gmail.com';
+interface MockZprava { id: number; kontakt_id: number | null; smer: 'prichozi' | 'odchozi'; druh: RadekZpravy['druh']; prijato_at: string; vazba: RadekZpravy['vazba']; vlakno_id: string }
+/** email_zpravy (D4): jen metadata a odkaz na vlákno, nikdy obsah, předmět ani adresa. */
+const PREHLED_ZPRAVY: MockZprava[] = ([
+  [1, 90, 'odchozi', 'clovek', daysAgo(15), 'vlakno'],
+  [2, 92, 'prichozi', 'clovek', daysAgo(25), 'vlakno'],
+  [3, 92, 'odchozi', 'clovek', daysAgo(15), 'vlakno'],
+  [4, 94, 'prichozi', 'clovek', daysAgo(21), 'adresa'],
+  [5, 94, 'odchozi', 'clovek', daysAgo(15), 'vlakno'],
+  [6, 93, 'odchozi', 'clovek', daysAgo(18), 'vlakno'],
+  [7, 93, 'prichozi', 'automaticka_odpoved', new Date(Date.parse(daysAgo(18)) + 300000).toISOString(), 'vlakno'],
+  [8, 95, 'odchozi', 'clovek', daysAgo(2), 'vlakno'],
+  [9, 95, 'prichozi', 'nedoruceno', new Date(Date.parse(daysAgo(2)) + 120000).toISOString(), 'vlakno'],
+  [10, 22, 'prichozi', 'clovek', daysAgo(10.5), 'vlakno'],
+  [11, 22, 'odchozi', 'clovek', daysAgo(9), 'vlakno'],
+  [12, 20, 'prichozi', 'clovek', dnesZpet(3), 'vlakno'],
+  [13, null, 'prichozi', 'clovek', daysAgo(4), 'nejasne'],
+  [14, 303, 'prichozi', 'systemova', daysAgo(5), 'vlakno'],
+] as [number, number | null, MockZprava['smer'], MockZprava['druh'], string, MockZprava['vazba']][]).map(([id, kontakt_id, smer, druh, prijato_at, vazba]) => ({
+  id, kontakt_id, smer, druh, prijato_at, vazba, vlakno_id: `18c${(0x4a00 + (kontakt_id ?? 99) * 7).toString(16)}d${id}`,
+}));
+const odkazGmailu = (vlakno: string): string => `https://mail.google.com/mail/u/?authuser=${SCHRANKA_DEMO}#all/${vlakno}`;
+/** email_sync: poslední úspěšná synchronizace před 24 minutami. */
+const PREHLED_EMAIL_SYNC: GmailSync[] = [{ schranka: SCHRANKA_DEMO, posledni_uspech: hodinZpet(0.4), posledni_pokus: hodinZpet(0.4), stav: 'ok', chyba: null }];
+const GMAIL_OD = '2026-09-01T00:00:00.000Z';
+/** Joby automatizace (build a change) hotové; doba od založení do dokončení. */
+const PREHLED_JOBY: { id: number; typ: 'build' | 'change'; kontakt_id: number; created_at: string; updated_at: string }[] = [
+  { id: 7001, typ: 'build', kontakt_id: 93, created_at: daysAgo(19), updated_at: daysAgo(18.6) },
+  { id: 7002, typ: 'build', kontakt_id: 20, created_at: daysAgo(8), updated_at: daysAgo(7.8) },
+  { id: 7003, typ: 'build', kontakt_id: 24, created_at: daysAgo(7), updated_at: daysAgo(6.7) },
+  { id: 7004, typ: 'build', kontakt_id: 95, created_at: daysAgo(3), updated_at: daysAgo(2.2) },
+  { id: 7005, typ: 'change', kontakt_id: 94, created_at: daysAgo(22), updated_at: daysAgo(21.4) },
+  { id: 7006, typ: 'change', kontakt_id: 92, created_at: daysAgo(16), updated_at: daysAgo(15.9) },
+];
+
+/* --- pomocníci --- */
+
+/** První návrh klienta (first_proposal_at, u prodaných ukázkových klientů z PREHLED_NAVRHY). */
+function navrhAt(c: Kontakt): string | null {
+  return c.first_proposal_at ?? PREHLED_NAVRHY.get(c.id) ?? null;
+}
+/** Segment, obor a kraj filtru (R12, R13): demo nemá obor_udaje, každý kontakt je v kraji „neznamy“. */
+function sediFiltru(c: Kontakt | undefined, f: PrehledFiltr): boolean {
+  if (!c) return false;
+  if (f.segment && !f.segment.includes(segmentOf(c))) return false;
+  if (f.obor) {
+    const m = /^([^:]+):\s*(.*)$/.exec(c.obor ?? '');
+    const spec = m ? m[2].split(',').map((x) => `${m[1].trim()}: ${x.trim()}`) : [];
+    if (!f.obor.some((o) => spec.includes(o))) return false;
+  }
+  if (f.kraj && !f.kraj.includes('neznamy')) return false;
+  return true;
+}
+const kontaktPodleId = (id: number | null | undefined): Kontakt | undefined => (id === null || id === undefined ? undefined : kontakty.find((c) => c.id === id));
+const jmenoKontaktu = (c: Kontakt): string => c.name ?? c.firma ?? `#${c.id}`;
+/** Osoba (§7): člověk, jeho tým (super admin = on sám) a „Tým <jméno>“. */
+function osobaPrehledu(uid: number | null | undefined): OsobaPrehledu | null {
+  const u = users.find((x) => x.id === uid);
+  if (!u) return null;
+  const tym = u.role === 'super_admin' ? u.id : u.manager_id;
+  return { user_id: u.id, display_name: u.display_name, tym_id: tym, tym_nazev: tym === null ? null : `Tým ${users.find((x) => x.id === tym)?.display_name ?? tym}` };
+}
+const NEZNAMA_CENA: CenaRozbor = { stav: 'nezname', castka: null, min: null, max: null, mena: null };
+/** app_cena_rozbor: presne (jedna částka jako app_cena_cist), rozsah („6000-7000“, „6 000 až 7 000“), jinak nezname. */
+function cenaRozborMock(text: string | null | undefined): CenaRozbor {
+  const { castka, mena } = cenaCist(text);
+  if (castka !== null) return { stav: 'presne', castka: castkaText(castka), min: null, max: null, mena: mena === 'eur' ? 'EUR' : 'CZK' };
+  const t = bezDiakritiky((text ?? '').toLowerCase());
+  const m = /(\d{1,3}(?:[ .]\d{3})+|\d+)\s*(?:-|–|az)\s*(\d{1,3}(?:[ .]\d{3})+|\d+)/.exec(t);
+  if (m) {
+    const a = Number(m[1].replace(/[ .]/g, ''));
+    const b = Number(m[2].replace(/[ .]/g, ''));
+    if (a > 0 && b > a) return { stav: 'rozsah', castka: null, min: castkaText(a), max: castkaText(b), mena: /eur|€/.test(t) ? 'EUR' : 'CZK' };
+  }
+  return { ...NEZNAMA_CENA };
+}
+/** Roční cena hostingu (PLAYBOOK: hosting je roční); měsíční zápis („190/měs“) období nehádá = neznámá. */
+function hostingRozbor(text: string | null | undefined): CenaRozbor {
+  const t = bezDiakritiky((text ?? '').toLowerCase());
+  if (!t.trim() || /mes|month/.test(t)) return { ...NEZNAMA_CENA };
+  const cisla = [...t.matchAll(/\d{1,3}(?:[ .]\d{3})+|\d+/g)].map((x) => Number(x[0].replace(/[ .]/g, '')));
+  if (cisla.length !== 1 || !(cisla[0] > 0)) return { ...NEZNAMA_CENA };
+  return { stav: 'presne', castka: castkaText(cisla[0]), min: null, max: null, mena: /eur|€/.test(t) ? 'EUR' : 'CZK' };
+}
+interface CenaKontaktu { text: string | null; zdroj: 'cena_web' | 'sleva'; rozbor: CenaRozbor; castka: number | null; mena: MenaPrehledu | null }
+/** Cena podle pravidla výdělku k okamžiku (§2.9): nejnovější nabídka za polovinu do té doby, jinak cena webu. */
+function cenaKontaktu(c: Kontakt, doIso: string): CenaKontaktu {
+  const sleva = (slevy.get(c.id) ?? []).filter((e) => e.created_at <= doIso).sort((a, b) => b.created_at.localeCompare(a.created_at))[0];
+  const rozbor = sleva ? cenaRozborMock(cenaZeSlevy(sleva.detail)) : cenaNezadanaMock(c.cena_web) ? { ...NEZNAMA_CENA } : cenaRozborMock(c.cena_web);
+  return {
+    text: sleva ? cenaZeSlevyText(sleva.detail) : c.cena_web ?? null,
+    zdroj: sleva ? 'sleva' : 'cena_web',
+    rozbor,
+    castka: rozbor.stav === 'presne' ? Number(rozbor.castka) : null,
+    mena: rozbor.stav === 'nezname' ? null : rozbor.mena,
+  };
+}
+/** „ze“ nebo „z“ před číslem („1 ze 4“, „32 z 312“ jako v kontraktu): ze před 2, 3, 4, 7, 14, 17 a stovkami. */
+const ZE = (n: number): string => {
+  const s = String(Math.abs(Math.trunc(n)));
+  return /^[2347]/.test(s) || /^1\d\d$/.test(s) || /^1[47]$/.test(s) ? 'ze' : 'z';
+};
+const meny = (f: PrehledFiltr): MenaPrehledu[] => (f.mena === 'obe' ? ['CZK', 'EUR'] : [f.mena]);
+/** Peníze po měnách (R7): součet přesných v měně; null jen když v měně není nic přesného a jsou neznámé položky. */
+function castkyZ(polozky: { castka: number | null; mena: MenaPrehledu | null }[], mn: MenaPrehledu[]): CastkaMeny[] {
+  const znamych = polozky.filter((x) => x.castka !== null).length;
+  return mn.map((mena) => {
+    const v = polozky.filter((x) => x.mena === mena && x.castka !== null);
+    const rozsahu = polozky.filter((x) => x.mena === mena && x.castka === null).length;
+    return { mena, hodnota: v.length === 0 && znamych < polozky.length ? null : castkaText(v.reduce((a, x) => a + (x.castka ?? 0), 0)), pokryti: pokryti(v.length, v.length + rozsahu) };
+  });
+}
+const jedneCastky = (c: CastkaMeny[]): CastkaJedna[] => c.map((x) => ({ mena: x.mena, hodnota: x.hodnota }));
+
+interface KontextPrehledu {
+  f: PrehledFiltr;
+  meny: MenaPrehledu[];
+  vygenerovano: string;
+  kMs: number;
+  kIso: string;
+  odMs: number;
+  doMs: number;
+  vObdobi: (iso: string | null | undefined) => boolean;
+  doKDatu: (iso: string | null | undefined) => boolean;
+  sedi: (c: Kontakt | undefined) => boolean;
+  osoba: (c: Kontakt) => number | null;
+  lidi: (uid: number | null) => boolean;
+}
+/** Stráž super admina a filtr (R3: stráž před parametry), pak kontext výpočtu. */
+function kontextPrehledu(me: MockUser, vstup: unknown, sVyberem = false): KontextPrehledu {
+  if (me.role !== 'super_admin') fail(PREHLED_JEN_SUPER);
+  const f = prehledFiltr(vstup, sVyberem);
+  const vygenerovano = now();
+  const kMs = f.k_datu ? Date.parse(f.k_datu) : Date.parse(vygenerovano);
+  const odMs = zacatekDnePraha(f.od);
+  const doMs = zacatekDnePraha(posunDen(f.do, 1));
+  return {
+    f, meny: meny(f), vygenerovano, kMs, kIso: new Date(kMs).toISOString(), odMs, doMs,
+    vObdobi: (iso) => { if (!iso) return false; const t = Date.parse(iso); return t >= odMs && t < doMs && t <= kMs; },
+    doKDatu: (iso) => !!iso && Date.parse(iso) <= kMs,
+    sedi: (c) => sediFiltru(c, f),
+    osoba: (c) => pripsanyClovek(c, f.atribuce, kMs),
+    lidi: (uid) => !f.lide || (uid !== null && f.lide.includes(uid)),
+  };
+}
+
+/** Metrika (§2.6, všech 13 klíčů) z katalogu; proklik nese normalizovaný filtr a vyber (R19: nedostupné a bez zdroje řádků null). */
+function metrikaPrehledu(klic: string, x: KontextPrehledu | null, m: Partial<Metrika>, vyber: Record<string, unknown> = {}): Metrika {
+  const def = KATALOG_MAPA.get(klic)!;
+  const kvalita = m.kvalita ?? 'dostupne';
+  return {
+    klic, verze: 1, nazev: def.nazev, hodnota: null, castky: [], citatel: null, jmenovatel: null, n: null, pokryti: null, kvalita, duvod: null, zaklad: def.zaklad,
+    ...m,
+    proklik: kvalita === 'nedostupne' || def.radky === null || x === null ? null : { zdroj: def.radky, filtr: { ...x.f, vyber: { metrika: klic, ...vyber } } },
+  };
+}
+const nedostupnaMetrika = (klic: string, x: KontextPrehledu | null, duvod: string): Metrika => metrikaPrehledu(klic, x, { kvalita: 'nedostupne', duvod });
+/** Počet (n = hodnota); `castecne` = důvod částečnosti (zdroj začíná po začátku období …). */
+function pocetMetrika(klic: string, x: KontextPrehledu | null, n: number, castecne: string | null = null, vyber: Record<string, unknown> = {}): Metrika {
+  return metrikaPrehledu(klic, x, { hodnota: n, n, pokryti: pokryti(n, n), kvalita: castecne ? 'castecne' : 'dostupne', duvod: castecne }, vyber);
+}
+/** Podíl (R8): na 6 míst s čitatelem, jmenovatelem a n; jmenovatel 0 = null s větou. */
+function podilMetrika(klic: string, x: KontextPrehledu | null, c: number, j: number, n: number, p: PokrytiMetriky, castecne: string | null = null, vyber: Record<string, unknown> = {}): Metrika {
+  return metrikaPrehledu(klic, x, {
+    hodnota: j === 0 ? null : zaokr(c / j, 6), citatel: c, jmenovatel: j, n, pokryti: p, kvalita: castecne ? 'castecne' : 'dostupne',
+    duvod: castecne ?? (j === 0 ? 'Jmenovatel je 0, podíl nejde spočítat.' : null),
+  }, vyber);
+}
+/** „z 1 položky“, „ze 4 položek“: 2. pád podle celku (jednotné číslo u jedné). */
+const JEDNA: Record<string, string> = { prodejů: 'prodeje', plateb: 'platby', faktur: 'faktury', položek: 'položky', 'prodaných klientů': 'prodaného klienta', výplat: 'výplaty',
+  'prodejů po nabídce': 'prodeje po nabídce', nabídek: 'nabídky', otevřených: 'otevřeného' };
+const zCelku = (celkem: number, co: string): string => `${ZE(celkem)} ${celkem} ${celkem === 1 ? JEDNA[co] ?? co : co}`;
+/** Peníze (R7): castky po měnách filtru, n = pokryti.celkem, neznámé částky = castecne s větou. */
+function penizeMetrika(klic: string, x: KontextPrehledu, polozky: { castka: number | null; mena: MenaPrehledu | null }[], co: string, castecne: string | null = null, vyber: Record<string, unknown> = {}): Metrika {
+  const zname = polozky.filter((p) => p.castka !== null).length;
+  const nezname = polozky.length - zname;
+  const duvod = [nezname > 0 ? `U ${nezname} ${zCelku(polozky.length, co)} není přesná částka; součet je jen ze známých.` : null, castecne].filter(Boolean).join(' ') || null;
+  return metrikaPrehledu(klic, x, { castky: castkyZ(polozky, x.meny), n: polozky.length, pokryti: pokryti(zname, polozky.length), kvalita: duvod ? 'castecne' : 'dostupne', duvod }, vyber);
+}
+/** Trvání (medián nebo p90, R9 a R36): změřené jednotky v n, cenzurované v pokrytí jako neznámé. */
+function trvaniMetrika(klic: string, x: KontextPrehledu, zmerene: number[], cenzurovano: number, p: number, mist: number, prazdno: string): Metrika {
+  const v = percentil(zmerene, p);
+  return metrikaPrehledu(klic, x, {
+    hodnota: v === null ? null : zaokr(v, mist), n: zmerene.length, pokryti: pokryti(zmerene.length, zmerene.length + cenzurovano),
+    kvalita: cenzurovano > 0 ? 'castecne' : 'dostupne',
+    duvod: cenzurovano > 0 ? `${cenzurovano} ${ZE(zmerene.length + cenzurovano)} ${zmerene.length + cenzurovano} ještě nemá výsledek (cenzurované, v čísle nejsou).` : v === null ? prazdno : null,
+  });
+}
+
+/** Od kdy zdroj existuje a jeho poslední záznam (meta.zdroje, §2.5). */
+function rozsahZdroje(z: ZdrojKlicPrehledu): { od: string | null; aktualni_k: string | null } {
+  const rozsah = (casy: (string | null | undefined)[]) => {
+    const s = casy.filter((c): c is string => !!c).sort();
+    return { od: s[0] ?? null, aktualni_k: s.length ? s[s.length - 1] : null };
+  };
+  switch (z) {
+    case 'hovory': return rozsah(callLog.map((l) => l.created_at));
+    case 'dovolani': return rozsah([...oznaceniRadky.map((o) => o.zavolano_at), ...[...dovolaniUspesna.values()].flat()]);
+    case 'kontakty': return { od: null, aktualni_k: kontakty.map((c) => c.updated_at).sort().pop() ?? null };
+    case 'prodeje': return rozsah([...kontaktProdej.values()].map((p) => p.prodano_at));
+    case 'navrhy': return rozsah(kontakty.map((c) => navrhAt(c)));
+    case 'slevy': return rozsah([...slevy.values()].flat().map((e) => e.created_at));
+    case 'faktury': return rozsah(PREHLED_FAKTURY.map((e) => e.at));
+    case 'platby': return rozsah(PREHLED_PLATBY.map((e) => e.at));
+    case 'historie': return { od: PREHLED_HISTORIE_OD, aktualni_k: [PREHLED_HISTORIE_OD, ...kontakty.map((c) => c.updated_at)].sort().pop() ?? null };
+    case 'tymy': return { od: PREHLED_HISTORIE_OD, aktualni_k: PREHLED_HISTORIE_OD };
+    case 'casovac': return rozsah(praceAktivita.map((p) => p.at));
+    case 'gmail': return { od: GMAIL_OD, aktualni_k: PREHLED_EMAIL_SYNC[0]?.posledni_uspech ?? null };
+    case 'duvody': return rozsah([...odmitnutiRadky.map((r) => r.at), ...PREHLED_DUVODY_ZPETNE.map((r) => r.at)]);
+    case 'naklady': return rozsah(PREHLED_NAKLADY.map((n) => n.zapsano_at));
+    case 'cile': return rozsah(PREHLED_CILE.map((c) => c.zadano_at));
+    case 'vyplaty': return rozsah(PREHLED_VYPLATY.map((v) => v.zapsano_at));
+    case 'snimky': return { od: null, aktualni_k: null };
+    case 'oznaceni': return rozsah(oznaceniRadky.map((o) => o.oznaceno_at));
+    case 'zavolat': return rozsah(zavolatRadky.map((r) => r.created_at));
+    case 'rozvrh': return rozsah([...rozvrhy.values()].map((r) => r.nastaveno_at));
+    case 'jobs': return rozsah(PREHLED_JOBY.flatMap((j) => [j.created_at, j.updated_at]));
+    case 'tick': return { od: callLog.map((l) => l.created_at).sort()[0] ?? null, aktualni_k: PREHLED_TICK_AT };
+  }
+}
+const zdrojeMeta = (klice: ZdrojKlicPrehledu[]): PrehledMeta['zdroje'] =>
+  ZDROJE_PREHLEDU.filter((z) => klice.includes(z.zdroj)).map((z) => ({ zdroj: z.zdroj, ...rozsahZdroje(z.zdroj) }));
+/** Stav zdroje (prehled_moznosti, prehled_kvalita): chybi, zastarale (tick > 60 min, Gmail > 2 h), chyba, jinak ok. */
+function stavZdroje(z: { zdroj: ZdrojKlicPrehledu; nazev: string }): ZdrojStav {
+  const r = rozsahZdroje(z.zdroj);
+  let stav: ZdrojStav['stav'] = r.aktualni_k ? 'ok' : 'chybi';
+  let poznamka: string | null = r.aktualni_k ? null : 'Zatím žádná data.';
+  const ted = Date.now();
+  if (z.zdroj === 'tick' && r.aktualni_k && ted - Date.parse(r.aktualni_k) > 60 * 60000) { stav = 'zastarale'; poznamka = `Poslední běh ${casCesky(r.aktualni_k)}.`; }
+  if (z.zdroj === 'gmail') {
+    const s = PREHLED_EMAIL_SYNC[0];
+    if (!s?.posledni_uspech) { stav = 'chybi'; poznamka = 'Zatím žádná úspěšná synchronizace.'; }
+    else if (s.stav === 'chyba') { stav = 'chyba'; poznamka = s.chyba ?? 'Synchronizace hlásí chybu.'; }
+    else if (ted - Date.parse(s.posledni_uspech) > 2 * HODINA_MS) { stav = 'zastarale'; poznamka = `Poslední úspěšná synchronizace ${denCesky(s.posledni_uspech)} ${casCesky(s.posledni_uspech)}.`; }
+  }
+  return { zdroj: z.zdroj, nazev: z.nazev, od: r.od, aktualni_k: r.aktualni_k, stav, poznamka };
+}
+
+type VarovaniPrehledu = PrehledMeta['varovani'][number];
+/** Varování (§2.11, texty §3.10); každý kód nejvýš jednou. */
+function varovaniPrehledu(x: KontextPrehledu | null, o: { historie?: boolean; zdroje?: ZdrojKlicPrehledu[]; gmail?: boolean; provize?: boolean; odhad?: boolean; zakladJenKlienti?: boolean; naklady?: boolean; casovac?: boolean } = {}): VarovaniPrehledu[] {
+  const v: VarovaniPrehledu[] = [];
+  const dej = (kod: string, text: string) => { if (!v.some((w) => w.kod === kod)) v.push({ kod, text }); };
+  if (x && o.historie && (x.odMs < Date.parse(PREHLED_HISTORIE_OD) || x.kMs < Date.parse(PREHLED_HISTORIE_OD))) {
+    dej('HISTORIE_OD', `Historie změn stavů a cen začíná ${denCesky(PREHLED_HISTORIE_OD)}; dřívější průchody fázemi nejsou známé.`);
+  }
+  if (x && o.casovac) {
+    const prvni = praceAktivita.map((p) => p.at).sort()[0];
+    if (!prvni || x.odMs < Date.parse(prvni)) {
+      dej('CASOVAC_OD', prvni ? `Časovač práce běží od ${denCesky(prvni)}; dny před ním jsou odhad z výsledků hovorů, bez časovače.`
+        : 'Časovač práce zatím nemá žádný signál; odpracovaný čas je odhad z výsledků hovorů, bez časovače.');
+    }
+  }
+  if (x && o.zdroje) {
+    const pozde = o.zdroje.map((z) => ({ z, od: rozsahZdroje(z).od })).filter((r) => r.od && Date.parse(r.od) > x.odMs).sort((a, b) => (b.od ?? '').localeCompare(a.od ?? ''))[0];
+    if (pozde?.od) dej('ZDROJ_OD', `Zdroj „${ZDROJE_PREHLEDU.find((z) => z.zdroj === pozde.z)?.nazev ?? pozde.z}“ se eviduje od ${denCesky(pozde.od)}; dřívější data nejsou známá.`);
+  }
+  if (o.gmail) {
+    const s = PREHLED_EMAIL_SYNC[0];
+    if (!s?.posledni_uspech) dej('GMAIL_CHYBI', 'Zprávy z Gmailu se zatím nesynchronizují (žádná úspěšná synchronizace).');
+    else if (Date.now() - Date.parse(s.posledni_uspech) > 2 * HODINA_MS) dej('GMAIL_ZASTARALE', `Poslední úspěšná synchronizace Gmailu byla ${denCesky(s.posledni_uspech)} ${casCesky(s.posledni_uspech)}.`);
+  }
+  if (Date.now() - Date.parse(PREHLED_TICK_AT) > 60 * 60000) dej('TICK_ZASTARALY', `Automatizace naposledy běžela ${denCesky(PREHLED_TICK_AT)} ${casCesky(PREHLED_TICK_AT)}; čísla mohou být starší.`);
+  if (x?.f.mena === 'obe') dej('MENY_ODDELENE', 'Částky v CZK a EUR se nikdy nesčítají; každá měna je zvlášť.');
+  if (x?.f.kraj) dej('KRAJ_JEN_OBORY', 'Kraj známe jen u firem oborů; chaty a architekti jsou v „Neznámý kraj“.');
+  if (x && o.provize && x.f.atribuce !== 'posledni_zajem') {
+    dej('PROVIZE_POSLEDNI_ZAJEM', 'Provize se počítá vždy podle posledního, kdo zapsal zájem (pravidlo výdělku), bez ohledu na zvolenou atribuci.');
+  }
+  if (x?.f.k_datu) dej('K_DATU_MINULOST', `Čísla jsou k ${denCesky(x.f.k_datu)} ${casCesky(x.f.k_datu)}; bloky bez historie (kdo psal naposledy, mlčení) jsou jen pro dnešek.`);
+  if (o.naklady) {
+    const n = PREHLED_NAKLADY.filter((r) => r.overit && !r.zruseno_at).length;
+    if (n > 0) dej('NAKLADY_OVERIT', `Počet nákladů, jejichž částka čeká na ověření: ${n}.`);
+  }
+  if (o.odhad) dej('ODHAD', 'Odhad do konce měsíce je nevalidovaný odhad z naší historie, ne závazek.');
+  if (x && o.zakladJenKlienti && x.f.zaklad !== 'prirozeny') {
+    dej('ZAKLAD_JEN_KLIENTI', `Základ „${ZAKLADY_VOLBY.find((z) => z.klic === x.f.zaklad)?.nazev ?? x.f.zaklad}“ mění jen tabulky klientů; karty a ostatní tabulky mají svůj přirozený základ.`);
+  }
+  return v;
+}
+/** Obálka (§2.5). */
+function obalkaPrehledu<T>(x: KontextPrehledu | null, data: T, zdroje: ZdrojKlicPrehledu[], varovani: VarovaniPrehledu[]): PrehledObalka<T> {
+  const vygenerovano = x?.vygenerovano ?? now();
+  return {
+    api_verze: '1',
+    definice_verze: PREHLED_DEFINICE_VERZE,
+    meta: { vygenerovano, k_datu: x?.f.k_datu ?? vygenerovano, casove_pasmo: 'Europe/Prague', filtr: x ? x.f : null, zdroje: zdrojeMeta(zdroje), varovani },
+    data,
+  };
+}
+/** Důvod částečnosti, když období začíná před začátkem zdroje (ZDROJ_OD). */
+function zdrojPozdeji(x: KontextPrehledu, zdroje: ZdrojKlicPrehledu[]): string | null {
+  for (const z of zdroje) {
+    const od = rozsahZdroje(z).od;
+    if (od && Date.parse(od) > x.odMs) return `Zdroj „${ZDROJE_PREHLEDU.find((r) => r.zdroj === z)?.nazev ?? z}“ se eviduje od ${denCesky(od)}; dřívější data nejsou známá.`;
+  }
+  return null;
+}
+const historiePozdeji = (x: KontextPrehledu): string | null =>
+  x.odMs < Date.parse(PREHLED_HISTORIE_OD) ? `Historie stavů začíná ${denCesky(PREHLED_HISTORIE_OD)}; dřívější změny známe jen z posledních milníků.` : null;
+/** Stav k minulému okamžiku před začátkem historie (R11) neznáme. */
+const stavNeznamy = (x: KontextPrehledu): boolean => !!x.f.k_datu && x.kMs < Date.parse(PREHLED_HISTORIE_OD);
+const STAV_PRED_HISTORII = 'Stav k tomuto okamžiku není známý: historie změn stavů začíná později.';
+const JEN_DNES = 'Tohle číslo je jen pro dnešek (kdo psal naposledy a mlčení se nezaznamenávají do historie); zrušte K datu.';
+
+/* --- jednotky (společné pro karty, tabulky i řádky prehled_radky) --- */
+
+interface JednotkaProdeje { c: Kontakt; at: string; cena: CenaKontaktu; osoba: number | null; provizeKomu: number | null; provize: { castka: number | null; mena: MenaPrehledu | null } }
+/** Provize z ceny (pravidlo výdělku, 30 %): CZK na koruny, EUR na centy; neznámá cena = neznámá provize. */
+function provizeZ(cena: CenaKontaktu): { castka: number | null; mena: MenaPrehledu | null } {
+  if (cena.castka === null) return { castka: null, mena: cena.mena };
+  return { castka: cena.mena === 'EUR' ? Math.round(cena.castka * PROVIZE_PROCENT) / 100 : Math.round((cena.castka * PROVIZE_PROCENT) / 100), mena: cena.mena };
+}
+/** Prodeje (R16) s datem v [odMs, doMs) a do k_datu, kontakt podle filtru, člověk podle atribuce (lide). */
+function prodejeV(x: KontextPrehledu, odMs = x.odMs, doMs = x.doMs, atribuce: AtribucePrehledu = x.f.atribuce): JednotkaProdeje[] {
+  return kontakty
+    .filter((c) => PRODANO_STAVY.includes(c.status) && x.sedi(c))
+    .map((c) => ({ c, at: datumProdeje(c) }))
+    .filter(({ at }) => { const t = Date.parse(at); return t >= odMs && t < doMs && t <= x.kMs; })
+    .map(({ c, at }) => {
+      const cena = cenaKontaktu(c, at);
+      return { c, at, cena, osoba: pripsanyClovek(c, atribuce, x.kMs), provizeKomu: pripsanyClovek(c, 'posledni_zajem', x.kMs), provize: provizeZ(cena) };
+    })
+    .filter((p) => x.lidi(p.osoba));
+}
+/** kontakt_prodej, jehož klient už není v prodaném stavu (R16: v pocet_prodeju není). */
+function prodejeMimoProdej(x: KontextPrehledu): JednotkaProdeje[] {
+  return [...kontaktProdej.entries()]
+    .map(([kid, p]) => ({ c: kontaktPodleId(kid), at: p.prodano_at }))
+    .filter((r): r is { c: Kontakt; at: string } => !!r.c && !PRODANO_STAVY.includes(r.c.status) && x.vObdobi(r.at) && x.sedi(r.c))
+    .map(({ c, at }) => { const cena = cenaKontaktu(c, at); return { c, at, cena, osoba: x.osoba(c), provizeKomu: pripsanyClovek(c, 'posledni_zajem', x.kMs), provize: provizeZ(cena) }; })
+    .filter((p) => x.lidi(p.osoba));
+}
+interface FakturaRozbor { cislo: string | null; web: number | null; hosting: number | null; celkem: number | null; mena: MenaPrehledu | null }
+/** app_faktura_rozbor: „faktura 20260059 (7000 Kc web + 1000 Kc hosting = 8000 Kc)“; nevýslovné části null. */
+function fakturaRozbor(detail: string): FakturaRozbor {
+  const t = bezDiakritiky(detail.toLowerCase());
+  const cast = (re: RegExp) => { const m = re.exec(t); return m ? { n: Number(m[1].replace(/\s/g, '')), mena: (m[2] === 'eur' ? 'EUR' : 'CZK') as MenaPrehledu } : null; };
+  const web = cast(/(\d[\d ]*)\s*(kc|eur)\s*web/);
+  const hosting = cast(/(\d[\d ]*)\s*(kc|eur)\s*hosting/);
+  const celkem = cast(/=\s*(\d[\d ]*)\s*(kc|eur)/);
+  return { cislo: /faktura\s+(\d+)/.exec(t)?.[1] ?? null, web: web?.n ?? null, hosting: hosting?.n ?? null, celkem: celkem?.n ?? null, mena: celkem?.mena ?? web?.mena ?? null };
+}
+interface JednotkaPlatby { id: number | null; c: Kontakt; at: string; castka: number | null; mena: MenaPrehledu | null; zdroj_castky: RadekPlatby['zdroj_castky']; odvozeno: boolean; faktury: string[] }
+/** Platby (R18) do k_datu: události platba_prijata a odvozené ze stavu zaplaceno bez události. */
+function platbyDoKDatu(x: KontextPrehledu): JednotkaPlatby[] {
+  const out: JednotkaPlatby[] = [];
+  for (const p of PREHLED_PLATBY) {
+    const c = kontaktPodleId(p.kontakt_id);
+    if (!c || !x.doKDatu(p.at)) continue;
+    const jmenovane = PREHLED_FAKTURY.filter((f) => f.kontakt_id === c.id && f.at <= p.at).map((f) => ({ f, r: fakturaRozbor(f.detail) })).filter(({ r }) => r.cislo && p.detail.includes(r.cislo));
+    if (jmenovane.length > 0 && jmenovane.every(({ r }) => r.celkem !== null && r.mena === jmenovane[0].r.mena)) {
+      out.push({ id: p.id, c, at: p.at, castka: jmenovane.reduce((a, { r }) => a + (r.celkem ?? 0), 0), mena: jmenovane[0].r.mena, zdroj_castky: 'faktura', odvozeno: false, faktury: jmenovane.map(({ r }) => r.cislo!) });
+    } else {
+      const cena = PRODANO_STAVY.includes(c.status) ? cenaKontaktu(c, datumProdeje(c)) : null;
+      out.push({ id: p.id, c, at: p.at, castka: cena?.castka ?? null, mena: cena?.mena ?? null, zdroj_castky: cena?.castka !== null && cena ? 'cena_prodeje' : 'neznama', odvozeno: false, faktury: [] });
+    }
+  }
+  for (const c of kontakty) {
+    if (c.status !== 'zaplaceno' || PREHLED_PLATBY.some((p) => p.kontakt_id === c.id)) continue;
+    const at = c.status_changed_at;
+    if (!at || !x.doKDatu(at)) continue;
+    const cena = cenaKontaktu(c, datumProdeje(c));
+    out.push({ id: null, c, at, castka: cena.castka, mena: cena.mena, zdroj_castky: cena.castka === null ? 'neznama' : 'cena_prodeje', odvozeno: true, faktury: [] });
+  }
+  return out;
+}
+const platbyV = (x: KontextPrehledu): JednotkaPlatby[] => platbyDoKDatu(x).filter((p) => x.vObdobi(p.at) && x.sedi(p.c) && x.lidi(x.osoba(p.c)));
+interface JednotkaFaktury { e: UdalostPrehledu; c: Kontakt; r: FakturaRozbor; zaplacenoAt: string | null }
+/** Faktury do k_datu a čím jsou zaplacené (§2.9: platba jmenuje číslo, nebo platba bez čísla po faktuře, nebo odvozená po ní). */
+function fakturyDoKDatu(x: KontextPrehledu): JednotkaFaktury[] {
+  const platby = platbyDoKDatu(x);
+  return PREHLED_FAKTURY.filter((e) => x.doKDatu(e.at)).flatMap((e) => {
+    const c = kontaktPodleId(e.kontakt_id);
+    if (!c) return [];
+    const r = fakturaRozbor(e.detail);
+    const p = platby.filter((pl) => pl.c.id === c.id && pl.at >= e.at && (pl.faktury.includes(r.cislo ?? '-') || pl.faktury.length === 0))
+      .sort((a, b) => a.at.localeCompare(b.at))[0];
+    return [{ e, c, r, zaplacenoAt: p?.at ?? null }];
+  });
+}
+const fakturyV = (x: KontextPrehledu): JednotkaFaktury[] => fakturyDoKDatu(x).filter((f) => x.vObdobi(f.e.at) && x.sedi(f.c) && x.lidi(x.osoba(f.c)));
+const pohledavkyKDatu = (x: KontextPrehledu): JednotkaFaktury[] => fakturyDoKDatu(x).filter((f) => !f.zaplacenoAt && x.sedi(f.c) && x.lidi(x.osoba(f.c)));
+const dniOd = (iso: string, kMs: number): number => Math.round((zacatekDnePraha(denPraha(new Date(kMs))) - zacatekDnePraha(denPraha(new Date(iso)))) / 86400000);
+
+interface JednotkaOtevrena { c: Kontakt; cena: CenaKontaktu; osoba: number | null }
+/** Otevření klienti k datu (skupina otevrene; demo bere dnešní stav). */
+function otevreneKDatu(x: KontextPrehledu): JednotkaOtevrena[] {
+  return kontakty.filter((c) => OTEVRENE_STAVY.includes(c.status) && x.sedi(c)).map((c) => ({ c, cena: cenaKontaktu(c, x.kIso), osoba: x.osoba(c) })).filter((u) => x.lidi(u.osoba));
+}
+/** Kdy klient po návrhu odmítl (R17): ruční změna stavu, jinak status_changed_at, dokud je odmitnuto. */
+const ztrataAt = (c: Kontakt): string | null => (c.status !== 'odmitnuto' ? null : PREHLED_ZTRATY.get(c.id) ?? c.status_changed_at ?? null);
+interface JednotkaUzavreni { c: Kontakt; vyhra: boolean; at: string }
+/** Uzavření po návrhu v období (§2.9): vyhrané = prodej v období, ztracené = odmítnuto po návrhu v období. */
+function uzavreneV(x: KontextPrehledu): JednotkaUzavreni[] {
+  const out: JednotkaUzavreni[] = [];
+  for (const c of kontakty) {
+    const navrh = navrhAt(c);
+    if (!navrh || !x.doKDatu(navrh) || !x.sedi(c) || !x.lidi(x.osoba(c))) continue;
+    if (PRODANO_STAVY.includes(c.status) && x.vObdobi(datumProdeje(c))) out.push({ c, vyhra: true, at: datumProdeje(c) });
+    const z = ztrataAt(c);
+    if (z && z > navrh && x.vObdobi(z)) out.push({ c, vyhra: false, at: z });
+  }
+  return out;
+}
+const hovoryV = (x: KontextPrehledu): CallLogRow[] =>
+  callLog.filter((l) => x.vObdobi(l.created_at) && x.sedi(kontaktPodleId(l.kontakt_id)) && x.lidi(l.user_id));
+
+/** Akční seznam (§5.13): jeden případ na klienta, jen pro teď (k_datu null). */
+function pripadyAkce(x: KontextPrehledu): PripadAkce[] {
+  if (x.f.k_datu) return [];
+  const ted = Date.now();
+  const sig = (kod: SignalKod, od: string, termin: string, zdroj: string): SignalAkce => ({ kod, text: SIGNALY_AKCI.find((s) => s.kod === kod)!.nazev, od, termin, zdroj });
+  const faktury = fakturyDoKDatu(x);
+  const out: PripadAkce[] = [];
+  for (const c of kontakty) {
+    if (!x.sedi(c)) continue;
+    const osoba = x.osoba(c);
+    if (!x.lidi(osoba)) continue;
+    const s: SignalAkce[] = [];
+    const sk = skupinaStavu(c.status);
+    const klient = casMs(c.last_client_reply_at);
+    const nase = casMs(c.last_our_reply_at);
+    if (klient !== null && (nase === null || klient > nase) && ted - klient > 24 * HODINA_MS && sk !== 'ztraceno' && sk !== 'vyrazeno') {
+      s.push(sig('klient_ceka', c.last_client_reply_at!, new Date(klient + 24 * HODINA_MS).toISOString(), 'kontakty.last_client_reply_at (pošta klienta)'));
+    }
+    const ceka = zavolatRadky.filter((z) => z.kontakt_id === c.id && z.stav === 'ceka');
+    if ((c.status === 'navrh_odeslan' || c.status === 'ceka_na_klienta') && (mlciPd(c) ?? 0) >= 5 && ceka.length === 0 && c.last_our_reply_at) {
+      s.push(sig('navrh_mlci', c.last_our_reply_at, prahaNaIso(pracovniDenPo(denPraha(new Date(c.last_our_reply_at)), 5), '00:00') ?? c.last_our_reply_at, 'kontakty, pracovní dny bez odpovědi (pravidlo označení, migrace 060)'));
+    }
+    for (const z of ceka) if (Date.parse(z.kdy) < ted) s.push(sig('hovor_po_terminu', z.created_at, z.kdy, 'naplánované hovory (zavolat)'));
+    for (const f of faktury.filter((f) => f.c.id === c.id && !f.zaplacenoAt && ted - Date.parse(f.e.at) > 14 * 86400000)) {
+      s.push(sig('faktura_nepotvrzena', f.e.at, new Date(Date.parse(f.e.at) + 14 * 86400000).toISOString(), `faktura ${f.r.cislo ?? 'bez čísla'} (události faktura_odeslana)`));
+    }
+    if (PRODANO_STAVY.includes(c.status)) {
+      const prodano = Date.parse(datumProdeje(c));
+      if (ted - prodano > 3 * 86400000 && !faktury.some((f) => f.c.id === c.id)) {
+        s.push(sig('schvaleno_bez_faktury', datumProdeje(c), new Date(prodano + 3 * 86400000).toISOString(), 'prodeje bez události faktura_odeslana'));
+      }
+    }
+    if (c.status === 'sleva_nabidnuta') {
+      const posledni = (slevy.get(c.id) ?? []).map((e) => e.created_at).sort().pop();
+      const konec = posledni ? Date.parse(posledni) + SLEVA_PLATI_DNI * 86400000 : null;
+      if (posledni && konec !== null && konec >= ted && konec - ted <= 2 * 86400000) s.push(sig('sleva_konci', posledni, new Date(konec).toISOString(), 'nabídka za polovinu (sleva_odeslana)'));
+    }
+    for (const m of messages.filter((m) => m.kontakt_id === c.id && m.status === 'open')) s.push(sig('otazka', m.created_at, m.created_at, `otázka automatizace „${m.subject ?? 'bez předmětu'}“`));
+    if (s.length === 0) continue;
+    s.sort((a, b) => a.termin.localeCompare(b.termin));
+    const prvni = s[0];
+    const cena = cenaKontaktu(c, x.kIso);
+    out.push({
+      kontakt_id: c.id, jmeno: jmenoKontaktu(c), segment: segmentOf(c), status: c.status, nazev_stavu: nazevStavu(c.status), vlastnik: osobaPrehledu(osoba),
+      problem: prvni.text, dalsi_krok: SIGNALY_AKCI.find((k) => k.kod === prvni.kod)!.dalsi_krok, termin: prvni.termin, po_terminu: Date.parse(prvni.termin) < x.kMs,
+      hodnota: cena.castka !== null && cena.mena ? [{ mena: cena.mena, hodnota: castkaText(cena.castka) }] : [], cena_stav: cena.rozbor.stav, signaly: s, signal_zdroj: prvni.zdroj,
+    });
+  }
+  return out.sort((a, b) => a.termin.localeCompare(b.termin) || a.kontakt_id - b.kontakt_id);
+}
+
+/* --- náklady a provize (§2.12, D6, D10) --- */
+interface Zauctovani { radek_id: string; naklad_id: number | null; kategorie: KategorieVyuctovani; popis: string | null; datum: string; castka: number | null; mena: MenaPrehledu | null; stav_ceny: CenaStav; opakovani: MockNaklad['opakovani'] | null; kontakt_id: number | null; overit: boolean; user_id: number | null }
+/** Zaúčtování nákladu do dnů [odDen, doDen] (§2.12): měsíčně v každém dotčeném měsíci, ročně 1/12, jednorázově v den plati_od. */
+function zauctovaniNakladu(n: MockNaklad, odDen: string, doDen: string, kMs: number): Zauctovani[] {
+  if (Date.parse(n.zapsano_at) > kMs || (n.zruseno_at && Date.parse(n.zruseno_at) <= kMs)) return [];
+  const radek = (datum: string, castka: number): Zauctovani => ({ radek_id: `n:${n.id}:${datum}`, naklad_id: n.id, kategorie: n.kategorie, popis: n.popis, datum, castka, mena: n.mena,
+    stav_ceny: 'presne', opakovani: n.opakovani, kontakt_id: n.kontakt_id, overit: n.overit, user_id: null });
+  if (n.opakovani === 'jednorazove') return n.plati_od >= odDen && n.plati_od <= doDen ? [radek(n.plati_od, n.castka)] : [];
+  const out: Zauctovani[] = [];
+  for (let m = `${odDen.slice(0, 7)}-01`; m <= doDen; m = `${posunDen(`${m.slice(0, 7)}-28`, 4).slice(0, 7)}-01`) {
+    const d = m > n.plati_od ? m : n.plati_od;
+    if (d.slice(0, 7) !== m.slice(0, 7) || d < n.plati_od || (n.plati_do && d > n.plati_do) || d < odDen || d > doDen) continue;
+    out.push(radek(d, n.opakovani === 'rocne' ? Math.round((n.castka / 12) * 100) / 100 : n.castka));
+  }
+  return out;
+}
+/** Náklady období po kategoriích včetně provize (= provize_narok období, zaúčtovaná v den prodeje). */
+function nakladyV(x: KontextPrehledu): Zauctovani[] {
+  const provize: Zauctovani[] = prodejeV(x, x.odMs, x.doMs, 'posledni_zajem').map((p) => ({
+    radek_id: `c:${p.c.id}`, naklad_id: null, kategorie: 'provize', popis: `Provize 30 % z ceny webu (${jmenoKontaktu(p.c)})`, datum: denPraha(new Date(p.at)),
+    castka: p.provize.castka, mena: p.provize.mena, stav_ceny: p.cena.rozbor.stav, opakovani: null, kontakt_id: p.c.id, overit: false, user_id: p.provizeKomu,
+  }));
+  return [...PREHLED_NAKLADY.flatMap((n) => zauctovaniNakladu(n, x.f.od, x.f.do, x.kMs)), ...provize];
+}
+const NAKLADY_BEZ_FILTRU = 'Náklady z evidence nejsou rozdělené podle lidí ani klientů; zrušte filtr.';
+const nakladyFiltrovane = (x: KontextPrehledu): boolean => !!(x.f.lide || x.f.segment || x.f.obor || x.f.kraj);
+interface JednotkaProvize { radek_id: string; druh: 'narok' | 'vyplata'; datum: string; user_id: number; kontakt_id: number | null; castka: number | null; mena: MenaPrehledu | null; stav_ceny: CenaStav; vyplata_id: number | null; poznamka: string | null; jmeno: string | null }
+/** Nárok z prodejů [odMs, doMs) (vždy posledni_zajem, D10) a výplaty s datem [odDen, doDen]; lide = příjemce. */
+function provizeJednotky(x: KontextPrehledu, odMs: number, odDen: string): JednotkaProvize[] {
+  const narok: JednotkaProvize[] = prodejeV(x, odMs, x.doMs, 'posledni_zajem').filter((p) => p.provizeKomu !== null).map((p) => ({
+    radek_id: `n:${p.c.id}`, druh: 'narok', datum: denPraha(new Date(p.at)), user_id: p.provizeKomu!, kontakt_id: p.c.id, castka: p.provize.castka, mena: p.provize.mena,
+    stav_ceny: p.cena.rozbor.stav, vyplata_id: null, poznamka: null, jmeno: jmenoKontaktu(p.c),
+  }));
+  const vyplaty: JednotkaProvize[] = PREHLED_VYPLATY.filter((v) => !v.zruseno_at && v.vyplaceno_dne >= odDen && v.vyplaceno_dne <= x.f.do && Date.parse(v.zapsano_at) <= x.kMs && x.lidi(v.user_id))
+    .map((v) => ({ radek_id: `v:${v.id}`, druh: 'vyplata', datum: v.vyplaceno_dne, user_id: v.user_id, kontakt_id: null, castka: v.castka, mena: v.mena, stav_ceny: 'presne', vyplata_id: v.id, poznamka: v.poznamka, jmeno: null }));
+  return [...narok, ...vyplaty];
+}
+/** Zbývá vyplatit po měnách: nárok − výplaty (R7: neznámý nárok bez přesné částky = null). */
+function zbyvaCastky(jednotky: JednotkaProvize[], mn: MenaPrehledu[]): CastkaMeny[] {
+  const narok = jednotky.filter((j) => j.druh === 'narok');
+  const vyplaty = jednotky.filter((j) => j.druh === 'vyplata');
+  return castkyZ(narok, mn).map((c) => ({
+    ...c,
+    hodnota: c.hodnota === null ? null : castkaText(Number(c.hodnota) - vyplaty.filter((v) => v.mena === c.mena).reduce((a, v) => a + (v.castka ?? 0), 0)),
+  }));
+}
+
+/* --- funkce --- */
+
+/** prehled_moznosti (§5.1). */
+function prehledMoznostiMock(me: MockUser): PrehledObalka<DataMoznosti> {
+  if (me.role !== 'super_admin') fail(PREHLED_JEN_SUPER);
+  const albert = me.id === OWNER_ID;
+  const tymOf = (u: MockUser) => (u.role === 'super_admin' ? u.id : u.manager_id);
+  const vlastni = (u: MockUser) => albert || u.id === me.id || u.manager_id === me.id;
+  const lide: OsobaMoznosti[] = [...users].sort((a, b) => {
+    const ta = tymOf(a);
+    const tb = tymOf(b);
+    if (ta !== tb) return ta === null ? 1 : tb === null ? -1 : ta - tb;
+    if ((a.role === 'super_admin') !== (b.role === 'super_admin')) return a.role === 'super_admin' ? -1 : 1;
+    return a.display_name.localeCompare(b.display_name, 'cs') || a.id - b.id;
+  }).map((u) => ({
+    id: u.id, display_name: u.display_name, role: u.role, active: u.active, manager_id: u.manager_id,
+    manager_name: users.find((x) => x.id === u.manager_id)?.display_name ?? null, tym_id: tymOf(u), smim_cil: vlastni(u), smim_vyplatu: vlastni(u),
+  }));
+  const tymy: TymPrehledu[] = users.filter((u) => u.role === 'super_admin').sort((a, b) => a.id - b.id).map((v) => {
+    const clenove = [v, ...users.filter((u) => u.manager_id === v.id && u.id !== v.id)];
+    return { id: v.id, nazev: `Tým ${v.display_name}`, vedouci_id: v.id, vedouci_jmeno: v.display_name, clenove: clenove.map((u) => u.id).sort((a, b) => a - b),
+      clenove_aktivni: clenove.filter((u) => u.active).map((u) => u.id).sort((a, b) => a - b), smim_cil: albert || v.id === me.id };
+  });
+  const pocet = (klic: string) => kontakty.filter((c) => segmentOf(c) === klic).length;
+  const segmenty: DataMoznosti['segmenty'] = [
+    { klic: 'chata', nazev: 'Chaty', rodina: 'chata', stav: null, kontaktu: pocet('chata') },
+    { klic: 'architekt', nazev: 'Architekti', rodina: 'architekt', stav: null, kontaktu: pocet('architekt') },
+    ...[...oborNikyMock].sort((a, b) => (a.poradi ?? 99) - (b.poradi ?? 99)).map((n) => ({ klic: n.klic, nazev: n.nazev, rodina: 'obor' as const, stav: n.stav, kontaktu: pocet(n.klic) })),
+  ];
+  const specializace = new Map<string, { klic: string; segment: string; nazev: string; kontaktu: number }>();
+  for (const c of kontakty) {
+    const m = /^([^:]+):\s*(.*)$/.exec(c.obor ?? '');
+    if (!m) continue;
+    for (const s of m[2].split(',').map((x) => x.trim()).filter(Boolean)) {
+      const klic = `${m[1].trim()}: ${s}`;
+      const r = specializace.get(klic) ?? { klic, segment: m[1].trim(), nazev: s, kontaktu: 0 };
+      r.kontaktu += 1;
+      specializace.set(klic, r);
+    }
+  }
+  const prvniHovor = callLog.map((l) => l.created_at).sort()[0];
+  const metriky = KATALOG_PREHLEDU.map((m) => {
+    const stavy = m.zdroje.map((z) => stavZdroje(ZDROJE_PREHLEDU.find((r) => r.zdroj === z)!));
+    const nutny = stavy[0];
+    const pozde = stavy.find((s) => s.od && prvniHovor && Date.parse(s.od) - Date.parse(prvniHovor) > 86400000);
+    if (nutny.stav === 'chybi') return { klic: m.klic, nazev: m.nazev, jednotka: m.jednotka, kvalita: 'nedostupne' as const, duvod: `Zdroj „${nutny.nazev}“ zatím nemá žádná data.` };
+    const vada = stavy.find((s) => s.stav !== 'ok');
+    if (vada || pozde) {
+      return { klic: m.klic, nazev: m.nazev, jednotka: m.jednotka, kvalita: 'castecne' as const,
+        duvod: vada ? `Zdroj „${vada.nazev}“: ${vada.poznamka ?? vada.stav}` : `Zdroj „${pozde!.nazev}“ se eviduje od ${denCesky(pozde!.od!)}.` };
+    }
+    return { klic: m.klic, nazev: m.nazev, jednotka: m.jednotka, kvalita: 'dostupne' as const, duvod: null };
+  });
+  const data: DataMoznosti = {
+    ja: { user_id: me.id, display_name: me.display_name, je_albert: albert },
+    lide,
+    tymy,
+    firma_smim_cil: albert,
+    segmenty,
+    obory: [...specializace.values()].sort((a, b) => a.segment.localeCompare(b.segment) || b.kontaktu - a.kontaktu || a.nazev.localeCompare(b.nazev)),
+    kraje: [{ klic: 'neznamy', nazev: 'Neznámý kraj', kontaktu: kontakty.length }],
+    meny: ['CZK', 'EUR'],
+    atribuce: ATRIBUCE_VOLBY,
+    zaklady: ZAKLADY_VOLBY,
+    metriky,
+    zdroje: ZDROJE_PREHLEDU.map(stavZdroje),
+    cerstvost: {
+      tick_at: PREHLED_TICK_AT,
+      posta_klienta_at: kontakty.map((c) => c.last_client_reply_at).filter((v): v is string => !!v).sort().pop() ?? null,
+      gmail: PREHLED_EMAIL_SYNC.map((s) => ({ ...s })),
+      snimek_den: null,
+      snimek_at: null,
+    },
+  };
+  return obalkaPrehledu(null, data, ZDROJE_PREHLEDU.map((z) => z.zdroj), varovaniPrehledu(null, { gmail: true }));
+}
+
+/** Cíl podle §2.10 (R21): rozsah lidí přesně, období cíle obsahuje období filtru, nejkratší a nejnovější vyhrává. */
+function cilProFiltr(x: KontextPrehledu, metrika: CilPrehledu['metrika']): { cil: MockCil | null; duvod: string | null } {
+  const vMene = METRIKY_CILU.find((m) => m.klic === metrika)?.v_mene ?? false;
+  if (vMene && x.f.mena === 'obe') return { cil: null, duvod: 'Plnění cíle se počítá jen pro jednu měnu; vyberte CZK nebo EUR.' };
+  if (x.f.segment || x.f.obor || x.f.kraj) return { cil: null, duvod: 'Cíle nejsou rozdělené podle segmentu, oboru ani kraje; zrušte tyto filtry.' };
+  const stejne = (a: number[], b: number[]) => a.length === b.length && a.every((v, i) => v === b[i]);
+  const rozsahSedi = (c: MockCil) => {
+    if (c.user_id === null && c.tym_id === null) return x.f.lide === null;
+    if (c.user_id !== null) return !!x.f.lide && stejne(x.f.lide, [c.user_id]);
+    const clenove = [c.tym_id!, ...users.filter((u) => u.manager_id === c.tym_id && u.id !== c.tym_id).map((u) => u.id)].sort((a, b) => a - b);
+    const aktivni = clenove.filter((id) => users.find((u) => u.id === id)?.active);
+    return !!x.f.lide && (stejne(x.f.lide, clenove) || stejne(x.f.lide, aktivni));
+  };
+  const kandidati = PREHLED_CILE.filter((c) => !c.zruseno_at && Date.parse(c.zadano_at) <= x.kMs && c.metrika === metrika && rozsahSedi(c)
+    && (!vMene || c.mena === x.f.mena) && c.obdobi_od <= x.f.od && c.obdobi_do >= x.f.do)
+    .sort((a, b) => (zacatekDnePraha(a.obdobi_do) - zacatekDnePraha(a.obdobi_od)) - (zacatekDnePraha(b.obdobi_do) - zacatekDnePraha(b.obdobi_od))
+      || b.zadano_at.localeCompare(a.zadano_at) || b.id - a.id);
+  return kandidati[0] ? { cil: kandidati[0], duvod: null } : { cil: null, duvod: 'Pro toto období a výběr lidí není zadaný cíl.' };
+}
+/** Cíl pro API (§7 Cil): obdobi_do včetně, smi_upravit podle D9. */
+function cilVen(me: MockUser, c: MockCil): CilPrehledu {
+  const albert = me.id === OWNER_ID;
+  const smi = albert || (c.user_id !== null && (c.user_id === me.id || users.find((u) => u.id === c.user_id)?.manager_id === me.id)) || (c.tym_id !== null && c.tym_id === me.id);
+  return {
+    id: c.id, metrika: c.metrika, obdobi_od: c.obdobi_od, obdobi_do: c.obdobi_do, user_id: c.user_id, user_jmeno: users.find((u) => u.id === c.user_id)?.display_name ?? null,
+    tym_id: c.tym_id, tym_jmeno: c.tym_id === null ? null : `Tým ${users.find((u) => u.id === c.tym_id)?.display_name ?? c.tym_id}`, mena: c.mena, hodnota: castkaText(c.hodnota),
+    zadal: users.find((u) => u.id === c.zadal_id)?.display_name ?? '?', zadano_at: c.zadano_at, smi_upravit: smi,
+  };
+}
+
+/** Karta hodnoty prodejů z jednotek (i plnění cíle a proklik). */
+const hodnotaProdejuMetrika = (x: KontextPrehledu, prodeje: JednotkaProdeje[], klic = 'hodnota_prodeju'): Metrika =>
+  penizeMetrika(klic, x, prodeje.map((p) => ({ castka: p.cena.castka, mena: p.cena.mena })), 'prodejů', zdrojPozdeji(x, ['prodeje']));
+function inkasoMetrika(x: KontextPrehledu, platby: JednotkaPlatby[]): Metrika {
+  const zCeny = platby.filter((p) => p.zdroj_castky !== 'faktura').length;
+  const castecne = [
+    zCeny > 0 ? `${zCeny} ${zCelku(platby.length, 'plateb')} má částku z ceny prodeje, ne z faktury.` : null,
+    platby.some((p) => p.odvozeno) ? 'Část plateb je odvozená ze stavu Zaplaceno bez potvrzení.' : null,
+    zdrojPozdeji(x, ['platby']),
+  ].filter(Boolean).join(' ') || null;
+  return penizeMetrika('inkaso', x, platby.map((p) => ({ castka: p.castka, mena: p.mena })), 'plateb', castecne);
+}
+function plneniCile(me: MockUser, x: KontextPrehledu, prodeje: JednotkaProdeje[]): { metrika: Metrika; cil: CilPrehledu | null } {
+  const { cil, duvod } = cilProFiltr(x, 'hodnota_prodeju');
+  if (!cil) return { metrika: nedostupnaMetrika('plneni_cile', x, duvod!), cil: null };
+  const v = prodeje.filter((p) => p.cena.castka !== null && p.cena.mena === x.f.mena);
+  const soucet = zaokr(v.reduce((a, p) => a + (p.cena.castka ?? 0), 0), 2);
+  const nezname = prodeje.filter((p) => p.cena.castka === null).length;
+  const m = podilMetrika('plneni_cile', x, soucet, zaokr(cil.hodnota, 2), prodeje.length, pokryti(prodeje.length - nezname, prodeje.length),
+    nezname > 0 ? `U ${nezname} ${zCelku(prodeje.length, 'prodejů')} není přesná cena; hodnota prodejů je jen ze známých cen.` : null);
+  return { metrika: m, cil: cilVen(me, cil) };
+}
+function uspesnostMetrika(x: KontextPrehledu, u: JednotkaUzavreni[]): Metrika {
+  const vyhry = u.filter((j) => j.vyhra).length;
+  return podilMetrika('uspesnost', x, vyhry, u.length, u.length, pokryti(u.length, u.length), historiePozdeji(x));
+}
+function otevreneMetrika(x: KontextPrehledu): Metrika {
+  if (stavNeznamy(x)) return nedostupnaMetrika('otevrene', x, STAV_PRED_HISTORII);
+  const o = otevreneKDatu(x);
+  const zname = o.filter((j) => j.cena.castka !== null).length;
+  return metrikaPrehledu('otevrene', x, {
+    hodnota: o.length, castky: castkyZ(o.map((j) => ({ castka: j.cena.castka, mena: j.cena.mena })), x.meny), n: o.length, pokryti: pokryti(zname, o.length),
+    kvalita: zname < o.length ? 'castecne' : 'dostupne', duvod: zname < o.length ? `U ${o.length - zname} ${zCelku(o.length, 'otevřených')} není přesná cena.` : null,
+  });
+}
+
+/** prehled_souhrn (§5.2). */
+function prehledSouhrnMock(me: MockUser, vstup: unknown): PrehledObalka<DataSouhrn> {
+  const x = kontextPrehledu(me, vstup);
+  const prodeje = prodejeV(x);
+  const { metrika: plneni, cil } = plneniCile(me, x, prodeje);
+  const prognoza = prognozaData(x);
+  const odhad = { ...prognoza.scenare.zakladni, klic: 'odhad_mesic', nazev: KATALOG_MAPA.get('odhad_mesic')!.nazev,
+    proklik: prognoza.scenare.zakladni.proklik ? { zdroj: 'kontakty', filtr: { ...x.f, vyber: { metrika: 'odhad_mesic' } } } : null };
+  const akce = pripadyAkce(x);
+  const karty: DataSouhrn['karty'] = {
+    hodnota_prodeju: hodnotaProdejuMetrika(x, prodeje),
+    inkaso: inkasoMetrika(x, platbyV(x)),
+    pocet_prodeju: pocetMetrika('pocet_prodeju', x, prodeje.length, zdrojPozdeji(x, ['prodeje'])),
+    plneni_cile: plneni,
+    uspesnost: uspesnostMetrika(x, uzavreneV(x)),
+    otevrene: otevreneMetrika(x),
+    odhad_mesic: odhad,
+    k_zasahu: x.f.k_datu ? nedostupnaMetrika('k_zasahu', x, JEN_DNES) : pocetMetrika('k_zasahu', x, akce.length),
+  };
+  return obalkaPrehledu(x, { karty, cil }, ['hovory', 'kontakty', 'prodeje', 'navrhy', 'slevy', 'faktury', 'platby', 'historie', 'cile', 'snimky', 'oznaceni', 'zavolat'],
+    varovaniPrehledu(x, { historie: true, zdroje: ['prodeje', 'navrhy', 'faktury', 'platby'], odhad: true, zakladJenKlienti: true }));
+}
+
+const METRIKY_RADY = ['hovory', 'dovolano', 'zajem', 'navrhy', 'pocet_prodeju', 'hodnota_prodeju', 'inkaso', 'naklady_celkem', 'odpracovane_hodiny'];
+const ZDROJE_RADY: Record<string, ZdrojKlicPrehledu[]> = {
+  hovory: ['hovory', 'cile'], dovolano: ['hovory'], zajem: ['hovory', 'cile'], navrhy: ['hovory', 'kontakty', 'navrhy'],
+  pocet_prodeju: ['hovory', 'kontakty', 'prodeje', 'historie', 'cile'], hodnota_prodeju: ['hovory', 'kontakty', 'prodeje', 'slevy', 'historie', 'cile'],
+  inkaso: ['hovory', 'kontakty', 'prodeje', 'faktury', 'platby', 'historie', 'cile'], naklady_celkem: ['hovory', 'prodeje', 'slevy', 'naklady'],
+  odpracovane_hodiny: ['hovory', 'dovolani', 'casovac', 'cile', 'zavolat'],
+};
+/** Pracovní úseky lidí filtru (§5.14) začínající v [odMs, doMs). */
+function useyV(x: KontextPrehledu, odMs = x.odMs, doMs = x.doMs): { uid: number; od: number; do: number; kotev: number; odhad: boolean }[] {
+  return users.filter((u) => x.lidi(u.id)).flatMap((u) => pracovniUseky(u.id, x.kMs).filter((s) => s.od >= odMs && s.od < doMs).map((s) => ({ uid: u.id, ...s })));
+}
+/** Hodnota jedné metriky řady za [odMs, doMs) (číslo, nebo peníze po měnách). */
+function hodnotaRady(x: KontextPrehledu, metrika: string, odMs: number, doMs: number, odDen: string, doDen: string): { hodnota: number | null; castky: CastkaJedna[] } {
+  const v = (iso: string | null | undefined) => { if (!iso) return false; const t = Date.parse(iso); return t >= odMs && t < doMs && t <= x.kMs; };
+  const hovory = () => hovoryV(x).filter((l) => v(l.created_at));
+  switch (metrika) {
+    case 'hovory': return { hodnota: hovory().length, castky: [] };
+    case 'dovolano': return { hodnota: hovory().filter((l) => l.outcome !== 'nedovolano').length, castky: [] };
+    case 'zajem': return { hodnota: hovory().filter((l) => l.outcome === 'zajem').length, castky: [] };
+    case 'navrhy': return { hodnota: kontakty.filter((c) => v(navrhAt(c)) && x.sedi(c) && x.lidi(x.osoba(c))).length, castky: [] };
+    case 'pocet_prodeju': return { hodnota: prodejeV(x, odMs, doMs).length, castky: [] };
+    case 'hodnota_prodeju': return { hodnota: null, castky: jedneCastky(castkyZ(prodejeV(x, odMs, doMs).map((p) => ({ castka: p.cena.castka, mena: p.cena.mena })), x.meny)) };
+    case 'inkaso': return { hodnota: null, castky: jedneCastky(castkyZ(platbyV(x).filter((p) => v(p.at)).map((p) => ({ castka: p.castka, mena: p.mena })), x.meny)) };
+    case 'naklady_celkem': {
+      const xx = { ...x, f: { ...x.f, od: odDen, do: doDen }, odMs, doMs };
+      return { hodnota: null, castky: jedneCastky(castkyZ(nakladyV(xx).map((n) => ({ castka: n.castka, mena: n.mena })), x.meny)) };
+    }
+    default: return { hodnota: zaokr(useyV(x, odMs, doMs).reduce((a, s) => a + (s.do - s.od), 0) / HODINA_MS, 2), castky: [] };
+  }
+}
+/** prehled_rada (§5.3): sloupce dnů, týdnů po–ne nebo měsíců v Praze, oříznuté na období. */
+function prehledRadaMock(me: MockUser, metrika: unknown, zrnitost: unknown, vstup: unknown): PrehledObalka<DataRada> {
+  const x = kontextPrehledu(me, vstup);
+  if (typeof metrika !== 'string' || !METRIKY_RADY.includes(metrika)) fail(`Neplatná metrika řady: ${String(metrika)}. Povolené: ${METRIKY_RADY.join(', ')}.`);
+  const zrn = zrnitost === undefined || zrnitost === null ? 'den' : zrnitost;
+  if (zrn !== 'den' && zrn !== 'tyden' && zrn !== 'mesic') fail(`Neplatná zrnitost: ${String(zrn)}. Povolené: den, tyden, mesic.`);
+  const def = KATALOG_MAPA.get(metrika)!;
+  const zdrojStart = rozsahZdroje(def.zdroje[0]).od;
+  const body: BodRady[] = [];
+  for (let od = x.f.od; od <= x.f.do && body.length < 731;) {
+    const konecJednotky = zrn === 'den' ? od : zrn === 'tyden' ? posunDen(od, 7 - isoDen(od)) : posledniDenMesice(od);
+    const zacatekJednotky = zrn === 'den' ? od : zrn === 'tyden' ? posunDen(od, 1 - isoDen(od)) : `${od.slice(0, 7)}-01`;
+    const doDne = konecJednotky < x.f.do ? konecJednotky : x.f.do;
+    const odMs = zacatekDnePraha(od);
+    const doMs = zacatekDnePraha(posunDen(doDne, 1));
+    const uplny = zacatekJednotky >= x.f.od && konecJednotky <= x.f.do;
+    let bod: BodRady;
+    if (odMs > x.kMs) {
+      bod = { od, do: doDne, uplny, hodnota: null, castky: def.jednotka === 'mena' ? x.meny.map((mena) => ({ mena, hodnota: null })) : [], kvalita: 'nedostupne', duvod: 'Sloupec je až po datu dat (ještě nenastal).' };
+    } else if (zdrojStart && doMs <= Date.parse(zdrojStart)) {
+      bod = { od, do: doDne, uplny, hodnota: null, castky: def.jednotka === 'mena' ? x.meny.map((mena) => ({ mena, hodnota: null })) : [], kvalita: 'nedostupne', duvod: `Sloupec je před začátkem zdroje (${denCesky(zdrojStart)}).` };
+    } else {
+      const h = hodnotaRady(x, metrika, odMs, doMs, od, doDne);
+      const castecne = (zdrojStart && odMs < Date.parse(zdrojStart)) || doMs > x.kMs;
+      bod = { od, do: doDne, uplny, hodnota: h.hodnota, castky: h.castky, kvalita: castecne ? 'castecne' : 'dostupne',
+        duvod: castecne ? (doMs > x.kMs ? 'Sloupec ještě běží.' : `Zdroj začíná ${denCesky(zdrojStart!)}, uprostřed sloupce.`) : null };
+    }
+    body.push(bod);
+    od = posunDen(doDne, 1);
+  }
+  const mapaCile: Record<string, CilPrehledu['metrika'][]> = { hovory: ['hovory'], zajem: ['zajem'], pocet_prodeju: ['prodane_weby'], hodnota_prodeju: ['hodnota_prodeju'], inkaso: ['inkaso'], odpracovane_hodiny: ['odpracovane_hodiny'] };
+  const cile: DataRada['cile'] = [];
+  for (const mc of mapaCile[metrika] ?? []) {
+    const vMene = METRIKY_CILU.find((m) => m.klic === mc)!.v_mene;
+    if (x.f.segment || x.f.obor || x.f.kraj || (vMene && x.f.mena === 'obe')) continue;
+    for (const c of PREHLED_CILE.filter((c) => !c.zruseno_at && c.metrika === mc && c.obdobi_od <= x.f.do && c.obdobi_do >= x.f.od && (!vMene || c.mena === x.f.mena))) {
+      const sedi = c.user_id === null && c.tym_id === null ? x.f.lide === null
+        : c.user_id !== null ? !!x.f.lide && x.f.lide.length === 1 && x.f.lide[0] === c.user_id
+          : !!x.f.lide && JSON.stringify(x.f.lide) === JSON.stringify([c.tym_id!, ...users.filter((u) => u.manager_id === c.tym_id).map((u) => u.id)].sort((a, b) => a - b));
+      if (!sedi) continue;
+      const od = c.obdobi_od > x.f.od ? c.obdobi_od : x.f.od;
+      const doDne = c.obdobi_do < x.f.do ? c.obdobi_do : x.f.do;
+      const h = hodnotaRady(x, metrika, zacatekDnePraha(od), Math.min(zacatekDnePraha(posunDen(doDne, 1)), x.kMs + 1), od, doDne);
+      const skutecnost = vMene ? h.castky.find((k) => k.mena === c.mena)?.hodnota ?? null : h.hodnota === null ? null : castkaText(h.hodnota);
+      cile.push({ cil_id: c.id, od: c.obdobi_od, do: c.obdobi_do, hodnota: castkaText(c.hodnota), mena: c.mena, skutecnost, plneni: skutecnost === null ? null : zaokr(Number(skutecnost) / c.hodnota, 6),
+        kvalita: vMene && metrika === 'hodnota_prodeju' && prodejeV(x).some((p) => p.cena.castka === null) ? 'castecne' : 'dostupne' });
+    }
+  }
+  const data: DataRada = {
+    metrika: { klic: metrika, nazev: def.nazev, jednotka: def.jednotka }, zrnitost: zrn as DataRada['zrnitost'], body,
+    proklik: def.radky ? { zdroj: def.radky, filtr: { ...x.f, vyber: { metrika } } } : null, cile,
+  };
+  return obalkaPrehledu(x, data, ZDROJE_RADY[metrika], varovaniPrehledu(x, { zdroje: ZDROJE_RADY[metrika], casovac: metrika === 'odpracovane_hodiny', historie: ['pocet_prodeju', 'hodnota_prodeju', 'inkaso'].includes(metrika) }));
+}
+
+/** Milníky kontaktu do k_datu (trychtýř §5.4). */
+function milnikyKontaktu(x: KontextPrehledu, c: Kontakt): Record<KrokTrychtyre['klic'], string | null> {
+  const hovory = callLog.filter((l) => l.kontakt_id === c.id && x.doKDatu(l.created_at)).sort((a, b) => a.created_at.localeCompare(b.created_at) || a.id - b.id);
+  const faktura = PREHLED_FAKTURY.filter((f) => f.kontakt_id === c.id && x.doKDatu(f.at)).map((f) => f.at).sort()[0] ?? null;
+  const platba = platbyDoKDatu(x).filter((p) => p.c.id === c.id).map((p) => p.at).sort()[0] ?? null;
+  const navrh = navrhAt(c);
+  const prodej = PRODANO_STAVY.includes(c.status) ? datumProdeje(c) : null;
+  return {
+    osloven: hovory[0]?.created_at ?? null,
+    dovolan: hovory.find((l) => l.outcome !== 'nedovolano')?.created_at ?? null,
+    zajem: hovory.find((l) => l.outcome === 'zajem')?.created_at ?? null,
+    navrh: navrh && x.doKDatu(navrh) ? navrh : null,
+    prodano: prodej && x.doKDatu(prodej) ? prodej : null,
+    fakturovano: faktura,
+    zaplaceno: platba,
+  };
+}
+const KROKY_TRYCHTYRE: { klic: KrokTrychtyre['klic']; nazev: string; zdroj: ZdrojKlicPrehledu }[] = [
+  { klic: 'osloven', nazev: 'Osloven', zdroj: 'hovory' },
+  { klic: 'dovolan', nazev: 'Dovolán (spojeno)', zdroj: 'hovory' },
+  { klic: 'zajem', nazev: 'Zájem', zdroj: 'hovory' },
+  { klic: 'navrh', nazev: 'Návrh odeslán', zdroj: 'navrhy' },
+  { klic: 'prodano', nazev: 'Prodáno', zdroj: 'prodeje' },
+  { klic: 'fakturovano', nazev: 'Fakturováno', zdroj: 'faktury' },
+  { klic: 'zaplaceno', nazev: 'Zaplaceno', zdroj: 'platby' },
+];
+/** Kohorta trychtýře: první hovor kontaktu (kýmkoli) v období; s lide ho dělal někdo z nich. */
+function kohortaTrychtyre(x: KontextPrehledu): Kontakt[] {
+  return kontakty.filter((c) => {
+    if (!x.sedi(c)) return false;
+    const prvni = callLog.filter((l) => l.kontakt_id === c.id).sort((a, b) => a.created_at.localeCompare(b.created_at) || a.id - b.id)[0];
+    return !!prvni && x.vObdobi(prvni.created_at) && x.lidi(prvni.user_id);
+  });
+}
+/** Kontakty kroku trychtýře (n) a kdo má milník bez dřívějšího (bez_predchoziho). */
+function krokTrychtyre(x: KontextPrehledu, kohorta: Kontakt[], krok: KrokTrychtyre['klic']): { v: Kontakt[]; bez: Kontakt[]; otevrenych: Kontakt[] } {
+  const i = KROKY_TRYCHTYRE.findIndex((k) => k.klic === krok);
+  const ma = (c: Kontakt, j: number) => milnikyKontaktu(x, c)[KROKY_TRYCHTYRE[j].klic] !== null;
+  const vsechny = (c: Kontakt, j: number) => KROKY_TRYCHTYRE.slice(0, j + 1).every((_, k) => ma(c, k));
+  const uzavreny = (c: Kontakt) => ['ztraceno', 'archiv', 'vyrazeno'].includes(skupinaStavu(c.status));
+  return {
+    v: kohorta.filter((c) => vsechny(c, i)),
+    bez: kohorta.filter((c) => ma(c, i) && !vsechny(c, i)),
+    otevrenych: i === 0 ? [] : kohorta.filter((c) => vsechny(c, i - 1) && !ma(c, i) && !uzavreny(c)),
+  };
+}
+const KROKY_PO_NAVRHU: { klic: KrokPoNavrhu['klic']; nazev: string }[] = [
+  { klic: 'navrh', nazev: 'Návrh odeslán' },
+  { klic: 'odpovedel', nazev: 'Odpověděl po návrhu' },
+  { klic: 'odmitl_nahled', nazev: 'Odmítl náhled' },
+  { klic: 'nabidka', nazev: 'Nabídka za polovinu' },
+  { klic: 'prijal_nabidku', nazev: 'Přijal nabídku' },
+  { klic: 'odmitl_nabidku', nazev: 'Odmítl nabídku' },
+  { klic: 'nereagoval_na_nabidku', nazev: 'Nereagoval na nabídku' },
+  { klic: 'ceka_na_nabidku', nazev: 'Nabídka čeká' },
+  { klic: 'prodano_bez_nabidky', nazev: 'Prodáno bez nabídky' },
+];
+/** Důvody (odmitnuti z appky i zpětné), nejnovější na kontakt a fázi. */
+function duvodyRadky(): { id: number; kontakt_id: number; faze: FazeOdmitnuti; duvod: DuvodOdmitnutiKod; text: string | null; zdroj: RadekOdmitnuti['zdroj_zapisu']; zapsal: string; at: string }[] {
+  const vse = [...odmitnutiRadky.map((r) => ({ ...r })), ...PREHLED_DUVODY_ZPETNE.map((r) => ({ ...r }))];
+  const nejnovejsi = new Map<string, (typeof vse)[number]>();
+  for (const r of vse) {
+    const k = `${r.kontakt_id}|${r.faze}`;
+    const p = nejnovejsi.get(k);
+    if (!p || r.at > p.at || (r.at === p.at && r.id > p.id)) nejnovejsi.set(k, r);
+  }
+  return [...nejnovejsi.values()];
+}
+/** Kontakty kroku po návrhu (D8). */
+function krokPoNavrhu(x: KontextPrehledu, kohorta: Kontakt[], krok: KrokPoNavrhu['klic']): Kontakt[] {
+  const duvody = duvodyRadky();
+  const sleva = (c: Kontakt) => (slevy.get(c.id) ?? []).filter((e) => x.doKDatu(e.created_at) && e.created_at > (navrhAt(c) ?? '')).map((e) => e.created_at).sort()[0] ?? null;
+  const prodano = (c: Kontakt) => (PRODANO_STAVY.includes(c.status) && x.doKDatu(datumProdeje(c)) ? datumProdeje(c) : null);
+  const odpovedel = (c: Kontakt) => {
+    const n = navrhAt(c) ?? '';
+    return PREHLED_ZPRAVY.some((z) => z.kontakt_id === c.id && z.smer === 'prichozi' && z.druh === 'clovek' && z.prijato_at > n && x.doKDatu(z.prijato_at))
+      || (!!c.last_client_reply_at && c.last_client_reply_at > n) || callLog.some((l) => l.kontakt_id === c.id && l.outcome !== 'nedovolano' && l.created_at > n && x.doKDatu(l.created_at));
+  };
+  switch (krok) {
+    case 'navrh': return kohorta;
+    case 'odpovedel': return kohorta.filter(odpovedel);
+    case 'odmitl_nahled': return kohorta.filter((c) => duvody.some((d) => d.kontakt_id === c.id && d.faze === 'nahled') || (!!ztrataAt(c) && !sleva(c)) || !!sleva(c));
+    case 'nabidka': return kohorta.filter((c) => !!sleva(c));
+    case 'prijal_nabidku': return kohorta.filter((c) => { const s = sleva(c); const p = prodano(c); return !!s && !!p && p > s; });
+    case 'odmitl_nabidku': return kohorta.filter((c) => !!sleva(c) && (duvody.some((d) => d.kontakt_id === c.id && d.faze === 'sleva') || (!!ztrataAt(c) && ztrataAt(c)! > sleva(c)!)));
+    case 'nereagoval_na_nabidku': return [];
+    case 'ceka_na_nabidku': return kohorta.filter((c) => !!sleva(c) && !prodano(c) && !ztrataAt(c) && !duvody.some((d) => d.kontakt_id === c.id && d.faze === 'sleva'));
+    default: return kohorta.filter((c) => !!prodano(c) && !sleva(c));
+  }
+}
+const kohortaPoNavrhu = (x: KontextPrehledu): Kontakt[] => kontakty.filter((c) => x.vObdobi(navrhAt(c)) && x.sedi(c) && x.lidi(x.osoba(c)));
+/** prehled_trychtyr (§5.4). */
+function prehledTrychtyrMock(me: MockUser, vstup: unknown): PrehledObalka<DataTrychtyr> {
+  const x = kontextPrehledu(me, vstup);
+  const kohorta = kohortaTrychtyre(x);
+  const proklik = (vyber: Record<string, unknown>): PrehledProklik => ({ zdroj: 'kontakty', filtr: { ...x.f, vyber } });
+  let predchozi = kohorta.length;
+  const kroky: KrokTrychtyre[] = KROKY_TRYCHTYRE.map((k) => {
+    const r = krokTrychtyre(x, kohorta, k.klic);
+    const od = rozsahZdroje(k.zdroj).od;
+    const castecne = od && Date.parse(od) > x.odMs ? `Milník se eviduje od ${denCesky(od)}; dřívější průchody nejsou známé.` : null;
+    const krok: KrokTrychtyre = {
+      klic: k.klic, nazev: k.nazev, n: r.v.length, z_predchoziho: predchozi === 0 ? null : zaokr(r.v.length / predchozi, 6), z_kohorty: kohorta.length === 0 ? null : zaokr(r.v.length / kohorta.length, 6),
+      otevrenych: r.otevrenych.length, bez_predchoziho: r.bez.length, zdroj_od: od, kvalita: castecne ? 'castecne' : 'dostupne', duvod: castecne, proklik: proklik({ metrika: 'trychtyr', krok: k.klic }),
+    };
+    predchozi = r.v.length;
+    return krok;
+  });
+  const stavy = STAVY_PREHLEDU.map((s) => ({ status: s.klic, nazev: s.nazev, n: kohorta.filter((c) => c.status === s.klic).length, proklik: proklik({ metrika: 'stavy_kohorty', status: s.klic }) })).filter((s) => s.n > 0);
+  const poNavrhu = kohortaPoNavrhu(x);
+  const data: DataTrychtyr = {
+    kohorta: { popis: 'Kontakty, kterým první hovor proběhl v období', od: x.f.od, do: x.f.do, n: kohorta.length, proklik: proklik({ metrika: 'trychtyr', krok: 'osloven' }) },
+    kroky,
+    stavy: { popis: 'Současné rozložení stavů (stav k datu, ne trychtýř)', polozky: stavy },
+    po_navrhu: {
+      kohorta: { popis: 'Klienti s prvním návrhem v období', od: x.f.od, do: x.f.do, n: poNavrhu.length, proklik: proklik({ metrika: 'po_navrhu', krok: 'navrh' }) },
+      kroky: KROKY_PO_NAVRHU.map((k) => {
+        const n = krokPoNavrhu(x, poNavrhu, k.klic).length;
+        const castecne = k.klic === 'odpovedel' ? 'Odpověď z Gmailu, jinak z posledního data odpovědi klienta (částečně).' : k.klic === 'nereagoval_na_nabidku' ? 'Události sleva_vyprsela jsou jen od 2. 11. 2026.' : null;
+        return { klic: k.klic, nazev: k.nazev, n, podil: poNavrhu.length === 0 ? null : zaokr(n / poNavrhu.length, 6), kvalita: castecne ? 'castecne' as const : 'dostupne' as const, duvod: castecne, proklik: proklik({ metrika: 'po_navrhu', krok: k.klic }) };
+      }),
+    },
+  };
+  return obalkaPrehledu(x, data, ['hovory', 'kontakty', 'prodeje', 'navrhy', 'slevy', 'faktury', 'platby', 'historie', 'gmail', 'duvody'],
+    varovaniPrehledu(x, { historie: true, zdroje: ['navrhy', 'faktury', 'platby'], gmail: true, zakladJenKlienti: true }));
+}
+
+/** Vstup do aktuální fáze: status_changed_at, jinak milník fáze (zájem, návrh, nabídka); null = neznámý. */
+function vstupDoFaze(c: Kontakt): string | null {
+  if (c.status_changed_at) return c.status_changed_at;
+  if (c.status === 'zajem') return callLog.filter((l) => l.kontakt_id === c.id && l.outcome === 'zajem').map((l) => l.created_at).sort().pop() ?? null;
+  if (c.status === 'navrh_odeslan') return navrhAt(c);
+  if (c.status === 'sleva_nabidnuta') return (slevy.get(c.id) ?? []).map((e) => e.created_at).sort().pop() ?? null;
+  if (PRODANO_STAVY.includes(c.status) && c.status === 'schvaleno') return datumProdeje(c);
+  return null;
+}
+const PASMA: PasmoStari[] = ['0-7', '8-14', '15-30', '31+'];
+const pasmoDni = (d: number): PasmoStari => (d <= 7 ? '0-7' : d <= 14 ? '8-14' : d <= 30 ? '15-30' : '31+');
+function starnuti(x: KontextPrehledu, cs: Kontakt[], vyber: Record<string, unknown>, metrika: string): Starnuti {
+  const dny = cs.map((c) => { const v = vstupDoFaze(c); return v && x.doKDatu(v) ? dniOd(v, x.kMs) : null; });
+  const zname = dny.filter((d): d is number => d !== null);
+  return {
+    pasma: PASMA.map((p) => ({ pasmo: p, n: zname.filter((d) => pasmoDni(d) === p).length, proklik: { zdroj: 'kontakty', filtr: { ...x.f, vyber: { metrika, ...vyber, pasmo: p } } } })),
+    median_d: zname.length ? zaokr(percentil(zname, 0.5)!, 1) : null,
+    p90_d: zname.length ? zaokr(percentil(zname, 0.9)!, 1) : null,
+    nezname_n: dny.length - zname.length,
+    celkova_doba: { median_d: null, p90_d: null, n: null, kvalita: 'nedostupne', duvod: 'Celkový čas ve fázi přes opakované vstupy je jen z historie změn stavů, která období ještě nepokrývá.' },
+  };
+}
+/** Kontakty se zájmem v období (první zájmový hovor v období, lide = kdo ho zapsal). */
+const zajemVObdobi = (x: KontextPrehledu): { c: Kontakt; at: string }[] => kontakty.flatMap((c) => {
+  const prvni = callLog.filter((l) => l.kontakt_id === c.id && l.outcome === 'zajem').sort((a, b) => a.created_at.localeCompare(b.created_at) || a.id - b.id)[0];
+  return prvni && x.vObdobi(prvni.created_at) && x.sedi(c) && x.lidi(prvni.user_id) ? [{ c, at: prvni.created_at }] : [];
+});
+/** Nabídky za polovinu: první sleva_odeslana v období. */
+const slevyVObdobi = (x: KontextPrehledu): { c: Kontakt; at: string; detail: string }[] => kontakty.flatMap((c) => {
+  const prvni = (slevy.get(c.id) ?? []).slice().sort((a, b) => a.created_at.localeCompare(b.created_at))[0];
+  return prvni && x.vObdobi(prvni.created_at) && x.sedi(c) && x.lidi(x.osoba(c)) ? [{ c, at: prvni.created_at, detail: prvni.detail }] : [];
+});
+const prodanPo = (c: Kontakt, iso: string, kMs: number): boolean => PRODANO_STAVY.includes(c.status) && datumProdeje(c) >= iso && Date.parse(datumProdeje(c)) <= kMs;
+/** Kohorty měsíců prvního hovoru, které období zasahuje (§5.6). */
+function kohortyMesicu(x: KontextPrehledu): { mesic: string; cs: { c: Kontakt; prvni: string }[] }[] {
+  const out: { mesic: string; cs: { c: Kontakt; prvni: string }[] }[] = [];
+  for (let m = x.f.od.slice(0, 7); m <= x.f.do.slice(0, 7); m = posunDen(`${m}-28`, 4).slice(0, 7)) {
+    const cs = kontakty.flatMap((c) => {
+      const prvni = callLog.filter((l) => l.kontakt_id === c.id && x.doKDatu(l.created_at)).sort((a, b) => a.created_at.localeCompare(b.created_at) || a.id - b.id)[0];
+      return prvni && denPraha(new Date(prvni.created_at)).slice(0, 7) === m && x.sedi(c) && x.lidi(prvni.user_id) ? [{ c, prvni: prvni.created_at }] : [];
+    });
+    out.push({ mesic: m, cs });
+  }
+  return out;
+}
+/** prehled_pipeline (§5.6). */
+function prehledPipelineMock(me: MockUser, vstup: unknown): PrehledObalka<DataPipeline> {
+  const x = kontextPrehledu(me, vstup);
+  const neznamy = stavNeznamy(x);
+  const otevrene = neznamy ? [] : otevreneKDatu(x);
+  const faze = neznamy ? [] : OTEVRENE_STAVY.map((s) => {
+    const o = otevrene.filter((j) => j.c.status === s);
+    return { status: s, nazev: nazevStavu(s), n: o.length, castky: castkyZ(o.map((j) => ({ castka: j.cena.castka, mena: j.cena.mena })), x.meny),
+      nezname_n: o.filter((j) => j.cena.castka === null).length, starnuti: starnuti(x, o.map((j) => j.c), { status: s }, 'pipeline_faze'),
+      proklik: { zdroj: 'kontakty', filtr: { ...x.f, vyber: { metrika: 'pipeline_faze', status: s } } } };
+  });
+  const zajmy = zajemVObdobi(x);
+  const zmerene: number[] = [];
+  let cenzurovano = 0;
+  for (const z of zajmy) {
+    const n = navrhAt(z.c);
+    if (n && x.doKDatu(n) && n >= z.at) zmerene.push(zaokr((Date.parse(n) - Date.parse(z.at)) / 86400000, 1));
+    else cenzurovano += 1;
+  }
+  const slevyO = slevyVObdobi(x);
+  const prijato = slevyO.filter((s) => prodanPo(s.c, s.at, x.kMs)).length;
+  const otevreneSlevy = slevyO.filter((s) => !prodanPo(s.c, s.at, x.kMs) && !ztrataAt(s.c)).length;
+  const ceny = new Map<MenaPrehledu, { mena: MenaPrehledu; puvodni: number; nabidnuta: number; n: number }>();
+  for (const s of slevyO) {
+    const nabidnuta = cenaRozborMock(cenaZeSlevy(s.detail));
+    const puvodni = cenaRozborMock(s.c.cena_web);
+    if (nabidnuta.stav === 'presne' && puvodni.stav === 'presne' && nabidnuta.mena === puvodni.mena && nabidnuta.mena) {
+      const r = ceny.get(nabidnuta.mena) ?? { mena: nabidnuta.mena, puvodni: 0, nabidnuta: 0, n: 0 };
+      r.puvodni += Number(puvodni.castka);
+      r.nabidnuta += Number(nabidnuta.castka);
+      r.n += 1;
+      ceny.set(nabidnuta.mena, r);
+    }
+  }
+  const kohorty = kohortyMesicu(x);
+  const zralost = (mesic: string) => {
+    const konec = posledniDenMesice(`${mesic}-01`);
+    const kDen = denPraha(new Date(x.kMs));
+    return Math.max(0, Math.round((zacatekDnePraha(kDen) - zacatekDnePraha(konec < kDen ? konec : `${mesic}-01`)) / 86400000));
+  };
+  const okno = kohorty.length ? Math.min(...kohorty.map((k) => zralost(k.mesic))) : 0;
+  const vOkne = (prvni: string, iso: string | null) => !!iso && Date.parse(iso) - Date.parse(prvni) <= okno * 86400000;
+  const hvezdy = kohortaPoNavrhu(x);
+  const hvezdaPred = (c: Kontakt) => !!c.hvezda_at && x.doKDatu(c.hvezda_at) && (!PRODANO_STAVY.includes(c.status) || c.hvezda_at <= datumProdeje(c));
+  const radekHvezdy = (cs: Kontakt[], hvezda: boolean) => {
+    const prodano = cs.filter((c) => PRODANO_STAVY.includes(c.status) && x.doKDatu(datumProdeje(c))).length;
+    return { n: cs.length, prodano, podil: cs.length === 0 ? null : zaokr(prodano / cs.length, 6), proklik: { zdroj: 'kontakty', filtr: { ...x.f, vyber: { metrika: 'kalibrace_hvezdy', hvezda } } } };
+  };
+  const pohybyNedostupne = { n: null, castky: [] };
+  const data: DataPipeline = {
+    faze,
+    rychlost_navrhu: {
+      median: trvaniMetrika('rychlost_navrhu_median', x, zmerene, cenzurovano, 0.5, 1, 'V období nikdo se zájmem nedostal návrh.'),
+      p90: trvaniMetrika('rychlost_navrhu_p90', x, zmerene, cenzurovano, 0.9, 1, 'V období nikdo se zájmem nedostal návrh.'),
+      cenzurovano,
+    },
+    slevy: {
+      nabidnuto: pocetMetrika('slevy_nabidnuto', x, slevyO.length),
+      prijato: pocetMetrika('slevy_prijato', x, prijato),
+      mira_prijeti: podilMetrika('slevy_mira_prijeti', x, prijato, slevyO.length, slevyO.length, pokryti(slevyO.length - otevreneSlevy, slevyO.length),
+        otevreneSlevy > 0 ? `${otevreneSlevy} ${zCelku(slevyO.length, 'nabídek')} ještě běží (neznámý výsledek).` : null),
+      ceny: [...ceny.values()].map((r) => ({ mena: r.mena, puvodni: castkaText(r.puvodni), nabidnuta: castkaText(r.nabidnuta), n: r.n })),
+    },
+    kohorty: kohorty.map((k) => {
+      const cs = k.cs;
+      const m = (c: Kontakt) => milnikyKontaktu(x, c);
+      return {
+        mesic: k.mesic, n: cs.length, dovolano: cs.filter(({ c }) => m(c).dovolan).length, zajem: cs.filter(({ c }) => m(c).zajem).length, navrh: cs.filter(({ c }) => m(c).navrh).length,
+        prodano: cs.filter(({ c }) => m(c).prodano).length, ztraceno: cs.filter(({ c }) => skupinaStavu(c.status) === 'ztraceno').length,
+        otevrenych: cs.filter(({ c }) => skupinaStavu(c.status) === 'otevrene').length, zralost_dni: zralost(k.mesic),
+        v_okne: { dni: okno, zajem: cs.filter(({ c, prvni }) => vOkne(prvni, m(c).zajem)).length, navrh: cs.filter(({ c, prvni }) => vOkne(prvni, m(c).navrh)).length,
+          prodano: cs.filter(({ c, prvni }) => vOkne(prvni, m(c).prodano)).length },
+        proklik: { zdroj: 'kontakty', filtr: { ...x.f, vyber: { metrika: 'kohorta_mesic', mesic: k.mesic } } },
+      };
+    }),
+    kalibrace_znamky: (['A', 'B', 'C', 'bez'] as const).map((z) => {
+      const cs = zajmy.filter((j) => (j.c.rating ?? 'bez') === z);
+      const prodano = cs.filter((j) => prodanPo(j.c, j.at, x.kMs)).length;
+      return { znamka: z, n: cs.length, prodano, podil: cs.length === 0 ? null : zaokr(prodano / cs.length, 6), proklik: { zdroj: 'kontakty', filtr: { ...x.f, vyber: { metrika: 'kalibrace_znamky', znamka: z } } } };
+    }),
+    kalibrace_hvezdy: { s_hvezdou: radekHvezdy(hvezdy.filter(hvezdaPred), true), bez_hvezdy: radekHvezdy(hvezdy.filter((c) => !hvezdaPred(c)), false) },
+    pohyby: {
+      kvalita: 'nedostupne', duvod: `Pohyby pipeline potřebují historii změn stavů od začátku období; historie začíná ${denCesky(PREHLED_HISTORIE_OD)}.`,
+      pocatek: pohybyNedostupne, nove: null, znovu_otevrene: null, vyhrane: null, ztracene: null, vyrazene: null, zmena_hodnoty: [], prirustek_hodnoty: [], ubytek_hodnoty: [],
+      konec: pohybyNedostupne, pruchozi: null,
+    },
+  };
+  return obalkaPrehledu(x, data, ['hovory', 'kontakty', 'prodeje', 'navrhy', 'slevy', 'historie'], varovaniPrehledu(x, { historie: true, zdroje: ['navrhy', 'slevy'], zakladJenKlienti: true }));
+}
+
+/** Populace tabulky klientů podle základu (§5.7, R31). */
+function populaceKlientu(x: KontextPrehledu): { cs: Kontakt[]; kohortove: boolean } {
+  const z = x.f.zaklad;
+  if (z === 'prirozeny') return { cs: kontakty.filter((c) => x.sedi(c)), kohortove: false };
+  const ids = new Set<number>(
+    z === 'aktivita' ? hovoryV(x).map((l) => l.kontakt_id)
+      : z === 'prodej' ? prodejeV(x).map((p) => p.c.id)
+        : z === 'faktura' ? fakturyV(x).map((f) => f.c.id)
+          : platbyV(x).map((p) => p.c.id),
+  );
+  return { cs: kontakty.filter((c) => ids.has(c.id) && x.sedi(c)), kohortove: true };
+}
+function radekDimenze(x: KontextPrehledu, klic: string, nazev: string, cs: Kontakt[], kohortove: boolean, vyber: Record<string, unknown>): RadekDimenze {
+  const ids = new Set(cs.map((c) => c.id));
+  const hovory = (kohortove ? callLog.filter((l) => x.doKDatu(l.created_at)) : hovoryV(x)).filter((l) => ids.has(l.kontakt_id) && x.lidi(l.user_id));
+  const prvniV = (c: Kontakt) => {
+    const p = callLog.filter((l) => l.kontakt_id === c.id).sort((a, b) => a.created_at.localeCompare(b.created_at))[0];
+    return !!p && (kohortove ? x.doKDatu(p.created_at) : x.vObdobi(p.created_at)) && x.lidi(p.user_id);
+  };
+  const prodeje = (kohortove ? prodejeV(x, -Infinity, Infinity) : prodejeV(x)).filter((p) => ids.has(p.c.id));
+  return {
+    klic, nazev, kontakty: cs.length, osloveno: cs.filter(prvniV).length,
+    dovolano: new Set(hovory.filter((l) => l.outcome !== 'nedovolano').map((l) => l.kontakt_id)).size,
+    zajem: new Set(hovory.filter((l) => l.outcome === 'zajem').map((l) => l.kontakt_id)).size,
+    navrhy: cs.filter((c) => (kohortove ? x.doKDatu(navrhAt(c)) : x.vObdobi(navrhAt(c))) && x.lidi(x.osoba(c))).length,
+    prodano: prodeje.length, hodnota: castkyZ(prodeje.map((p) => ({ castka: p.cena.castka, mena: p.cena.mena })), x.meny),
+    proklik: { zdroj: 'kontakty', filtr: { ...x.f, vyber } },
+  };
+}
+/** prehled_klienti (§5.7). */
+function prehledKlientiMock(me: MockUser, vstup: unknown): PrehledObalka<DataKlienti> {
+  const x = kontextPrehledu(me, vstup);
+  const { cs, kohortove } = populaceKlientu(x);
+  const segmenty = [...new Set(cs.map((c) => segmentOf(c)))];
+  const poradiSegmentu = (s: string) => (s === 'chata' ? 0 : s === 'architekt' ? 1 : 2 + (oborNikyMock.find((n) => n.klic === s)?.poradi ?? 99));
+  const nazevSegmentu = (s: string) => (s === 'chata' ? 'Chaty' : s === 'architekt' ? 'Architekti' : oborNikyMock.find((n) => n.klic === s)?.nazev ?? s);
+  const podleOboru = new Map<string, Kontakt[]>();
+  for (const c of cs) {
+    const m = /^([^:]+):\s*(.*)$/.exec(c.obor ?? '');
+    if (!m) continue;
+    for (const s of m[2].split(',').map((v) => v.trim()).filter(Boolean)) podleOboru.set(`${m[1].trim()}: ${s}`, [...(podleOboru.get(`${m[1].trim()}: ${s}`) ?? []), c]);
+  }
+  const prodeje = prodejeV(x);
+  const meny1 = x.f.mena === 'obe' ? null : x.f.mena;
+  const koncentrace = (klic: 'koncentrace_top1' | 'koncentrace_top5', kolik: number): Metrika => {
+    if (!meny1) return nedostupnaMetrika(klic, x, 'Koncentrace se počítá jen pro jednu měnu; vyberte CZK nebo EUR.');
+    const v = prodeje.filter((p) => p.cena.castka !== null && p.cena.mena === meny1).map((p) => p.cena.castka!).sort((a, b) => b - a);
+    const celkem = zaokr(v.reduce((a, b) => a + b, 0), 2);
+    const nezname = prodeje.filter((p) => p.cena.castka === null).length;
+    return podilMetrika(klic, x, zaokr(v.slice(0, kolik).reduce((a, b) => a + b, 0), 2), celkem, prodeje.length, pokryti(prodeje.length - nezname, prodeje.length),
+      nezname > 0 ? `U ${nezname} ${zCelku(prodeje.length, 'prodejů')} není přesná cena; podíl je jen ze známých.` : null);
+  };
+  const firmy = cs.filter((c) => rodinaOf(segmentOf(c)) === 'obor');
+  const data: DataKlienti = {
+    zaklad: x.f.zaklad,
+    podle_segmentu: segmenty.sort((a, b) => poradiSegmentu(a) - poradiSegmentu(b)).map((s) => radekDimenze(x, s, nazevSegmentu(s), cs.filter((c) => segmentOf(c) === s), kohortove, { metrika: 'klienti_segment', segment: s })),
+    podle_oboru: [...podleOboru.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([klic, v]) => radekDimenze(x, klic, klic.split(': ')[1] ?? klic, v, kohortove, { metrika: 'klienti_obor', obor: klic })),
+    podle_kraje: cs.length ? [radekDimenze(x, 'neznamy', 'Neznámý kraj', cs, kohortove, { metrika: 'klienti_kraj', kraj: 'neznamy' })] : [],
+    hodnoceni_webu: (['A', 'B', 'C', 'D', 'E', 'F', 'bez'] as const).map((z) => {
+      const v = firmy.filter((c) => (c.web_hodnoceni ?? 'bez') === z);
+      const r = radekDimenze(x, z, z, v, kohortove, { metrika: 'hodnoceni_webu', znamka: z });
+      return { znamka: z, kontakty: r.kontakty, osloveno: r.osloveno, zajem: r.zajem, navrhy: r.navrhy, prodano: r.prodano, proklik: r.proklik };
+    }),
+    koncentrace: { top1: koncentrace('koncentrace_top1', 1), top5: koncentrace('koncentrace_top5', 5) },
+    sablony: { popis: 'Pozorování, ne důkaz účinku šablony.', radky: [] },
+  };
+  return obalkaPrehledu(x, data, ['hovory', 'kontakty', 'prodeje', 'navrhy', 'slevy'], varovaniPrehledu(x, { zdroje: ['navrhy', 'prodeje'] }));
+}
+
+/** Čekání (§5.8): na nás = klient psal poslední, na klienta = my; jen otevření a jen pro teď. */
+function cekaniJednotky(x: KontextPrehledu, kdo: 'na_nas' | 'na_klienta'): { c: Kontakt; od: string }[] {
+  return kontakty.flatMap((c) => {
+    if (!OTEVRENE_STAVY.includes(c.status) || !x.sedi(c) || !x.lidi(x.osoba(c))) return [];
+    const klient = casMs(c.last_client_reply_at);
+    const nase = casMs(c.last_our_reply_at);
+    if (kdo === 'na_nas') return klient !== null && (nase === null || klient > nase) ? [{ c, od: c.last_client_reply_at! }] : [];
+    return nase !== null && (klient === null || nase > klient) ? [{ c, od: c.last_our_reply_at! }] : [];
+  });
+}
+function skupinaCekani(x: KontextPrehledu, kdo: 'na_nas' | 'na_klienta'): SkupinaCekani {
+  if (x.f.k_datu) return { n: null, median_d: null, p90_d: null, nad_limit: null, kvalita: 'nedostupne', duvod: JEN_DNES, proklik: null };
+  const j = cekaniJednotky(x, kdo);
+  const dny = j.map((u) => zaokr((Date.now() - Date.parse(u.od)) / 86400000, 1));
+  const nad = kdo === 'na_nas' ? j.filter((u) => Date.now() - Date.parse(u.od) > 24 * HODINA_MS).length : j.filter((u) => (mlciPd(u.c) ?? 0) >= 5).length;
+  return { n: j.length, median_d: dny.length ? zaokr(percentil(dny, 0.5)!, 1) : null, p90_d: dny.length ? zaokr(percentil(dny, 0.9)!, 1) : null, nad_limit: nad, kvalita: 'dostupne',
+    duvod: j.length === 0 ? 'Nikdo nečeká.' : null, proklik: { zdroj: 'kontakty', filtr: { ...x.f, vyber: { metrika: kdo === 'na_nas' ? 'cekani_na_nas' : 'cekani_na_klienta' } } } };
+}
+/** Zprávy z Gmailu v období a ve filtru (nejasné jen bez lide, segmentu, oboru a kraje). */
+const zpravyV = (x: KontextPrehledu): MockZprava[] => PREHLED_ZPRAVY.filter((z) => {
+  if (!x.vObdobi(z.prijato_at)) return false;
+  const c = kontaktPodleId(z.kontakt_id);
+  if (!c) return !x.f.lide && !x.f.segment && !x.f.obor && !x.f.kraj;
+  return x.sedi(c) && x.lidi(x.osoba(c));
+});
+/** Odpověděl po návrhu člověk (Gmail, jinak last_client_reply_at částečně). */
+const odpovedelPoNavrhu = (c: Kontakt, kMs: number): boolean => {
+  const n = navrhAt(c) ?? '';
+  return PREHLED_ZPRAVY.some((z) => z.kontakt_id === c.id && z.smer === 'prichozi' && z.druh === 'clovek' && z.prijato_at > n && Date.parse(z.prijato_at) <= kMs)
+    || (!!c.last_client_reply_at && c.last_client_reply_at > n && Date.parse(c.last_client_reply_at) <= kMs);
+};
+/** Odvozené výsledky a důvody (§5.8, D8): řádky zdroje odmitnuti. */
+interface JednotkaOdmitnuti { radek_id: string; c: Kontakt; faze: FazeOdmitnuti | null; duvod: DuvodRadku; text: string | null; zdroj: RadekOdmitnuti['zdroj_zapisu']; zapsal: string | null; at: string }
+function odmitnutiJednotky(x: KontextPrehledu, co: 'duvody' | 'nereagoval_na_nabidku' | 'mlci_po_navrhu' | 'ztraty_bez_duvodu' | 'vse'): JednotkaOdmitnuti[] {
+  const out: JednotkaOdmitnuti[] = [];
+  const duvody = duvodyRadky();
+  if (co === 'duvody' || co === 'vse') {
+    for (const d of duvody) {
+      const c = kontaktPodleId(d.kontakt_id);
+      if (!c || !x.vObdobi(d.at) || !x.sedi(c) || !x.lidi(x.osoba(c))) continue;
+      out.push({ radek_id: `o:${d.id}`, c, faze: d.faze, duvod: d.duvod, text: d.text, zdroj: d.zdroj, zapsal: d.zapsal, at: d.at });
+    }
+  }
+  if ((co === 'mlci_po_navrhu' || co === 'vse') && !x.f.k_datu) {
+    for (const c of kontakty) {
+      if (!OTEVRENE_STAVY.includes(c.status) || !navrhAt(c) || (mlciPd(c) ?? 0) < 5 || !x.sedi(c) || !x.lidi(x.osoba(c))) continue;
+      out.push({ radek_id: `m:${c.id}`, c, faze: null, duvod: 'mlci_po_navrhu', text: null, zdroj: null, zapsal: null, at: c.last_our_reply_at ?? navrhAt(c)! });
+    }
+  }
+  if (co === 'ztraty_bez_duvodu' || co === 'vse') {
+    for (const u of uzavreneV(x).filter((j) => !j.vyhra)) {
+      if (duvody.some((d) => d.kontakt_id === u.c.id)) continue;
+      out.push({ radek_id: `b:${u.c.id}`, c: u.c, faze: null, duvod: 'bez_duvodu', text: null, zdroj: null, zapsal: null, at: u.at });
+    }
+  }
+  return out;
+}
+const NAZVY_DUVODU: Record<DuvodRadku, string> = {
+  ...Object.fromEntries(DUVODY_ODMITNUTI.map((d) => [d.kod, d.text])) as Record<DuvodOdmitnutiKod, string>,
+  nereagoval_na_nabidku: 'Nereagoval ani na nabídku za polovinu',
+  mlci_po_navrhu: 'Mlčí po návrhu',
+  bez_duvodu: 'Důvod nezapsán',
+};
+/** prehled_komunikace (§5.8). */
+function prehledKomunikaceMock(me: MockUser, vstup: unknown): PrehledObalka<DataKomunikace> {
+  const x = kontextPrehledu(me, vstup);
+  const sync = PREHLED_EMAIL_SYNC[0];
+  const gmailChybi = !sync?.posledni_uspech;
+  const zpravy = zpravyV(x);
+  const pocty = (smer: 'prichozi' | 'odchozi') => Object.fromEntries((['clovek', 'automaticka_odpoved', 'nedoruceno', 'systemova', 'nezname'] as const)
+    .map((d) => [d, gmailChybi ? null : zpravy.filter((z) => z.smer === smer && z.druh === d).length])) as PoctyDruhu;
+  const navrhyO = kohortaPoNavrhu(x);
+  const odpovedeli = navrhyO.filter((c) => odpovedelPoNavrhu(c, x.kMs)).length;
+  const duvody = odmitnutiJednotky(x, 'duvody');
+  const celkemN = duvody.filter((d) => d.faze === 'nahled').length;
+  const celkemS = duvody.filter((d) => d.faze === 'sleva').length;
+  const bezDuvodu = odmitnutiJednotky(x, 'ztraty_bez_duvodu');
+  const souhrn = [...DUVODY_ODMITNUTI.map((d) => d.kod as DuvodRadku), 'bez_duvodu' as DuvodRadku].map((kod) => {
+    const v = kod === 'bez_duvodu' ? bezDuvodu : duvody.filter((d) => d.duvod === kod);
+    const nahled = v.filter((d) => d.faze === 'nahled').length;
+    const sleva = v.filter((d) => d.faze === 'sleva').length;
+    const celkem = v.length;
+    return { duvod: kod, nazev: NAZVY_DUVODU[kod], nahled, sleva, celkem, podil: celkemN + celkemS === 0 ? null : zaokr(celkem / (celkemN + celkemS), 6),
+      proklik: { zdroj: 'odmitnuti', filtr: { ...x.f, vyber: kod === 'bez_duvodu' ? { metrika: 'ztraty_bez_duvodu' } : { metrika: 'duvody', duvod: kod } } } };
+  });
+  const bunky = new Map<string, { duvod: DuvodRadku; faze: FazeOdmitnuti; segment: string; user_id: number | null; n: number }>();
+  for (const d of duvody) {
+    if (!d.faze) continue;
+    const uid = x.osoba(d.c);
+    const k = `${d.duvod}|${d.faze}|${segmentOf(d.c)}|${uid}`;
+    const b = bunky.get(k) ?? { duvod: d.duvod, faze: d.faze, segment: segmentOf(d.c), user_id: uid, n: 0 };
+    b.n += 1;
+    bunky.set(k, b);
+  }
+  const gmailMetrika = (klic: string, n: number) => (gmailChybi ? nedostupnaMetrika(klic, x, 'Zprávy z Gmailu se zatím nesynchronizují.') : pocetMetrika(klic, x, n));
+  const data: DataKomunikace = {
+    cekani: { na_nas: skupinaCekani(x, 'na_nas'), na_klienta: skupinaCekani(x, 'na_klienta') },
+    zpravy: {
+      kvalita: gmailChybi ? 'nedostupne' : 'dostupne', duvod: gmailChybi ? 'Zprávy z Gmailu se zatím nesynchronizují.' : null,
+      prichozi: pocty('prichozi'), odchozi: pocty('odchozi'),
+      nedoruceno: gmailMetrika('zpravy_nedoruceno', zpravy.filter((z) => z.druh === 'nedoruceno').length),
+      automaticke: gmailMetrika('zpravy_automaticke', zpravy.filter((z) => z.druh === 'automaticka_odpoved').length),
+      mira_odpovedi_po_navrhu: podilMetrika('mira_odpovedi_po_navrhu', x, odpovedeli, navrhyO.length, navrhyO.length, pokryti(navrhyO.length, navrhyO.length),
+        gmailChybi ? 'Bez Gmailu jen z posledního data odpovědi klienta.' : zdrojPozdeji(x, ['gmail'])),
+      nejasne_vazby: gmailMetrika('nejasne_vazby', zpravy.filter((z) => z.vazba === 'nejasne').length),
+    },
+    duvody: {
+      celkem_nahled: celkemN, celkem_sleva: celkemS, souhrn, radky: [...bunky.values()],
+      nereagoval_na_nabidku: pocetMetrika('nereagoval_na_nabidku', x, 0, zdrojPozdeji(x, ['slevy'])),
+      mlci_po_navrhu: x.f.k_datu ? nedostupnaMetrika('mlci_po_navrhu', x, JEN_DNES) : pocetMetrika('mlci_po_navrhu', x, odmitnutiJednotky(x, 'mlci_po_navrhu').length),
+      bez_duvodu: pocetMetrika('ztraty_bez_duvodu', x, bezDuvodu.length),
+    },
+  };
+  return obalkaPrehledu(x, data, ['kontakty', 'navrhy', 'slevy', 'historie', 'gmail', 'duvody'], varovaniPrehledu(x, { historie: true, gmail: true, zdroje: ['navrhy', 'gmail', 'duvody'] }));
+}
+
+/** Obnovy hostingu: poslední platba + 1 rok, splatné do 60 dní po k_datu nebo po splatnosti (§5.9). */
+function obnovyHostingu(x: KontextPrehledu): ObnovaHostingu[] {
+  const platby = platbyDoKDatu(x);
+  return kontakty.filter((c) => PRODANO_STAVY.includes(c.status) && x.sedi(c) && x.lidi(x.osoba(c))).flatMap((c) => {
+    const posledni = platby.filter((p) => p.c.id === c.id).map((p) => p.at).sort().pop();
+    if (!posledni) return [];
+    const splatnost = posunDen(denPraha(new Date(posledni)), 365);
+    if (zacatekDnePraha(splatnost) - x.kMs > 60 * 86400000) return [];
+    const h = hostingRozbor(c.cena_hosting);
+    return [{ kontakt_id: c.id, jmeno: jmenoKontaktu(c), zaplaceno_at: posledni, splatnost, castka: h.castka, mena: h.mena }];
+  });
+}
+/** prehled_finance (§5.9). */
+function prehledFinanceMock(me: MockUser, vstup: unknown): PrehledObalka<DataFinance> {
+  const x = kontextPrehledu(me, vstup);
+  const prodeje = prodejeV(x);
+  const faktury = fakturyV(x);
+  const platby = platbyV(x);
+  const pohledavky = pohledavkyKDatu(x);
+  const slevyO = slevyVObdobi(x);
+  const zdrojFaktury = zdrojPozdeji(x, ['faktury']);
+  const castFaktury = (klic: string, cast: 'web' | 'hosting' | 'celkem') =>
+    penizeMetrika(klic, x, faktury.map((f) => ({ castka: f.r[cast], mena: f.r[cast] === null ? null : f.r.mena })), 'faktur', zdrojFaktury);
+  const provizeObdobi = provizeJednotky(x, x.odMs, x.f.od);
+  const provizeDoKonce = provizeJednotky(x, -Infinity, '0000-01-01');
+  const narok = provizeObdobi.filter((p) => p.druh === 'narok');
+  const vyplaty = provizeObdobi.filter((p) => p.druh === 'vyplata');
+  const zbyvaKonec = provizeDoKonce;
+  const zbyvaNezname = zbyvaKonec.filter((p) => p.druh === 'narok' && p.castka === null).length;
+  const zbyva = metrikaPrehledu('provize_zbyva', x, {
+    castky: zbyvaCastky(zbyvaKonec, x.meny), n: zbyvaKonec.length, pokryti: pokryti(zbyvaKonec.length - zbyvaNezname, zbyvaKonec.length),
+    kvalita: zbyvaNezname > 0 ? 'castecne' : 'dostupne', duvod: zbyvaNezname > 0 ? `U ${zbyvaNezname} prodejů nejde přečíst cenu; nárok je jen ze známých cen.` : null,
+  });
+  const sProdanymi = kontakty.filter((c) => PRODANO_STAVY.includes(c.status) && x.sedi(c) && Date.parse(datumProdeje(c)) <= x.kMs && x.lidi(x.osoba(c)));
+  const hosting = sProdanymi.map((c) => ({ c, h: hostingRozbor(c.cena_hosting) }));
+  const rocne = hosting.map(({ h }) => ({ castka: h.castka === null ? null : Number(h.castka), mena: h.mena }));
+  const rocneM = penizeMetrika('hosting_rocne', x, rocne, 'prodaných klientů');
+  const mrr = metrikaPrehledu('hosting_mrr', x, { ...rocneM, klic: 'hosting_mrr', nazev: KATALOG_MAPA.get('hosting_mrr')!.nazev,
+    castky: rocneM.castky.map((c) => ({ ...c, hodnota: c.hodnota === null ? null : castkaText(Math.round((Number(c.hodnota) / 12) * 100) / 100) })) });
+  const arr = metrikaPrehledu('hosting_arr', x, { ...mrr, klic: 'hosting_arr', nazev: KATALOG_MAPA.get('hosting_arr')!.nazev,
+    castky: mrr.castky.map((c) => ({ ...c, hodnota: c.hodnota === null ? null : castkaText(Number(c.hodnota) * 12) })) });
+  const zauctovani = nakladyV(x);
+  const filtr = nakladyFiltrovane(x);
+  const kategorie = KATEGORIE_VYUCTOVANI.map((k) => {
+    const v = zauctovani.filter((z) => z.kategorie === k.klic);
+    const overit = v.filter((z) => z.overit).length;
+    const castka = k.klic !== 'provize' && filtr ? nedostupnaMetrika(`naklady_${k.klic}`, x, NAKLADY_BEZ_FILTRU)
+      : penizeMetrika(`naklady_${k.klic}`, x, v.map((z) => ({ castka: z.castka, mena: z.mena })), 'položek', overit > 0 ? `Částka čeká na ověření u ${overit} ${zCelku(v.length, 'položek')}.` : null);
+    return { kategorie: k.klic, nazev: k.nazev, castka, overit };
+  });
+  const celkemOverit = zauctovani.filter((z) => z.overit).length;
+  const celkem = filtr ? nedostupnaMetrika('naklady_celkem', x, NAKLADY_BEZ_FILTRU)
+    : penizeMetrika('naklady_celkem', x, zauctovani.map((z) => ({ castka: z.castka, mena: z.mena })), 'položek', celkemOverit > 0 ? `Částka čeká na ověření u ${celkemOverit} ${zCelku(zauctovani.length, 'položek')}.` : null);
+  const inkaso = inkasoMetrika(x, platby);
+  const domenaKlienti = sProdanymi.filter((c) => c.status === 'domena_pripojena' || c.status === 'hotovo');
+  const domenaZname = domenaKlienti.filter((c) => PREHLED_NAKLADY.some((n) => n.kategorie === 'domena' && n.kontakt_id === c.id && !n.zruseno_at)).length;
+  const hostingKlienti = hosting.filter(({ h }) => h.stav === 'presne');
+  const hostingZname = hostingKlienti.filter(({ c }) => PREHLED_NAKLADY.some((n) => n.kategorie === 'hosting' && n.kontakt_id === c.id && !n.zruseno_at)).length;
+  const vysledek = filtr ? nedostupnaMetrika('vysledek', x, NAKLADY_BEZ_FILTRU) : metrikaPrehledu('vysledek', x, {
+    castky: x.meny.map((mena) => {
+      const a = inkaso.castky.find((c) => c.mena === mena)?.hodnota ?? null;
+      const b = celkem.castky.find((c) => c.mena === mena)?.hodnota ?? null;
+      return { mena, hodnota: a === null || b === null ? null : castkaText(Number(a) - Number(b)), pokryti: pokryti(0, 0) };
+    }),
+    n: (inkaso.n ?? 0) + (celkem.n ?? 0), pokryti: pokryti((inkaso.pokryti?.zname ?? 0) + (celkem.pokryti?.zname ?? 0), (inkaso.n ?? 0) + (celkem.n ?? 0)),
+    kvalita: inkaso.kvalita !== 'dostupne' || celkem.kvalita !== 'dostupne' || domenaZname < domenaKlienti.length || hostingZname < hostingKlienti.length ? 'castecne' : 'dostupne',
+    duvod: inkaso.kvalita !== 'dostupne' || celkem.kvalita !== 'dostupne' || domenaZname < domenaKlienti.length || hostingZname < hostingKlienti.length
+      ? 'Výsledek je jen ze známých plateb a nákladů; část nákladů na klienty (domény, hosting) ještě není zadaná.' : null,
+  });
+  const slevaCastky = prodeje.filter((p) => p.cena.zdroj === 'sleva').map((p) => {
+    const puvodni = cenaRozborMock(p.c.cena_web);
+    return puvodni.stav === 'presne' && p.cena.castka !== null && puvodni.mena === p.cena.mena ? { castka: Number(puvodni.castka) - p.cena.castka, mena: p.cena.mena } : { castka: null, mena: p.cena.mena };
+  });
+  const data: DataFinance = {
+    prodeje: hodnotaProdejuMetrika(x, prodeje),
+    prodeje_mimo_prodej: pocetMetrika('prodeje_mimo_prodej', x, prodejeMimoProdej(x).length),
+    faktury: { pocet: pocetMetrika('faktury_pocet', x, faktury.length, zdrojFaktury), web: castFaktury('faktury_web', 'web'), hosting: castFaktury('faktury_hosting', 'hosting'), celkem: castFaktury('faktury_celkem', 'celkem') },
+    platby: { inkaso, odvozene: platby.filter((p) => p.odvozeno).length },
+    pohledavky: {
+      pocet: pocetMetrika('pohledavky_pocet', x, pohledavky.length),
+      castka: penizeMetrika('pohledavky_castka', x, pohledavky.map((f) => ({ castka: f.r.celkem, mena: f.r.mena })), 'faktur'),
+      nejstarsi_dni: pohledavky.length ? Math.max(...pohledavky.map((f) => dniOd(f.e.at, x.kMs))) : null,
+      po_14_dnech: pohledavky.filter((f) => dniOd(f.e.at, x.kMs) > 14).length,
+    },
+    slevy: { pocet: pocetMetrika('slevy_nabidnuto', x, slevyO.length), castka: penizeMetrika('slevy_castka', x, slevaCastky, 'prodejů po nabídce') },
+    provize: {
+      narok: penizeMetrika('provize_narok', x, narok, 'prodejů'),
+      vyplaceno: penizeMetrika('provize_vyplaceno', x, vyplaty, 'výplat'),
+      zbyva,
+    },
+    hosting: { rocne: rocneM, mrr, arr, obnovy: obnovyHostingu(x) },
+    naklady: { kategorie, celkem },
+    vysledek,
+    pokryti_nakladu: [
+      { kategorie: 'domena', zname: domenaZname, celkem: domenaKlienti.length, text: `doména zadána u ${domenaZname} ${ZE(domenaKlienti.length)} ${domenaKlienti.length} klientů s doménou` },
+      { kategorie: 'hosting', zname: hostingZname, celkem: hostingKlienti.length, text: `hosting zadán u ${hostingZname} ${ZE(hostingKlienti.length)} ${hostingKlienti.length} klientů s hostingem` },
+    ],
+  };
+  return obalkaPrehledu(x, data, ['kontakty', 'prodeje', 'slevy', 'faktury', 'platby', 'historie', 'naklady', 'vyplaty'],
+    varovaniPrehledu(x, { zdroje: ['faktury', 'platby'], provize: true, naklady: true, zakladJenKlienti: true }));
+}
+
+/** prehled_dodani (§5.10). */
+function prehledDodaniMock(me: MockUser, vstup: unknown): PrehledObalka<DataDodani> {
+  const x = kontextPrehledu(me, vstup);
+  const neznamy = stavNeznamy(x);
+  const vFiltru = kontakty.filter((c) => x.sedi(c) && x.lidi(x.osoba(c)));
+  const faze = neznamy ? [] : DODANI_STAVY.map((s) => {
+    const cs = vFiltru.filter((c) => c.status === s);
+    return { status: s, nazev: nazevStavu(s), n: cs.length, starnuti: starnuti(x, cs, { status: s }, 'dodani_faze'), proklik: { zdroj: 'kontakty', filtr: { ...x.f, vyber: { metrika: 'dodani_faze', status: s } } } };
+  });
+  const otazky = vFiltru.filter((c) => messages.some((m) => m.kontakt_id === c.id && m.status === 'open')).length;
+  const joby = (typ: 'build' | 'change') => {
+    const v = PREHLED_JOBY.filter((j) => j.typ === typ && x.vObdobi(j.updated_at) && x.sedi(kontaktPodleId(j.kontakt_id))).map((j) => (Date.parse(j.updated_at) - Date.parse(j.created_at)) / HODINA_MS);
+    return { pocet: v.length, median_h: v.length ? zaokr(percentil(v, 0.5)!, 2) : null, p90_h: v.length ? zaokr(percentil(v, 0.9)!, 2) : null };
+  };
+  const data: DataDodani = {
+    faze,
+    blokace: neznamy
+      ? { eskalace: null, pozastaveno: null, priznaky: null, otazky: null, kvalita: 'nedostupne', duvod: STAV_PRED_HISTORII, proklik: null }
+      : { eskalace: vFiltru.filter((c) => c.status === 'eskalace').length, pozastaveno: vFiltru.filter((c) => c.status === 'pozastaveno').length,
+        priznaky: vFiltru.filter((c) => !!c.flag_kind).length, otazky, kvalita: 'castecne', duvod: 'Otevřené otázky jsou přibližně (přesný seznam má automatizace).',
+        proklik: { zdroj: 'kontakty', filtr: { ...x.f, vyber: { metrika: 'blokace' } } } },
+    prace: { build: joby('build'), change: joby('change') },
+    domeny: pocetMetrika('domeny_pripojene', x, 0),
+    obnovy_hostingu: obnovyHostingu(x),
+  };
+  return obalkaPrehledu(x, data, ['kontakty', 'platby', 'historie', 'jobs'], varovaniPrehledu(x, { historie: true, zakladJenKlienti: true }));
+}
+
+/** Skupina prognózy (§5.11). */
+const fazePrognozy = (s: KontaktStatus): DataPrognoza['otevrene'][number]['faze'] =>
+  s === 'zajem' || s === 'web_ve_vyrobe' ? 'zajem' : s === 'navrh_odeslan' || s === 'ceka_na_klienta' || s === 'upravy_ve_vyrobe' ? 'navrh' : s === 'sleva_nabidnuta' ? 'sleva' : 'ostatni';
+const NAZVY_FAZI_PROGNOZY: Record<DataPrognoza['otevrene'][number]['faze'], string> = { zajem: 'Zájem', navrh: 'Po návrhu', sleva: 'Nabídka za polovinu', ostatni: 'Ostatní otevření' };
+/** Data prognózy (i karta odhad_mesic souhrnu). */
+function prognozaData(x: KontextPrehledu): DataPrognoza {
+  const kDen = denPraha(new Date(x.kMs));
+  const od = `${kDen.slice(0, 7)}-01`;
+  const doDne = posledniDenMesice(od);
+  const zbyva = Math.round((zacatekDnePraha(doDne) - zacatekDnePraha(kDen)) / 86400000) + 1;
+  const potvrzeneJ = prodejeV(x, zacatekDnePraha(od), x.kMs + 1);
+  const potvrzene = penizeMetrika('prognoza_potvrzene', x, potvrzeneJ.map((p) => ({ castka: p.cena.castka, mena: p.cena.mena })), 'prodejů');
+  const otevrene = stavNeznamy(x) ? [] : otevreneKDatu(x);
+  const milnik = (c: Kontakt, faze: string): string | null => {
+    if (faze === 'zajem') return callLog.filter((l) => l.kontakt_id === c.id && l.outcome === 'zajem').map((l) => l.created_at).sort()[0] ?? null;
+    if (faze === 'navrh') return navrhAt(c);
+    if (faze === 'sleva') return (slevy.get(c.id) ?? []).map((e) => e.created_at).sort()[0] ?? null;
+    return null;
+  };
+  const skupiny = (['zajem', 'navrh', 'sleva', 'ostatni'] as const).map((faze) => {
+    const o = otevrene.filter((j) => fazePrognozy(j.c.status) === faze);
+    const historie = faze === 'ostatni' ? [] : kontakty.filter((c) => {
+      const m = milnik(c, faze);
+      return !!m && Date.parse(m) >= x.kMs - 180 * 86400000 && Date.parse(m) <= x.kMs - zbyva * 86400000 && x.sedi(c);
+    });
+    const prodano = historie.filter((c) => { const m = Date.parse(milnik(c, faze)!); return PRODANO_STAVY.includes(c.status) && Date.parse(datumProdeje(c)) - m <= zbyva * 86400000 && Date.parse(datumProdeje(c)) <= x.kMs; }).length;
+    const pravd = faze === 'ostatni'
+      ? podilMetrika('prognoza_pravdepodobnost', x, 0, Math.max(1, o.length), o.length, pokryti(o.length, o.length), 'Ostatní otevření (později, pozastaveno, eskalace) mají pravděpodobnost 0.', { faze })
+      : podilMetrika('prognoza_pravdepodobnost', x, prodano, historie.length, historie.length, pokryti(historie.length, historie.length), historie.length < 20 ? `Málo historie (N = ${historie.length}).` : null, { faze });
+    const p = pravd.hodnota ?? 0;
+    const castky = castkyZ(o.map((j) => ({ castka: j.cena.castka, mena: j.cena.mena })), x.meny);
+    return {
+      faze, nazev: NAZVY_FAZI_PROGNOZY[faze], n: o.length, castky, nezname_n: o.filter((j) => j.cena.castka === null).length, pravdepodobnost: pravd,
+      vazene: x.meny.map((mena) => ({ mena, hodnota: castkaText(o.filter((j) => j.cena.mena === mena && j.cena.castka !== null).reduce((a, j) => a + (j.cena.castka ?? 0), 0) * p) })),
+    };
+  });
+  const nezname = otevrene.filter((j) => j.cena.castka === null).length;
+  const zakladni = metrikaPrehledu('prognoza_zakladni', x, {
+    castky: x.meny.map((mena) => {
+      const pot = potvrzene.castky.find((c) => c.mena === mena)?.hodnota;
+      const vaz = skupiny.reduce((a, s) => a + Number(s.vazene.find((v) => v.mena === mena)?.hodnota ?? 0), 0);
+      return { mena, hodnota: pot === null || pot === undefined ? null : castkaText(Number(pot) + vaz), pokryti: pokryti(otevrene.filter((j) => j.cena.mena === mena && j.cena.castka !== null).length, otevrene.filter((j) => j.cena.mena === mena).length) };
+    }),
+    n: otevrene.length, pokryti: pokryti(otevrene.length - nezname, otevrene.length), kvalita: 'castecne',
+    duvod: `Nevalidovaný odhad z naší historie (N = ${skupiny.reduce((a, s) => a + (s.pravdepodobnost.jmenovatel ?? 0), 0)} klientů v historii fází).`,
+  });
+  const jenJiste = metrikaPrehledu('prognoza_jen_jiste', x, { ...potvrzene, klic: 'prognoza_jen_jiste', nazev: KATALOG_MAPA.get('prognoza_jen_jiste')!.nazev, zaklad: KATALOG_MAPA.get('prognoza_jen_jiste')!.zaklad });
+  return {
+    mesic: kDen.slice(0, 7), od, do: doDne, zbyva_dni: zbyva, stitek: 'nevalidovaný odhad', potvrzene, otevrene: skupiny,
+    scenare: { zakladni, jen_jiste: jenJiste },
+    presnost: { kvalita: 'nedostupne', duvod: 'Denní snímky zatím nejsou; přesnost odhadu půjde spočítat po prvním celém měsíci se snímky.', mesice: [], bias: [], mae: [], wape: [] },
+  };
+}
+function prehledPrognozaMock(me: MockUser, vstup: unknown): PrehledObalka<DataPrognoza> {
+  const x = kontextPrehledu(me, vstup);
+  return obalkaPrehledu(x, prognozaData(x), ['kontakty', 'prodeje', 'navrhy', 'slevy', 'historie', 'snimky'], varovaniPrehledu(x, { historie: true, odhad: true, zakladJenKlienti: true }));
+}
+
+/** prehled_kvalita (§5.12): vždy teď, bez filtru. */
+function prehledKvalitaMock(me: MockUser): PrehledObalka<DataKvalita> {
+  if (me.role !== 'super_admin') fail(PREHLED_JEN_SUPER);
+  const x = kontextPrehledu(me, null);
+  const ceny = STAVY_PREHLEDU.filter((s) => s.skupina !== 'fronta').map((s) => {
+    const cs = kontakty.filter((c) => c.status === s.klic);
+    const r = cs.map((c) => (c.cena_web === null || oriznoutMezery(c.cena_web) === '' ? 'chybi' : cenaNezadanaMock(c.cena_web) ? 'nezname' : cenaRozborMock(c.cena_web).stav));
+    return { status: s.klic, nazev: s.nazev, celkem: cs.length, presne: r.filter((v) => v === 'presne').length, rozsah: r.filter((v) => v === 'rozsah').length,
+      nezname: r.filter((v) => v === 'nezname').length, chybi: r.filter((v) => v === 'chybi').length };
+  }).filter((s) => s.celkem > 0);
+  const bezEmailu = kontakty.filter((c) => navrhAt(c) && !(c.email ?? '').trim()).length;
+  const sedmDni = praceAktivita.filter((p) => Date.now() - Date.parse(p.at) <= 7 * 86400000);
+  const prvniSignal = praceAktivita.map((p) => p.at).sort()[0] ?? null;
+  const data: DataKvalita = {
+    ceny,
+    navrhy_bez_emailu: pocetMetrika('kvalita_navrhy_bez_emailu', x, bezEmailu),
+    nejasne_vazby: pocetMetrika('kvalita_nejasne_vazby', x, PREHLED_ZPRAVY.filter((z) => z.vazba === 'nejasne').length),
+    platby_bez_faktury: pocetMetrika('kvalita_platby_bez_faktury', x, platbyDoKDatu(x).filter((p) => p.zdroj_castky === 'cena_prodeje').length),
+    historie: { od: PREHLED_HISTORIE_OD, radku: kontakty.length, kontaktu: kontakty.length, kvalita: 'castecne', duvod: `Historie změn začíná ${denCesky(PREHLED_HISTORIE_OD)}; dřív jen poslední milníky.` },
+    casovac: prvniSignal
+      ? { od: prvniSignal, signalu_7d: sedmDni.length, lidi_7d: new Set(sedmDni.map((p) => p.user_id)).size, kvalita: 'castecne', duvod: `Časovač běží od ${denCesky(prvniSignal)}; dřívější práce je odhad z výsledků.` }
+      : { od: null, signalu_7d: null, lidi_7d: null, kvalita: 'nedostupne', duvod: 'Časovač zatím nemá žádný signál.' },
+    zdroje: ZDROJE_PREHLEDU.map(stavZdroje),
+  };
+  return obalkaPrehledu(null, data, ['kontakty', 'platby', 'historie', 'casovac', 'gmail', 'tick'], varovaniPrehledu(null, { gmail: true }));
+}
+
+/** prehled_akce (§5.13). */
+function prehledAkceMock(me: MockUser, vstup: unknown): PrehledObalka<DataAkce> {
+  const x = kontextPrehledu(me, vstup);
+  const pripady = pripadyAkce(x);
+  const data: DataAkce = {
+    pripady,
+    souhrn: { pripadu: pripady.length, podle_signalu: SIGNALY_AKCI.map((s) => ({ kod: s.kod, nazev: s.nazev, n: pripady.filter((p) => p.signaly.some((g) => g.kod === s.kod)).length })) },
+  };
+  return obalkaPrehledu(x, data, ['kontakty', 'prodeje', 'slevy', 'faktury', 'platby', 'zavolat'], varovaniPrehledu(x, { zakladJenKlienti: true }));
+}
+
+/* --- prehled_radky (§5.15) --- */
+
+/** Řádek zdroje kontakty (§7 RadekKontakty). */
+function radekKontaktu(x: KontextPrehledu, c: Kontakt): RadekKontakty {
+  const m = milnikyKontaktu(x, c);
+  const cena = cenaKontaktu(c, PRODANO_STAVY.includes(c.status) ? datumProdeje(c) : x.kIso);
+  return {
+    zdroj: 'kontakty', radek_id: `k:${c.id}`, kontakt_id: c.id, jmeno: jmenoKontaktu(c), segment: segmentOf(c), obor: /^[^:]+:/.test(c.obor ?? '') ? c.obor : null, kraj: null,
+    status: c.status, nazev_stavu: nazevStavu(c.status), rating: c.rating ?? null, hvezda: !!c.hvezda_at, cena_web: c.cena_web, cena: cena.rozbor, osoba: osobaPrehledu(x.osoba(c)),
+    prvni_hovor_at: m.osloven, dovolano_at: m.dovolan, zajem_at: m.zajem, navrh_at: m.navrh, prodano_at: m.prodano, faktura_at: m.fakturovano, zaplaceno_at: m.zaplaceno,
+    status_od: vstupDoFaze(c), posledni_klient_at: c.last_client_reply_at, posledni_my_at: c.last_our_reply_at,
+  };
+}
+/** Kontakty prokliku podle vyber (vždy z týchž funkcí jako karta nebo tabulka). */
+function kontaktyProVyber(x: KontextPrehledu, v: Record<string, unknown> | null): Kontakt[] {
+  const sDuplicitou = (cs: Kontakt[]) => [...new Map(cs.map((c) => [c.id, c])).values()];
+  if (!v) {
+    const z = x.f.zaklad;
+    if (z === 'prodej') return sDuplicitou(prodejeV(x).map((p) => p.c));
+    if (z === 'faktura') return sDuplicitou(fakturyV(x).map((f) => f.c));
+    if (z === 'platba') return sDuplicitou(platbyV(x).map((p) => p.c));
+    return sDuplicitou(hovoryV(x).map((l) => kontaktPodleId(l.kontakt_id)!).filter(Boolean));
+  }
+  const metrika = String(v.metrika);
+  const pasmo = (cs: Kontakt[]) => (typeof v.pasmo === 'string' ? cs.filter((c) => { const e = vstupDoFaze(c); return !!e && x.doKDatu(e) && pasmoDni(dniOd(e, x.kMs)) === v.pasmo; }) : cs);
+  const lidiRadku = (cs: Kontakt[]) => (typeof v.user_id === 'number' ? cs.filter((c) => x.osoba(c) === v.user_id) : v.bez_prirazeni ? cs.filter((c) => x.osoba(c) === null) : cs);
+  switch (metrika) {
+    case 'otevrene': case 'odhad_mesic': case 'prognoza_zakladni': return stavNeznamy(x) ? [] : otevreneKDatu(x).map((j) => j.c);
+    case 'uspesnost': return sDuplicitou(uzavreneV(x).map((u) => u.c));
+    case 'unikatni_klienti': return lidiRadkuHovoru(x, v);
+    case 'navrhy': return lidiRadku(kontakty.filter((c) => x.vObdobi(navrhAt(c)) && x.sedi(c) && x.lidi(x.osoba(c))));
+    case 'mira_odpovedi_po_navrhu': return kohortaPoNavrhu(x);
+    case 'rychlost_navrhu_median': case 'rychlost_navrhu_p90': return zajemVObdobi(x).map((z) => z.c);
+    case 'slevy_nabidnuto': case 'slevy_mira_prijeti': return slevyVObdobi(x).map((s) => s.c);
+    case 'slevy_prijato': return slevyVObdobi(x).filter((s) => prodanPo(s.c, s.at, x.kMs)).map((s) => s.c);
+    case 'sla_prvni_kontakt_median': case 'sla_prvni_kontakt_p90':
+      return lidiRadku(sDuplicitou([...oznaceniRadky.filter((o) => x.vObdobi(o.oznaceno_at) && x.lidi(o.volajici_id)).map((o) => kontaktPodleId(o.kontakt_id)!),
+        ...zavolatRadky.filter((z) => x.vObdobi(z.created_at) && x.lidi(z.user_id)).map((z) => kontaktPodleId(z.kontakt_id)!)].filter((c) => !!c && x.sedi(c))));
+    case 'naplanovane_hotove': return sDuplicitou(zavolatRadky.filter((z) => z.stav === 'hotovo' && x.vObdobi(z.uzavreno_at) && x.lidi(z.user_id)).map((z) => kontaktPodleId(z.kontakt_id)!).filter((c) => !!c && x.sedi(c)));
+    case 'naplanovane_po_terminu': return sDuplicitou(zavolatRadky.filter((z) => z.stav === 'ceka' && Date.parse(z.kdy) < x.kMs && x.lidi(z.user_id)).map((z) => kontaktPodleId(z.kontakt_id)!).filter((c) => !!c && x.sedi(c)));
+    case 'domeny_pripojene': return [];
+    case 'prognoza_pravdepodobnost': return otevreneKDatu(x).filter((j) => !v.faze || fazePrognozy(j.c.status) === v.faze).map((j) => j.c);
+    case 'kvalita_navrhy_bez_emailu': return kontakty.filter((c) => navrhAt(c) && !(c.email ?? '').trim());
+    case 'trychtyr': {
+      const kohorta = kohortaTrychtyre(x);
+      return typeof v.krok === 'string' && v.krok !== 'osloven' ? krokTrychtyre(x, kohorta, v.krok as KrokTrychtyre['klic']).v : kohorta;
+    }
+    case 'po_navrhu': return typeof v.krok === 'string' ? krokPoNavrhu(x, kohortaPoNavrhu(x), v.krok as KrokPoNavrhu['klic']) : kohortaPoNavrhu(x);
+    case 'stavy_kohorty': return kohortaTrychtyre(x).filter((c) => !v.status || c.status === v.status);
+    case 'pipeline_faze': return pasmo(otevreneKDatu(x).map((j) => j.c).filter((c) => !v.status || c.status === v.status));
+    case 'kohorta_mesic': return (kohortyMesicu(x).find((k) => k.mesic === v.mesic)?.cs ?? []).map((k) => k.c);
+    case 'kalibrace_znamky': return zajemVObdobi(x).filter((z) => !v.znamka || (z.c.rating ?? 'bez') === v.znamka).map((z) => z.c);
+    case 'kalibrace_hvezdy': return kohortaPoNavrhu(x).filter((c) => v.hvezda === undefined || (!!c.hvezda_at && x.doKDatu(c.hvezda_at) && (!PRODANO_STAVY.includes(c.status) || c.hvezda_at <= datumProdeje(c))) === v.hvezda);
+    case 'klienti_segment': case 'klienti_obor': case 'klienti_kraj': case 'hodnoceni_webu': {
+      const { cs } = populaceKlientu(x);
+      return cs.filter((c) => (v.segment ? segmentOf(c) === v.segment : true) && (v.obor ? sediFiltru(c, { ...x.f, obor: [String(v.obor)] }) : true)
+        && (v.znamka ? rodinaOf(segmentOf(c)) === 'obor' && (c.web_hodnoceni ?? 'bez') === v.znamka : true));
+    }
+    case 'sablony': return [];
+    case 'cekani_na_nas': return x.f.k_datu ? [] : cekaniJednotky(x, 'na_nas').map((j) => j.c);
+    case 'cekani_na_klienta': return x.f.k_datu ? [] : cekaniJednotky(x, 'na_klienta').map((j) => j.c);
+    case 'dodani_faze': return pasmo(kontakty.filter((c) => x.sedi(c) && x.lidi(x.osoba(c)) && (!v.status || c.status === v.status) && DODANI_STAVY.includes(c.status)));
+    case 'blokace': return kontakty.filter((c) => x.sedi(c) && x.lidi(x.osoba(c)) && (c.status === 'eskalace' || c.status === 'pozastaveno' || !!c.flag_kind || messages.some((m) => m.kontakt_id === c.id && m.status === 'open')));
+    default: return [];
+  }
+}
+/** Různí klienti s hovorem (řádek člověka nebo součet). */
+function lidiRadkuHovoru(x: KontextPrehledu, v: Record<string, unknown>): Kontakt[] {
+  const hovory = hovoryV(x).filter((l) => (typeof v.user_id === 'number' ? l.user_id === v.user_id : true));
+  return [...new Set(hovory.map((l) => l.kontakt_id))].map((id) => kontaktPodleId(id)!).filter(Boolean);
+}
+/** Řádky jednoho zdroje (bez stránkování): řádky, součty a součet. */
+function radkyZdroje(x: KontextPrehledu, zdroj: RadkyZdroj): { radky: RadekPrehledu[]; soucty: CastkaJedna[]; soucet: number | null } {
+  const v = x.f.vyber;
+  const metrika = v ? String(v.metrika) : null;
+  const vOdDo = (iso: string | null | undefined) => {
+    if (!v || typeof v.od !== 'string' || typeof v.do !== 'string') return true;
+    if (!iso) return false;
+    const t = Date.parse(iso);
+    return t >= zacatekDnePraha(v.od) && t < zacatekDnePraha(posunDen(v.do, 1));
+  };
+  const penize = (p: { castka: number | null; mena: MenaPrehledu | null }[]) => jedneCastky(castkyZ(p, x.meny));
+  const castka = (n: number | null) => (n === null ? null : castkaText(n));
+  switch (zdroj) {
+    case 'kontakty': {
+      const cs = kontaktyProVyber(x, v).filter((c) => vOdDo(navrhAt(c) ?? c.updated_at));
+      const radky = cs.map((c) => radekKontaktu(x, c)).sort((a, b) => b.kontakt_id - a.kontakt_id);
+      const ceny = metrika === 'otevrene' || metrika === 'odhad_mesic' || metrika === 'prognoza_zakladni'
+        ? otevreneKDatu(x).filter((j) => cs.includes(j.c)).map((j) => ({ castka: j.cena.castka, mena: j.cena.mena }))
+        : radky.map((r) => ({ castka: r.cena.stav === 'presne' ? Number(r.cena.castka) : null, mena: r.cena.mena }));
+      return { radky, soucty: penize(ceny), soucet: null };
+    }
+    case 'hovory': {
+      const hovory = hovoryV(x).filter((l) => vOdDo(l.created_at) && (typeof v?.user_id === 'number' ? l.user_id === v.user_id : true)).filter((l) => {
+        switch (metrika) {
+          case 'dovolano': return l.outcome !== 'nedovolano';
+          case 'zajem': case 'odmitnuto': case 'nerelevantni': case 'preplanovano': return l.outcome === metrika;
+          case 'konverze': return l.outcome === 'zajem' || l.outcome === 'odmitnuto';
+          default: return true;
+        }
+      });
+      const radky: RadekHovory[] = hovory.map((l): RadekHovory => {
+        const c = kontaktPodleId(l.kontakt_id)!;
+        return { zdroj: 'hovory', radek_id: `h:${l.id}`, id: l.id, kontakt_id: l.kontakt_id, jmeno: jmenoKontaktu(c), segment: segmentOf(c), user_id: l.user_id,
+          volajici: users.find((u) => u.id === l.user_id)?.display_name ?? '?', vysledek: l.outcome as RadekHovory['vysledek'], rating: c.rating ?? null, at: l.created_at };
+      }).sort((a, b) => b.at.localeCompare(a.at) || b.id - a.id);
+      return { radky, soucty: [], soucet: null };
+    }
+    case 'prodeje': {
+      let prodeje = metrika === 'prognoza_potvrzene' || metrika === 'prognoza_jen_jiste'
+        ? prodejeV(x, zacatekDnePraha(`${denPraha(new Date(x.kMs)).slice(0, 7)}-01`), x.kMs + 1)
+        : metrika === 'prodeje_mimo_prodej' ? prodejeMimoProdej(x)
+          : metrika === 'hosting_rocne' || metrika === 'hosting_mrr' || metrika === 'hosting_arr'
+            ? kontakty.filter((c) => PRODANO_STAVY.includes(c.status) && x.sedi(c) && Date.parse(datumProdeje(c)) <= x.kMs && x.lidi(x.osoba(c)))
+              .map((c) => { const at = datumProdeje(c); const cena = cenaKontaktu(c, at); return { c, at, cena, osoba: x.osoba(c), provizeKomu: pripsanyClovek(c, 'posledni_zajem', x.kMs), provize: provizeZ(cena) }; })
+            : prodejeV(x);
+      if (metrika === 'slevy_castka') prodeje = prodeje.filter((p) => p.cena.zdroj === 'sleva');
+      if (typeof v?.user_id === 'number') prodeje = prodeje.filter((p) => p.osoba === v.user_id);
+      if (v?.bez_prirazeni) prodeje = prodeje.filter((p) => p.osoba === null);
+      prodeje = prodeje.filter((p) => vOdDo(p.at));
+      const radky: RadekProdeje[] = prodeje.map((p): RadekProdeje => ({
+        zdroj: 'prodeje', radek_id: `p:${p.c.id}`, kontakt_id: p.c.id, jmeno: jmenoKontaktu(p.c), segment: segmentOf(p.c), prodano_at: p.at, cena_text: p.cena.text, cena: p.cena.rozbor,
+        zdroj_ceny: p.cena.zdroj, hosting: hostingRozbor(p.c.cena_hosting), osoba: osobaPrehledu(p.osoba), provize: castka(p.provize.castka), provize_mena: p.provize.castka === null ? null : p.provize.mena,
+      })).sort((a, b) => b.prodano_at.localeCompare(a.prodano_at) || b.radek_id.localeCompare(a.radek_id));
+      let soucty: CastkaJedna[];
+      if (metrika === 'slevy_castka') {
+        soucty = penize(prodeje.map((p) => { const pu = cenaRozborMock(p.c.cena_web); return pu.stav === 'presne' && p.cena.castka !== null && pu.mena === p.cena.mena ? { castka: Number(pu.castka) - p.cena.castka, mena: p.cena.mena } : { castka: null, mena: p.cena.mena }; }));
+      } else if (metrika === 'hosting_rocne' || metrika === 'hosting_arr' || metrika === 'hosting_mrr') {
+        const rocne = castkyZ(prodeje.map((p) => { const h = hostingRozbor(p.c.cena_hosting); return { castka: h.castka === null ? null : Number(h.castka), mena: h.mena }; }), x.meny);
+        soucty = rocne.map((c) => ({ mena: c.mena, hodnota: c.hodnota === null ? null : metrika === 'hosting_rocne' ? c.hodnota
+          : metrika === 'hosting_mrr' ? castkaText(Math.round((Number(c.hodnota) / 12) * 100) / 100) : castkaText((Math.round((Number(c.hodnota) / 12) * 100) / 100) * 12) }));
+      } else {
+        soucty = penize(prodeje.map((p) => ({ castka: p.cena.castka, mena: p.cena.mena })));
+      }
+      return { radky, soucty, soucet: null };
+    }
+    case 'faktury': {
+      const f = (metrika === 'pohledavky_pocet' || metrika === 'pohledavky_castka' ? pohledavkyKDatu(x) : fakturyV(x)).filter((j) => vOdDo(j.e.at));
+      const radky: RadekFaktury[] = f.map((j): RadekFaktury => ({
+        zdroj: 'faktury', radek_id: `f:${j.e.id}`, event_id: j.e.id, kontakt_id: j.c.id, jmeno: jmenoKontaktu(j.c), at: j.e.at, cislo: j.r.cislo, web: castka(j.r.web), hosting: castka(j.r.hosting),
+        celkem: castka(j.r.celkem), mena: j.r.mena, zaplaceno_at: j.zaplacenoAt, dni_od_vystaveni: dniOd(j.e.at, x.kMs),
+      })).sort((a, b) => b.at.localeCompare(a.at) || b.radek_id.localeCompare(a.radek_id));
+      const cast = metrika === 'faktury_web' ? 'web' : metrika === 'faktury_hosting' ? 'hosting' : 'celkem';
+      return { radky, soucty: penize(f.map((j) => ({ castka: j.r[cast], mena: j.r[cast] === null ? null : j.r.mena }))), soucet: null };
+    }
+    case 'platby': {
+      const p = platbyV(x).filter((j) => vOdDo(j.at) && (metrika === 'kvalita_platby_bez_faktury' ? j.zdroj_castky === 'cena_prodeje' : true));
+      const radky: RadekPlatby[] = p.map((j): RadekPlatby => ({
+        zdroj: 'platby', radek_id: j.id === null ? `z:${j.c.id}` : `e:${j.id}`, event_id: j.id, kontakt_id: j.c.id, jmeno: jmenoKontaktu(j.c), at: j.at, castka: castka(j.castka), mena: j.mena,
+        zdroj_castky: j.zdroj_castky, odvozeno: j.odvozeno, faktury: j.faktury,
+      })).sort((a, b) => b.at.localeCompare(a.at) || b.radek_id.localeCompare(a.radek_id));
+      return { radky, soucty: penize(p.map((j) => ({ castka: j.castka, mena: j.mena }))), soucet: null };
+    }
+    case 'naklady': {
+      const kat = metrika && metrika !== 'naklady_celkem' ? metrika.replace('naklady_', '') : null;
+      const z = (nakladyFiltrovane(x) ? nakladyV(x).filter((r) => r.kategorie === 'provize' && (kat === null || kat === 'provize')) : nakladyV(x))
+        .filter((r) => (kat ? r.kategorie === kat : true) && (typeof v?.kategorie === 'string' ? r.kategorie === v.kategorie : true) && vOdDo(r.datum));
+      const radky: RadekNaklady[] = z.map((r): RadekNaklady => ({ zdroj: 'naklady', radek_id: r.radek_id, naklad_id: r.naklad_id, kategorie: r.kategorie, popis: r.popis, datum: r.datum, castka: castka(r.castka),
+        mena: r.mena, stav_ceny: r.stav_ceny, opakovani: r.opakovani, kontakt_id: r.kontakt_id, jmeno: r.kontakt_id === null ? null : jmenoKontaktu(kontaktPodleId(r.kontakt_id)!), overit: r.overit, user_id: r.user_id }))
+        .sort((a, b) => b.datum.localeCompare(a.datum) || b.radek_id.localeCompare(a.radek_id));
+      return { radky, soucty: penize(z.map((r) => ({ castka: r.castka, mena: r.mena }))), soucet: null };
+    }
+    case 'provize': {
+      const j = (metrika === 'provize_zbyva' ? provizeJednotky(x, -Infinity, '0000-01-01') : provizeJednotky(x, x.odMs, x.f.od))
+        .filter((p) => (metrika === 'provize_narok' ? p.druh === 'narok' : metrika === 'provize_vyplaceno' ? p.druh === 'vyplata' : true))
+        .filter((p) => (typeof v?.user_id === 'number' ? p.user_id === v.user_id : true) && vOdDo(p.datum));
+      const radky: RadekProvize[] = j.map((p): RadekProvize => ({ zdroj: 'provize', radek_id: p.radek_id, druh: p.druh, datum: p.datum, user_id: p.user_id, volajici: users.find((u) => u.id === p.user_id)?.display_name ?? '?',
+        kontakt_id: p.kontakt_id, jmeno: p.jmeno, castka: castka(p.castka), mena: p.mena, stav_ceny: p.stav_ceny, vyplata_id: p.vyplata_id, poznamka: p.poznamka }))
+        .sort((a, b) => b.datum.localeCompare(a.datum) || b.radek_id.localeCompare(a.radek_id));
+      const soucty = metrika === 'provize_zbyva' ? jedneCastky(zbyvaCastky(j, x.meny)) : penize(j.map((p) => ({ castka: p.druh === 'vyplata' ? -(p.castka ?? 0) : p.castka, mena: p.mena })));
+      return { radky, soucty: metrika === 'provize_vyplaceno' ? penize(j.map((p) => ({ castka: p.castka, mena: p.mena }))) : soucty, soucet: null };
+    }
+    case 'odmitnuti': {
+      const co = metrika === 'nereagoval_na_nabidku' ? 'nereagoval_na_nabidku' : metrika === 'mlci_po_navrhu' ? 'mlci_po_navrhu' : metrika === 'ztraty_bez_duvodu' ? 'ztraty_bez_duvodu' : metrika === 'duvody' ? 'duvody' : 'vse';
+      const o = odmitnutiJednotky(x, co).filter((r) => (typeof v?.duvod === 'string' ? r.duvod === v.duvod : true) && (typeof v?.faze === 'string' ? r.faze === v.faze : true) && vOdDo(r.at));
+      const radky: RadekOdmitnuti[] = o.map((r): RadekOdmitnuti => ({ zdroj: 'odmitnuti', radek_id: r.radek_id, kontakt_id: r.c.id, jmeno: jmenoKontaktu(r.c), segment: segmentOf(r.c), faze: r.faze, duvod: r.duvod,
+        nazev_duvodu: NAZVY_DUVODU[r.duvod], text: r.text, zdroj_zapisu: r.zdroj, zapsal: r.zapsal, at: r.at, osoba: osobaPrehledu(x.osoba(r.c)) }))
+        .sort((a, b) => b.at.localeCompare(a.at) || b.radek_id.localeCompare(a.radek_id));
+      return { radky, soucty: [], soucet: null };
+    }
+    case 'zpravy': {
+      const z = (metrika === 'kvalita_nejasne_vazby' ? PREHLED_ZPRAVY.filter((m) => m.vazba === 'nejasne') : zpravyV(x)).filter((m) => {
+        if (metrika === 'zpravy_nedoruceno') return m.druh === 'nedoruceno';
+        if (metrika === 'zpravy_automaticke') return m.druh === 'automaticka_odpoved';
+        if (metrika === 'nejasne_vazby') return m.vazba === 'nejasne';
+        return (typeof v?.smer === 'string' ? m.smer === v.smer : true) && (typeof v?.druh === 'string' ? m.druh === v.druh : true);
+      }).filter((m) => vOdDo(m.prijato_at));
+      const radky: RadekZpravy[] = z.map((m): RadekZpravy => ({ zdroj: 'zpravy', radek_id: `z:${m.id}`, id: m.id, kontakt_id: m.kontakt_id, jmeno: m.kontakt_id === null ? null : jmenoKontaktu(kontaktPodleId(m.kontakt_id)!),
+        smer: m.smer, druh: m.druh, prijato_at: m.prijato_at, vazba: m.vazba, odkaz: odkazGmailu(m.vlakno_id) }))
+        .sort((a, b) => b.prijato_at.localeCompare(a.prijato_at) || b.id - a.id);
+      return { radky, soucty: [], soucet: null };
+    }
+    case 'akce': {
+      const p = pripadyAkce(x).filter((c) => (typeof v?.signal === 'string' ? c.signaly.some((s) => s.kod === v.signal) : true));
+      const radky: RadekAkce[] = p.map((c): RadekAkce => ({ zdroj: 'akce', radek_id: `a:${c.kontakt_id}`, ...c }));
+      return { radky, soucty: [], soucet: null };
+    }
+    case 'prace': {
+      const u = useyV(x).filter((s) => (typeof v?.user_id === 'number' ? s.uid === v.user_id : true) && vOdDo(new Date(s.od).toISOString()));
+      const radky: RadekPrace[] = u.map((s): RadekPrace => ({ zdroj: 'prace', radek_id: `w:${s.uid}:${Math.floor(s.od / 1000)}`, user_id: s.uid, volajici: users.find((x2) => x2.id === s.uid)?.display_name ?? '?',
+        den: denPraha(new Date(s.od)), od: new Date(s.od).toISOString(), do: new Date(s.do).toISOString(), minut: Math.round((s.do - s.od) / 60000), vysledku: s.kotev, kvalita: s.odhad ? 'odhad' : 'casovac' }))
+        .sort((a, b) => b.od.localeCompare(a.od) || b.radek_id.localeCompare(a.radek_id));
+      return { radky, soucty: [], soucet: zaokr(u.reduce((a, s) => a + (s.do - s.od), 0) / HODINA_MS, 2) };
+    }
+  }
+}
+const ZDROJE_META_RADKU: Record<RadkyZdroj, ZdrojKlicPrehledu[]> = {
+  kontakty: ['hovory', 'kontakty', 'prodeje', 'navrhy', 'slevy', 'faktury', 'platby', 'historie', 'gmail', 'oznaceni', 'zavolat'], hovory: ['hovory', 'kontakty'],
+  prodeje: ['hovory', 'kontakty', 'prodeje', 'slevy', 'historie'], faktury: ['hovory', 'kontakty', 'faktury', 'platby'], platby: ['hovory', 'kontakty', 'prodeje', 'faktury', 'platby', 'historie'],
+  naklady: ['hovory', 'kontakty', 'prodeje', 'slevy', 'naklady'], provize: ['hovory', 'kontakty', 'prodeje', 'slevy', 'vyplaty'], odmitnuti: ['hovory', 'kontakty', 'navrhy', 'slevy', 'historie', 'duvody'],
+  zpravy: ['hovory', 'kontakty', 'gmail'], akce: ['hovory', 'kontakty', 'prodeje', 'slevy', 'faktury', 'platby', 'zavolat'], prace: ['hovory', 'dovolani', 'casovac', 'zavolat'],
+};
+/** Otisk filtru do kurzoru (kurzor patří k filtru a zdroji). */
+function otiskFiltru(s: string): string {
+  let h = 5381;
+  for (let i = 0; i < s.length; i += 1) h = ((h << 5) + h + s.charCodeAt(i)) | 0;
+  return (h >>> 0).toString(36);
+}
+/** prehled_radky (§5.15): pevné pořadí, stránky po limit řádků s kurzorem. */
+function prehledRadkyMock(me: MockUser, zdroj: unknown, vstup: unknown, kurzor: unknown, limit: unknown): PrehledObalka<DataRadky> {
+  const x = kontextPrehledu(me, vstup, true);
+  if (typeof zdroj !== 'string' || !ZDROJE_RADKU.includes(zdroj as RadkyZdroj)) fail(`Neplatný zdroj řádků: ${String(zdroj)}. Povolené: ${ZDROJE_RADKU.join(', ')}.`);
+  const z = zdroj as RadkyZdroj;
+  const lim = limit === undefined || limit === null ? 50 : limit;
+  if (typeof lim !== 'number' || !Number.isInteger(lim) || lim < 1 || lim > 200) fail(`Neplatný limit: ${String(lim)} (povoleno 1 až 200).`);
+  if (x.f.vyber && !VYBER_PODLE_ZDROJE[z].includes(String(x.f.vyber.metrika))) fail('Neplatný filtr: vyber.metrika');
+  const otisk = otiskFiltru(JSON.stringify({ ...x.f }));
+  let offset = 0;
+  if (kurzor !== undefined && kurzor !== null) {
+    let k: { z?: unknown; f?: unknown; o?: unknown } | null = null;
+    try {
+      k = typeof kurzor === 'string' ? (JSON.parse(atob(kurzor)) as { z?: unknown; f?: unknown; o?: unknown }) : null;
+    } catch {
+      k = null;
+    }
+    if (!k || typeof k.o !== 'number' || typeof k.z !== 'string' || typeof k.f !== 'string') fail('Neplatný kurzor.');
+    if (k.z !== z || k.f !== otisk) fail('Kurzor patří k jinému filtru nebo zdroji; načtěte řádky znovu od začátku.');
+    offset = k.o;
+  }
+  const vse = radkyZdroje(x, z);
+  const stranka = vse.radky.slice(offset, offset + lim);
+  const dalsi = offset + lim < vse.radky.length ? btoa(JSON.stringify({ z, f: otisk, o: offset + lim })) : null;
+  const data: DataRadky = { zdroj: z, radky: stranka, dalsi_kurzor: dalsi, celkem: vse.radky.length, soucty: vse.soucty, soucet: vse.soucet };
+  return obalkaPrehledu(x, data, ZDROJE_META_RADKU[z], varovaniPrehledu(x, { historie: z === 'kontakty' || z === 'prodeje', zakladJenKlienti: z !== 'kontakty' || !!x.f.vyber }));
+}
+
+/** prehled_kontakt (§5.16): časová osa bez telefonu a e-mailu. */
+function prehledKontaktMock(me: MockUser, kontaktId: unknown): PrehledObalka<DataKontakt> {
+  if (me.role !== 'super_admin') fail(PREHLED_JEN_SUPER);
+  const c = kontaktPodleId(typeof kontaktId === 'number' ? kontaktId : Number(kontaktId));
+  if (!c) fail(`Kontakt id=${String(kontaktId)} neexistuje.`);
+  const x = kontextPrehledu(me, null);
+  const u: UdalostKontaktu[] = [];
+  const vysl: Record<string, string> = { nedovolano: 'nedovoláno', odmitnuto: 'odmítnuto', zajem: 'zájem', nerelevantni: 'nerelevantní', preplanovano: 'přeplánováno' };
+  for (const l of callLog.filter((l) => l.kontakt_id === c.id)) u.push({ at: l.created_at, druh: 'hovor', text: `Hovor: ${vysl[l.outcome] ?? l.outcome}${c.rating ? `, známka ${c.rating}` : ''}.`, osoba: osobaPrehledu(l.user_id), odkaz: null, zdroj: 'hovory' });
+  for (const at of dovolaniUspesna.get(c.id) ?? []) u.push({ at, druh: 'dovolani', text: 'Zavolal/a jsem: dovolal/a se.', osoba: null, odkaz: null, zdroj: 'dovolani' });
+  const navrh = navrhAt(c);
+  if (navrh) u.push({ at: navrh, druh: 'navrh', text: 'Odeslán návrh webu.', osoba: null, odkaz: null, zdroj: 'navrhy' });
+  for (const s of slevy.get(c.id) ?? []) u.push({ at: s.created_at, druh: 'sleva', text: `Nabídka za polovinu: ${cenaZeSlevyText(s.detail)}.`, osoba: null, odkaz: null, zdroj: 'slevy' });
+  if (PRODANO_STAVY.includes(c.status)) {
+    const cena = cenaKontaktu(c, datumProdeje(c));
+    u.push({ at: datumProdeje(c), druh: 'prodej', text: `Prodáno: cena ${cena.text ?? 'nezadaná'} (${cena.zdroj === 'sleva' ? 'nabídka za polovinu' : 'cena webu'}).`, osoba: osobaPrehledu(x.osoba(c)), odkaz: null, zdroj: 'prodeje' });
+  }
+  for (const f of PREHLED_FAKTURY.filter((f) => f.kontakt_id === c.id)) {
+    const r = fakturaRozbor(f.detail);
+    u.push({ at: f.at, druh: 'faktura', text: `Faktura ${r.cislo ?? 'bez čísla'}${r.celkem !== null ? ` na ${r.celkem} ${r.mena === 'EUR' ? '€' : 'Kč'}` : ''}.`, osoba: null, odkaz: null, zdroj: 'faktury' });
+  }
+  for (const p of platbyDoKDatu(x).filter((p) => p.c.id === c.id)) u.push({ at: p.at, druh: 'platba', text: `Platba${p.castka !== null ? ` ${p.castka} ${p.mena === 'EUR' ? '€' : 'Kč'}` : ''}${p.odvozeno ? ' (odvozená ze stavu)' : ''}.`, osoba: null, odkaz: null, zdroj: 'platby' });
+  for (const d of duvodyRadky().filter((d) => d.kontakt_id === c.id)) u.push({ at: d.at, druh: 'duvod', text: `Důvod odmítnutí (${d.faze === 'nahled' ? 'náhled' : 'nabídka'}): ${NAZVY_DUVODU[d.duvod]}.`, osoba: null, odkaz: null, zdroj: 'duvody' });
+  const z = PREHLED_ZTRATY.get(c.id);
+  if (z) u.push({ at: z, druh: 'stav', text: 'Stav: Návrh odeslán → Odmítnuto.', osoba: null, odkaz: null, zdroj: 'kontakty' });
+  for (const m of PREHLED_ZPRAVY.filter((m) => m.kontakt_id === c.id)) {
+    u.push({ at: m.prijato_at, druh: 'email', text: `E-mail ${m.smer === 'prichozi' ? 'od klienta' : 'od nás'} (${{ clovek: 'člověk', automaticka_odpoved: 'automatická odpověď', nedoruceno: 'nedoručeno', systemova: 'systémová', nezname: 'neznámý druh' }[m.druh]}).`, osoba: null, odkaz: odkazGmailu(m.vlakno_id), zdroj: 'gmail' });
+  }
+  for (const o of oznaceniRadky.filter((o) => o.kontakt_id === c.id)) u.push({ at: o.oznaceno_at, druh: 'oznaceni', text: 'Označen k zavolání (neodpověděl).', osoba: osobaPrehledu(o.volajici_id), odkaz: null, zdroj: 'oznaceni' });
+  for (const zv of zavolatRadky.filter((r) => r.kontakt_id === c.id)) u.push({ at: zv.created_at, druh: 'zavolat', text: `Naplánovaný hovor na ${denCesky(zv.kdy)} ${casCesky(zv.kdy)} (${zv.stav === 'ceka' ? 'čeká' : zv.stav}).`, osoba: osobaPrehledu(zv.user_id), odkaz: null, zdroj: 'zavolat' });
+  if (c.hvezda_at) u.push({ at: c.hvezda_at, druh: 'hvezda', text: 'Hvězda: velký zájem.', osoba: null, odkaz: null, zdroj: 'kontakty' });
+  const cena = cenaKontaktu(c, PRODANO_STAVY.includes(c.status) ? datumProdeje(c) : x.kIso);
+  const posledniVlakno = PREHLED_ZPRAVY.filter((m) => m.kontakt_id === c.id).sort((a, b) => b.prijato_at.localeCompare(a.prijato_at))[0];
+  const data: DataKontakt = {
+    kontakt: {
+      kontakt_id: c.id, jmeno: jmenoKontaktu(c), firma: c.firma ?? null, segment: segmentOf(c), obor: /^[^:]+:/.test(c.obor ?? '') ? c.obor : null, kraj: null, mesto: c.mesto ?? null,
+      status: c.status, nazev_stavu: nazevStavu(c.status), status_od: vstupDoFaze(c), rating: c.rating ?? null, hvezda_at: c.hvezda_at ?? null, cena_web: c.cena_web, cena_hosting: c.cena_hosting,
+      cena: cena.rozbor, hosting: hostingRozbor(c.cena_hosting), live_url: c.live_url, prvni_navrh_at: navrhAt(c), posledni_my_at: c.last_our_reply_at, posledni_klient_at: c.last_client_reply_at,
+      gmail_odkaz: posledniVlakno ? odkazGmailu(posledniVlakno.vlakno_id) : null,
+    },
+    atribuce: {
+      prvni_zajem: osobaPrehledu(pripsanyClovek(c, 'prvni_zajem', x.kMs)), posledni_zajem: osobaPrehledu(pripsanyClovek(c, 'posledni_zajem', x.kMs)), spravuje: osobaPrehledu(pripsanyClovek(c, 'spravuje', x.kMs)),
+    },
+    historie_od: PREHLED_HISTORIE_OD,
+    udalosti: u.sort((a, b) => b.at.localeCompare(a.at)).slice(0, 500),
+  };
+  return obalkaPrehledu(null, data, ['hovory', 'kontakty', 'prodeje', 'navrhy', 'slevy', 'faktury', 'platby', 'historie', 'gmail', 'duvody', 'oznaceni', 'zavolat'], []);
+}
+
+/** prehled_definice (§5.17). */
+function prehledDefiniceMock(me: MockUser): PrehledObalka<DataDefinice> {
+  if (me.role !== 'super_admin') fail(PREHLED_JEN_SUPER);
+  const granularita = (zaklad: string) => (zaklad === 'k_datu' ? 'stav k okamžiku (k_datu); bez řady' : 'období filtru; řada po dnech, týdnech (po–ne) a měsících podle pražského kalendáře');
+  const kvalita = (j: JednotkaMetriky) => (j === 'mena' || j === 'pocet_a_mena'
+    ? 'Koruny a eura zvlášť, nikdy sečtené. Do součtu jdou jen přesné částky; rozsahy a neznámé ceny jsou v pokrytí a číslo je pak částečné. Bez zdroje je nedostupné.'
+    : j === 'podil' ? 'Podíl ukazuje čitatel a jmenovatel. Když je jmenovatel 0, podíl nejde spočítat. Částečný je, když část jednotek chybí nebo období začíná před zdrojem.'
+      : 'Částečné, když období začíná před začátkem zdroje nebo část jednotek chybí; bez zdroje nedostupné.');
+  const data: DataDefinice = {
+    metriky: KATALOG_PREHLEDU.map((m) => ({
+      klic: m.klic, verze: 1, nazev: m.nazev, definice: m.definice, zaklad: m.zaklad, jednotka: m.jednotka, zdroje: m.zdroje.join(', '),
+      granularita: granularita(m.zaklad), kvalita_pravidla: kvalita(m.jednotka), platne_od: '2026-11-17',
+    })),
+    duvody: DUVODY_ODMITNUTI.map((d) => ({ klic: d.kod, nazev: d.text, vyzaduje_text: d.kod === 'jine' })),
+    odvozene_vysledky: [
+      { klic: 'nereagoval_na_nabidku', nazev: 'Nereagoval ani na nabídku za polovinu', popis: 'událost sleva_vyprsela (tick: nabídka vypršela bez reakce)' },
+      { klic: 'mlci_po_navrhu', nazev: 'Mlčí po návrhu', popis: 'otevřený klient s návrhem, mlčí víc než 5 pracovních dní (pravidlo označení, migrace 060)' },
+      { klic: 'bez_duvodu', nazev: 'Důvod nezapsán', popis: 'klient po návrhu odmítl (stav odmitnuto), řádek v odmitnuti chybí' },
+    ],
+    faze_odmitnuti: [{ klic: 'nahled', nazev: 'Odmítl náhled (návrh webu)' }, { klic: 'sleva', nazev: 'Odmítl nabídku za polovinu' }],
+    stavy: STAVY_PREHLEDU.map((s) => ({ ...s })),
+    signaly_akci: SIGNALY_AKCI.map((s) => ({ ...s })),
+    zdroje: ZDROJE_PREHLEDU.map((z) => ({ ...z })),
+    kategorie_nakladu: KATEGORIE_VYUCTOVANI.map((k) => ({ ...k })),
+    metriky_cilu: METRIKY_CILU.map((m) => ({ ...m })),
+    varovani: VAROVANI_SABLONY.map((v) => ({ ...v })),
+  };
+  return obalkaPrehledu(null, data, [], []);
 }
 
 const mockApiZaklad: Api = {
@@ -5604,6 +7772,29 @@ const mockApiZaklad: Api = {
     // Přehled vedení (migrace 073, kontrakt §5.5): jen super admin, napřed stráž, pak filtr
     return prehledLideMock(auth(token), filtr);
   },
+
+  // Přehled vedení, ostatní funkce migrace 073 (úkol 13): napřed relace a stráž super admina, pak parametry (R3)
+  async prehledMoznosti(token: string) { await delay(); return prehledMoznostiMock(auth(token)); },
+  async prehledSouhrn(token: string, filtr: PrehledFiltrVstup | null = null) { await delay(); return prehledSouhrnMock(auth(token), filtr); },
+  async prehledRada(token: string, metrika: MetrikaRadyKlic, zrnitost: ZrnitostRady = 'den', filtr: PrehledFiltrVstup | null = null) {
+    await delay();
+    return prehledRadaMock(auth(token), metrika, zrnitost, filtr);
+  },
+  async prehledTrychtyr(token: string, filtr: PrehledFiltrVstup | null = null) { await delay(); return prehledTrychtyrMock(auth(token), filtr); },
+  async prehledPipeline(token: string, filtr: PrehledFiltrVstup | null = null) { await delay(); return prehledPipelineMock(auth(token), filtr); },
+  async prehledKlienti(token: string, filtr: PrehledFiltrVstup | null = null) { await delay(); return prehledKlientiMock(auth(token), filtr); },
+  async prehledKomunikace(token: string, filtr: PrehledFiltrVstup | null = null) { await delay(); return prehledKomunikaceMock(auth(token), filtr); },
+  async prehledFinance(token: string, filtr: PrehledFiltrVstup | null = null) { await delay(); return prehledFinanceMock(auth(token), filtr); },
+  async prehledDodani(token: string, filtr: PrehledFiltrVstup | null = null) { await delay(); return prehledDodaniMock(auth(token), filtr); },
+  async prehledPrognoza(token: string, filtr: PrehledFiltrVstup | null = null) { await delay(); return prehledPrognozaMock(auth(token), filtr); },
+  async prehledKvalita(token: string) { await delay(); return prehledKvalitaMock(auth(token)); },
+  async prehledAkce(token: string, filtr: PrehledFiltrVstup | null = null) { await delay(); return prehledAkceMock(auth(token), filtr); },
+  async prehledRadky(token: string, zdroj: RadkyZdroj, filtr: PrehledFiltrVstup | null = null, kurzor: string | null = null, limit = 50) {
+    await delay();
+    return prehledRadkyMock(auth(token), zdroj, filtr, kurzor, limit);
+  },
+  async prehledKontakt(token: string, kontaktId: number) { await delay(); return prehledKontaktMock(auth(token), kontaktId); },
+  async prehledDefinice(token: string) { await delay(); return prehledDefiniceMock(auth(token)); },
 };
 
 /**

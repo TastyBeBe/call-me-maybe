@@ -3874,6 +3874,252 @@ await blok050('LP8 server bez 074', async () => {
   await ctx.close();
 });
 
+/* ============ PV (Přehled vedení úkol 13, Albert 17. 11. 2026, D1, D2 a D12): stránka #/prehled jen pro super admina ============ */
+// Spec §7.1, §7.2 a §7.8: pilulka a dlaždice super admina, záložky jako podstránky, filtr v adrese (proklik i odkaz ho drží), osm
+// karet s „i“ a řádky (součet řádků = karta), stránkování a CSV (apostrof před vzorcem, bez telefonu a e-mailu), stavy (server bez
+// migrace 073 = jen hláška, nikdy ukázková data), klávesnice (Tab, Escape, fokus zpět), telefon 320/360/390 bez posunu do strany.
+// Volající: žádná pilulka ani dlaždice, #/prehled ho vrátí domů a mock nedostane žádné volání prehled_*, cile_*, naklady_*, provize_*.
+const BEZ_073_E2E = /export const BEZ_073_PREHLED = '([^']+)';/.exec(readFileSync(join(ROOT, 'src/api/supabase.ts'), 'utf8'))?.[1] ?? 'chybí BEZ_073_PREHLED';
+const PRAHA_PV = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Prague', year: 'numeric', month: '2-digit', day: '2-digit' });
+const dnesPV = () => PRAHA_PV.format(new Date());
+const posunPV = (d, n) => { const [y, m, dd] = d.split('-').map(Number); return new Date(Date.UTC(y, m - 1, dd + n)).toISOString().slice(0, 10); };
+const KARTY_PV = ['hodnota_prodeju', 'inkaso', 'pocet_prodeju', 'plneni_cile', 'uspesnost', 'otevrene', 'odhad_mesic', 'k_zasahu'];
+const ZALOZKY_PV = ['vedeni', 'lide', 'pipeline', 'klienti', 'komunikace', 'finance', 'dodani', 'prognoza'];
+const snimekCely = async (page, jmeno) => {
+  if (SNIMKY) await page.screenshot({ path: join(SNIMKY, `${jmeno}.png`), fullPage: true });
+};
+const hashPV = (page) => page.evaluate(() => location.hash);
+const kartaPV = (page, klic) => page.locator(`.kpi-karta[data-klic="${klic}"]`);
+const posledniPV = async (page, fn) => (await volani(page)).filter((v) => v.fn === fn).pop();
+/** Klávesou: fokus a Enter (prasátko v rohu obrazovky by mohlo zakrýt klik; zároveň měří, že jde ovládat klávesnicí). */
+const enterPV = async (page, locator) => {
+  await locator.focus();
+  await page.keyboard.press('Enter');
+};
+
+await blok050('PV1 vstup', async () => {
+  const { ctx, page } = await novaStranka('admin');
+  await jdi(page, '#/', 500);
+  const dlazdice = page.locator('a.big-tile[href="#/prehled"]');
+  const pilulka = page.locator('nav a.nav-pill[href="#/prehled"]');
+  over('PV1a', (await dlazdice.count()) === 1 && /PŘEHLED/.test(await dlazdice.innerText()) && (await pilulka.count()) === 1 && txt(await pilulka.innerText()) === 'přehled',
+    'super admin: dlaždice PŘEHLED na Domů a pilulka „přehled“ v menu', String(await dlazdice.count()));
+  await enterPV(page, dlazdice);
+  await klid(page, 900);
+  const karty = await page.locator('.kpi-karta[data-klic]').evaluateAll((els) => els.map((e) => e.getAttribute('data-klic')));
+  over('PV1b', (await hashPV(page)).startsWith('#/prehled/vedeni') && JSON.stringify(karty) === JSON.stringify(KARTY_PV)
+    && txt(await page.locator('h1.page-title').innerText()) === 'Přehled vedení',
+    '#/prehled vede na záložku Vedení s osmi kartami v pořadí kontraktu (§5.2)', `${await hashPV(page)} ${JSON.stringify(karty)}`);
+  const hodnoty = await page.locator('.kpi-karta .kpi-hlavni').allInnerTexts();
+  over('PV1c', hodnoty.length === 8 && hodnoty.every((h) => txt(h) !== '' && txt(h) !== '—'),
+    'v demu má všech osm karet hodnotu (žádná pomlčka)', hodnoty.join(' | '));
+  over('PV1d', (await page.locator('.prehled-demo').count()) === 1 && /Data k/.test(await page.locator('.prehled-data-k').innerText())
+    && (await page.locator('.prehled-cerstvost-cipy li').count()) === 4,
+    'hlavička: pruh DEMO, „Data k …“ a čerstvost zdrojů (automatizace, pošta, Gmail, snímek)', '');
+  const spojeno = await page.locator('.kpi-karta .kpi-nazev').allInnerTexts();
+  over('PV1e', !spojeno.some((t) => /Dovoláno/.test(t)), 'na Vedení se „Dovoláno“ nikde neobjeví', spojeno.join(' | '));
+  await snimekCely(page, 'vedeni-1280');
+  await ctx.close();
+});
+
+await blok050('PV2 filtr v adrese', async () => {
+  const { ctx, page } = await novaStranka('admin');
+  await jdi(page, '#/prehled/vedeni', 900);
+  const dnes = dnesPV();
+  const prvni = `${dnes.slice(0, 8)}01`;
+  const minulyDo = posunPV(prvni, -1);
+  const minulyOd = `${minulyDo.slice(0, 8)}01`;
+  await page.locator('.prehled-obdobi select').selectOption('minuly_mesic');
+  await klid(page, 800);
+  const h = await hashPV(page);
+  const s = await posledniPV(page, 'prehledSouhrn');
+  over('PV2a', h.includes(`od=${minulyOd}`) && h.includes(`do=${minulyDo}`) && s?.args[0]?.od === minulyOd && s?.args[0]?.do === minulyDo,
+    'Minulý měsíc: období v adrese i ve volání prehled_souhrn (pražské dny)', `${h} ${JSON.stringify(s?.args[0])}`);
+  await page.locator('.prehled-mena button', { hasText: 'EUR' }).first().click();
+  await klid(page, 800);
+  const s2 = await posledniPV(page, 'prehledSouhrn');
+  const cipy = (await page.locator('.prehled-cipy .filtr-cip').allInnerTexts()).map(txt);
+  over('PV2b', (await hashPV(page)).includes('mena=EUR') && s2?.args[0]?.mena === 'EUR' && cipy.includes('Měna: EUR')
+    && /€|—/.test(await kartaPV(page, 'hodnota_prodeju').locator('.kpi-hodnota').innerText()),
+    'měna EUR: v adrese, ve volání, čip „Měna: EUR“ a karta peněz v eurech', `${await hashPV(page)} ${cipy.join('|')}`);
+  // odkaz s filtrem: přepnutí záložky filtr nechá
+  await page.locator('.prehled-zalozka', { hasText: 'Finance' }).click();
+  await klid(page, 800);
+  const f = await posledniPV(page, 'prehledFinance');
+  over('PV2c', (await hashPV(page)).startsWith('#/prehled/finance?') && (await hashPV(page)).includes('mena=EUR') && f?.args[0]?.mena === 'EUR' && f?.args[0]?.od === minulyOd,
+    'záložka Finance: filtr zůstal (adresa i volání prehled_finance)', await hashPV(page));
+  await page.locator('.prehled-cipy .zrusit-filtry').click();
+  await klid(page, 800);
+  over('PV2d', !(await hashPV(page)).includes('mena=') && (await hashPV(page)).includes(`od=${minulyOd}`) && (await page.locator('.prehled-cipy').count()) === 0,
+    'Zrušit vše: filtry výchozí, období zůstane', await hashPV(page));
+  // sdílený odkaz: tým ze Statistik (#/prehled/lide?…&tym=4) → prehled_lide s členy týmu Mikuláše
+  await jdi(page, `#/prehled/lide?od=${prvni}&do=${dnes}&tym=4`, 900);
+  const l = await posledniPV(page, 'prehledLide');
+  over('PV2e', JSON.stringify(l?.args[0]?.lide) === '[3,4]' && /Tým Mikuláš/.test(await page.locator('.lide-picker-btn').innerText()),
+    'odkaz s tym=4 (formát „Porovnat v Přehledu“): server dostane členy týmu, výběr ukáže „Tým Mikuláš“', JSON.stringify(l?.args[0]));
+  await ctx.close();
+});
+
+await blok050('PV3 řádky a CSV', async () => {
+  const { ctx, page } = await novaStranka('admin');
+  await jdi(page, '#/prehled/vedeni', 900);
+  const vysledky = {};
+  for (const klic of ['pocet_prodeju', 'k_zasahu', 'otevrene', 'uspesnost']) {
+    const hodnota = txt(await kartaPV(page, klic).locator('.kpi-hlavni').innerText());
+    await enterPV(page, kartaPV(page, klic).locator('.kpi-proklik'));
+    await klid(page, 700);
+    const panel = page.locator('.proklik-panel[role="dialog"]');
+    const radku = await panel.locator('tbody tr').count();
+    const souhrnText = txt(await panel.locator('.proklik-souhrn').innerText().catch(() => ''));
+    vysledky[klic] = { hodnota, radku, souhrnText };
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(150);
+  }
+  const ok = (k) => {
+    const r = vysledky[k];
+    const celkem = /z (\d+)/.exec(r.souhrnText)?.[1];
+    if (k === 'uspesnost') return Number(celkem) === r.radku && r.radku > 0;
+    return Number(r.hodnota.replace(/\s/g, '')) === r.radku && Number(celkem) === r.radku;
+  };
+  over('PV3a', ['pocet_prodeju', 'k_zasahu', 'otevrene', 'uspesnost'].every(ok),
+    'klik na kartu: panel řádků, kolik řádků, tolik jako číslo karty (prodeje, případy k zásahu, otevřené; úspěšnost = jmenovatel)', JSON.stringify(vysledky));
+  // součet peněz: řádky hodnoty prodejů = karta
+  await enterPV(page, kartaPV(page, 'hodnota_prodeju').locator('.kpi-proklik'));
+  await klid(page, 700);
+  const karta = txt(await kartaPV(page, 'hodnota_prodeju').locator('.kpi-hlavni').innerText());
+  const soucet = txt(await page.locator('.proklik-souhrn strong').first().innerText().catch(() => ''));
+  over('PV3b', soucet.replace(/\s/g, '') === karta.replace(/\s/g, ''), 'součet řádků hodnoty prodejů = karta', `${soucet} / ${karta}`);
+  const fokus1 = await page.evaluate(() => document.activeElement?.className ?? '');
+  over('PV3c', /proklik-zavrit/.test(fokus1) && (await page.locator('.proklik-strankovani').innerText()).includes('Strana 1 z 1')
+    && (await page.locator('.proklik-strankovani button', { hasText: 'Další' }).isDisabled()),
+    'panel: fokus na křížku, stránkování „Strana 1 z 1“ a Další vypnuté (všechny řádky na první stránce)', fokus1);
+  // CSV
+  const [stazeni] = await Promise.all([page.waitForEvent('download', { timeout: 8000 }), page.locator('.proklik-csv').click()]);
+  const obsah = readFileSync(await stazeni.path(), 'utf8');
+  const radky = obsah.replace(/^﻿/, '').split('\r\n').filter(Boolean);
+  over('PV3d', obsah.startsWith('﻿') && radky[0] === 'Prodáno;Klient;Cena;Cena z;Připsáno;Provize;Hosting ročně' && radky.length === 1 + (Number(/z (\d+)/.exec(txt(await page.locator('.proklik-souhrn').innerText()))?.[1]) || 0)
+    && /^prehled-prodeje-\d{4}-\d{2}-\d{2}-\d{4}-\d{2}-\d{2}\.csv$/.test(stazeni.suggestedFilename()) && !/@|\+420/.test(obsah),
+    'CSV: BOM, hlavička se středníkem, řádek za každý řádek panelu, jméno souboru se zdrojem a obdobím, bez telefonu a e-mailu', `${stazeni.suggestedFilename()} ${radky.slice(0, 2).join(' / ')}`);
+  await snimekCely(page, 'radky-1280');
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(200);
+  const fokus2 = await page.evaluate(() => document.activeElement?.getAttribute('aria-label') ?? '');
+  over('PV3e', (await page.locator('.proklik-panel').count()) === 0 && fokus2 === 'Zobrazit řádky: Hodnota prodejů',
+    'Escape zavře panel a fokus se vrátí na kartu', fokus2);
+  await ctx.close();
+});
+
+await blok050('PV4 „i“ a klávesnice', async () => {
+  const { ctx, page } = await novaStranka('admin');
+  await jdi(page, '#/prehled/vedeni', 900);
+  const i = kartaPV(page, 'uspesnost').locator('.definice-btn');
+  await i.focus();
+  await page.keyboard.press('Enter');
+  await page.waitForTimeout(150);
+  const okno = page.locator('.definice-okno[role="dialog"]');
+  const text = txt(await okno.innerText().catch(() => ''));
+  over('PV4a', (await okno.count()) === 1 && /Vyhrané ÷/.test(text) && /Základ/.test(text) && /uzavření obchodu/.test(text) && /Verze 1/.test(text) && /katalog 2026-11-17\.1/.test(text)
+    && (await i.getAttribute('aria-expanded')) === 'true',
+    '„i“ Enterem: definice, základ, zdroje, verze; tlačítko aria-expanded', text.slice(0, 160));
+  await snimekCely(page, 'definice-1280');
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(150);
+  const fokus = await page.evaluate(() => document.activeElement?.getAttribute('aria-label') ?? '');
+  over('PV4b', (await okno.count()) === 0 && fokus === 'Co znamená Úspěšnost návrhů', 'Escape zavře „i“ a fokus je zpět na tlačítku', fokus);
+  // záložky jsou odkazy dosažitelné Tabem, Enter přepne a nese filtr
+  const prvni = page.locator('.prehled-zalozka').first();
+  await prvni.focus();
+  await page.keyboard.press('Tab');
+  const dalsi = await page.evaluate(() => document.activeElement?.textContent?.trim() ?? '');
+  await page.keyboard.press('Enter');
+  await klid(page, 800);
+  over('PV4c', dalsi === 'Lidé a volání' && (await hashPV(page)).startsWith('#/prehled/lide?od=') && (await page.locator('.prehled-zalozka.aktivni').innerText()).includes('Lidé a volání'),
+    'Tab z první záložky na druhou, Enter otevře Lidé a volání s filtrem v adrese', `${dalsi} ${await hashPV(page)}`);
+  const nazvy = (await page.locator('.kpi-karta .kpi-nazev').allInnerTexts()).map(txt);
+  over('PV4d', nazvy.includes('Spojeno') && nazvy.includes('Míra spojení') && !nazvy.some((n) => /Dovoláno|dovolání/.test(n)),
+    'Lidé a volání: serverové dovolano je „Spojeno“, míra „Míra spojení“; „Dovoláno“ nikde', nazvy.join(' | '));
+  await ctx.close();
+});
+
+await blok050('PV5 záložky a stavy', async () => {
+  const { ctx, page } = await novaStranka('mikulas');
+  const vysl = {};
+  for (const z of [...ZALOZKY_PV, 'nastaveni/cile', 'nastaveni/naklady', 'nastaveni/vyplaty']) {
+    await jdi(page, `#/prehled/${z}`, 900);
+    vysl[z] = { chyba: await page.locator('.prehled-chyba').count(), nadpis: await page.locator('.prehled-sekce-nadpis').count(), karet: await page.locator('.kpi-karta').count() };
+  }
+  over('PV5a', Object.values(vysl).every((v) => v.chyba === 0 && v.nadpis === 1) && ZALOZKY_PV.every((z) => vysl[z].karet > 0),
+    'všech osm záložek a tři sekce nastavení se vykreslí bez chyby; každá záložka ukáže karty ze své funkce', JSON.stringify(vysl));
+  const fns = new Set((await volani(page)).map((v) => v.fn));
+  over('PV5b', ['prehledMoznosti', 'prehledDefinice', 'prehledSouhrn', 'prehledLide', 'prehledPipeline', 'prehledKlienti', 'prehledKomunikace', 'prehledFinance', 'prehledDodani', 'prehledPrognoza'].every((f) => fns.has(f))
+    && (await volani(page)).filter((v) => /^prehled/.test(v.fn)).every((v) => v.ok === true),
+    'Mikuláš (super admin): každá záložka zavolá svou funkci 073 a všechna volání prošla', [...fns].filter((f) => /^prehled/.test(f)).join(','));
+  // server bez migrace 073: jen hláška, žádná čísla
+  // háček přežije jen bez nového načtení stránky: pryč z Přehledu a zpět (stránka se připojí znovu a načte možnosti)
+  await page.evaluate((bez) => { globalThis.__volackaDemoTest.selhani = (fn) => (/^prehled/.test(fn) ? bez : null); }, BEZ_073_E2E);
+  await jdi(page, '#/', 400);
+  await jdi(page, '#/prehled/vedeni', 900);
+  const chyba = txt(await page.locator('.prehled-chyba').first().innerText().catch(() => ''));
+  over('PV5c', /^Přehled potřebuje migraci 073/.test(chyba) && (await page.locator('.kpi-karta:not(.kostra)').count()) === 0 && (await page.locator('.prehled-filtr').count()) === 0,
+    'server bez 073: „Přehled potřebuje migraci 073“, žádná karta ani filtr (nikdy ukázková čísla)', chyba);
+  await snimekCely(page, 'bez-073-1280');
+  await page.evaluate(() => { globalThis.__volackaDemoTest.selhani = null; });
+  await page.locator('.prehled-chyba button').click();
+  await klid(page, 900);
+  over('PV5d', (await page.locator('.kpi-karta[data-klic]').count()) > 0 && (await page.locator('.prehled-chyba').count()) === 0, 'Zkusit znovu po opravě serveru načte čísla', '');
+  await ctx.close();
+});
+
+await blok050('PV6 Volající', async () => {
+  const { ctx, page } = await novaStranka('petra');
+  await jdi(page, '#/', 600);
+  const pilulka = await page.locator('nav a[href="#/prehled"]').count();
+  const dlazdice = await page.locator('a[href="#/prehled"]').count();
+  await jdi(page, '#/prehled/vedeni', 700);
+  const h1 = await hashPV(page);
+  await jdi(page, '#/prehled/finance?od=2026-11-01&do=2026-11-30&lide=1,4', 700);
+  const h2 = await hashPV(page);
+  await jdi(page, '#/stats', 700);
+  const zakazana = (await volani(page)).filter((v) => /^(prehled|cile|naklady|provize)/i.test(v.fn)).map((v) => v.fn);
+  over('PV6a', pilulka === 0 && dlazdice === 0 && h1 === '#/' && h2 === '#/' && (await page.locator('.prehled-stranka').count()) === 0 && zakazana.length === 0,
+    'Volající: žádná pilulka ani dlaždice, #/prehled ho vrátí domů, mock nedostal žádné volání prehled_*, cile_*, naklady_*, provize_*',
+    JSON.stringify({ pilulka, dlazdice, h1, h2, zakazana }));
+  await ctx.close();
+});
+
+for (const sirka of [320, 360, 390]) {
+  await blok050(`PV7 ${sirka}`, async () => {
+    const { ctx, page } = await novaStranka('admin', { sirka, vyska: 844 });
+    const vysl = {};
+    for (const z of ['vedeni', 'finance', 'lide', 'nastaveni/cile']) {
+      await jdi(page, `#/prehled/${z}`, 900);
+      vysl[z] = await page.evaluate(() => document.documentElement.scrollWidth);
+    }
+    await jdi(page, '#/prehled/vedeni', 900);
+    await enterPV(page, page.locator('.prehled-dalsi-btn'));
+    await page.waitForTimeout(150);
+    vysl.dalsi = await page.evaluate(() => document.documentElement.scrollWidth);
+    await page.keyboard.press('Escape');
+    await enterPV(page, kartaPV(page, 'plneni_cile').locator('.definice-btn'));
+    await page.waitForTimeout(150);
+    vysl.definice = await page.evaluate(() => document.documentElement.scrollWidth);
+    const okno = await page.locator('.definice-okno').boundingBox();
+    await page.keyboard.press('Escape');
+    await enterPV(page, kartaPV(page, 'hodnota_prodeju').locator('.kpi-proklik'));
+    await klid(page, 700);
+    vysl.radky = await page.evaluate(() => document.documentElement.scrollWidth);
+    if (sirka === 390) await snimekCely(page, 'radky-390');
+    await page.keyboard.press('Escape');
+    if (sirka === 390) {
+      await jdi(page, '#/prehled/vedeni', 900);
+      await snimekCely(page, 'vedeni-390');
+    }
+    over(`PV7 ${sirka}`, Object.values(vysl).every((w) => w <= sirka) && !!okno && okno.x >= 0 && okno.x + okno.width <= sirka,
+      `telefon ${sirka} px: Přehled, Finance, Lidé, Nastavení, „Další“, „i“ a řádky bez posunu do strany`, JSON.stringify({ ...vysl, okno }));
+    await ctx.close();
+  });
+}
+
 await browser.close();
 server.close();
 rmSync(OUT, { recursive: true, force: true });

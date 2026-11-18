@@ -26,7 +26,7 @@ npm install
 npm run dev      # dev server ⚠ bez DEMO jede proti ŽIVÉ DB, viz níž
 npm run build    # produkční build do dist/ (tsc -b, zapnuté noUnusedLocals, pak vite build)
 npm run preview  # náhled produkčního buildu
-npm test         # test chování segmentu, e-mailového příznaku, volání, rozvrhu, od 056 filtrů, od úkolu 11 panelu filtrů, od 062 dovolání, od úkolu 12 časovače práce a důvodu odmítnutí a od úkolu 10 výběru lidí nad demo mockem (bez sítě, bez živé DB)
+npm test         # test chování segmentu, e-mailového příznaku, volání, rozvrhu, od 056 filtrů, od úkolu 11 panelu filtrů, od 062 dovolání, od úkolu 12 časovače práce a důvodu odmítnutí, od úkolu 10 výběru lidí a od úkolu 13 Přehledu vedení nad demo mockem (bez sítě, bez živé DB)
 npm run test:e2e # zkouška stránek v DEMO v headless prohlížeči (viz níž)
 ```
 
@@ -723,6 +723,55 @@ Podklady pro Přehled vedení (super admin), migrace 072 (kontrakt `../docs/supe
   detail; chyba uložení důvodu hovor nezruší; volání) a upravené V4a, V6a (signály časovače se nepočítají) a O61b (u 93
   a 94 „Nechce web“ chce důvod).
 
+## Přehled vedení: stránka, filtr v adrese, karty, řádky a CSV (úkol 13, Albert 17. 11. 2026)
+
+Manažerský přehled pro super adminy (rozhodnutí D2: Albert, Mikuláš, Kryštof, PavelB; spec
+`../docs/superpowers/specs/2026-11-17-prehled-vedeni-design.md` §7.1 a §7.2, kontrakt
+`../docs/superpowers/specs/2026-11-17-prehled-kontrakt.md` §2 a §5). Úkol 13 je kostra; obsah záložek (trend proti cíli,
+trychtýř, porovnání lidí, grafy, nastavení cílů, nákladů a výplat) doplní úkol 14.
+
+- **Kdo**: pilulka „přehled“ v menu a dlaždice PŘEHLED na Domů jen pod `isSuper`; trasa `#/prehled/*` pod `RequireAuth
+  superAdmin` a pojistka ve stránce (`src/pages/prehled/PrehledPage.tsx`): Volajícímu se nevykreslí nic, `#/prehled` ho vrátí
+  domů a appka mu nikdy nezavolá `prehled_*`, `cile_*`, `naklady_*` ani `provize_*` (server je stejně odmítne „Přehled vidí
+  jen super admin.“). Nic jiného nového Volající nevidí.
+- **Adresa** `#/prehled/<záložka>?od=YYYY-MM-DD&do=YYYY-MM-DD&lide=1,2|tym=2211&seg=chata,architekt&obor=…&kraj=…&mena=CZK|EUR|obe&zaklad=…&atribuce=…&k=<ISO>`
+  (`src/prehledFiltr.ts`: `ctiFiltr`, `zapisFiltr`, `filtrProServer`): filtr žije v adrese, takže proklik i sdílený odkaz ukážou
+  totéž (ostatní stránky si filtry dál nepamatují). Ručně pokažená hodnota = výchozí (období přes 730 dní nebo před rokem 2020,
+  do před od, neplatná id, budoucí k_datu). Výchozí: Tento měsíc, všichni, CZK. `tym` rozbalí appka na členy z
+  `prehled_moznosti.tymy` (server týmy nezná); odkaz „Porovnat v Přehledu“ ze Statistik má týž formát.
+- **Záložky** jako podstránky: Vedení, Lidé a volání, Pipeline, Klienti a sektory, Komunikace a ztráty, Finance, Dodání,
+  Prognóza a data; ozubené kolo Nastavení `#/prehled/nastaveni/cile|naklady|vyplaty`. Odkazy záložek nesou celý filtr.
+- **Hlavička**: „Data k …“ (čas odpovědi, při K datu „Čísla k …“), čerstvost automatizace, pošty klientů (náhrada R28),
+  Gmailu a denního snímku, výsuvný seznam všech 22 zdrojů se stavem.
+- **Řada filtrů** (`src/components/prehled/FiltrPrehledu.tsx`): Období s předvolbami Dnes, Tento týden (po až ne), Tento
+  měsíc, Minulý měsíc, Posledních 30 dní, Letos (celé kalendářní jednotky podle dne v Praze), Vlastní (dva dny); Lidé (výběr
+  lidí z úkolu 10, lidé a týmy z `prehled_moznosti`); Segment, Obor (jen když specializace existují), Kraj; Měna CZK, EUR,
+  CZK i EUR; „Další“: základ tabulek klientů, komu se klient počítá, stav k datu. Čipy zapnutých filtrů s křížkem a „Zrušit
+  vše“ (období zůstane). Na telefonu se řada zalomí, panely jsou na šířku řady.
+- **Karta** (`src/components/prehled/KpiKarta.tsx`): hodnota podle jednotky katalogu (peníze po měnách, CZK a EUR nikdy
+  sečtené, koruny na karty zaokrouhlené), řádek pokrytí, odznak kvality vždy slovem i ikonou (úplné, částečně, nedostupné),
+  důvod viditelně u čísla. Neznámé číslo je pomlčka, nikdy „0“. **„Spojeno“**: serverové `dovolano` (každý výsledek kromě
+  nedovoláno) se v Přehledu jmenuje „Spojeno“ a `mira_dovolani` „Míra spojení“, s vlastní definicí (`src/prehled.ts`
+  `NAZVY_APPKY`); „Dovoláno“ zůstává jen ve Statistikách (zájem + odmítnutí).
+- **„i“** (`DefinicePopover.tsx`): definice z `prehled_definice`, přirozený základ, zdroje s časem dat, kdy je číslo neúplné,
+  verze definice a katalogu; Enter otevře, Escape zavře a vrátí fokus.
+- **Řádky** (`ProklikPanel.tsx`): klik nebo Enter na kartě otevře panel zprava s `prehled_radky` (proklik.filtr beze změny),
+  50 na stránku s kurzorem (Předchozí, Další), počet a součet všech řádků (= karta), **CSV** až 5 000 řádků po stránkách 200
+  (`src/csv.ts` `doCsv`: středník, desetinná čárka, BOM, apostrof před `= + - @`, telefon a e-mail zamaskované). Escape
+  zavře a fokus se vrátí na kartu.
+- **Stavy**: kostra karet při načítání, chyba s „Zkusit znovu“, prázdno s radou, „Část čísel je neúplná“ (varování serveru
+  a neúplné metriky), pruh DEMO. Server bez migrace 073 (PGRST202 u kterékoli funkce, `BEZ_073_PREHLED`) = jen hláška
+  **„Přehled potřebuje migraci 073“**, žádná čísla, nikdy ukázková data jako skutečná.
+- **API a mock**: typy všech funkcí 073 v `src/api/types.ts` (tvary §7 doslova), volání v `supabase.ts`, mock v `mock.ts`
+  (stráž super admina před parametry, filtr jako server, každá metrika s 13 klíči, proklik na řádky ze stejných jednotek jako
+  karta, kurzor svázaný s filtrem a zdrojem, chybové věty doslova). Ukázková data jen pro Přehled: faktury a platby (události),
+  náklady (seed D6), cíle, výplata provize, zprávy z Gmailu, joby, návrhy prodaných ukázkových klientů a jedno odmítnutí po
+  návrhu; řádky kontaktů a hovorů jsou společné s ostatními stránkami a nemění se.
+- **Testy**: `npm test` soubor `tests/prehled.test.mjs` (A adresa a filtr pro server, B předvolby v Praze i přes změnu času,
+  C CSV, D karta a „i“, E mock jako kontrakt včetně součtu řádků = karta po stránkách, F `supabase.ts` a PGRST202, G zapojení
+  a Volající); `npm run test:e2e` blok PV (dlaždice a pilulka, osm karet, filtr v adrese a odkaz s týmem, řádky a CSV,
+  klávesnice, všechny záložky, server bez 073, Volající, telefon 320/360/390).
+
 ## Účty a přihlášení (produkce)
 
 - Vlastní auth v Postgresu (žádný Supabase Auth): funkce `login` vrací token,
@@ -932,6 +981,7 @@ který schvaluje Albert (u zprávy je vidět jeho stav).
 | `#/admin`     | všichni | Kontakty: celá databáze s filtry (i segment, 028) a fulltextem (i studio, město, IČO; IČO jen admin a super admin, 038); upravovat smí admin a super admin; počty u stavů a košů a celkový počet jen super admin (045, Volající stránkuje bez počtu); Volající stav, známku, kdo volal, čekání a poznámky jen u svých klientů, filtr stavu a hledání v poznámce jen nad nimi (045, 20. 10. 2026); od migrace 056 řazení podle poslední změny (Volajícímu jen mezi jeho klienty, cizí za nimi podle čísla); od migrace 057 Změněno i se změnami od automatizace, sloupec a řazení podle posledního hovoru (Volajícímu jen jeho hovory); od migrace 060 (Albert 1. 11. 2026) spojitelné filtry (víc stavů a známek, hvězda, označení, mlčení v pracovních dnech), sloupec Mlčí a hvězda u svých klientů (Volajícímu jen nad jeho klienty); ⚠ od migrace 061 (Albert 2. 11. 2026) řádky o dvou řádcích bez posunu do strany (NAHRAZUJE tabulku posouvanou v rámečku) a Volající nevidí příznak „Údaje z internetu“; ⚠ od migrace 062 (Albert 2. 11. 2026: „you can even add [it] to the contacts section“) „Zavolal/a jsem“ v 1. řádku u vlastních klientů, kterým ho přihlášený smí zapsat; ⚠ od 17. 11. 2026 (úkol 11) panel filtrů ve třech řadách s čipy a „Zrušit vše“, na telefonu okno „Filtry (n)“; od úkolu 10 (17. 11. 2026) super admin výběr lidí (Já, tým, kdokoli, Všichni) |
 | `#/oznacene`  | admin   | označení klienti — admin svoji; super admin a Albert všichni (027); filtr segmentu (028); ⚠ od migrace 060 (Albert 1. 11. 2026) „Označené k zavolání“ (`list_oznacene`): klienti, kteří víc než 5 pracovních dní mlčí (Neodpověděl na návrh, na změny), Volajícímu jen jeho, a klienti s příznakem; okno „Zavolal/a jsem“ (`zapis_hovor`, nikdy call_log), „Lhůta na zavolání do …“, stejné filtry jako Kontakty, super admin sloupec Volající, „bez volajícího“ a „Zrušit označení“ (NAHRAZUJE „jen příznaky přes list_flagged“); ⚠ od migrace 061 (Albert 2. 11. 2026) řádky o dvou řádcích bez posunu do strany s akcemi přímo v řádku („Zavolal/a jsem“, „Vyřešeno“ u příznaku, super admin „Zrušit označení“), okno s pěti výsledky (i „Nic z toho výše“) a poznámkou pro automatizaci u každého, příznak „Údaje z internetu“ jen super admin; od auditu soudržnosti (2. 11. 2026) u označeného klienta s příznakem „Chybí e-mail“ hned za skupinou „e-mail se vrátil“; ⚠ od migrace 062 (Albert 2. 11. 2026) okno se šesti výsledky (i „Chce web“, NAHRAZUJE „s pěti výsledky“) a „Zavolal/a jsem“ i u řádku jen s příznakem, když ho přihlášený smí zapsat; od migrace 063 pod lhůtou „Připomínka odeslána <den>“, když po lhůtě odešla připomínka e-mailem; ⚠ od 17. 11. 2026 (úkol 11) panel filtrů ve třech řadách (pilulky „Co je potřeba“ pod řadou filtrů) s čipy a „Zrušit vše“, na telefonu okno „Filtry (n)“; od úkolu 10 (17. 11. 2026) super admin výběr lidí (Já, tým, kdokoli, Všichni) |
 | `#/zpravy`    | admin   | vlákna s AI agenty — admin svoje; super admin vlákna všech lidí (cizí jen ke čtení, 027); Albert i automatizaci; odznak architekta u hledaného kontaktu (028); od 17. 11. 2026 (úkol 10) super admin vlákna vybraných lidí (výběr lidí) |
+| `#/prehled`   | super admin | Přehled vedení (úkol 13, Albert 17. 11. 2026, D2): záložky jako podstránky `#/prehled/<záložka>` (Vedení, Lidé a volání, Pipeline, Klienti a sektory, Komunikace a ztráty, Finance, Dodání, Prognóza a data) a `#/prehled/nastaveni/<sekce>`, filtr v adrese (`?od=…&do=…&lide=…|tym=…&seg=…&obor=…&kraj=…&mena=…&zaklad=…&atribuce=…&k=…`), karty s „i“ a řádky s CSV; Volajícího vrátí domů |
 | `#/uzivatele` | super admin | super admin: všichni lidé, upravuje sebe a své lidi + nový Volající (027, 042); Albert: role (Volající / Super admin, 042) a nadřízení (⚠ od migrace 024 Volající stránku nemá) |
 | `#/automatizace` | Albert | vypínač automatizace a přepínač účtu Claude                    |
 | `#/setup`     | všichni | nastavení Supabase URL + anon klíče                              |

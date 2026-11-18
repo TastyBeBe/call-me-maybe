@@ -4,7 +4,7 @@ import { getApi, type AutomationStatus, type Rozvrh } from '../api';
 import { OWNER_USER_ID, useSession } from '../auth';
 import { accountLabel, powerSummary } from '../automation';
 import { isAdminRole, isSuperAdmin } from '../roles';
-import { AlarmIcon, CalendarIcon, ChartIcon, FlagIcon, MessageIcon, PhoneIcon, RocketIcon, TableIcon, UsersIcon } from '../icons';
+import { AlarmIcon, CalendarIcon, ChartIcon, DashboardIcon, FlagIcon, MessageIcon, PhoneIcon, RocketIcon, TableIcon, UsersIcon } from '../icons';
 import { dnesHlaska, stavHlaska } from '../rozvrh';
 import { formatCas, formatDateTime, formatKdy, kontaktJmeno } from '../ui';
 import { useZavolat } from '../zavolat';
@@ -183,6 +183,14 @@ export default function HomePage() {
               <span className="tile-label">ZPRÁVY</span>
               <span className="tile-sub">chat s AI agenty</span>
             </Link>
+            {/* Přehled vedení (migrace 073, Albert 17. 11. 2026, D2): jen super admin */}
+            {isSuper && (
+              <Link to="/prehled" className="big-tile">
+                <span className="tile-emoji"><DashboardIcon size={42} /></span>
+                <span className="tile-label">PŘEHLED</span>
+                <span className="tile-sub">prodeje, inkaso, lidé a pipeline celé firmy</span>
+              </Link>
+            )}
             {/* lidi zakládá a spravuje jen super admin (migrace 024) */}
             {isSuper && (
               <Link to="/uzivatele" className="big-tile">

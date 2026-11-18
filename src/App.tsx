@@ -29,6 +29,7 @@ import KalendarPage from './pages/KalendarPage';
 import LoginPage from './pages/LoginPage';
 import MojiPage from './pages/MojiPage';
 import OznacenePage from './pages/OznacenePage';
+import PrehledPage from './pages/prehled/PrehledPage';
 import RozvrhPage from './pages/RozvrhPage';
 import SetupPage from './pages/SetupPage';
 import StatsPage from './pages/StatsPage';
@@ -270,6 +271,16 @@ function TopBar() {
             >
               zprávy
             </NavLink>
+            {/* Přehled vedení (migrace 073, Albert 17. 11. 2026, D2): jen super admin; Volající pilulku nemá a trasa ho vrátí domů */}
+            {isSuper && (
+              <NavLink
+                to="/prehled"
+                data-sfx="none"
+                className={({ isActive }) => `nav-pill${isActive ? ' active' : ''}`}
+              >
+                přehled
+              </NavLink>
+            )}
             {/* lidi zakládá a spravuje jen super admin (Albert 2026-09-24, migrace 024) */}
             {isSuper && (
               <NavLink
@@ -407,6 +418,15 @@ export default function App() {
           element={
             <RequireAuth superAdmin>
               <UzivatelePage />
+            </RequireAuth>
+          }
+        />
+        {/* Přehled vedení (úkol 13): záložky jako podstránky #/prehled/<záložka>, filtr v adrese; jen super admin (D2) */}
+        <Route
+          path="/prehled/*"
+          element={
+            <RequireAuth superAdmin>
+              <PrehledPage />
             </RequireAuth>
           }
         />

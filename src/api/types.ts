@@ -1098,6 +1098,600 @@ export interface DataLide {
   soucet: RadekLide;
 }
 
+/* ---- Přehled vedení: ostatní funkce migrace 073 (úkol 13, kontrakt §5.1 až §5.17 a tvary §7, doslova). Úkol 14 nad nimi staví
+   obsah záložek; nic z toho Volající nedostane (server „Přehled vidí jen super admin.“, appka trasu ani volání nemá). ---- */
+
+/** Jednotka metriky (§3.11): pocet, mena (castky), podil (0–1 i víc), h, d, pocet_a_mena. */
+export type JednotkaMetriky = 'pocet' | 'mena' | 'podil' | 'h' | 'd' | 'pocet_a_mena';
+/** Stav kontaktu tak, jak ho vrací reporting (skutečný stav, nikdy zobrazený, §7 Status). */
+export type StavPrehledu = KontaktStatus;
+/** Zdroj řádků prehled_radky (§2.8). */
+export type RadkyZdroj = 'kontakty' | 'hovory' | 'prodeje' | 'faktury' | 'platby' | 'naklady' | 'provize' | 'odmitnuti' | 'zpravy' | 'akce' | 'prace';
+export type ZrnitostRady = 'den' | 'tyden' | 'mesic';
+/** Metriky řady prehled_rada (§5.3). */
+export type MetrikaRadyKlic = 'hovory' | 'dovolano' | 'zajem' | 'navrhy' | 'pocet_prodeju' | 'hodnota_prodeju' | 'inkaso' | 'naklady_celkem' | 'odpracovane_hodiny';
+export type CenaStav = 'presne' | 'rozsah' | 'nezname';
+export type KategorieVyuctovani = 'provize' | 'claude' | 'lovable' | 'domena' | 'hosting' | 'jine';
+export type SignalKod = 'klient_ceka' | 'navrh_mlci' | 'hovor_po_terminu' | 'faktura_nepotvrzena' | 'schvaleno_bez_faktury' | 'sleva_konci' | 'otazka';
+export type DuvodRadku = DuvodOdmitnutiKod | 'nereagoval_na_nabidku' | 'mlci_po_navrhu' | 'bez_duvodu';
+export type PasmoStari = '0-7' | '8-14' | '15-30' | '31+';
+
+/** Peníze jedné měny bez pokrytí (§7 CastkaJedna). */
+export interface CastkaJedna {
+  mena: MenaPrehledu;
+  hodnota: string | null;
+}
+
+/** Člověk, kterému se něco připisuje (§7 Osoba). */
+export interface OsobaPrehledu {
+  user_id: number;
+  display_name: string;
+  tym_id: number | null;
+  tym_nazev: string | null;
+}
+
+/** Rozbor textové ceny (§7 CenaRozbor, app_cena_rozbor). */
+export interface CenaRozbor {
+  stav: CenaStav;
+  castka: string | null;
+  min: string | null;
+  max: string | null;
+  mena: MenaPrehledu | null;
+}
+
+/* prehled_moznosti (§5.1) */
+export interface OsobaMoznosti {
+  id: number;
+  display_name: string;
+  role: Role;
+  active: boolean;
+  manager_id: number | null;
+  manager_name: string | null;
+  tym_id: number | null;
+  smim_cil: boolean;
+  smim_vyplatu: boolean;
+}
+export interface TymPrehledu {
+  id: number;
+  nazev: string;
+  vedouci_id: number;
+  vedouci_jmeno: string;
+  clenove: number[];
+  clenove_aktivni: number[];
+  smim_cil: boolean;
+}
+export interface ZdrojStav {
+  zdroj: string;
+  nazev: string;
+  od: string | null;
+  aktualni_k: string | null;
+  stav: 'ok' | 'zastarale' | 'chyba' | 'chybi';
+  poznamka: string | null;
+}
+export interface GmailSync {
+  schranka: string;
+  posledni_uspech: string | null;
+  posledni_pokus: string | null;
+  stav: 'ok' | 'bezi' | 'chyba' | 'znovu' | null;
+  chyba: string | null;
+}
+export interface DataMoznosti {
+  ja: { user_id: number; display_name: string; je_albert: boolean };
+  lide: OsobaMoznosti[];
+  tymy: TymPrehledu[];
+  firma_smim_cil: boolean;
+  segmenty: { klic: string; nazev: string; rodina: 'chata' | 'architekt' | 'obor'; stav: string | null; kontaktu: number }[];
+  obory: { klic: string; segment: string; nazev: string; kontaktu: number }[];
+  kraje: { klic: string; nazev: string; kontaktu: number }[];
+  meny: MenaPrehledu[];
+  atribuce: { klic: AtribucePrehledu; nazev: string; vychozi: boolean }[];
+  zaklady: { klic: PrehledFiltr['zaklad']; nazev: string; vychozi: boolean }[];
+  metriky: { klic: string; nazev: string; jednotka: JednotkaMetriky; kvalita: KvalitaMetriky; duvod: string | null }[];
+  zdroje: ZdrojStav[];
+  cerstvost: { tick_at: string | null; posta_klienta_at: string | null; gmail: GmailSync[]; snimek_den: string | null; snimek_at: string | null };
+}
+
+/* prehled_souhrn (§5.2) */
+export type KartaKlic = 'hodnota_prodeju' | 'inkaso' | 'pocet_prodeju' | 'plneni_cile' | 'uspesnost' | 'otevrene' | 'odhad_mesic' | 'k_zasahu';
+export interface CilPrehledu {
+  id: number;
+  metrika: 'prodane_weby' | 'hodnota_prodeju' | 'inkaso' | 'hovory' | 'zajem' | 'odpracovane_hodiny';
+  obdobi_od: string;
+  obdobi_do: string;
+  user_id: number | null;
+  user_jmeno: string | null;
+  tym_id: number | null;
+  tym_jmeno: string | null;
+  mena: MenaPrehledu | null;
+  hodnota: string;
+  zadal: string;
+  zadano_at: string;
+  smi_upravit: boolean;
+}
+export interface DataSouhrn {
+  karty: Record<KartaKlic, Metrika>;
+  cil: CilPrehledu | null;
+}
+
+/* prehled_rada (§5.3) */
+export interface BodRady {
+  od: string;
+  do: string;
+  uplny: boolean;
+  hodnota: number | null;
+  castky: CastkaJedna[];
+  kvalita: KvalitaMetriky;
+  duvod: string | null;
+}
+export interface DataRada {
+  metrika: { klic: string; nazev: string; jednotka: JednotkaMetriky };
+  zrnitost: ZrnitostRady;
+  body: BodRady[];
+  proklik: PrehledProklik | null;
+  cile: { cil_id: number; od: string; do: string; hodnota: string; mena: MenaPrehledu | null; skutecnost: string | null; plneni: number | null; kvalita: KvalitaMetriky }[];
+}
+
+/* prehled_trychtyr (§5.4) */
+export interface KohortaTrychtyre {
+  popis: string;
+  od: string;
+  do: string;
+  n: number;
+  proklik: PrehledProklik | null;
+}
+export interface KrokTrychtyre {
+  klic: 'osloven' | 'dovolan' | 'zajem' | 'navrh' | 'prodano' | 'fakturovano' | 'zaplaceno';
+  nazev: string;
+  n: number | null;
+  z_predchoziho: number | null;
+  z_kohorty: number | null;
+  otevrenych: number | null;
+  bez_predchoziho: number | null;
+  zdroj_od: string | null;
+  kvalita: KvalitaMetriky;
+  duvod: string | null;
+  proklik: PrehledProklik | null;
+}
+export interface KrokPoNavrhu {
+  klic: 'navrh' | 'odpovedel' | 'odmitl_nahled' | 'nabidka' | 'prijal_nabidku' | 'odmitl_nabidku' | 'nereagoval_na_nabidku' | 'ceka_na_nabidku' | 'prodano_bez_nabidky';
+  nazev: string;
+  n: number | null;
+  podil: number | null;
+  kvalita: KvalitaMetriky;
+  duvod: string | null;
+  proklik: PrehledProklik | null;
+}
+export interface DataTrychtyr {
+  kohorta: KohortaTrychtyre;
+  kroky: KrokTrychtyre[];
+  stavy: { popis: string; polozky: { status: StavPrehledu; nazev: string; n: number; proklik: PrehledProklik | null }[] };
+  po_navrhu: { kohorta: KohortaTrychtyre; kroky: KrokPoNavrhu[] };
+}
+
+/* prehled_pipeline (§5.6) */
+export interface Starnuti {
+  pasma: { pasmo: PasmoStari; n: number; proklik: PrehledProklik | null }[];
+  median_d: number | null;
+  p90_d: number | null;
+  nezname_n: number;
+  celkova_doba: { median_d: number | null; p90_d: number | null; n: number | null; kvalita: KvalitaMetriky; duvod: string | null };
+}
+export interface StavPipeline {
+  n: number | null;
+  castky: CastkaMeny[];
+}
+export interface DataPipeline {
+  faze: { status: StavPrehledu; nazev: string; n: number; castky: CastkaMeny[]; nezname_n: number; starnuti: Starnuti; proklik: PrehledProklik | null }[];
+  rychlost_navrhu: { median: Metrika; p90: Metrika; cenzurovano: number | null };
+  slevy: { nabidnuto: Metrika; prijato: Metrika; mira_prijeti: Metrika; ceny: { mena: MenaPrehledu; puvodni: string; nabidnuta: string; n: number }[] };
+  kohorty: {
+    mesic: string;
+    n: number;
+    dovolano: number;
+    zajem: number;
+    navrh: number;
+    prodano: number;
+    ztraceno: number;
+    otevrenych: number;
+    zralost_dni: number;
+    v_okne: { dni: number; zajem: number; navrh: number; prodano: number };
+    proklik: PrehledProklik | null;
+  }[];
+  kalibrace_znamky: { znamka: 'A' | 'B' | 'C' | 'bez'; n: number; prodano: number; podil: number | null; proklik: PrehledProklik | null }[];
+  kalibrace_hvezdy: Record<'s_hvezdou' | 'bez_hvezdy', { n: number; prodano: number; podil: number | null; proklik: PrehledProklik | null }>;
+  pohyby: {
+    kvalita: KvalitaMetriky;
+    duvod: string | null;
+    pocatek: StavPipeline;
+    nove: number | null;
+    znovu_otevrene: number | null;
+    vyhrane: number | null;
+    ztracene: number | null;
+    vyrazene: number | null;
+    zmena_hodnoty: CastkaMeny[];
+    prirustek_hodnoty: CastkaMeny[];
+    ubytek_hodnoty: CastkaMeny[];
+    konec: StavPipeline;
+    pruchozi: number | null;
+  };
+}
+
+/* prehled_klienti (§5.7) */
+export interface RadekDimenze {
+  klic: string;
+  nazev: string;
+  kontakty: number;
+  osloveno: number;
+  dovolano: number;
+  zajem: number;
+  navrhy: number;
+  prodano: number;
+  hodnota: CastkaMeny[];
+  proklik: PrehledProklik | null;
+}
+export interface DataKlienti {
+  zaklad: PrehledFiltr['zaklad'];
+  podle_segmentu: RadekDimenze[];
+  podle_oboru: RadekDimenze[];
+  podle_kraje: RadekDimenze[];
+  hodnoceni_webu: { znamka: 'A' | 'B' | 'C' | 'D' | 'E' | 'F' | 'bez'; kontakty: number; osloveno: number; zajem: number; navrhy: number; prodano: number; proklik: PrehledProklik | null }[];
+  koncentrace: { top1: Metrika; top5: Metrika };
+  sablony: {
+    popis: string;
+    radky: { segment: string; sablona: string; varianta: string | null; navrhy: number; odpovedelo: number; prodano: number; podil_prodeje: number | null; proklik: PrehledProklik | null }[];
+  };
+}
+
+/* prehled_komunikace (§5.8) */
+export interface SkupinaCekani {
+  n: number | null;
+  median_d: number | null;
+  p90_d: number | null;
+  nad_limit: number | null;
+  kvalita: KvalitaMetriky;
+  duvod: string | null;
+  proklik: PrehledProklik | null;
+}
+export type PoctyDruhu = Record<'clovek' | 'automaticka_odpoved' | 'nedoruceno' | 'systemova' | 'nezname', number | null>;
+export interface DataKomunikace {
+  cekani: { na_nas: SkupinaCekani; na_klienta: SkupinaCekani };
+  zpravy: {
+    kvalita: KvalitaMetriky;
+    duvod: string | null;
+    prichozi: PoctyDruhu;
+    odchozi: PoctyDruhu;
+    nedoruceno: Metrika;
+    automaticke: Metrika;
+    mira_odpovedi_po_navrhu: Metrika;
+    nejasne_vazby: Metrika;
+  };
+  duvody: {
+    celkem_nahled: number;
+    celkem_sleva: number;
+    souhrn: { duvod: DuvodRadku; nazev: string; nahled: number; sleva: number; celkem: number; podil: number | null; proklik: PrehledProklik | null }[];
+    radky: { duvod: DuvodRadku; faze: FazeOdmitnuti; segment: string; user_id: number | null; n: number }[];
+    nereagoval_na_nabidku: Metrika;
+    mlci_po_navrhu: Metrika;
+    bez_duvodu: Metrika;
+  };
+}
+
+/* prehled_finance (§5.9) */
+export interface ObnovaHostingu {
+  kontakt_id: number;
+  jmeno: string;
+  zaplaceno_at: string;
+  splatnost: string;
+  castka: string | null;
+  mena: MenaPrehledu | null;
+}
+export interface DataFinance {
+  prodeje: Metrika;
+  prodeje_mimo_prodej: Metrika;
+  faktury: { pocet: Metrika; web: Metrika; hosting: Metrika; celkem: Metrika };
+  platby: { inkaso: Metrika; odvozene: number };
+  pohledavky: { pocet: Metrika; castka: Metrika; nejstarsi_dni: number | null; po_14_dnech: number };
+  slevy: { pocet: Metrika; castka: Metrika };
+  provize: { narok: Metrika; vyplaceno: Metrika; zbyva: Metrika };
+  hosting: { rocne: Metrika; mrr: Metrika; arr: Metrika; obnovy: ObnovaHostingu[] };
+  naklady: { kategorie: { kategorie: KategorieVyuctovani; nazev: string; castka: Metrika; overit: number }[]; celkem: Metrika };
+  vysledek: Metrika;
+  pokryti_nakladu: { kategorie: 'domena' | 'hosting'; zname: number; celkem: number; text: string }[];
+}
+
+/* prehled_dodani (§5.10) */
+export interface DataDodani {
+  faze: { status: StavPrehledu; nazev: string; n: number; starnuti: Starnuti; proklik: PrehledProklik | null }[];
+  blokace: {
+    eskalace: number | null;
+    pozastaveno: number | null;
+    priznaky: number | null;
+    otazky: number | null;
+    kvalita: KvalitaMetriky;
+    duvod: string | null;
+    proklik: PrehledProklik | null;
+  };
+  prace: Record<'build' | 'change', { pocet: number; median_h: number | null; p90_h: number | null }>;
+  domeny: Metrika;
+  obnovy_hostingu: ObnovaHostingu[];
+}
+
+/* prehled_prognoza (§5.11) */
+export interface DataPrognoza {
+  mesic: string;
+  od: string;
+  do: string;
+  zbyva_dni: number;
+  stitek: 'nevalidovaný odhad';
+  potvrzene: Metrika;
+  otevrene: { faze: 'zajem' | 'navrh' | 'sleva' | 'ostatni'; nazev: string; n: number; castky: CastkaMeny[]; nezname_n: number; pravdepodobnost: Metrika; vazene: CastkaJedna[] }[];
+  scenare: { zakladni: Metrika; jen_jiste: Metrika };
+  presnost: {
+    kvalita: KvalitaMetriky;
+    duvod: string | null;
+    mesice: { mesic: string; snimek_den: string; odhad: CastkaJedna[]; skutecnost: CastkaJedna[] }[];
+    bias: CastkaJedna[];
+    mae: CastkaJedna[];
+    wape: { mena: MenaPrehledu; hodnota: number | null }[];
+  };
+}
+
+/* prehled_kvalita (§5.12) */
+export interface DataKvalita {
+  ceny: { status: StavPrehledu; nazev: string; celkem: number; presne: number; rozsah: number; nezname: number; chybi: number }[];
+  navrhy_bez_emailu: Metrika;
+  nejasne_vazby: Metrika;
+  platby_bez_faktury: Metrika;
+  historie: { od: string | null; radku: number | null; kontaktu: number | null; kvalita: KvalitaMetriky; duvod: string | null };
+  casovac: { od: string | null; signalu_7d: number | null; lidi_7d: number | null; kvalita: KvalitaMetriky; duvod: string | null };
+  zdroje: ZdrojStav[];
+}
+
+/* prehled_akce (§5.13) */
+export interface SignalAkce {
+  kod: SignalKod;
+  text: string;
+  od: string;
+  termin: string;
+  zdroj: string;
+}
+export interface PripadAkce {
+  kontakt_id: number;
+  jmeno: string;
+  segment: string;
+  status: StavPrehledu;
+  nazev_stavu: string;
+  vlastnik: OsobaPrehledu | null;
+  problem: string;
+  dalsi_krok: string;
+  termin: string;
+  po_terminu: boolean;
+  hodnota: CastkaJedna[];
+  cena_stav: CenaStav;
+  signaly: SignalAkce[];
+  signal_zdroj: string;
+}
+export interface DataAkce {
+  pripady: PripadAkce[];
+  souhrn: { pripadu: number; podle_signalu: { kod: SignalKod; nazev: string; n: number }[] };
+}
+
+/* prehled_radky (§5.15): řádek podle zdroje (pole zdroj); klíče doslova jako §7 Radek* */
+interface RadekZaklad<Z extends RadkyZdroj> {
+  zdroj: Z;
+  radek_id: string;
+}
+export interface RadekKontakty extends RadekZaklad<'kontakty'> {
+  kontakt_id: number;
+  jmeno: string;
+  segment: string;
+  obor: string | null;
+  kraj: string | null;
+  status: StavPrehledu;
+  nazev_stavu: string;
+  rating: 'A' | 'B' | 'C' | null;
+  hvezda: boolean;
+  cena_web: string | null;
+  cena: CenaRozbor;
+  osoba: OsobaPrehledu | null;
+  prvni_hovor_at: string | null;
+  dovolano_at: string | null;
+  zajem_at: string | null;
+  navrh_at: string | null;
+  prodano_at: string | null;
+  faktura_at: string | null;
+  zaplaceno_at: string | null;
+  status_od: string | null;
+  posledni_klient_at: string | null;
+  posledni_my_at: string | null;
+}
+export interface RadekHovory extends RadekZaklad<'hovory'> {
+  id: number;
+  kontakt_id: number;
+  jmeno: string;
+  segment: string;
+  user_id: number;
+  volajici: string;
+  vysledek: 'nedovolano' | 'odmitnuto' | 'zajem' | 'nerelevantni' | 'preplanovano';
+  rating: 'A' | 'B' | 'C' | null;
+  at: string;
+}
+export interface RadekProdeje extends RadekZaklad<'prodeje'> {
+  kontakt_id: number;
+  jmeno: string;
+  segment: string;
+  prodano_at: string;
+  cena_text: string | null;
+  cena: CenaRozbor;
+  zdroj_ceny: 'cena_web' | 'sleva';
+  hosting: CenaRozbor;
+  osoba: OsobaPrehledu | null;
+  provize: string | null;
+  provize_mena: MenaPrehledu | null;
+}
+export interface RadekFaktury extends RadekZaklad<'faktury'> {
+  event_id: number;
+  kontakt_id: number;
+  jmeno: string;
+  at: string;
+  cislo: string | null;
+  web: string | null;
+  hosting: string | null;
+  celkem: string | null;
+  mena: MenaPrehledu | null;
+  zaplaceno_at: string | null;
+  dni_od_vystaveni: number;
+}
+export interface RadekPlatby extends RadekZaklad<'platby'> {
+  event_id: number | null;
+  kontakt_id: number;
+  jmeno: string;
+  at: string;
+  castka: string | null;
+  mena: MenaPrehledu | null;
+  zdroj_castky: 'faktura' | 'cena_prodeje' | 'neznama';
+  odvozeno: boolean;
+  faktury: string[];
+}
+export interface RadekNaklady extends RadekZaklad<'naklady'> {
+  naklad_id: number | null;
+  kategorie: KategorieVyuctovani;
+  popis: string | null;
+  datum: string;
+  castka: string | null;
+  mena: MenaPrehledu | null;
+  stav_ceny: CenaStav;
+  opakovani: 'jednorazove' | 'mesicne' | 'rocne' | null;
+  kontakt_id: number | null;
+  jmeno: string | null;
+  overit: boolean;
+  user_id: number | null;
+}
+export interface RadekProvize extends RadekZaklad<'provize'> {
+  druh: 'narok' | 'vyplata';
+  datum: string;
+  user_id: number;
+  volajici: string;
+  kontakt_id: number | null;
+  jmeno: string | null;
+  castka: string | null;
+  mena: MenaPrehledu | null;
+  stav_ceny: CenaStav;
+  vyplata_id: number | null;
+  poznamka: string | null;
+}
+export interface RadekOdmitnuti extends RadekZaklad<'odmitnuti'> {
+  kontakt_id: number;
+  jmeno: string;
+  segment: string;
+  faze: FazeOdmitnuti | null;
+  duvod: DuvodRadku;
+  nazev_duvodu: string;
+  text: string | null;
+  zdroj_zapisu: 'worker' | 'volajici' | 'super_admin' | 'zpetne' | null;
+  zapsal: string | null;
+  at: string;
+  osoba: OsobaPrehledu | null;
+}
+export interface RadekZpravy extends RadekZaklad<'zpravy'> {
+  id: number;
+  kontakt_id: number | null;
+  jmeno: string | null;
+  smer: 'prichozi' | 'odchozi';
+  druh: 'clovek' | 'automaticka_odpoved' | 'nedoruceno' | 'systemova' | 'nezname';
+  prijato_at: string;
+  vazba: 'vlakno' | 'adresa' | 'nejasne' | null;
+  odkaz: string;
+}
+export interface RadekAkce extends RadekZaklad<'akce'>, Omit<PripadAkce, 'kontakt_id'> {
+  kontakt_id: number;
+}
+export interface RadekPrace extends RadekZaklad<'prace'> {
+  user_id: number;
+  volajici: string;
+  den: string;
+  od: string;
+  do: string;
+  minut: number;
+  vysledku: number;
+  kvalita: 'casovac' | 'odhad';
+}
+export type RadekPrehledu =
+  | RadekKontakty | RadekHovory | RadekProdeje | RadekFaktury | RadekPlatby | RadekNaklady | RadekProvize | RadekOdmitnuti | RadekZpravy
+  | RadekAkce | RadekPrace;
+export interface DataRadky {
+  zdroj: RadkyZdroj;
+  radky: RadekPrehledu[];
+  dalsi_kurzor: string | null;
+  celkem: number;
+  soucty: CastkaJedna[];
+  soucet: number | null;
+}
+
+/* prehled_kontakt (§5.16) */
+export interface UdalostKontaktu {
+  at: string;
+  druh: 'hovor' | 'dovolani' | 'stav' | 'cena' | 'navrh' | 'sleva' | 'sleva_vyprsela' | 'faktura' | 'platba' | 'duvod' | 'email' | 'oznaceni' | 'zavolat' | 'hvezda' | 'domena' | 'prodej';
+  text: string;
+  osoba: OsobaPrehledu | null;
+  odkaz: string | null;
+  zdroj: string;
+}
+export interface DataKontakt {
+  kontakt: {
+    kontakt_id: number;
+    jmeno: string;
+    firma: string | null;
+    segment: string;
+    obor: string | null;
+    kraj: string | null;
+    mesto: string | null;
+    status: StavPrehledu;
+    nazev_stavu: string;
+    status_od: string | null;
+    rating: 'A' | 'B' | 'C' | null;
+    hvezda_at: string | null;
+    cena_web: string | null;
+    cena_hosting: string | null;
+    cena: CenaRozbor;
+    hosting: CenaRozbor;
+    live_url: string | null;
+    prvni_navrh_at: string | null;
+    posledni_my_at: string | null;
+    posledni_klient_at: string | null;
+    gmail_odkaz: string | null;
+  };
+  atribuce: Record<AtribucePrehledu, OsobaPrehledu | null>;
+  historie_od: string | null;
+  udalosti: UdalostKontaktu[];
+}
+
+/* prehled_definice (§5.17) */
+export interface MetrikaDefinice {
+  klic: string;
+  verze: number;
+  nazev: string;
+  definice: string;
+  zaklad: string;
+  jednotka: JednotkaMetriky;
+  zdroje: string;
+  granularita: string;
+  kvalita_pravidla: string;
+  platne_od: string;
+}
+export interface DataDefinice {
+  metriky: MetrikaDefinice[];
+  duvody: { klic: DuvodOdmitnutiKod; nazev: string; vyzaduje_text: boolean }[];
+  odvozene_vysledky: { klic: 'nereagoval_na_nabidku' | 'mlci_po_navrhu' | 'bez_duvodu'; nazev: string; popis: string }[];
+  faze_odmitnuti: { klic: FazeOdmitnuti; nazev: string }[];
+  stavy: { klic: StavPrehledu; nazev: string; skupina: 'fronta' | 'otevrene' | 'prodano' | 'ztraceno' | 'archiv' | 'vyrazeno' }[];
+  signaly_akci: { kod: SignalKod; nazev: string; dalsi_krok: string }[];
+  zdroje: { zdroj: string; nazev: string }[];
+  kategorie_nakladu: { klic: KategorieVyuctovani; nazev: string }[];
+  metriky_cilu: { klic: CilPrehledu['metrika']; nazev: string; metrika: string; v_mene: boolean; cele_cislo: boolean }[];
+  varovani: { kod: string; sablona: string }[];
+}
+
 /** Jednotné API rozhraní — implementuje ho reálný Supabase klient i demo mock. */
 export interface Api {
   login(username: string, password: string): Promise<Session>;
@@ -1342,4 +1936,33 @@ export interface Api {
    * BEZ_073_LIDE.
    */
   prehledLide(token: string, filtr?: PrehledFiltrVstup | null): Promise<PrehledObalka<DataLide>>;
+  /*
+   * Přehled vedení, ostatní funkce migrace 073 (úkol 13, kontrakt §5): všechny jen super admin („Přehled vidí jen super admin.“
+   * před kontrolou parametrů), obálka §2.5; server bez 073 (PGRST202) = chyba BEZ_073_PREHLED, nikdy ukázková data.
+   */
+  /** Možnosti filtru, lidé a týmy, dostupnost metrik, zdroje a čerstvost (§5.1). */
+  prehledMoznosti(token: string): Promise<PrehledObalka<DataMoznosti>>;
+  /** Osm karet vedení a použitý cíl (§5.2). */
+  prehledSouhrn(token: string, filtr?: PrehledFiltrVstup | null): Promise<PrehledObalka<DataSouhrn>>;
+  /** Časová řada jedné metriky po dnech, týdnech (po–ne) nebo měsících v Praze (§5.3). */
+  prehledRada(token: string, metrika: MetrikaRadyKlic, zrnitost?: ZrnitostRady, filtr?: PrehledFiltrVstup | null): Promise<PrehledObalka<DataRada>>;
+  prehledTrychtyr(token: string, filtr?: PrehledFiltrVstup | null): Promise<PrehledObalka<DataTrychtyr>>;
+  prehledPipeline(token: string, filtr?: PrehledFiltrVstup | null): Promise<PrehledObalka<DataPipeline>>;
+  prehledKlienti(token: string, filtr?: PrehledFiltrVstup | null): Promise<PrehledObalka<DataKlienti>>;
+  prehledKomunikace(token: string, filtr?: PrehledFiltrVstup | null): Promise<PrehledObalka<DataKomunikace>>;
+  prehledFinance(token: string, filtr?: PrehledFiltrVstup | null): Promise<PrehledObalka<DataFinance>>;
+  prehledDodani(token: string, filtr?: PrehledFiltrVstup | null): Promise<PrehledObalka<DataDodani>>;
+  prehledPrognoza(token: string, filtr?: PrehledFiltrVstup | null): Promise<PrehledObalka<DataPrognoza>>;
+  /** Kvalita dat bez filtru (§5.12). */
+  prehledKvalita(token: string): Promise<PrehledObalka<DataKvalita>>;
+  prehledAkce(token: string, filtr?: PrehledFiltrVstup | null): Promise<PrehledObalka<DataAkce>>;
+  /**
+   * Řádky za kartou nebo buňkou (§5.15): `filtr` = proklik.filtr beze změny (vyber vybírá řádky), `kurzor` = dalsi_kurzor předchozí
+   * stránky (patří k filtru a zdroji), `limit` 1 až 200.
+   */
+  prehledRadky(token: string, zdroj: RadkyZdroj, filtr?: PrehledFiltrVstup | null, kurzor?: string | null, limit?: number): Promise<PrehledObalka<DataRadky>>;
+  /** Časová osa jednoho klienta (§5.16), bez telefonu a e-mailu. */
+  prehledKontakt(token: string, kontaktId: number): Promise<PrehledObalka<DataKontakt>>;
+  /** Katalog metrik a registry (§5.17); appka ho drží podle definice_verze. */
+  prehledDefinice(token: string): Promise<PrehledObalka<DataDefinice>>;
 }
