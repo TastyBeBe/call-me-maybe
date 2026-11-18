@@ -372,12 +372,13 @@ await blok('Z', async () => {
     && /role="dialog"/.test(panel) && /aria-modal="true"/.test(panel),
     'panel: Zrušit vše jen zrusVse (výběr člověka ani segment nemění, stránky nic navíc nevracejí), na telefonu okno role dialog',
     zrusKlik.trim().slice(0, 120));
-  // osoba v řadě 1: Kontakty výběr volajícího (i Volající, jako dřív), Moji klienti a Označené PersonPicker (jen super admin)
+  // osoba v řadě 1: ⚠ Přehled vedení úkol 10 (17. 11. 2026) NAHRAZUJE „Kontakty výběr volajícího pro každého, Moji klienti
+  // a Označené PersonPicker“: super admin výběr lidí LidePicker na všech třech, Volající v Kontaktech svůj výběr jako dřív
   over('FP13d', (admin.match(/aria-label="Filtr volajícího"/g) ?? []).length === 1 && /<option value="">Všichni volající<\/option>/.test(admin)
     && /<option value=\{session\.display_name\}>Naposledy volal\/a já<\/option>/.test(admin)
-    && /lide=\{\s*<select/.test(admin) && /lide=\{\s*<PersonPicker/.test(moji) && /lide=\{\s*<PersonPicker/.test(ozn)
-    && /label="Čí klienty zobrazit"/.test(moji) && /bezVolajiciho="Bez volajícího"/.test(ozn),
-    'osoba v řadě 1: Kontakty výběr volajícího (Volající „Naposledy volal/a já“ jako dřív), Moji klienti a Označené PersonPicker');
+    && /lide=\{\s*isSuper \? \(\s*<LidePicker/.test(admin) && /lide=\{\s*isSuper \? \(\s*<LidePicker/.test(moji) && /lide=\{\s*jaSuper \? \(\s*<LidePicker/.test(ozn)
+    && /popisek="Čí klienty zobrazit"/.test(moji) && /allowBezVolajiciho/.test(ozn),
+    'osoba v řadě 1: super admin výběr lidí (Kontakty, Moji klienti, Označené i „Bez volajícího“), Volající v Kontaktech „Naposledy volal/a já“ jako dřív');
   over('FP13e', /\n\s+cekani\n/.test(admin) && /\n\s+cekani\n/.test(moji) && /koseClassName="moji-kose"/.test(moji)
     && /kategorie=\{false\}/.test(ozn) && !/\n\s+cekani\n|\scekani=\{/.test(ozn)
     && /stav\.druhy/.test(ozn) && !/const \[druhy, setDruhy\]/.test(ozn),

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   getApi,
   type ChatThread,
@@ -9,8 +9,9 @@ import {
 } from '../api';
 import { audio } from '../audio';
 import { OWNER_USER_ID, useSession } from '../auth';
-import PersonPicker, { usePeople } from '../components/PersonPicker';
-import { JINY_VOLAJICI } from '../roles';
+import LidePicker, { usePeople } from '../components/LidePicker';
+import { VYBER_VSICHNI, clovekZ, lideDotaz, sLidmi, type Vyber } from '../lide';
+import { JINY_VOLAJICI, isSuperAdmin } from '../roles';
 import {
   ErrorBox,
   SegmentBadge,
@@ -501,8 +502,19 @@ export default function ZpravyPage() {
   const session = useSession();
   const people = usePeople();
   const isOwner = session.user_id === OWNER_USER_ID;
+  const isSuper = isSuperAdmin(session.role);
   // Super admin si může vybrat kohokoli (migrace 023, od 027 kohokoli) — server hlídá roli.
-  const [userId, setUserId] = useState<number | null>(null);
+  // ⚠ Přehled vedení úkol 10 (Albert 17. 11. 2026, D7) NAHRAZUJE výběr jednoho člověka (PersonPicker „Čí zprávy zobrazit“):
+  // výběr lidí LidePicker, výchozí Všichni (= „Všechny“ jako dřív), Já = p_user_id přihlášeného jako dřív, jinak p_user_ids
+  // (migrace 074: vlákna kohokoli z vybraných, dál jen ta, která přihlášený vidí); server bez 074 s jedním vybraným =
+  // p_user_id, s víc lidmi hláška BEZ_074_LIDE.
+  const [lideVyber, setLideVyber] = useState<Vyber>(VYBER_VSICHNI);
+  const lide = useMemo(() => people.map(clovekZ), [people]);
+  const dotaz = useMemo(
+    () => (isSuper ? lideDotaz(lideVyber, lide, session.user_id) : ({ druh: 'vsichni' } as const)),
+    [isSuper, lideVyber, lide, session.user_id]
+  );
+  const dotazKlic = JSON.stringify(dotaz);
   const [threads, setThreads] = useState<ChatThread[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -518,11 +530,19 @@ export default function ZpravyPage() {
     async (silent = false) => {
       if (!silent) setLoading(true);
       try {
-        const list = await getApi().listThreads(
-          session.token,
-          filterToStatus(filter),
-          filterToScope(scopeFilter),
-          userId
+        const status = filterToStatus(filter);
+        const scope = filterToScope(scopeFilter);
+        const list = await sLidmi(
+          dotaz,
+          () =>
+            getApi().listThreads(
+              session.token,
+              status,
+              scope,
+              dotaz.druh === 'ja' ? session.user_id : null,
+              dotaz.druh === 'lide' ? dotaz.ids : null
+            ),
+          (id) => getApi().listThreads(session.token, status, scope, id)
         );
         setThreads(list);
         setError('');
@@ -535,7 +555,8 @@ export default function ZpravyPage() {
         if (!silent) setLoading(false);
       }
     },
-    [session.token, filter, scopeFilter, userId]
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [session.token, filter, scopeFilter, dotazKlic]
   );
 
   const loadDetail = useCallback(
@@ -636,17 +657,21 @@ export default function ZpravyPage() {
         </p>
       )}
 
-      <PersonPicker
-        people={people}
-        value={userId}
-        onChange={(id) => {
-          setUserId(id);
-          setSelectedId(null);
-          setDetail(null);
-        }}
-        label="Čí zprávy zobrazit"
-        allOption="Všechny"
-      />
+      {isSuper && (
+        <LidePicker
+          value={lideVyber}
+          onChange={(v) => {
+            setLideVyber(v);
+            setSelectedId(null);
+            setDetail(null);
+          }}
+          lide={lide}
+          ja={session.user_id}
+          popisek="Čí zprávy zobrazit"
+          vychozi={VYBER_VSICHNI}
+          className="lide-stranka"
+        />
+      )}
 
       <ErrorBox>{error}</ErrorBox>
 

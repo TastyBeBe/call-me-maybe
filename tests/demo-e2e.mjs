@@ -229,6 +229,30 @@ async function vFiltrech(page, krok) {
     if (otevrela) await zavriFiltry(page);
   }
 }
+/**
+ * Přehled vedení úkol 10 (Albert 17. 11. 2026, D7): výběr lidí super admina (src/components/LidePicker.tsx) místo rozbalovacích
+ * seznamů jednoho člověka (#person-picker, #user-select, #kalendar-kdo, #rozvrh-kdo; ⚠ NAHRAZUJE selectOption na nich).
+ * vLidech(page, krok) otevře panel výběru (na telefonu v okně „Filtry“ panelu filtrů nebo ve vlastním okně), udělá krok a panel
+ * zavře Escapem; jenClovek vybere jen jednoho člověka (tlačítko „jen“ u jeho řádku), predvolba klikne na předvolbu podle textu
+ * („Já“, „Všichni“, „Bez volajícího“, „Tým Mikuláš“), lideText vrátí text tlačítka („Petra“, „Všichni (5)“).
+ */
+async function vLidech(page, krok) {
+  return vFiltrech(page, async () => {
+    await page.locator('button.lide-picker-btn').first().click();
+    const panel = page.locator('.lide-picker-panel').first();
+    await panel.waitFor({ timeout: 4000 });
+    try {
+      return await krok(panel);
+    } finally {
+      await page.keyboard.press('Escape');
+      await panel.waitFor({ state: 'detached', timeout: 4000 });
+    }
+  });
+}
+const jenClovek = (page, uid) => vLidech(page, (panel) => panel.locator(`.lide-radek[data-user-id="${uid}"] button.lide-jen`).click());
+const predvolba = (page, text) =>
+  vLidech(page, (panel) => panel.locator('button.lide-predvolba', { hasText: new RegExp(`^${text}( \\(\\d+\\))?$`) }).click());
+const lideText = async (page) => (await page.locator('button.lide-picker-btn .lide-picker-text').first().innerText()).replace(/\s+/g, ' ').trim();
 const filtr = (page, text) => page.locator('.segment-filter button', { hasText: new RegExp(`^${text}$`) });
 const nazvyVolani = (vs) => vs.map((v) => v.fn);
 
@@ -596,15 +620,16 @@ for (const kdo of ['petra', 'mikulas']) {
   await jdi(page, '#/oznacene', 500);
   await page.evaluate(() => {
     // ⚠ migrace 060: Označené jdou přes listOznacene (výběr člověka = user_id), NAHRAZUJE listFlagged s userId
-    globalThis.__volackaDemoTest.zpozdeni = (fn, args) => (fn === 'listOznacene' && args[0]?.user_id === 2 ? 1500 : 0);
+    // ⚠ úkol 10 (17. 11. 2026): jeden vybraný člověk jde serveru jako výběr lidí (user_ids), NAHRAZUJE user_id
+    globalThis.__volackaDemoTest.zpozdeni = (fn, args) => (fn === 'listOznacene' && JSON.stringify(args[0]?.user_ids) === '[2]' ? 1500 : 0);
   });
-  await page.selectOption('#person-picker', String(UID.petra));
+  await jenClovek(page, UID.petra);
   await page.waitForTimeout(120);
-  await page.selectOption('#person-picker', String(UID.honza));
+  await jenClovek(page, UID.honza);
   await klid(page, 500);
-  const pozdni = (await volani(page)).find((v) => v.fn === 'listOznacene' && v.args[0]?.user_id === UID.petra);
+  const pozdni = (await volani(page)).find((v) => v.fn === 'listOznacene' && JSON.stringify(v.args[0]?.user_ids) === '[2]');
   over('L4a', !!pozdni && pozdni.ok, 'pomalá odpověď pro Petru dorazila (jinak scénář nic neměří)');
-  over('L4b', (await page.locator('#person-picker').inputValue()) === String(UID.honza) &&
+  over('L4b', (await lideText(page)) === 'Honza' &&
     (await page.locator('table tbody tr', { hasText: 'Jana Vzorová' }).count()) === 0,
     'pod Honzou nejsou Petřini označení z pozdní odpovědi');
   await ctx.close();
@@ -793,7 +818,7 @@ for (const [kdo, superAdmin] of [['petra', false], ['mikulas', true]]) {
   const text = await page.evaluate(() => document.body.innerText);
   const karty = await page.locator('.stat-card').count();
   const trychtyr = /klienti podle stavu/i.test(text);
-  const vyber = (await page.locator('#user-select').count()) > 0;
+  const vyber = (await page.locator('button.lide-picker-btn').count()) > 0;
   over('S1', karty >= 6 && /hovorů/i.test(text) && trychtyr === superAdmin && vyber === superAdmin,
     `${kdo}: Statistiky ${superAdmin ? 'mají' : 'nemají'} výběr člověka a trychtýř celé databáze`, `karet ${karty}, trychtýř ${trychtyr}, výběr ${vyber}`);
   over('S1b', /jako #1 prodejce/i.test(text) === superAdmin, `${kdo}: dlaždice „jako #1 prodejce“ ${superAdmin ? 'je' : 'není'}`);
@@ -1158,7 +1183,7 @@ for (const sirka of [1280, 390]) {
     const st = await stav(page);
     const moje = st.zavolat.filter((z) => z.user_id === UID.petra && z.stav === 'ceka');
     const polozky = page.locator('.zavolat-polozka:not(.uzavrena)');
-    over(`K1 ${sirka}`, (await page.locator('#kalendar-kdo').count()) === 0 && (await polozky.count()) === moje.length && moje.length >= 3,
+    over(`K1 ${sirka}`, (await page.locator('.lide-picker').count()) === 0 && (await polozky.count()) === moje.length && moje.length >= 3,
       'Petra: bez výběru člověka, jen svoje čekající hovory', `${await polozky.count()} / ${moje.length}`);
     const text = await page.evaluate(() => document.body.innerText);
     over(`K2 ${sirka}`, !/Srub U Potoka/.test(text) && /Po termínu/.test(text) && /Chalupa Na Paloučku/.test(text),
@@ -1214,11 +1239,16 @@ for (const sirka of [1280, 390]) {
 await blok050('K mikulas', async () => {
   const { ctx, page } = await novaStranka('mikulas');
   await jdi(page, '#/kalendar', 700);
-  const moznosti = (await page.locator('#kalendar-kdo option').allInnerTexts()).map(txt);
-  over('K9', moznosti[0]?.startsWith('Já (Mikuláš)') && moznosti.some((o) => o.startsWith('Petra')) && moznosti[moznosti.length - 1] === 'Všichni volající',
-    'super admin: výběr Já / kdokoli / Všichni volající', moznosti.join('|'));
+  // ⚠ úkol 10: výběr lidí (předvolby Já, Můj tým, Všichni, tým každého super admina a lidé po týmech), NAHRAZUJE #kalendar-kdo
+  const moznosti = await vLidech(page, async (panel) => ({
+    predvolby: (await panel.locator('button.lide-predvolba').allInnerTexts()).map(txt),
+    lide: (await panel.locator('.lide-jmeno').allInnerTexts()).map(txt),
+  }));
+  over('K9', (await lideText(page)) === 'Já' && JSON.stringify(moznosti.predvolby) === JSON.stringify(['Já', 'Můj tým (2)', 'Všichni (5)', 'Tým Albert (3)'])
+    && moznosti.lide.includes('Petra') && moznosti.lide.includes('Mikuláš (já)'),
+    'super admin: výběr Já / Můj tým / Všichni / Tým Albert a kdokoli z lidí', JSON.stringify(moznosti));
   over('K9b', /Zatím nemáš naplánované hovory/.test(await page.evaluate(() => document.body.innerText)), 'svůj kalendář má prázdný s nápovědou, jak hovor naplánovat');
-  await page.selectOption('#kalendar-kdo', String(UID.petra));
+  await jenClovek(page, UID.petra);
   await klid(page, 500);
   const st = await stav(page);
   const petriny = st.zavolat.filter((z) => z.user_id === UID.petra && z.stav === 'ceka');
@@ -1226,12 +1256,14 @@ await blok050('K mikulas', async () => {
   over('K10', (await polozky.count()) === petriny.length && /volá Petra/.test(await polozky.first().innerText())
     && (await page.getByRole('button', { name: 'Zavolat teď' }).count()) === 0 && (await page.getByRole('button', { name: 'Přesunout' }).count()) === petriny.length,
     'Petřin kalendář: její hovory, kdo volá, super admin přesouvá a ruší, „Zavolat teď“ jen ten, kdo má volat', `${await polozky.count()} / ${petriny.length}`);
-  await page.selectOption('#kalendar-kdo', 'vsichni');
+  await predvolba(page, 'Všichni');
   await klid(page, 500);
   const text = await page.evaluate(() => document.body.innerText);
   const vs = (await volani(page)).filter((v) => v.fn === 'zavolatSeznam').map((v) => v.args);
-  over('K11', /Srub U Potoka/.test(text) && /Chalupa Na Paloučku/.test(text) && /volá Honza/.test(text) && vs.some((a) => a[1] === true) && vs.some((a) => a[0] === UID.petra),
-    'Všichni volající: hovory Petry i Honzy', JSON.stringify(vs));
+  // ⚠ úkol 10: Petra sama jde serveru jako výběr lidí (args[3] = user_ids), Všichni jako dřív p_vsichni
+  over('K11', /Srub U Potoka/.test(text) && /Chalupa Na Paloučku/.test(text) && /volá Honza/.test(text) && vs.some((a) => a[1] === true)
+    && vs.some((a) => JSON.stringify(a[3]) === JSON.stringify([UID.petra])),
+    'Všichni: hovory Petry i Honzy', JSON.stringify(vs));
   // přesun Honzova hovoru Petře (Kdo zavolá)
   const zH = st.zavolat.find((z) => z.kontakt_id === 11 && z.stav === 'ceka');
   await page.locator(`.zavolat-polozka[data-zavolat-id="${zH?.id}"]`).getByRole('button', { name: 'Přesunout' }).click(KRATKE);
@@ -1403,15 +1435,15 @@ await blok050('E mikulas', async () => {
   await jdi(page, '#/stats', 800);
   const celkem = async () => txt(await page.locator('.vydelek-celkem .stat-value').innerText(KRATKE));
   over('E6', (await celkem()) === '0 Kč', 'super admin bez prodejů: 0 Kč');
-  await page.selectOption('#user-select', String(UID.petra));
+  await jenClovek(page, UID.petra);
   await klid(page, 600);
   over('E7', (await celkem()) === '3 570 Kč' && (await volani(page)).some((v) => v.fn === 'statistikyVolani' && v.args[0] === UID.petra), 'super admin vidí výdělek Petry', await celkem());
-  await page.selectOption('#user-select', String(UID.honza));
+  await jenClovek(page, UID.honza);
   await klid(page, 600);
   const t = txt(await page.evaluate(() => document.body.innerText));
   over('E8', (await celkem()) === '1 050 Kč' && (await page.locator('.vydelek-nejasne').count()) === 1 && /cena nejde přečíst/.test(t) && (await page.locator('.vydelek-sleva').count()) === 1
     && /3 500 Kč/.test(t), 'Honza: sleva (3 500 Kč) se počítá, nejasná cena ne a appka to řekne', t.slice(t.indexOf('Vyděláno'), t.indexOf('Vyděláno') + 300));
-  await page.selectOption('#user-select', String(UID.eva));
+  await jenClovek(page, UID.eva);
   await klid(page, 600);
   over('E9', /Za weby v eurech navíc: celkem 75 €/.test(txt(await page.locator('.vydelek-eur').innerText().catch(() => ''))), 'eura zvlášť, když nějaká jsou');
   await ctx.close();
@@ -1622,7 +1654,7 @@ await blok050('A mikulas', async () => {
     'detail jen ke čtení: nedohodnutá cena „n/a“, zapsaná tak, jak ji kdo zapsal', `${r10} | ${r7}`);
   // Statistiky Honzy: prodej Chalupa U Studánky bez ceny = „n/a“, vlastní upozornění, do součtu ne; nečitelná cena zvlášť
   await jdi(page, '#/stats', 800);
-  await page.selectOption('#user-select', String(UID.honza));
+  await jenClovek(page, UID.honza);
   await klid(page, 600);
   const pozn = txt(await page.locator('.vydelek-neznama').innerText(KRATKE));
   const li = page.locator('.vydelek-prodeje li', { hasText: 'Chalupa U Studánky' });
@@ -1664,7 +1696,7 @@ for (const sirka of [1280, 390]) {
     await jdi(page, '#/stats', 800);
     over(`D56a ${sirka}`, (await page.locator('#obdobi-select').count()) === 1 && (await page.locator('#den-datum').count()) === 0
       && (await page.locator('#obdobi-select').inputValue()) === 'celkem', 'super admin má výběr období, výchozí Celkem');
-    await page.selectOption('#user-select', String(UID.petra));
+    await jenClovek(page, UID.petra);
     await klid(page, 600);
     const celkemHovoru = await karta(page, 'Hovorů');
     await page.selectOption('#obdobi-select', 'den');
@@ -1722,7 +1754,7 @@ for (const sirka of [1280, 390]) {
     const { ctx, page } = await novaStranka('admin', { sirka, vyska: sirka < 768 ? 844 : 900 });
     await jdi(page, '#/moji', 700);
     // ⚠ úkol 11: na telefonu je výběr člověka, čekání, koše a řazení v okně „Filtry (n)“ (vFiltrech)
-    await vFiltrech(page, () => page.selectOption('#person-picker', String(UID.petra)));
+    await jenClovek(page, UID.petra);
     await klid(page, 700);
     const f = (aria) => page.locator(`.moji-filtry select[aria-label="${aria}"]`);
     // ⚠ migrace 060: stav a známka jsou výběr víc hodnot (tlačítko se stejným aria-label), NAHRAZUJE dva rozbalovací seznamy
@@ -1742,7 +1774,8 @@ for (const sirka of [1280, 390]) {
     const seznam = () => volani(page).then((vs) => vs.filter((v) => v.fn === 'myKontakty' && v.args[0] === 2000).pop());
     const posledni = await seznam();
     over(`F56c ${sirka}`, nedov > 0 && (await radky.count()) === nedov && pill === String(nedov) && volba.endsWith(`(${nedov})`)
-      && posledni?.args[4]?.status === 'nedovolano' && posledni?.args[2] === UID.petra,
+      // ⚠ úkol 10: Petra jde serveru jako výběr lidí (user_ids), NAHRAZUJE p_user_id (args[2])
+      && posledni?.args[4]?.status === 'nedovolano' && posledni?.args[2] === null && JSON.stringify(posledni?.args[4]?.user_ids) === JSON.stringify([UID.petra]),
       'filtr stavu: jen nedovolaní klienti Petry, počet v nadpisu i u volby, filtr jde na server', `${await radky.count()} / ${nedov} / ${volba} / ${JSON.stringify(posledni?.args)}`);
     await vyber(page, 'Filtr statusu', [], '.moji-filtry');
     await klid(page, 500);
@@ -1900,7 +1933,7 @@ for (const sirka of [1280, 390]) {
       JSON.stringify({ hov: hov.slice(0, 4), sHovorem, razeni: v?.args[0]?.razeni }));
     // Moji klienti Petry (super admin): sloupec Poslední hovor s hovory všech (kontakt 2: Honza volal později než Petra)
     await jdi(page, '#/moji', 700);
-    await vFiltrech(page, () => page.selectOption('#person-picker', String(UID.petra)));
+    await jenClovek(page, UID.petra);
     await klid(page, 700);
     const hlM = await sloupce(page);
     const k2 = s.kontakty.find((k) => k.id === 2);
@@ -2034,7 +2067,7 @@ await blok050('O060 mikulas', async () => {
   const r96 = page.locator('table.kontakty tbody tr', { hasText: 'Na Samotě' }).first();
   over('O60l', hlavicka.some((h) => /Volající/.test(h)) && (await r96.count()) === 1 && /Honza/.test(await r96.innerText())
     && (await r96.locator('button.zrusit-ozn-btn').count()) === 1, 'super admin: všechna označení, sloupec Volající, Zrušit označení');
-  await page.selectOption('#person-picker', 'bez');
+  await predvolba(page, 'Bez volajícího');
   await klid(page, 600);
   const bez = (await radky.allInnerTexts()).map((r) => r.slice(0, 30));
   const v = (await volani(page)).filter((x) => x.fn === 'listOznacene').pop();
@@ -2716,7 +2749,7 @@ await blok050('O062h petra', async () => {
 await blok050('O062i mikulas', async () => {
   const { ctx, page } = await novaStranka('mikulas');
   await jdi(page, '#/kalendar', 700);
-  await page.selectOption('#kalendar-kdo', String(UID.petra));
+  await jenClovek(page, UID.petra);
   await klid(page, 500);
   const z9 = (await stav(page)).zavolat.find((z) => z.kontakt_id === 9 && z.stav === 'ceka');
   await page.locator(`.zavolat-polozka[data-zavolat-id="${z9?.id}"]`).getByRole('button', { name: 'Hotovo' }).click(KRATKE);
@@ -3114,10 +3147,11 @@ function zmerFP() {
   const r1b = r1?.getBoundingClientRect();
   const r2b = r2?.getBoundingClientRect();
   const rzb = raz?.getBoundingClientRect();
-  const druh = (e) => (e.id === 'person-picker' ? 'osoba' : e.matches('select') ? 'volajici' : e.matches('.segment-filter') ? 'segment' : 'hledat');
+  // ⚠ úkol 10: osoba super admina je výběr lidí (.lide-picker), NAHRAZUJE #person-picker a select volajícího super admina
+  const druh = (e) => (e.matches('.lide-picker') ? 'osoba' : e.matches('select') ? 'volajici' : e.matches('.segment-filter') ? 'segment' : 'hledat');
   return {
     panelu: document.querySelectorAll('.filtr-panel').length,
-    r1: r1 ? [...r1.querySelectorAll('select[aria-label="Filtr volajícího"], #person-picker, .segment-filter, input.search-input')].map(druh) : [],
+    r1: r1 ? [...r1.querySelectorAll('select[aria-label="Filtr volajícího"], .lide-picker, .segment-filter, input.search-input')].map(druh) : [],
     r2: r2 ? [...r2.querySelectorAll('button.vyber-vice-btn, button.pill-btn, select')].map((e) => e.getAttribute('aria-label')) : [],
     podSebou: !!r1b && !!r2b && r1b.bottom <= r2b.top + 0.5,
     razeniVpravo: !!rzb && !!r2b && Math.abs(rzb.right - r2b.right) <= 2 && rzb.top - r2b.top <= 4,
@@ -3131,8 +3165,8 @@ for (const kdo of ['admin', 'petra']) {
     for (const hash of ['#/admin', '#/moji', '#/oznacene']) {
       await jdi(page, hash, 700);
       const m = await page.evaluate(zmerFP);
-      // osoba: Kontakty výběr volajícího pro každého (Volající „Naposledy volal/a já“ jako dřív), jinde jen super admin
-      const osoba = hash === '#/admin' ? ['volajici'] : kdo === 'admin' ? ['osoba'] : [];
+      // osoba: super admin výběr lidí na všech třech (úkol 10), Volající jen v Kontaktech svůj výběr („Naposledy volal/a já“)
+      const osoba = kdo === 'admin' ? ['osoba'] : hash === '#/admin' ? ['volajici'] : [];
       over(`FP1 ${kdo} ${hash}`, m.panelu === 1 && JSON.stringify(m.r1) === JSON.stringify([...osoba, 'segment', 'hledat'])
         && JSON.stringify(m.r2) === JSON.stringify(RADA2_FP[hash]) && m.podSebou && m.razeniVpravo && m.cipy.length === 0 && m.sirka <= 1280,
         `${kdo} ${hash}: řada 1 osoba · segment · hledání, řada 2 filtry s řazením vpravo nahoře, bez čipů`, JSON.stringify(m));
@@ -3144,7 +3178,7 @@ await blok050('FP2', async () => {
   const { ctx, page } = await novaStranka('admin');
   await jdi(page, '#/admin', 700);
   await filtr(page, 'architekti').click();
-  await page.selectOption('select[aria-label="Filtr volajícího"]', 'Petra');
+  await jenClovek(page, UID.petra);
   await vyber(page, 'Filtr statusu', ['zajem']);
   await page.locator('button[aria-label="Filtr mlčení"]').click();
   await page.locator('button.mlci-predvolba', { hasText: '10+' }).click();
@@ -3159,7 +3193,9 @@ await blok050('FP2', async () => {
   await page.locator('.filtr-cip', { hasText: 'Jen s hvězdou' }).click();
   await klid(page, 600);
   const a = await posledni();
-  over('FP2b', !!a && !a.jen_hvezda && a.status === 'zajem' && a.mlci_min === 10 && a.cekani === 'ceka_prvni' && a.kos === 'k_zavolani' && a.caller === 'Petra'
+  // ⚠ úkol 10: vybraná Petra jde serveru jako výběr lidí (user_ids), NAHRAZUJE caller 'Petra'
+  over('FP2b', !!a && !a.jen_hvezda && a.status === 'zajem' && a.mlci_min === 10 && a.cekani === 'ceka_prvni' && a.kos === 'k_zavolani'
+    && JSON.stringify(a.user_ids) === JSON.stringify([UID.petra]) && !a.caller
     && a.segment === 'architekt' && (await page.locator('button[aria-label="Jen s hvězdou"]').getAttribute('aria-pressed')) === 'false',
     'křížek čipu zruší jen svůj filtr, ostatní jdou na server dál', JSON.stringify(a));
   await page.getByRole('button', { name: 'Zrušit vše', exact: true }).click();
@@ -3168,10 +3204,10 @@ await blok050('FP2', async () => {
   // ⚠ rozhodnutí koordinátora 18. 11. 2026: výběr člověka je rozsah stránky jako segment, „Zrušit vše“ ho nechá (zůstane jeho
   // čip, „Zrušit vše“ pak už není); NAHRAZUJE FP2c „zruší i volajícího“ z b34677f
   const zbyle = (await page.locator('.filtr-cip').allInnerTexts()).map(txt);
-  over('FP2c', !!b && b.segment === 'architekt' && b.caller === 'Petra' && !b.status && !b.statusy && !b.mlci_min && !b.cekani && !b.kos && !b.jen_hvezda
+  over('FP2c', !!b && b.segment === 'architekt' && JSON.stringify(b.user_ids) === JSON.stringify([UID.petra]) && !b.status && !b.statusy && !b.mlci_min && !b.cekani && !b.kos && !b.jen_hvezda
     && JSON.stringify(zbyle) === JSON.stringify(['Volající: Petra']) && (await page.getByRole('button', { name: 'Zrušit vše', exact: true }).count()) === 0
     && (await page.locator('select[aria-label="Filtr čekání na odpověď"]').inputValue()) === ''
-    && (await page.locator('select[aria-label="Filtr volajícího"]').inputValue()) === 'Petra' && (await page.locator('.filtr-kose').count()) === 0
+    && (await lideText(page)) === 'Petra' && (await page.locator('.filtr-kose').count()) === 0
     && (await filtr(page, 'architekti').getAttribute('aria-pressed')) === 'true',
     'Zrušit vše: zruší stav, mlčení, čekání, koš a hvězdu; volajícího a segment nechá', JSON.stringify({ b, zbyle }));
   await ctx.close();
@@ -3181,7 +3217,7 @@ await blok050('FP6', async () => {
   // „Zrušit vše“ zruší filtry, výběr člověka (rozsah stránky) nechá: výběr, nadpis i dotaz na server zůstanou u Petry
   const { ctx, page } = await novaStranka('admin');
   await jdi(page, '#/moji', 700);
-  await page.selectOption('#person-picker', String(UID.petra));
+  await jenClovek(page, UID.petra);
   await klid(page, 700);
   await vyber(page, 'Filtr statusu', ['nedovolano'], '.moji-filtry');
   await page.locator('.moji-filtry button[aria-label="Jen s hvězdou"]').click();
@@ -3193,8 +3229,8 @@ await blok050('FP6', async () => {
   const po = (await page.evaluate(zmerFP)).cipy;
   const h1 = txt(await page.locator('h1.page-title').innerText());
   over('FP6', JSON.stringify(pred) === JSON.stringify(['Klienti: Petra', 'Stav: Nedovoláno', 'Jen s hvězdou'])
-    && (await page.locator('#person-picker').inputValue()) === String(UID.petra) && /Klienti — Petra/.test(h1)
-    && posl?.args[2] === UID.petra && !posl?.args[4]?.status && !posl?.args[4]?.statusy && !posl?.args[4]?.jen_hvezda
+    && (await lideText(page)) === 'Petra' && /Klienti — Petra/.test(h1)
+    && posl?.args[2] === null && JSON.stringify(posl?.args[4]?.user_ids) === JSON.stringify([UID.petra]) && !posl?.args[4]?.status && !posl?.args[4]?.statusy && !posl?.args[4]?.jen_hvezda
     && JSON.stringify(po) === JSON.stringify(['Klienti: Petra']) && (await page.getByRole('button', { name: 'Zrušit vše', exact: true }).count()) === 0,
     'Moji klienti (super admin na klientech Petry): „Zrušit vše“ zruší filtry, Petru nechá (výběr, nadpis i dotaz na server)',
     JSON.stringify({ pred, po, h1, args: posl?.args }));
@@ -3240,11 +3276,13 @@ for (const [w, h] of [[390, 844], [360, 780], [320, 700]]) {
         sirka: document.documentElement.scrollWidth,
         vOkne: r.left >= -0.5 && r.right <= innerWidth + 0.5 && r.bottom <= innerHeight + 0.5 && r.top >= -0.5,
         hotovo: !!hotovo && hotovo.top >= r.top && hotovo.bottom <= innerHeight + 0.5 && hotovo.right <= innerWidth + 0.5,
-        ovladace: [...o.querySelectorAll('select[aria-label], button[aria-label], #person-picker')].map((e) => e.getAttribute('aria-label') ?? e.id),
+        ovladace: [...o.querySelectorAll('select[aria-label], button[aria-label]')].map((e) => e.getAttribute('aria-label') ?? e.id),
+        // ⚠ úkol 10: osoba super admina = výběr lidí, NAHRAZUJE select „Filtr volajícího“
+        lide: !!o.querySelector('.lide-picker button.lide-picker-btn'),
         doStrany: o.scrollWidth > o.clientWidth + 0.5,
       };
     });
-    over(`FP4b ${w}`, RADA2_FP['#/admin'].concat('Filtr volajícího').every((a) => ot.ovladace.includes(a)) && ot.vOkne && ot.hotovo && ot.sirka <= w && !ot.doStrany,
+    over(`FP4b ${w}`, RADA2_FP['#/admin'].every((a) => ot.ovladace.includes(a)) && ot.lide && ot.vOkne && ot.hotovo && ot.sirka <= w && !ot.doStrany,
       'okno Filtry: osoba, všechny filtry i řazení, celé na obrazovce, tlačítko dole vidět, nic do strany', JSON.stringify(ot));
     await okno.locator('button[aria-label="Filtr statusu"]').click();
     await okno.locator('.vyber-vice-panel input[value="zajem"]').check();
@@ -3278,7 +3316,7 @@ await blok050('FP5 petra 320', async () => {
       await page.waitForTimeout(300);
       return page.evaluate(() => ({
         sirka: document.documentElement.scrollWidth,
-        ovladace: [...document.querySelectorAll('.filtr-sheet select[aria-label], .filtr-sheet button[aria-label], .filtr-sheet #person-picker')]
+        ovladace: [...document.querySelectorAll('.filtr-sheet select[aria-label], .filtr-sheet button[aria-label], .filtr-sheet .lide-picker')]
           .map((e) => e.getAttribute('aria-label') ?? e.id).filter((a) => !/^Zavřít/.test(a)),
       }));
     });
@@ -3541,6 +3579,217 @@ await blok050('T12m petra', async () => {
     && (await stav(page)).kontakty.find((k) => k.id === 95)?.status === 'odmitnuto',
     'volání: studená karta (10) bez výběru důvodu; klient s návrhem zpátky ve frontě (95): Odmítnuto chce důvod (na telefonu nezakrytý), resolve_call napřed, pak odmitnuti_duvod_zapis',
     JSON.stringify({ studenaKarta, studenaBezVyberu, karta, vypnuto, naTelefonu, vs: vs.map((v) => [v.fn, v.args]) }));
+  await ctx.close();
+});
+
+/* ============ LP (Přehled vedení úkol 10, Albert 17. 11. 2026, D7): výběr lidí super admina ============ */
+// Albert: „all the super admins can view everyone, but they can also filter out only their team … compare or combine any two
+// callers … easy to select how many people they want to see“ (spec §7.3). Jeden výběr (src/components/LidePicker.tsx) na sedmi
+// stránkách: předvolby, hledání, klávesnice (šipky, mezerník, Escape), sjednocení lidí na serveru (p_user_ids, migrace 074),
+// Statistiky víc lidí ze součtu prehled_lide (migrace 073) s odkazem „Porovnat v Přehledu“, telefon (okno odspodu, v okně
+// filtrů rozbalený), Rozvrh a Zprávy; Volající výběr nikde nevidí a nic nového nedostane. E2E_SNIMKY=/složka uloží snímky.
+const SNIMKY = process.env.E2E_SNIMKY || '';
+const snimek = async (page, jmeno) => {
+  if (SNIMKY) await page.screenshot({ path: join(SNIMKY, `${jmeno}.png`) });
+};
+const posledniSeznam = async (page) => (await volani(page)).filter((v) => v.fn === 'listKontakty' && v.args[0]?.limit === 50).pop()?.args[0];
+await blok050('LP1 klávesnice', async () => {
+  const { ctx, page } = await novaStranka('admin');
+  await jdi(page, '#/admin', 700);
+  const tl = page.locator('button.lide-picker-btn');
+  over('LP1a', (await tl.count()) === 1 && (await lideText(page)) === 'Všichni (5)' && (await tl.getAttribute('aria-expanded')) === 'false'
+    && (await tl.getAttribute('aria-haspopup')) === 'dialog' && (await page.locator('.lide-picker-panel').count()) === 0,
+    'Kontakty super admina: jeden výběr lidí „Všichni (5)“, zavřený, bez panelu');
+  await tl.click();
+  const panel = page.locator('.lide-picker-panel');
+  await panel.waitFor(KRATKE);
+  await page.waitForTimeout(200);
+  const predvolby = (await panel.locator('button.lide-predvolba').allInnerTexts()).map(txt);
+  const zapnuta = txt(await panel.locator('button.lide-predvolba[aria-pressed="true"]').innerText());
+  const fokus1 = await page.evaluate(() => document.activeElement?.classList.contains('lide-hledat-pole') ?? false);
+  await snimek(page, 'kontakty-vyber-1280');
+  over('LP1b', (await tl.getAttribute('aria-expanded')) === 'true' && JSON.stringify(predvolby) === JSON.stringify(['Já', 'Můj tým (3)', 'Všichni (5)', 'Tým Mikuláš (2)'])
+    && zapnuta === 'Všichni (5)' && fokus1 && (await panel.locator('.lide-skupina').count()) === 2,
+    'otevřený panel: předvolby Já / Můj tým / Všichni / Tým Mikuláš, zapnutá Všichni, dva týmy, fokus v hledání', JSON.stringify({ predvolby, zapnuta, fokus1 }));
+  await page.keyboard.type('mik');
+  const radky = (await panel.locator('.lide-radek .lide-jmeno').allInnerTexts()).map(txt);
+  await page.keyboard.press('ArrowDown');
+  const fokus2 = await page.evaluate(() => document.activeElement?.closest('.lide-radek')?.getAttribute('data-user-id') ?? null);
+  await page.keyboard.press('ArrowUp');
+  const fokus3 = await page.evaluate(() => document.activeElement?.classList.contains('lide-hledat-pole') ?? false);
+  over('LP1c', JSON.stringify(radky) === JSON.stringify(['Mikuláš']) && fokus2 === '4' && fokus3,
+    'hledání „mik“ ukáže jen Mikuláše (bez diakritiky), šipka dolů na něj, nahoru zpět do hledání', JSON.stringify({ radky, fokus2, fokus3 }));
+  await panel.locator('.lide-hledat-pole').fill('');
+  await panel.locator('.lide-hledat-pole').focus();
+  await page.keyboard.press('ArrowDown');
+  const prvni = await page.evaluate(() => document.activeElement?.closest('.lide-radek')?.getAttribute('data-user-id') ?? null);
+  await page.keyboard.press('Space');
+  await klid(page, 600);
+  const poMezerniku = await lideText(page);
+  await page.keyboard.press('Escape');
+  await panel.waitFor({ state: 'detached', timeout: 4000 });
+  const fokusTl = await page.evaluate(() => document.activeElement?.classList.contains('lide-picker-btn') ?? false);
+  const posl = await posledniSeznam(page);
+  over('LP1d', prvni === '1' && poMezerniku === '4 lidé' && fokusTl && JSON.stringify(posl?.user_ids) === '[2,3,4,5]' && !posl?.caller
+    && (await tl.getAttribute('aria-expanded')) === 'false',
+    'mezerník odškrtne prvního (já, Můj tým napřed): ze Všech zůstanou 4 lidé (user_ids), Escape zavře a vrátí fokus na tlačítko',
+    JSON.stringify({ prvni, poMezerniku, fokusTl, posl }));
+  await ctx.close();
+});
+await blok050('LP2 dva lidé a tým', async () => {
+  const { ctx, page } = await novaStranka('admin');
+  await jdi(page, '#/admin', 700);
+  await jenClovek(page, UID.petra);
+  await klid(page, 500);
+  await vLidech(page, (panel) => panel.locator('.lide-radek[data-user-id="3"] input[type="checkbox"]').check());
+  await klid(page, 800);
+  const s = await stav(page);
+  const ocek = s.kontakty.filter((k) => k.last_caller === 'Petra' || k.last_caller === 'Honza').length;
+  const posl = await posledniSeznam(page);
+  const pocet = txt(await page.locator('h1.page-title .count-pill').innerText().catch(() => ''));
+  const cipy = (await page.locator('.filtr-cip').allInnerTexts()).map(txt);
+  over('LP2a', (await lideText(page)) === 'Petra + Honza' && JSON.stringify(posl?.user_ids) === '[2,3]' && !posl?.caller && pocet === String(ocek) && ocek > 2
+    && cipy.includes('Volající: Petra + Honza') && (await page.locator('button.lide-picker-btn.zapnuto').count()) === 1,
+    'Kontakty: Petra + Honza = sjednocení jejich kontaktů (user_ids), čip a žluté tlačítko', JSON.stringify({ posl, pocet, ocek, cipy }));
+  await predvolba(page, 'Můj tým');
+  await klid(page, 700);
+  const tym = await posledniSeznam(page);
+  const pocty = (await volani(page)).filter((v) => v.fn === 'listKontakty' && v.args[0]?.limit === 1).slice(-3).map((v) => v.args[0]?.user_ids);
+  over('LP2b', (await lideText(page)) === 'Můj tým (3)' && JSON.stringify(tym?.user_ids) === '[1,2,5]' && pocty.every((x) => JSON.stringify(x) === '[1,2,5]'),
+    'Můj tým = já a moji lidé (Albert, Petra, Eva) v seznamu i v počtech u stavů', JSON.stringify({ tym, pocty }));
+  await page.locator('.filtr-cip', { hasText: 'Volající: Můj tým (3)' }).click();
+  await klid(page, 700);
+  const zpet = await posledniSeznam(page);
+  over('LP2c', (await lideText(page)) === 'Všichni (5)' && !zpet?.user_ids && !zpet?.caller && (await page.locator('button.lide-picker-btn.zapnuto').count()) === 0,
+    'křížek čipu vrátí Všechny (bez filtru volajícího, jako dřív)', JSON.stringify(zpet));
+  await ctx.close();
+});
+await blok050('LP3 Statistiky víc lidí', async () => {
+  const { ctx, page } = await novaStranka('admin');
+  await jdi(page, '#/stats', 800);
+  await predvolba(page, 'Můj tým');
+  await klid(page, 900);
+  const s = await stav(page);
+  const hovory = s.callLog.filter((l) => [1, 2, 5].includes(l.user_id)).length;
+  const v = (await volani(page)).filter((x) => x.fn === 'prehledLide').pop();
+  const odkaz = await page.locator('a.stats-porovnat').getAttribute('href').catch(() => null);
+  const hovoryKarta = await karta(page, 'Hovory');
+  await snimek(page, 'statistiky-tym-1280');
+  over('LP3a', (await page.locator('.stats-kombinace').count()) === 1 && hovoryKarta === String(hovory) && hovory > 0
+    && JSON.stringify(v?.args[0]?.lide) === '[1,2,5]' && v?.args[0]?.do === denP(Date.now()) && /#\/prehled\/lide\?lide=1,2,5$/.test(odkaz ?? '')
+    && (await page.locator('.vydelek').count()) === 0 && (await page.locator('.zajem-volajici').count()) === 1,
+    'Statistiky Můj tým: karty ze součtu prehled_lide, odkaz „Porovnat v Přehledu“, bez výdělku jednoho člověka, tabulka 069 zůstane',
+    JSON.stringify({ hovory, hovoryKarta, args: v?.args, odkaz }));
+  await page.selectOption('#obdobi-select', 'den');
+  await klid(page, 800);
+  const vDen = (await volani(page)).filter((x) => x.fn === 'prehledLide').pop();
+  over('LP3b', vDen?.args[0]?.od === denP(Date.now()) && vDen?.args[0]?.do === denP(Date.now()) && (await page.locator('.stats-kombinace').count()) === 1
+    && !(await volani(page)).some((x) => x.fn === 'allStats' && x.args[0]),
+    'jeden den: součet vybraných za ten den (od = do = den), all_stats dne netřeba', JSON.stringify(vDen?.args));
+  await page.selectOption('#obdobi-select', 'celkem');
+  await klid(page, 500);
+  await jenClovek(page, UID.petra);
+  await klid(page, 900);
+  over('LP3c', (await page.locator('.stats-kombinace').count()) === 0 && (await page.locator('.vydelek-celkem').count()) === 1 && (await karta(page, 'Hovorů')) !== null
+    && (await volani(page)).some((x) => x.fn === 'statistikyVolani' && x.args[0] === UID.petra),
+    'jeden člověk: dosavadní pohled (karty, výdělek Petry)');
+  await ctx.close();
+});
+await blok050('LP4 Volající', async () => {
+  const { ctx, page } = await novaStranka('petra');
+  const vidi = [];
+  for (const h of ['#/admin', '#/moji', '#/oznacene', '#/stats', '#/kalendar', '#/zpravy', '#/rozvrh']) {
+    await jdi(page, h, 600);
+    if ((await page.locator('.lide-picker').count()) > 0) vidi.push(h);
+  }
+  const vs = await volani(page);
+  const sVyberem = vs.filter((v) => /"user_ids":\[\d/.test(JSON.stringify(v.args)) || ((v.fn === 'zavolatSeznam' || v.fn === 'listThreads') && Array.isArray(v.args[3])));
+  over('LP4', vidi.length === 0 && sVyberem.length === 0 && !vs.some((v) => v.fn === 'prehledLide' || v.fn === 'allStats'),
+    'Volající: výběr lidí na žádné ze sedmi stránek, žádný výběr lidí serveru, žádné prehled_lide ani all_stats',
+    JSON.stringify({ vidi, sVyberem: sVyberem.map((v) => v.fn) }));
+  await ctx.close();
+});
+for (const [w, h] of [[390, 844], [320, 700]]) {
+  await blok050(`LP5 ${w}`, async () => {
+    const { ctx, page } = await novaStranka('admin', { sirka: w, vyska: h });
+    await jdi(page, '#/stats', 800);
+    await page.locator('button.lide-picker-btn').click();
+    const okno = page.locator('.lide-sheet[role="dialog"]');
+    await okno.waitFor(KRATKE);
+    await page.waitForTimeout(300);
+    const m = await page.evaluate(() => {
+      const o = document.querySelector('.lide-sheet');
+      const r = o.getBoundingClientRect();
+      const hot = o.querySelector('.lide-sheet-hotovo').getBoundingClientRect();
+      return {
+        sirka: document.documentElement.scrollWidth,
+        cela: r.left >= -0.5 && r.right <= innerWidth + 0.5 && r.bottom <= innerHeight + 0.5 && r.top >= -0.5,
+        hotovo: hot.bottom <= innerHeight + 0.5 && hot.right <= innerWidth + 0.5,
+        doStrany: o.scrollWidth > o.clientWidth + 0.5,
+        modal: o.getAttribute('aria-modal'),
+        fokus: document.activeElement?.classList.contains('lide-sheet-zavrit') ?? false,
+      };
+    });
+    await snimek(page, `statistiky-vyber-${w}`);
+    await okno.locator('.lide-radek[data-user-id="2"] button.lide-jen').click();
+    await okno.locator('.lide-radek[data-user-id="3"] input[type="checkbox"]').check();
+    await okno.locator('.lide-sheet-hotovo').click();
+    await okno.waitFor({ state: 'detached', timeout: 4000 });
+    await klid(page, 800);
+    const fokus = await page.evaluate(() => document.activeElement?.classList.contains('lide-picker-btn') ?? false);
+    const sirkaPo = await page.evaluate(() => document.documentElement.scrollWidth);
+    if (w === 390) await snimek(page, 'statistiky-petra-honza-390');
+    over(`LP5 ${w}`, m.cela && m.hotovo && !m.doStrany && m.sirka <= w && m.modal === 'true' && m.fokus && fokus && (await lideText(page)) === 'Petra + Honza'
+      && (await page.locator('.stats-kombinace').count()) === 1 && sirkaPo <= w,
+      `telefon ${w} px: výběr lidí jako okno odspodu přes celou šířku, Hotovo vidět, bez posunu do strany, fokus zpět na tlačítko, součet dvou lidí`,
+      JSON.stringify({ ...m, fokus, sirkaPo }));
+    await ctx.close();
+  });
+}
+await blok050('LP6 390 v okně filtrů', async () => {
+  const { ctx, page } = await novaStranka('admin', { sirka: 390, vyska: 844 });
+  await jdi(page, '#/admin', 700);
+  await otevriFiltry(page);
+  await page.locator('.filtr-sheet button.lide-picker-btn').click();
+  const vlozeny = page.locator('.filtr-sheet .lide-picker-panel.vlozeny');
+  await vlozeny.waitFor(KRATKE);
+  await page.waitForTimeout(250);
+  const m = await page.evaluate(() => ({ sirka: document.documentElement.scrollWidth, okno: !!document.querySelector('.lide-sheet') }));
+  await snimek(page, 'kontakty-filtry-vyber-390');
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(200);
+  const porad = await page.locator('.filtr-sheet').count();
+  const panelPryc = await vlozeny.count();
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(200);
+  over('LP6', !m.okno && m.sirka <= 390 && porad === 1 && panelPryc === 0 && (await page.locator('.filtr-sheet').count()) === 0,
+    'telefon v okně Filtry: výběr lidí se rozbalí v okně (žádné druhé okno), Escape zavře napřed výběr, pak okno filtrů', JSON.stringify({ m, porad, panelPryc }));
+  await ctx.close();
+});
+await blok050('LP7 Rozvrh a Zprávy', async () => {
+  const { ctx, page } = await novaStranka('admin');
+  await jdi(page, '#/rozvrh', 700);
+  const pred = (await page.locator('.rozvrh-clovek').allInnerTexts()).length;
+  await predvolba(page, 'Tým Mikuláš');
+  await klid(page, 400);
+  const radky = (await page.locator('.rozvrh-clovek .u-name').allInnerTexts()).map(txt);
+  await jenClovek(page, UID.petra);
+  await klid(page, 600);
+  over('LP7a', pred >= 2 && JSON.stringify(radky) === JSON.stringify(['Honza']) && txt(await page.locator('h2.rozvrh-kdo').innerText()) === 'Petra'
+    && (await page.locator('.rozvrh-clovek').count()) === 1,
+    'Rozvrh: výběr zúží přehled (Tým Mikuláš = Honza, Mikuláš rozvrh nemá), jeden vybraný člověk = jeho rozvrh v úpravě', JSON.stringify({ pred, radky }));
+  await jdi(page, '#/zpravy', 700);
+  await predvolba(page, 'Tým Mikuláš');
+  await klid(page, 600);
+  const vt = (await volani(page)).filter((v) => v.fn === 'listThreads').pop();
+  over('LP7b', JSON.stringify(vt?.args[3] ?? null) === '[3,4]' && (vt?.args[2] ?? null) === null,
+    'Zprávy: tým jde serveru jako výběr lidí (user_ids), ne jeden člověk', JSON.stringify(vt?.args));
+  await jdi(page, '#/oznacene', 700);
+  await predvolba(page, 'Bez volajícího');
+  await klid(page, 600);
+  const vo = (await volani(page)).filter((v) => v.fn === 'listOznacene').pop();
+  over('LP7c', vo?.args[0]?.bez_volajiciho === true && !vo?.args[0]?.user_ids && (await lideText(page)) === 'Bez volajícího',
+    'Označené: předvolba „Bez volajícího“ jako dřív (p_bez_volajiciho), bez výběru lidí', JSON.stringify(vo?.args));
   await ctx.close();
 });
 

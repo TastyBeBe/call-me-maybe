@@ -1,8 +1,13 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import {
   getApi,
+  type DataLide,
   type KontaktStatus,
+  type Metrika,
+  type MetrikaCloveka,
   type MyStats,
+  type PrehledObalka,
   type Segment,
   type StatistikyVolani,
   type UserStats,
@@ -11,10 +16,12 @@ import {
   type ZajemPodleVolajicich,
 } from '../api';
 import { useSession } from '../auth';
+import LidePicker from '../components/LidePicker';
 import { ArrowLeftIcon, ArrowRightIcon } from '../icons';
+import { VYBER_JA, clovekZ, rozbalVyber, shrnutiVyberu, type Vyber } from '../lide';
 import { dayWord, topDaysFor } from '../pig/progress';
 import { posunDen, prahaDen } from '../praha';
-import { isSuperAdmin, roleLabel } from '../roles';
+import { isSuperAdmin } from '../roles';
 import { datumKratce } from '../rozvrh';
 import { nikaInfo } from '../obory';
 import {
@@ -69,14 +76,27 @@ export default function StatsPage() {
   const isSuper = isSuperAdmin(session.role);
   const [myStats, setMyStats] = useState<MyStats | null>(null);
   const [allStats, setAllStats] = useState<UserStats[] | null>(null);
-  const [selectedUser, setSelectedUser] = useState<number | 'me'>('me');
+  // ⚠ Přehled vedení úkol 10 (Albert 17. 11. 2026, D7: „compare or combine any two callers … easy to select how many people
+  // they want to see“) NAHRAZUJE výběr jednoho člověka (#user-select „Čí statistiky zobrazit“): výběr lidí LidePicker (jen
+  // super admin). Jeden člověk = přesně dosavadní pohled (karty, den, výdělek, tabulka 069); víc lidí (tým, Všichni, kdokoli)
+  // = kombinované karty ze serveru (prehled_lide, řádek soucet, migrace 073) a odkaz „Porovnat v Přehledu“. Volající beze
+  // změny (jen svoje čísla, výběr nevidí).
+  const [vyber, setVyber] = useState<Vyber>(VYBER_JA);
+  const lide = useMemo(() => (allStats ?? []).map(clovekZ), [allStats]);
+  const vybrani = isSuper ? rozbalVyber(vyber, lide, session.user_id) : [session.user_id];
+  const vybraniKlic = JSON.stringify(vybrani);
+  // jeden člověk (i tým o jednom člověku) = dosavadní pohled; víc lidí nebo všichni = součet ze serveru
+  const jeden = vybrani !== null && vybrani.length === 1 ? vybrani[0] : null;
+  const kombinace = isSuper && jeden === null;
+  const shownUid = jeden ?? session.user_id;
+  const ja = shownUid === session.user_id;
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
   // Migrace 050 (Albert 21. 10. 2026): nerelevantní a přeplánované hovory a výdělek (30 % z ceny webu) toho, koho
   // stránka ukazuje. Volající jen svoje (server statistiky_volani cizí odmítne), super admin přes výběr kohokoli.
   // Server bez migrace 050 RPC nezná: karty a výdělek se pak neukážou, zbytek stránky jede dál.
   const [volani, setVolani] = useState<StatistikyVolani | null>(null);
-  const volaniUid = selectedUser === 'me' ? null : selectedUser;
+  const volaniUid = ja ? null : shownUid;
   // Migrace 056 (Albert 27. 10. 2026: „when we can see anyone's statistics, we should also be able to see their
   // statistics for a specific day“): super admin si vybere jeden den (v Praze, jako server); null = celkem jako dřív.
   // Čísla dne jdou z all_stats s p_den (hovory a prodeje toho dne, i nerelevantní a přeplánované); výdělek, dny jako
@@ -86,12 +106,18 @@ export default function StatsPage() {
   const [denChyba, setDenChyba] = useState('');
   const [denNacita, setDenNacita] = useState(false);
   const dnes = prahaDen(new Date());
+  // úkol 10: součet víc lidí (prehled_lide) za období stránky
+  const [kombi, setKombi] = useState<PrehledObalka<DataLide> | null>(null);
+  const [kombiChyba, setKombiChyba] = useState('');
+  const [kombiNacita, setKombiNacita] = useState(false);
 
   useEffect(() => {
     let alive = true;
     setDenStats(null);
     setDenChyba('');
     setDenNacita(false);
+    // víc lidí bere den ze součtu (prehled_lide), řádky all_stats dne nepotřebuje
+    if (kombinace) return;
     if (!isSuper) return;
     if (den === null) return;
     setDenNacita(true);
@@ -109,11 +135,13 @@ export default function StatsPage() {
     return () => {
       alive = false;
     };
-  }, [session.token, isSuper, den]);
+  }, [session.token, isSuper, den, kombinace]);
 
   useEffect(() => {
     let alive = true;
     setVolani(null);
+    // výdělek a karty Nerelevantní a Přeplánováno jsou za jednoho člověka; víc lidí je má v součtu
+    if (kombinace) return;
     getApi()
       .statistikyVolani(session.token, volaniUid)
       .then((x) => {
@@ -125,7 +153,37 @@ export default function StatsPage() {
     return () => {
       alive = false;
     };
-  }, [session.token, volaniUid]);
+  }, [session.token, volaniUid, kombinace]);
+
+  // víc lidí: součet ze serveru (prehled_lide, jen super admin); Celkem = posledních 730 dní (víc server nevezme, data jsou
+  // od 2. 9. 2026), jeden den = ten den; obě měny (jako výdělek jednoho člověka eura zvlášť, nikdy dohromady); server bez
+  // migrace 073 = BEZ_073_LIDE
+  useEffect(() => {
+    let alive = true;
+    setKombi(null);
+    setKombiChyba('');
+    if (!kombinace) {
+      setKombiNacita(false);
+      return;
+    }
+    setKombiNacita(true);
+    const od = den ?? (posunDen(dnes, -730) < '2020-01-01' ? '2020-01-01' : posunDen(dnes, -730));
+    getApi()
+      .prehledLide(session.token, { od, do: den ?? dnes, lide: vybrani, mena: 'obe' })
+      .then((x) => {
+        if (alive) setKombi(x);
+      })
+      .catch((e) => {
+        if (alive) setKombiChyba(errMsg(e));
+      })
+      .finally(() => {
+        if (alive) setKombiNacita(false);
+      });
+    return () => {
+      alive = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session.token, kombinace, vybraniKlic, den, dnes]);
 
   useEffect(() => {
     let alive = true;
@@ -153,15 +211,14 @@ export default function StatsPage() {
     };
   }, [session.token, isSuper]);
 
-  const shownUid = selectedUser === 'me' ? session.user_id : selectedUser;
   // 056: za jeden den řádek vybraného člověka (i sebe) z all_stats s p_den; celkem jako dřív
   const denRadek: UserStats | null = den !== null ? (denStats?.find((u) => u.user_id === shownUid) ?? null) : null;
   const shown: MyStats | null =
     den !== null
       ? denRadek
-      : selectedUser === 'me'
+      : ja
         ? myStats
-        : (allStats?.find((u) => u.user_id === selectedUser) ?? null);
+        : (allStats?.find((u) => u.user_id === shownUid) ?? null);
   // karty Nerelevantní a Přeplánováno: celkem ze statistiky_volani (050), za den z řádku dne (056)
   const dalsiKarty: { nerelevantni: number; preplanovano: number } | null =
     den !== null
@@ -173,10 +230,11 @@ export default function StatsPage() {
 
   const topDays = topDaysFor(shownUid).days;
 
-  const shownName =
-    selectedUser === 'me'
-      ? session.display_name
-      : allStats?.find((u) => u.user_id === selectedUser)?.display_name ?? '';
+  const shownName = ja ? session.display_name : allStats?.find((u) => u.user_id === shownUid)?.display_name ?? '';
+  const kdoKombinace = shrnutiVyberu(vyber, lide, session.user_id);
+  // „Porovnat v Přehledu“: lidé vedle sebe (#/prehled/lide, úkol 13); bez lide = všichni
+  const odkazPrehled = `/prehled/lide${vybrani ? `?lide=${vybrani.join(',')}` : ''}`;
+  const nacita = loading || nacitaDen || (kombinace && kombiNacita);
 
   return (
     <div>
@@ -184,26 +242,15 @@ export default function StatsPage() {
       <h1 className="page-title">Statistiky</h1>
 
       {isSuper && allStats && allStats.some((u) => u.user_id !== session.user_id) && (
-        <div className="field" style={{ maxWidth: 320 }}>
-          <label htmlFor="user-select">Čí statistiky zobrazit</label>
-          <select
-            id="user-select"
-            value={selectedUser === 'me' ? 'me' : String(selectedUser)}
-            onChange={(e) =>
-              setSelectedUser(e.target.value === 'me' ? 'me' : Number(e.target.value))
-            }
-          >
-            <option value="me">Moje ({session.display_name})</option>
-            {allStats
-              .filter((u) => u.user_id !== session.user_id)
-              .map((u) => (
-                <option key={u.user_id} value={u.user_id}>
-                  {u.display_name} ({roleLabel(u.role)}
-                  {u.active ? '' : ' · neaktivní'})
-                </option>
-              ))}
-          </select>
-        </div>
+        <LidePicker
+          value={vyber}
+          onChange={setVyber}
+          lide={lide}
+          ja={session.user_id}
+          popisek="Čí statistiky zobrazit"
+          vychozi={VYBER_JA}
+          className="lide-stranka"
+        />
       )}
 
       {/* 056 (Albert 27. 10. 2026): období jen super admin (Volající vidí jen svoje čísla celkem, 045) */}
@@ -260,66 +307,76 @@ export default function StatsPage() {
         </div>
       )}
 
-      <ErrorBox>{error || (den !== null ? denChyba : '')}</ErrorBox>
-      {(loading || nacitaDen) && <Spinner label={nacitaDen ? 'Počítám statistiky za den…' : 'Počítám statistiky…'} />}
+      <ErrorBox>{error || (kombinace ? kombiChyba : den !== null ? denChyba : '')}</ErrorBox>
+      {nacita && (
+        <Spinner
+          label={kombinace ? 'Počítám statistiky vybraných lidí…' : nacitaDen ? 'Počítám statistiky za den…' : 'Počítám statistiky…'}
+        />
+      )}
 
-      {!loading && !nacitaDen && shown && (
+      {!nacita && (kombinace ? kombi : shown) && (
         <>
-          {den === null ? (
-            <p className="muted" style={{ margin: '10px 0 0' }}>
-              {shownName} · Čísla nahoře jsou <strong>hovory</strong>, ne klienti: jeden
-              klient může mít víc hovorů a po projeveném zájmu se přesune dál podle toho,
-              jak daleko je jeho web.{isSuper && ' Kolik klientů je právě teď v jakém stavu, je níž.'}
-            </p>
-          ) : (
-            <p className="muted stats-den-popis" style={{ margin: '10px 0 0' }}>
-              {shownName} · <strong>{formatDenSRokem(den)}</strong> (den v Praze) · Čísla jsou <strong>hovory</strong> zapsané
-              ten den a prodáno = weby, které se ten den prodaly (klient je schválil).
-            </p>
-          )}
-          {/* migrace 050 (Albert 21. 10. 2026): nerelevantní kontakty se do konverze nepočítají (ani jako odmítnutí)
-              a přeplánovaný hovor taky ne; ⚠ NAHRAZUJE „dovoláno = odmítli + zájem“ bez vysvětlení */}
-          <p className="muted" style={{ margin: '4px 0 0' }}>
-            dovoláno = odmítli + zájem (nerelevantní ani přeplánované se nepočítají) · konverze = zájem / dovoláno ·
-            prodáno = klient web schválil (a dál)
-          </p>
-          <StatCards stats={shown} />
-          <div className="stat-grid" style={{ marginTop: 16 }}>
-            <div className="card stat-card">
-              <div className="stat-value">{shown.odmitnuto}</div>
-              <div className="stat-label">Odmítli v hovoru</div>
-            </div>
-            <div className="card stat-card">
-              <div className="stat-value">{shown.nedovolano}</div>
-              <div className="stat-label">Nedovolaných pokusů</div>
-            </div>
-            {dalsiKarty && (
-              <>
-                <div className="card stat-card stat-nerelevantni">
-                  <div className="stat-value">{dalsiKarty.nerelevantni}</div>
-                  <div className="stat-label">Nerelevantní</div>
+          {kombinace && kombi ? (
+            <KombinovaneStatistiky data={kombi} kdo={kdoKombinace} den={den} odkaz={odkazPrehled} />
+          ) : shown ? (
+            <>
+              {den === null ? (
+                <p className="muted" style={{ margin: '10px 0 0' }}>
+                  {shownName} · Čísla nahoře jsou <strong>hovory</strong>, ne klienti: jeden
+                  klient může mít víc hovorů a po projeveném zájmu se přesune dál podle toho,
+                  jak daleko je jeho web.{isSuper && ' Kolik klientů je právě teď v jakém stavu, je níž.'}
+                </p>
+              ) : (
+                <p className="muted stats-den-popis" style={{ margin: '10px 0 0' }}>
+                  {shownName} · <strong>{formatDenSRokem(den)}</strong> (den v Praze) · Čísla jsou <strong>hovory</strong> zapsané
+                  ten den a prodáno = weby, které se ten den prodaly (klient je schválil).
+                </p>
+              )}
+              {/* migrace 050 (Albert 21. 10. 2026): nerelevantní kontakty se do konverze nepočítají (ani jako odmítnutí)
+                  a přeplánovaný hovor taky ne; ⚠ NAHRAZUJE „dovoláno = odmítli + zájem“ bez vysvětlení */}
+              <p className="muted" style={{ margin: '4px 0 0' }}>
+                dovoláno = odmítli + zájem (nerelevantní ani přeplánované se nepočítají) · konverze = zájem / dovoláno ·
+                prodáno = klient web schválil (a dál)
+              </p>
+              <StatCards stats={shown} />
+              <div className="stat-grid" style={{ marginTop: 16 }}>
+                <div className="card stat-card">
+                  <div className="stat-value">{shown.odmitnuto}</div>
+                  <div className="stat-label">Odmítli v hovoru</div>
                 </div>
-                <div className="card stat-card stat-preplanovano">
-                  <div className="stat-value">{dalsiKarty.preplanovano}</div>
-                  <div className="stat-label">Přeplánováno</div>
+                <div className="card stat-card">
+                  <div className="stat-value">{shown.nedovolano}</div>
+                  <div className="stat-label">Nedovolaných pokusů</div>
                 </div>
-              </>
-            )}
-            {/* kolik dní drží tenhle člověk korunu #1 prodejce (Prokchopovo počítadlo); jen super admin (045), den ho nemá (056) */}
-            {den === null && (
-              <>
-                {isSuper && (
-                  <div className="card stat-card">
-                    <div className="stat-value">{topDays}</div>
-                    <div className="stat-label">{dayWord(topDays)} jako #1 prodejce</div>
-                  </div>
+                {dalsiKarty && (
+                  <>
+                    <div className="card stat-card stat-nerelevantni">
+                      <div className="stat-value">{dalsiKarty.nerelevantni}</div>
+                      <div className="stat-label">Nerelevantní</div>
+                    </div>
+                    <div className="card stat-card stat-preplanovano">
+                      <div className="stat-value">{dalsiKarty.preplanovano}</div>
+                      <div className="stat-label">Přeplánováno</div>
+                    </div>
+                  </>
                 )}
-              </>
-            )}
-          </div>
+                {/* kolik dní drží tenhle člověk korunu #1 prodejce (Prokchopovo počítadlo); jen super admin (045), den ho nemá (056) */}
+                {den === null && (
+                  <>
+                    {isSuper && (
+                      <div className="card stat-card">
+                        <div className="stat-value">{topDays}</div>
+                        <div className="stat-label">{dayWord(topDays)} jako #1 prodejce</div>
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+            </>
+          ) : null}
           {den === null ? (
             <>
-              {volani && <Vydelano v={volani.vydelek} ja={selectedUser === 'me'} jmeno={shownName} jaSuper={isSuper} />}
+              {volani && <Vydelano v={volani.vydelek} ja={ja} jmeno={shownName} jaSuper={isSuper} />}
               {/* migrace 069 (Albert 15. 11. 2026): klienti se zájmem po volajících, jen super admin (045) */}
               {isSuper && <ZajemVolajicich token={session.token} />}
               {isSuper && <KlientiFunnel token={session.token} />}
@@ -332,6 +389,96 @@ export default function StatsPage() {
         </>
       )}
     </div>
+  );
+}
+
+/** Karty součtu víc lidí v pořadí dosavadních karet jednoho člověka (hovory, pak výsledky, pak peníze). */
+const KARTY_KOMBINACE: MetrikaCloveka[][] = [
+  ['hovory', 'dovolano', 'zajem', 'konverze', 'pocet_prodeju'],
+  ['odmitnuto', 'nerelevantni', 'preplanovano', 'unikatni_klienti', 'navrhy'],
+  ['hodnota_prodeju', 'provize_narok', 'provize_vyplaceno', 'provize_zbyva'],
+];
+/** Podíly jako procenta (zbytek podílů jsou poměry jako „výsledků za hodinu“). */
+const PROCENTA: readonly string[] = ['mira_dovolani', 'konverze', 'plneni_planu'];
+const HODINY: readonly string[] = ['odpracovane_hodiny', 'planovane_hodiny', 'sla_prvni_kontakt_median', 'sla_prvni_kontakt_p90'];
+const cislo = (n: number, mist = 0) => n.toLocaleString('cs-CZ', { maximumFractionDigits: mist });
+
+/**
+ * Hodnoty metriky ke kartě: peníze po měnách (nikdy dohromady; první měna vždy, eura jen když nějaká jsou, každá zvlášť),
+ * procenta, hodiny, počet; neznámé = pomlčka. Mezera před jednotkou nezalomí (na telefonu se „92,3 %“ nerozdělí).
+ */
+function hodnotyMetriky(m: Metrika): string[] {
+  if (m.castky.length > 0) {
+    return m.castky
+      .filter((c, i) => i === 0 || c.pokryti.celkem > 0 || c.hodnota !== '0.00')
+      .map((c) => (c.hodnota === null ? '—' : c.mena === 'EUR' ? formatEur(Number(c.hodnota)) : formatKc(Number(c.hodnota))).replace(/ /g, '\u00a0'));
+  }
+  if (m.hodnota === null) return ['—'];
+  if (PROCENTA.includes(m.klic)) return [`${cislo(m.hodnota * 100, 1)}\u00a0%`];
+  if (HODINY.includes(m.klic)) return [`${cislo(m.hodnota, 1)}\u00a0h`];
+  return [cislo(m.hodnota, m.klic === 'vysledku_za_hodinu' ? 1 : 0)];
+}
+
+function KartaMetriky({ m, hot = false }: { m: Metrika; hot?: boolean }) {
+  const [hlavni, ...dalsi] = hodnotyMetriky(m);
+  return (
+    <div
+      className={`card stat-card stat-${m.klic}${hot ? ' hot' : ''}${m.kvalita === 'dostupne' ? '' : ' castecne'}`}
+      title={m.duvod ?? undefined}
+    >
+      <div className="stat-value">{hlavni}</div>
+      {dalsi.map((x) => (
+        <div key={x} className="stat-dalsi-mena">
+          + {x}
+        </div>
+      ))}
+      <div className="stat-label">{m.nazev}</div>
+      {m.kvalita !== 'dostupne' && <div className="stat-kvalita">{m.kvalita === 'nedostupne' ? 'nedostupné' : 'částečně'}</div>}
+    </div>
+  );
+}
+
+/**
+ * STATISTIKY VÍC LIDÍ DOHROMADY (Přehled vedení úkol 10, Albert 17. 11. 2026, D7: „compare or combine any two callers“):
+ * řádek „Celkem“ z prehled_lide (kontrakt §5.5) pro vybrané lidi; čísla, názvy a důvody posílá server, appka nic nepočítá.
+ * Počty a peníze jsou součty, podíly ze sečteného čitatele a jmenovatele, CZK a EUR nikdy dohromady. Odkaz „Porovnat
+ * v Přehledu“ otevře lidi vedle sebe (#/prehled/lide?lide=…, stránka úkolu 13).
+ */
+function KombinovaneStatistiky({ data, kdo, den, odkaz }: { data: PrehledObalka<DataLide>; kdo: string; den: string | null; odkaz: string }) {
+  const m = data.data.soucet.metriky;
+  const lidi = data.data.radky.filter((r) => r.druh === 'osoba').length;
+  const varovani = data.meta.varovani.filter((v) => v.kod !== 'MENY_ODDELENE' && v.kod !== 'CASOVAC_OD');
+  return (
+    <section className="stats-kombinace" aria-label={`Statistiky dohromady: ${kdo}`}>
+      <p className="muted stats-kombinace-popis" style={{ margin: '10px 0 0' }}>
+        <strong>{kdo}</strong> dohromady ({lidi === 1 ? '1 člověk' : lidi >= 2 && lidi <= 4 ? `${lidi} lidé` : `${lidi} lidí`}) ·{' '}
+        {den === null ? 'celkem' : <><strong>{formatDenSRokem(den)}</strong> (den v Praze)</>} · čísla jsou součet vybraných lidí.{' '}
+        <Link to={odkaz} className="stats-porovnat">
+          Porovnat v Přehledu <ArrowRightIcon size={15} />
+        </Link>
+      </p>
+      <p className="muted" style={{ margin: '4px 0 0' }}>
+        dovoláno = hovory s jiným výsledkem než nedovoláno (i nerelevantní a přeplánované) · konverze = zájem / (zájem +
+        odmítnuto) · prodeje = klient web schválil (a dál), u toho, kdo zapsal poslední zájem
+      </p>
+      {KARTY_KOMBINACE.map((rada, i) => (
+        // peníze jako výdělek jednoho člověka (vydelek-grid): širší karty, ať se částka vejde i na telefonu
+        <div key={i} className={`stat-grid${rada.includes('hodnota_prodeju') ? ' stat-grid-penize' : ''}`} style={i > 0 ? { marginTop: 16 } : undefined}>
+          {rada.map((k) => (
+            <KartaMetriky key={k} m={m[k]} hot={k === 'zajem'} />
+          ))}
+        </div>
+      ))}
+      {/* varování serveru k tomu, co karty ukazují; ne „měny zvlášť“ (obě měny si stránka žádá sama a ukazuje je odděleně)
+          a ne časovač práce (odpracované hodiny tu nejsou, jsou v Přehledu) */}
+      {varovani.length > 0 && (
+        <ul className="stats-varovani">
+          {varovani.map((v) => (
+            <li key={v.kod}>{v.text}</li>
+          ))}
+        </ul>
+      )}
+    </section>
   );
 }
 

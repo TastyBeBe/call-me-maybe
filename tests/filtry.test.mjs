@@ -249,8 +249,9 @@ await blok('F', async () => {
     `${JSON.stringify(ids(vol))} / ${JSON.stringify(ids(sup))}`);
   const volText = await api.myKontakty(petra, 2000, 0, null, null, { search: 'zase nebrali' });
   over('F5', ids(volText).includes(2), 'Volající text poznámky (bez jména kolegy) najde');
-  await chyba('F6', () => api.myKontakty(petra, 200, 0, 3, null, { status: 'zajem' }), /^Klienty jiného člověka vidí jen super admin\.$/,
-    'Volající s filtrem klienty kolegy nedostane');
+  // ⚠ Přehled vedení úkol 10 (18. 11. 2026): věta serveru („… vidí jen jeho super admin.“), NAHRAZUJE mockovou „… jen super admin.“
+  await chyba('F6', () => api.myKontakty(petra, 200, 0, 3, null, { status: 'zajem' }), /^Klienty jiného člověka vidí jen jeho super admin\.$/,
+    'Volající s filtrem klienty kolegy nedostane (věta serveru)');
   // osobní IČO jen tomu, kdo kontakt smí upravit (028): Mikuláš klienty Petry (pod Albertem) upravit nesmí
   const icoM = await api.myKontakty(mikulas, 2000, 0, 2, null, { search: '11111111' });
   const icoA = await api.myKontakty(albert, 2000, 0, 2, null, { search: '11111111' });
@@ -352,7 +353,10 @@ await blok('U', async () => {
   // zpoždění useZpozdeneHledani (300 ms jako dřív) v src/components/FiltrPanel.tsx; podrobně tests/filtrpanel.test.mjs
   over('U3', /const isSuper = isSuperAdmin\(session\.role\);/.test(moji) && /<FiltrPanel\s[\s\S]{0,1600}className="moji-filtry"/.test(moji)
     && /\.\.\.filtryNaServer\(stav\),\s*search: hledani \|\| null,/.test(moji) && !/isSuper\s*\?\s*\{\s*status:/.test(moji)
-    && /getApi\(\)\.myKontakty\(session\.token, MOJI_LIMIT, 0, kdo, segment \|\| null, filtry\)/.test(moji),
+    // ⚠ Přehled vedení úkol 10 (17. 11. 2026): dotaz jde přes výběr lidí (klienti(MOJI_LIMIT, filtry) → my_kontakty s user_ids),
+    // NAHRAZUJE getApi().myKontakty(…, kdo, segment || null, filtry) s jedním člověkem
+    && /const r = await klienti\(MOJI_LIMIT, filtry\);/.test(moji)
+    && /getApi\(\)\.myKontakty\(session\.token, limit, 0, null, segment \|\| null, \{ \.\.\.f, user_ids: vybraniLide \}\)/.test(moji),
     'Moji klienti: filtry a řazení každý (sdílený panel filtrů), serveru jen zapnuté');
   over('U4', !/if \(!isSuper\) return;\s*const t = setTimeout/.test(moji) && /const hledani = useZpozdeneHledani\(search\);/.test(moji)
     && !/setTimeout\(/.test(moji) && !/placeholder="Hledat jméno, studio, město, telefon, web, e-mail, poznámku…"/.test(moji),
@@ -1002,7 +1006,8 @@ await blok('O', async () => {
   // {jaSuper && r.ozn_kategorie && (…)}; NAHRAZUJE kotvu {jaSuper && (<button …> uvnitř {r.ozn_kategorie && …} z 060
   over('O16c', /getApi\(\)\.listOznacene\(session\.token, filtry\)/.test(ozn) && /if \(errMsg\(e\) !== BEZ_060_OZNACENE\) throw e;\s*\/\/[^\n]*\n\s*r = await getApi\(\)\.listFlagged\(/.test(ozn)
     && /<DovolaniTlacitko kontakt=\{r\} onDovolano=\{onDovolano\} \/>/.test(ozn) && /<ZrusitOznaceniOkno/.test(ozn) && /\{jaSuper && r\.ozn_kategorie && \(\s*<button/.test(ozn) && /lhutaText\(r\.ozn_lhuta_do\)/.test(ozn)
-    && !/E-mail mu půjde/.test(ozn) && /bezVolajiciho="Bez volajícího"/.test(ozn) && /kategorie=\{false\}/.test(ozn),
+    // ⚠ Přehled vedení úkol 10 (17. 11. 2026): „Bez volajícího“ je předvolba výběru lidí (allowBezVolajiciho), NAHRAZUJE PersonPicker bezVolajiciho
+    && !/E-mail mu půjde/.test(ozn) && /<LidePicker[\s\S]{0,300}allowBezVolajiciho/.test(ozn) && /kategorie=\{false\}/.test(ozn),
     'Označené: list_oznacene (list_flagged jen proti serveru bez 060), Zavolal/a jsem (DovolaniTlacitko, 062), zrušení jen super admin, lhůta bez slibu e-mailu, bez volajícího');
   // migrace 062 (D11): „Zavolal/a jsem“ v 1. řádku Moji klienti a Kontaktů (na telefonu jen ikona), v detailu bez označení
   // a Hotovo v kalendáři u klienta mimo frontu; menu stavů a plánování v detailu (D19), poznámka pro automatizaci (D15)
@@ -1262,12 +1267,16 @@ await blok('V', async () => {
   const admin = src('src/pages/AdminPage.tsx');
   const moji = src('src/pages/MojiPage.tsx');
   const pocetAdmin = admin.slice(admin.indexOf('ALL_STATUSES.map(async (s)'), admin.indexOf('setStatusCounts(Object.fromEntries(counts))'));
-  over('V2', /\.\.\.bezStavu,/.test(pocetAdmin) && /status: s,/.test(pocetAdmin) && /caller: caller \|\| null,/.test(pocetAdmin)
+  // ⚠ Přehled vedení úkol 10 (17. 11. 2026): volajícího (Volající caller, super admin výběr lidí) přidá seznam() stejně jako
+  // u seznamu, NAHRAZUJE „caller: caller || null“ v každém dotazu
+  const seznamAdmin = admin.slice(admin.indexOf('const seznam = (f: ListKontaktyFilters) => {'), admin.indexOf('const seznam = (f: ListKontaktyFilters) => {') + 900);
+  over('V2', /\.\.\.bezStavu,/.test(pocetAdmin) && /status: s,/.test(pocetAdmin) && /await seznam\(\{/.test(pocetAdmin)
+    && /caller: caller \|\| null/.test(seznamAdmin) && /user_ids: dotaz\.ids/.test(seznamAdmin)
     && /search: debouncedSearch\.trim\(\) \|\| null,/.test(pocetAdmin) && /cekani: cekani \|\| null,/.test(pocetAdmin)
     && /kos: cekani \? kos \|\| null : null,/.test(pocetAdmin) && /segment: segment \|\| null,/.test(pocetAdmin),
     'Kontakty: počet u stavu s volajícím, hledáním, čekáním, košem, segmentem a ostatními filtry');
   const kosAdmin = admin.slice(admin.indexOf('ALL_KOSE.map(async (k)'), admin.indexOf('setKosCounts(Object.fromEntries(counts))'));
-  over('V2b', /\.\.\.naServer,/.test(kosAdmin) && /caller: caller \|\| null,/.test(kosAdmin) && /search: debouncedSearch\.trim\(\) \|\| null,/.test(kosAdmin),
+  over('V2b', /\.\.\.naServer,/.test(kosAdmin) && /await seznam\(\{/.test(kosAdmin) && /search: debouncedSearch\.trim\(\) \|\| null,/.test(kosAdmin),
     'Kontakty: počet v koši se zapnutými filtry, volajícím a hledáním');
   const pocetMoji = moji.slice(moji.indexOf('ALL_STATUSES.map(async (s)'), moji.indexOf('setStatusCounts(Object.fromEntries(pocty))'));
   over('V2c', /\.\.\.bezStavu,/.test(pocetMoji) && /status: s,/.test(pocetMoji) && /search: hledani \|\| null,/.test(pocetMoji)

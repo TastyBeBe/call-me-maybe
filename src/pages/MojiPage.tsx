@@ -41,6 +41,12 @@
 // filtrů; „Zrušit vše“ je zruší, výběr člověka nechá (rozsah stránky jako segment; rozhodnutí koordinátora 18. 11. 2026:
 // „a super admin viewing Petra's clients must stay on Petra's clients“, ⚠ NAHRAZUJE „vrátí i výběr člověka na Já“ z b34677f).
 // Hledání má jedno sdílené zpoždění (useZpozdeneHledani).
+// ⚠ Přehled vedení úkol 10 (Albert 17. 11. 2026, D7: „even with the clients … view their entire team … everyone together …
+// individual people“) NAHRAZUJE výběr jednoho člověka (PersonPicker „Čí klienty zobrazit“): výběr lidí LidePicker (Já, Můj tým,
+// Všichni, tým každého super admina, kdokoli zaškrtnutý), jen super admin. Já = my_kontakty jako dřív (svoji), jinak
+// p_user_ids (migrace 074: klienti kohokoli z vybraných, každý jednou; Všichni = klienti všech lidí jmenovitě, protože
+// my_kontakty bez člověka znamená „svoji“); server bez 074 s jedním vybraným = p_user_id jako dřív, s víc lidmi hláška
+// BEZ_074_LIDE. Volajícímu beze změny.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getApi, type Kontakt, type MojiFiltry } from '../api';
@@ -50,7 +56,8 @@ import DovolaniTlacitko from '../components/DovolaniTlacitko';
 import FiltrPanel, { useZpozdeneHledani } from '../components/FiltrPanel';
 import { HvezdaPrepinac } from '../components/Hvezda';
 import KontaktDrawer from '../components/KontaktDrawer';
-import PersonPicker, { usePeople } from '../components/PersonPicker';
+import LidePicker, { usePeople } from '../components/LidePicker';
+import { VYBER_JA, clovekZ, lideDotaz, sLidmi, shrnutiVyberu, type LideDotaz, type Vyber } from '../lide';
 import { PRAZDNE_FILTRY, filtrZapnuty, filtryBezStavu, filtryNaServer, type StavFiltru } from '../filtry';
 import { isAdminRole, isSuperAdmin } from '../roles';
 import {
@@ -130,7 +137,9 @@ export default function MojiPage() {
   const people = usePeople();
   // Migrace 056: počty u stavů (součty) jen super admin; ⚠ od 060 filtry a řazení každý (NAHRAZUJE „jen super admin“)
   const isSuper = isSuperAdmin(session.role);
-  const [userId, setUserId] = useState<number | null>(session.user_id);
+  // čí klienty (úkol 10): výběr lidí super admina, výchozí Já (svoji)
+  const [lideVyber, setLideVyber] = useState<Vyber>(VYBER_JA);
+  const lide = useMemo(() => people.map(clovekZ), [people]);
   const [rows, setRows] = useState<Kontakt[]>([]);
   // ⚠ Počet se bere z `total` od serveru, ne z `rows.length` (Albert 2026-09-12:
   // „each of them are showing something different").
@@ -154,9 +163,22 @@ export default function MojiPage() {
   // rychlém přepnutí filtru nebo člověka zůstaly v seznamu cizí řádky (revize 28. 9.).
   const posledni = useRef(0);
 
-  const cizi = userId !== null && userId !== session.user_id;
-  const kohoJmeno = cizi ? people.find((p) => p.user_id === userId)?.display_name ?? '' : '';
-  const kdo = cizi ? userId : null;
+  // co jde serveru: Já = jako dřív (bez člověka), Všichni = klienti všech lidí jmenovitě, jinak vybraní (p_user_ids)
+  const dotaz: LideDotaz = useMemo(() => {
+    const d = isSuper ? lideDotaz(lideVyber, lide, session.user_id) : ({ druh: 'ja' } as const);
+    return d.druh === 'vsichni' ? { druh: 'lide', ids: lide.map((c) => c.id).sort((a, b) => a - b) } : d;
+  }, [isSuper, lideVyber, lide, session.user_id]);
+  const dotazKlic = JSON.stringify(dotaz);
+  const vybraniLide = dotaz.druh === 'lide' ? dotaz.ids : null;
+  const cizi = dotaz.druh !== 'ja';
+  const kohoJmeno = cizi ? shrnutiVyberu(lideVyber, lide, session.user_id) : '';
+  /** my_kontakty s výběrem lidí (p_user_ids); server bez 074 s jedním vybraným = jako dřív s p_user_id (sLidmi). */
+  const klienti = (limit: number, f: MojiFiltry) =>
+    sLidmi(
+      dotaz,
+      () => getApi().myKontakty(session.token, limit, 0, null, segment || null, { ...f, user_ids: vybraniLide }),
+      (id) => getApi().myKontakty(session.token, limit, 0, id, segment || null, { ...f, user_ids: null })
+    );
 
   // hledání na serveru, 300 ms po posledním písmenu (jako Kontakty; ⚠ od 060 i pro Volajícího; od úkolu 11 sdílené zpoždění)
   const hledani = useZpozdeneHledani(search);
@@ -180,7 +202,7 @@ export default function MojiPage() {
     setLoading(true);
     setError('');
     try {
-      const r = await getApi().myKontakty(session.token, MOJI_LIMIT, 0, kdo, segment || null, filtry);
+      const r = await klienti(MOJI_LIMIT, filtry);
       if (muj !== posledni.current) return; // mezitím se změnil filtr nebo člověk
       setRows(r.rows);
       setTotal(r.total ?? r.rows.length);
@@ -191,7 +213,8 @@ export default function MojiPage() {
     } finally {
       if (muj === posledni.current) setLoading(false);
     }
-  }, [session.token, kdo, segment, filtry]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session.token, dotazKlic, segment, filtry]);
 
   useEffect(() => {
     void load();
@@ -215,10 +238,9 @@ export default function MojiPage() {
     setStatusCounts({});
     (async () => {
       try {
-        const api = getApi();
         const pocty = await Promise.all(
           ALL_STATUSES.map(async (s) => {
-            const r = await api.myKontakty(session.token, 1, 0, kdo, segment || null, {
+            const r = await klienti(1, {
               ...bezStavu,
               status: s,
               search: hledani || null,
@@ -236,7 +258,8 @@ export default function MojiPage() {
     return () => {
       alive = false;
     };
-  }, [session.token, isSuper, kdo, segment, tick, bezStavu, hledani, cekani, kos]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session.token, isSuper, dotazKlic, segment, tick, bezStavu, hledani, cekani, kos]);
 
   // počty v koších, když je filtr čekání zapnutý (jen super admin)
   useEffect(() => {
@@ -247,11 +270,10 @@ export default function MojiPage() {
     let alive = true;
     (async () => {
       try {
-        const api = getApi();
         // ⚠ 13. 11. 2026: počet v koši se zapnutými filtry (stav, hledání …), NAHRAZUJE jen člověka a segment
         const pocty = await Promise.all(
           ALL_KOSE.map(async (k) => {
-            const r = await api.myKontakty(session.token, 1, 0, kdo, segment || null, {
+            const r = await klienti(1, {
               ...filtryNaServer(stav),
               search: hledani || null,
               cekani,
@@ -269,7 +291,7 @@ export default function MojiPage() {
       alive = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session.token, isSuper, kdo, segment, cekani, tick, bezStavu, stav.statusy, hledani]);
+  }, [session.token, isSuper, dotazKlic, segment, cekani, tick, bezStavu, stav.statusy, hledani]);
 
   // ⚠ od 060 řádky filtruje server každému (NAHRAZUJE klientské hledání Volajícího v načtených řádcích)
   const filtered = rows;
@@ -297,7 +319,7 @@ export default function MojiPage() {
   const soucet = Object.values(statusCounts).reduce((a, b) => a + b, 0);
   // křížek čipu „Klienti: …“ (úkol 11): zpět na vlastní klienty („Zrušit vše“ výběr člověka nechá)
   const zpetNaMe = () => {
-    setUserId(session.user_id);
+    setLideVyber(VYBER_JA);
     setSelected(null);
   };
   const poradiText =
@@ -329,17 +351,21 @@ export default function MojiPage() {
           if (f.segment !== stav.segment) setSelected(null);
           setStav(f);
         }}
-        // řada 1: čí klienty (jen super admin, PersonPicker jako dřív; úkol 10 sem dá výběr lidí)
+        // řada 1: čí klienty, jen super admin (výběr lidí, úkol 10)
         lide={
-          <PersonPicker
-            people={people}
-            value={userId}
-            onChange={(id) => {
-              setUserId(id ?? session.user_id);
-              setSelected(null);
-            }}
-            label="Čí klienty zobrazit"
-          />
+          isSuper ? (
+            <LidePicker
+              value={lideVyber}
+              onChange={(v) => {
+                setLideVyber(v);
+                setSelected(null);
+              }}
+              lide={lide}
+              ja={session.user_id}
+              popisek="Čí klienty zobrazit"
+              vychozi={VYBER_JA}
+            />
+          ) : null
         }
         lideCip={cizi ? { text: `Klienti: ${kohoJmeno || 'vybraný člověk'}`, zrus: zpetNaMe } : null}
         hledat={{ aria: 'Hledat v klientech', placeholder: 'Hledat jméno, studio, telefon, web, e-mail, město, IČO, poznámku…' }}
@@ -369,7 +395,9 @@ export default function MojiPage() {
           <p className="muted">
             {rows.length === 0 && !filtrZapnutyNyni
               ? cizi
-                ? 'Tenhle člověk zatím nikomu nevolal.'
+                ? vybraniLide && vybraniLide.length > 1
+                  ? 'Vybraní lidé zatím nikomu nevolali.'
+                  : 'Tenhle člověk zatím nikomu nevolal.'
                 : 'Jakmile někomu zavoláš, objeví se tady.'
               : 'Zkus změnit filtry nebo hledaný výraz.'}
           </p>

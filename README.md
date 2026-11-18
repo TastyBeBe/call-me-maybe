@@ -26,7 +26,7 @@ npm install
 npm run dev      # dev server ⚠ bez DEMO jede proti ŽIVÉ DB, viz níž
 npm run build    # produkční build do dist/ (tsc -b, zapnuté noUnusedLocals, pak vite build)
 npm run preview  # náhled produkčního buildu
-npm test         # test chování segmentu, e-mailového příznaku, volání, rozvrhu, od 056 filtrů, od úkolu 11 panelu filtrů, od 062 dovolání a od úkolu 12 časovače práce a důvodu odmítnutí nad demo mockem (bez sítě, bez živé DB)
+npm test         # test chování segmentu, e-mailového příznaku, volání, rozvrhu, od 056 filtrů, od úkolu 11 panelu filtrů, od 062 dovolání, od úkolu 12 časovače práce a důvodu odmítnutí a od úkolu 10 výběru lidí nad demo mockem (bez sítě, bez živé DB)
 npm run test:e2e # zkouška stránek v DEMO v headless prohlížeči (viz níž)
 ```
 
@@ -586,8 +586,8 @@ segmentem a výběrem člověka nad ním, výběrem volajícího a čekání upr
 
 - **Panel** `src/components/FiltrPanel.tsx` (řada 2 je `src/components/SeznamFiltry.tsx`, stav `src/filtry.ts`):
   1. řada **osoba · segment · hledání**: osoba je slot `lide` (Kontakty výběr volajícího, Volající „Naposledy volal/a já“
-     jako dřív; Moji klienti a Označené `PersonPicker` jen pro super admina, v Označených i „Bez volajícího“; úkol 10 sem
-     dá výběr lidí), hledání je jedno pole se sdíleným zpožděním 300 ms (`useZpozdeneHledani`, ⚠ NAHRAZUJE vlastní
+     jako dřív; super admin od úkolu 10 výběr lidí `LidePicker` na všech třech, v Označených i „Bez volajícího“, oddíl Výběr
+     lidí níž; ⚠ NAHRAZUJE `PersonPicker` v Moji klienti a Označených a select volajícího super admina v Kontaktech), hledání je jedno pole se sdíleným zpožděním 300 ms (`useZpozdeneHledani`, ⚠ NAHRAZUJE vlastní
      `setTimeout` na každé stránce);
   2. řada **Stav · Známka · Neodpověděl · Mlčí · Čekání · jen s hvězdou · odpověděl, zatím nepotvrdil** a vpravo nahoře
      **Řazení**; pod ní koše čekání (jen se zapnutým čekáním, popisek „Čeká“) a v Označených pilulky „Co je potřeba“
@@ -610,8 +610,8 @@ segmentem a výběrem člověka nad ním, výběrem volajícího a čekání upr
   „Hotovo“, když počet není), fokus se pak vrátí na tlačítko. Bez posunu do strany na 320, 360 i 390 px.
 - **Nepamatuje se** (`docs/ARCHITEKTI.md` 9.6): stav drží stránka, panel nic neukládá do adresy ani do prohlížeče.
 - **Selektory**: `aria-label` a třídy, které testy a lidé znají, zůstaly (`Filtr statusu`, `Filtr známky`, `Filtr
-  označení`, `Jen s hvězdou`, `Odpověděl, zatím nepotvrdil`, `Řazení`, `Filtr volajícího`, `Filtr čekání na odpověď`,
-  `#person-picker`, `input.search-input`, `.segment-filter`, `.moji-filtry`, `.oznacene-druhy`, `.moji-kose`,
+  označení`, `Jen s hvězdou`, `Odpověděl, zatím nepotvrdil`, `Řazení`, `Filtr volajícího` (od úkolu 10 jen Volající),
+  `Filtr čekání na odpověď`, `input.search-input`, `.segment-filter`, `.moji-filtry`, `.oznacene-druhy`, `.moji-kose`,
   `.flag-filter-bar`, `.filter-bar` u řady s řazením). Nové: `.filtr-panel`, `.filtr-rada-1`, `.filtr-rada-2`, `.filtr-cip`,
   `button.filtr-telefon-btn`, `.filtr-sheet`, `.filtr-sheet-hotovo`, `button[aria-label="Filtr mlčení"]`; tlačítko
   „Zrušit vše“ místo „Zrušit filtry“.
@@ -621,6 +621,64 @@ segmentem a výběrem člověka nad ním, výběrem volajícího a čekání upr
   i Volajícího, čipy a Zrušit vše v Kontaktech a Označených, výběr člověka po Zrušit vše v Kontaktech i v Moji klienti
   super admina na klientech Petry FP6, okno na 390, 360 a 320 px, Volající v okně) a bloky, které na telefonu otevírají
   okno filtrů (pomocník `vFiltrech`: U, F056, R057, O060).
+
+## Výběr lidí (Přehled vedení úkol 10, Albert 17. 11. 2026)
+
+Albert 17. 11. 2026 (rozhodnutí D7): „all the super admins can view everyone, but they can also filter out only their team …
+even with the clients … view their entire team … everyone together … individual people … compare or combine any two callers
+… easy to select how many people they want to see“ (spec `../docs/superpowers/specs/2026-11-17-prehled-vedeni-design.md` §7.3,
+kontrakt `../docs/superpowers/specs/2026-11-17-prehled-kontrakt.md` §6 a §5.5). Jeden výběr lidí pro super admina na všech
+stránkách s osobou. ⚠ NAHRAZUJE `PersonPicker` (`#person-picker` v Moji klienti, Označených a Zprávách), select volajícího
+super admina v Kontaktech, `#user-select` ve Statistikách, `#kalendar-kdo` a `#rozvrh-kdo`. **Volající ho nikdy nevidí**
+(seznam lidí dává `all_stats` jen super adminovi a stránky ho kreslí jen pod super adminem) a nic se mu nemění.
+
+- **Komponenta** `src/components/LidePicker.tsx` (logika bez Reactu `src/lide.ts`, seznam lidí `usePeople`): tlačítko
+  `button.lide-picker-btn` s textem výběru („Všichni (5)“, „Všichni aktivní (4)“, „Můj tým (3)“, „Tým Mikuláš (2)“,
+  „Petra + Honza“ v pořadí zaškrtnutí, „Já“, „3 lidé“, „5 lidí“, „Bez volajícího“), jiný než výchozí výběr stránky žlutě.
+  Panel `.lide-picker-panel` (role dialog): předvolby **Já / Můj tým / Všichni / Tým <každý další super admin>**
+  (`button.lide-predvolba`, zapnutá `aria-pressed`; v Označených i **Bez volajícího**), hledání člověka bez ohledu na
+  diakritiku, lidé po týmech (`.lide-skupina`, Můj tým napřed, další podle jména vedoucího, nakonec Bez týmu) se zaškrtnutím
+  (`.lide-radek[data-user-id]`, `input[type=checkbox][value=<id>]`), u týmu **vše** a **nic**, u člověka **jen** (vybere jen
+  jeho) a dole **jen aktivní** (vyřadí neaktivní ze seznamu a z předvoleb). Tým = super admin a všichni s jeho `manager_id`
+  (super admini volají taky); **Všichni** = bez filtru lidí (i neaktivní, jako dřív „Všichni volající“ a „Všechny“), se
+  zapnutým „jen aktivní“ všichni aktivní jmenovitě. Zaškrtnutí lidé, kteří jsou celý tým, se ukážou jako ten tým; všichni
+  zaškrtnutí ručně zůstanou „N lidí“ (Všichni je bez filtru, zaškrtnutí ne). Změna platí hned (jako výběr stavu); prázdný výběr
+  nejde (poslední zaškrtnutý se odškrtnout nedá, „nic“ se pak vypne).
+- **Klávesnice a čtečka**: tlačítko má `aria-haspopup="dialog"` a `aria-expanded`, šipka dolů panel otevře; v panelu šipky
+  nahoru a dolů mezi hledáním a lidmi, Home a End, mezerník (i Enter) zaškrtne, Escape zavře jen panel a vrátí fokus na
+  tlačítko. Na počítači panel visí pod tlačítkem (zavře ho klik nebo fokus mimo, fokus po otevření v hledání), na telefonu
+  (do 640 px) je to okno odspodu přes celou šířku (`.lide-sheet`, `aria-modal`, Tab zůstane v okně, dole „Hotovo“), v okně
+  „Filtry“ panelu filtrů se rozbalí přímo v něm (`.lide-picker-panel.vlozeny`; Escape zavře napřed výběr, pak okno filtrů).
+- **Co jde serveru** (`lideDotaz` a `sLidmi` v `src/lide.ts`): Já = dnešní volání sebe (Kontakty `p_caller` se svým jménem,
+  Moji klienti a Kalendář bez člověka, Označené a Zprávy `p_user_id`), Všichni = dnešní volání bez filtru (Kalendář
+  `p_vsichni`), Bez volajícího = `p_bez_volajiciho`, jinak `p_user_ids` (migrace 074, kontrakt §6): sjednocení dnešního filtru
+  jednoho člověka za každého vybraného, nikdy spolu s `p_caller`, `p_user_id` ani `p_vsichni`. Moji klienti „Všichni“ =
+  klienti všech lidí jmenovitě (`my_kontakty` bez člověka znamená „svoji“). Server bez 074 (PGRST202): s jedním vybraným
+  člověkem stránka zavolá znovu dnešní volání jednoho člověka, s víc lidmi ukáže „Výběr víc lidí server ještě neumí (chybí na
+  něm migrace 074). …“ (`BEZ_074_LIDE`). Stejný výběr jde i do počtů u stavů a košů (Kontakty, Moji klienti).
+- **Statistiky**: jeden vybraný člověk (i tým o jednom člověku) = přesně dosavadní pohled (karty, den, výdělek, tabulka 069);
+  víc lidí (tým, Všichni, kdokoli zaškrtnutý) = **kombinované karty** ze součtu `prehled_lide` (řádek „Celkem“, migrace 073,
+  názvy a čísla ze serveru: hovory, dovoláno, hovory se zájmem, konverze, prodeje, odmítnuto, nerelevantní, přeplánováno,
+  různí klienti, návrhy, hodnota prodejů a provize po měnách; částečná čísla s poznámkou) za Celkem (posledních 730 dní, víc
+  server nevezme) nebo za vybraný den, pod nimi tabulka 069 a klienti podle stavu jako dřív, a odkaz **„Porovnat v Přehledu“**
+  (`#/prehled/lide?lide=<id>`, stránka přijde v úkolu 13). Server bez 073: „Součty víc lidí server ještě neumí (chybí na něm
+  migrace 073). …“ (`BEZ_073_LIDE`).
+- **Rozvrh**: výběr zúží přehled plnění na vybrané lidi; úprava rozvrhu je dál pro jednoho člověka (koho výběr ukazuje, když
+  je to jeden člověk, nebo na koho super admin v přehledu klikne). **Kalendář**, **Zprávy**, **Kontakty**, **Moji klienti**,
+  **Označené**: výběr místo dosavadního jednoho člověka; čip výběru („Volající: …“, „Klienti: …“) vrátí výchozí výběr stránky
+  (Všichni, v Moji klienti Já), „Zrušit vše“ ho nechá jako dřív.
+- **Mock** (`src/api/mock.ts`): `p_user_ids` na všech pěti seznamech jako kontrakt §6 (bez null a duplicit, [] jako dnes,
+  Volající jen se svým id, jinak dnešní větou serveru pro cizího člověka, neznámé id super admina nic nenajde, výběr zadaný
+  dvakrát „Filtr lidí je zadaný dvakrát (jeden člověk i výběr lidí); pošlete jen jeden z nich.“) a `prehledLide` (§5.5: jen
+  super admin, filtr jako server, řádek za každého vybraného a součet, odpracovaný čas podle §5.14). ⚠ Mock píše u výběru
+  cizího člověka v Moji klienti, Označených a Zprávách větu serveru „… vidí jen jeho super admin.“ (NAHRAZUJE „… vidí jen
+  super admin.“).
+- **Testy**: `npm test` soubor `tests/lide.test.mjs` (předvolby, texty, co jde serveru a návrat proti serveru bez 074, mock
+  jako kontrakt, `supabase.ts`, komponenta vykreslená na serveru, zapojení sedmi stránek) a upravené `segment.test.mjs` S4c
+  a S7c, `filtry.test.mjs` F6, U3, O16c, V2 a V2b, `filtrpanel.test.mjs` FP13d; `npm run test:e2e` blok LP (klávesnice,
+  dva lidé a tým v Kontaktech, Statistiky víc lidí, Volající bez výběru, telefon 390 a 320 px, okno filtrů, Rozvrh, Zprávy,
+  Označené Bez volajícího; `E2E_SNIMKY=/složka` uloží snímky) a bloky, které dřív vybíraly člověka v rozbalovacím seznamu
+  (pomocníci `jenClovek`, `predvolba`, `lideText`, `vLidech`: L4, S, K, E, A, D056, F056, R057, O060, O062i, FP).
 
 ## Časovač práce a důvod odmítnutí návrhu (Přehled vedení úkol 12, Albert 17. 11. 2026)
 
@@ -857,13 +915,13 @@ který schvaluje Albert (u zprávy je vidět jeho stav).
 | `#/login`     | všichni | přihlášení                                                       |
 | `#/`          | všichni | domů — dlaždice podle role                                       |
 | `#/call`      | všichni | fronta hovorů: přepínač chaty / architekti (028), karta kontaktu + výsledky (nedovoláno/odmítnuto/zájem, od 050 i nerelevantní a přeplánovat; `?zavolat=<id>` = karta z kalendáře); kontakt, kterému Volající ještě nevolal, bez stavu, poznámek a příznaku (045, 20. 10. 2026). Poznámka k hovoru je **nepovinná** — zájem jde uložit i bez ní (Albert 2026-09-23; dřív se při prázdné poznámce otevíralo potvrzovací okno navíc); od migrace 051 (Albert 22. 10. 2026) i bez ceny webu a hostingu, povinná je jen známka (⚠ NAHRAZUJE povinné ceny z 1. 9. 2026); od migrace 060 (Albert 1. 11. 2026) u zájmu „Velký zájem (hvězda)“ a u svého klienta přehled klienta (`kontakt_prehled`); od 17. 11. 2026 (úkol 12) karta na obrazovce pro neviditelný časovač práce a u klienta s návrhem Odmítnuto s povinným „Proč návrh odmítl“ |
-| `#/kalendar`  | všichni | kalendář hovorů (050): svůj každý, super admin kohokoli nebo všech; Po termínu, Dnes, Nadcházející, Hotové a zrušené; Zavolat teď, Hotovo, Přesunout, Zrušit; ⚠ od migrace 062 (Albert 2. 11. 2026) Hotovo u klienta mimo frontu, kterému jde zapsat dovolání, otevře okno „Zavolal/a jsem“ (NAHRAZUJE „Hotovo jen s textem“ u takového klienta); ⚠ od 3. 11. 2026 (ověření 062) si napřed přečte označení z přehledu klienta (`kontakt_prehled`), takže označený klient dostane okno s označením a kampaňová chata s označením okno „Zavolal/a jsem“, ne „Hovor je hotový?“ |
-| `#/stats`     | všichni | moje statistiky; super admin (i Albert) přes dropdown kohokoli (027) a trychtýř „Klienti podle stavu" (součty celé databáze) s filtrem segmentu (028); ⚠ trychtýř od 19. 10. 2026 a dlaždice „jako #1 prodejce“ od 20. 10. 2026 jen super admin (migrace 045, NAHRAZUJE „(admin)“): Volající vidí jen svoje čísla; od migrace 056 (Albert 27. 10. 2026) super admin i statistiky za jeden den (Celkem / Jeden den, den v Praze); od migrace 069 (Albert 15. 11. 2026) super admin v pohledu Celkem i tabulku „Zájem podle volajících“ (chce web, odpověděl, zájem celkem, čeká na odpověď po volajících, bez volajícího a celkem, s filtrem segmentu) |
-| `#/moji`      | všichni | moji klienti (+ historie poznámek v detailu); super admin může vybrat kohokoli (027); filtr segmentu (028); od migrace 056 (Albert 27. 10. 2026) super admin stejné filtry jako Kontakty a řazení podle poslední změny, Volající beze změny; od migrace 057 sloupec posledního hovoru (Volajícímu „Můj poslední hovor“) a super admin řadí i podle něj; ⚠ od migrace 060 (Albert 1. 11. 2026) filtry, hledání na serveru a řazení i Volající nad svými klienty (NAHRAZUJE „Volající beze změny“), sloupec Mlčí, hvězda, „Zavolal/a jsem“ v přehledu detailu; ⚠ od migrace 061 (Albert 2. 11. 2026) řádky o dvou řádcích bez posunu do strany (NAHRAZUJE tabulku posouvanou v rámečku); ⚠ od migrace 062 (Albert 2. 11. 2026) „Zavolal/a jsem“ v 1. řádku i u klienta bez označení (NAHRAZUJE „jen v přehledu detailu u označení“), v detailu i bez označení, menu stavů jen se stavy, které člověk smí nastavit; ⚠ od 17. 11. 2026 (úkol 11) panel filtrů ve třech řadách s čipy a „Zrušit vše“, na telefonu okno „Filtry (n)“ |
-| `#/rozvrh`    | všichni | Rozvrh (042): týden po až ne, hodiny na den a cíl (hovorů za hodinu posílá server), plnění z hovorů, hláška pozadu / v plánu / napřed, poznámky ke dnům; Volající si ho nastaví jednou, super admin vidí přehled všech, mění a odemyká |
-| `#/admin`     | všichni | Kontakty: celá databáze s filtry (i segment, 028) a fulltextem (i studio, město, IČO; IČO jen admin a super admin, 038); upravovat smí admin a super admin; počty u stavů a košů a celkový počet jen super admin (045, Volající stránkuje bez počtu); Volající stav, známku, kdo volal, čekání a poznámky jen u svých klientů, filtr stavu a hledání v poznámce jen nad nimi (045, 20. 10. 2026); od migrace 056 řazení podle poslední změny (Volajícímu jen mezi jeho klienty, cizí za nimi podle čísla); od migrace 057 Změněno i se změnami od automatizace, sloupec a řazení podle posledního hovoru (Volajícímu jen jeho hovory); od migrace 060 (Albert 1. 11. 2026) spojitelné filtry (víc stavů a známek, hvězda, označení, mlčení v pracovních dnech), sloupec Mlčí a hvězda u svých klientů (Volajícímu jen nad jeho klienty); ⚠ od migrace 061 (Albert 2. 11. 2026) řádky o dvou řádcích bez posunu do strany (NAHRAZUJE tabulku posouvanou v rámečku) a Volající nevidí příznak „Údaje z internetu“; ⚠ od migrace 062 (Albert 2. 11. 2026: „you can even add [it] to the contacts section“) „Zavolal/a jsem“ v 1. řádku u vlastních klientů, kterým ho přihlášený smí zapsat; ⚠ od 17. 11. 2026 (úkol 11) panel filtrů ve třech řadách s čipy a „Zrušit vše“, na telefonu okno „Filtry (n)“ |
-| `#/oznacene`  | admin   | označení klienti — admin svoji; super admin a Albert všichni (027); filtr segmentu (028); ⚠ od migrace 060 (Albert 1. 11. 2026) „Označené k zavolání“ (`list_oznacene`): klienti, kteří víc než 5 pracovních dní mlčí (Neodpověděl na návrh, na změny), Volajícímu jen jeho, a klienti s příznakem; okno „Zavolal/a jsem“ (`zapis_hovor`, nikdy call_log), „Lhůta na zavolání do …“, stejné filtry jako Kontakty, super admin sloupec Volající, „bez volajícího“ a „Zrušit označení“ (NAHRAZUJE „jen příznaky přes list_flagged“); ⚠ od migrace 061 (Albert 2. 11. 2026) řádky o dvou řádcích bez posunu do strany s akcemi přímo v řádku („Zavolal/a jsem“, „Vyřešeno“ u příznaku, super admin „Zrušit označení“), okno s pěti výsledky (i „Nic z toho výše“) a poznámkou pro automatizaci u každého, příznak „Údaje z internetu“ jen super admin; od auditu soudržnosti (2. 11. 2026) u označeného klienta s příznakem „Chybí e-mail“ hned za skupinou „e-mail se vrátil“; ⚠ od migrace 062 (Albert 2. 11. 2026) okno se šesti výsledky (i „Chce web“, NAHRAZUJE „s pěti výsledky“) a „Zavolal/a jsem“ i u řádku jen s příznakem, když ho přihlášený smí zapsat; od migrace 063 pod lhůtou „Připomínka odeslána <den>“, když po lhůtě odešla připomínka e-mailem; ⚠ od 17. 11. 2026 (úkol 11) panel filtrů ve třech řadách (pilulky „Co je potřeba“ pod řadou filtrů) s čipy a „Zrušit vše“, na telefonu okno „Filtry (n)“ |
-| `#/zpravy`    | admin   | vlákna s AI agenty — admin svoje; super admin vlákna všech lidí (cizí jen ke čtení, 027); Albert i automatizaci; odznak architekta u hledaného kontaktu (028) |
+| `#/kalendar`  | všichni | kalendář hovorů (050): svůj každý, super admin kohokoli nebo všech (⚠ od 17. 11. 2026, úkol 10, výběrem lidí: Já, tým, kdokoli, Všichni); Po termínu, Dnes, Nadcházející, Hotové a zrušené; Zavolat teď, Hotovo, Přesunout, Zrušit; ⚠ od migrace 062 (Albert 2. 11. 2026) Hotovo u klienta mimo frontu, kterému jde zapsat dovolání, otevře okno „Zavolal/a jsem“ (NAHRAZUJE „Hotovo jen s textem“ u takového klienta); ⚠ od 3. 11. 2026 (ověření 062) si napřed přečte označení z přehledu klienta (`kontakt_prehled`), takže označený klient dostane okno s označením a kampaňová chata s označením okno „Zavolal/a jsem“, ne „Hovor je hotový?“ |
+| `#/stats`     | všichni | moje statistiky; super admin (i Albert) přes výběr lidí kohokoli (027; ⚠ od 17. 11. 2026, úkol 10, výběr lidí místo dropdownu, víc lidí = kombinované karty z `prehled_lide` a odkaz „Porovnat v Přehledu“) a trychtýř „Klienti podle stavu" (součty celé databáze) s filtrem segmentu (028); ⚠ trychtýř od 19. 10. 2026 a dlaždice „jako #1 prodejce“ od 20. 10. 2026 jen super admin (migrace 045, NAHRAZUJE „(admin)“): Volající vidí jen svoje čísla; od migrace 056 (Albert 27. 10. 2026) super admin i statistiky za jeden den (Celkem / Jeden den, den v Praze); od migrace 069 (Albert 15. 11. 2026) super admin v pohledu Celkem i tabulku „Zájem podle volajících“ (chce web, odpověděl, zájem celkem, čeká na odpověď po volajících, bez volajícího a celkem, s filtrem segmentu) |
+| `#/moji`      | všichni | moji klienti (+ historie poznámek v detailu); super admin může vybrat kohokoli (027); filtr segmentu (028); od migrace 056 (Albert 27. 10. 2026) super admin stejné filtry jako Kontakty a řazení podle poslední změny, Volající beze změny; od migrace 057 sloupec posledního hovoru (Volajícímu „Můj poslední hovor“) a super admin řadí i podle něj; ⚠ od migrace 060 (Albert 1. 11. 2026) filtry, hledání na serveru a řazení i Volající nad svými klienty (NAHRAZUJE „Volající beze změny“), sloupec Mlčí, hvězda, „Zavolal/a jsem“ v přehledu detailu; ⚠ od migrace 061 (Albert 2. 11. 2026) řádky o dvou řádcích bez posunu do strany (NAHRAZUJE tabulku posouvanou v rámečku); ⚠ od migrace 062 (Albert 2. 11. 2026) „Zavolal/a jsem“ v 1. řádku i u klienta bez označení (NAHRAZUJE „jen v přehledu detailu u označení“), v detailu i bez označení, menu stavů jen se stavy, které člověk smí nastavit; ⚠ od 17. 11. 2026 (úkol 11) panel filtrů ve třech řadách s čipy a „Zrušit vše“, na telefonu okno „Filtry (n)“; od úkolu 10 (17. 11. 2026) super admin výběr lidí (Já, tým, kdokoli, Všichni) |
+| `#/rozvrh`    | všichni | Rozvrh (042): týden po až ne, hodiny na den a cíl (hovorů za hodinu posílá server), plnění z hovorů, hláška pozadu / v plánu / napřed, poznámky ke dnům; Volající si ho nastaví jednou, super admin vidí přehled všech, mění a odemyká; od 17. 11. 2026 (úkol 10) super admin zúží přehled výběrem lidí, úprava je dál pro jednoho člověka |
+| `#/admin`     | všichni | Kontakty: celá databáze s filtry (i segment, 028) a fulltextem (i studio, město, IČO; IČO jen admin a super admin, 038); upravovat smí admin a super admin; počty u stavů a košů a celkový počet jen super admin (045, Volající stránkuje bez počtu); Volající stav, známku, kdo volal, čekání a poznámky jen u svých klientů, filtr stavu a hledání v poznámce jen nad nimi (045, 20. 10. 2026); od migrace 056 řazení podle poslední změny (Volajícímu jen mezi jeho klienty, cizí za nimi podle čísla); od migrace 057 Změněno i se změnami od automatizace, sloupec a řazení podle posledního hovoru (Volajícímu jen jeho hovory); od migrace 060 (Albert 1. 11. 2026) spojitelné filtry (víc stavů a známek, hvězda, označení, mlčení v pracovních dnech), sloupec Mlčí a hvězda u svých klientů (Volajícímu jen nad jeho klienty); ⚠ od migrace 061 (Albert 2. 11. 2026) řádky o dvou řádcích bez posunu do strany (NAHRAZUJE tabulku posouvanou v rámečku) a Volající nevidí příznak „Údaje z internetu“; ⚠ od migrace 062 (Albert 2. 11. 2026: „you can even add [it] to the contacts section“) „Zavolal/a jsem“ v 1. řádku u vlastních klientů, kterým ho přihlášený smí zapsat; ⚠ od 17. 11. 2026 (úkol 11) panel filtrů ve třech řadách s čipy a „Zrušit vše“, na telefonu okno „Filtry (n)“; od úkolu 10 (17. 11. 2026) super admin výběr lidí (Já, tým, kdokoli, Všichni) |
+| `#/oznacene`  | admin   | označení klienti — admin svoji; super admin a Albert všichni (027); filtr segmentu (028); ⚠ od migrace 060 (Albert 1. 11. 2026) „Označené k zavolání“ (`list_oznacene`): klienti, kteří víc než 5 pracovních dní mlčí (Neodpověděl na návrh, na změny), Volajícímu jen jeho, a klienti s příznakem; okno „Zavolal/a jsem“ (`zapis_hovor`, nikdy call_log), „Lhůta na zavolání do …“, stejné filtry jako Kontakty, super admin sloupec Volající, „bez volajícího“ a „Zrušit označení“ (NAHRAZUJE „jen příznaky přes list_flagged“); ⚠ od migrace 061 (Albert 2. 11. 2026) řádky o dvou řádcích bez posunu do strany s akcemi přímo v řádku („Zavolal/a jsem“, „Vyřešeno“ u příznaku, super admin „Zrušit označení“), okno s pěti výsledky (i „Nic z toho výše“) a poznámkou pro automatizaci u každého, příznak „Údaje z internetu“ jen super admin; od auditu soudržnosti (2. 11. 2026) u označeného klienta s příznakem „Chybí e-mail“ hned za skupinou „e-mail se vrátil“; ⚠ od migrace 062 (Albert 2. 11. 2026) okno se šesti výsledky (i „Chce web“, NAHRAZUJE „s pěti výsledky“) a „Zavolal/a jsem“ i u řádku jen s příznakem, když ho přihlášený smí zapsat; od migrace 063 pod lhůtou „Připomínka odeslána <den>“, když po lhůtě odešla připomínka e-mailem; ⚠ od 17. 11. 2026 (úkol 11) panel filtrů ve třech řadách (pilulky „Co je potřeba“ pod řadou filtrů) s čipy a „Zrušit vše“, na telefonu okno „Filtry (n)“; od úkolu 10 (17. 11. 2026) super admin výběr lidí (Já, tým, kdokoli, Všichni) |
+| `#/zpravy`    | admin   | vlákna s AI agenty — admin svoje; super admin vlákna všech lidí (cizí jen ke čtení, 027); Albert i automatizaci; odznak architekta u hledaného kontaktu (028); od 17. 11. 2026 (úkol 10) super admin vlákna vybraných lidí (výběr lidí) |
 | `#/uzivatele` | super admin | super admin: všichni lidé, upravuje sebe a své lidi + nový Volající (027, 042); Albert: role (Volající / Super admin, 042) a nadřízení (⚠ od migrace 024 Volající stránku nemá) |
 | `#/automatizace` | Albert | vypínač automatizace a přepínač účtu Claude                    |
 | `#/setup`     | všichni | nastavení Supabase URL + anon klíče                              |

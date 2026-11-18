@@ -193,7 +193,8 @@ export default function FiltrPanel({
     document.body.style.overflow = 'hidden';
     okno.current?.querySelector<HTMLElement>('.filtr-sheet-zavrit')?.focus();
     const klavesa = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape' || okno.current?.querySelector('.vyber-vice-panel')) return;
+      // otevřený výběr (stav, známka, mlčí; od úkolu 10 i výběr lidí) zavře Escape napřed sám sebe
+      if (e.key !== 'Escape' || okno.current?.querySelector('.vyber-vice-panel, .lide-picker-panel')) return;
       setOtevreno(false);
     };
     document.addEventListener('keydown', klavesa);

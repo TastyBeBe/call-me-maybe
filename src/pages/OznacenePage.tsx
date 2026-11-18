@@ -44,6 +44,11 @@
 // druhy jsou ve stavu filtrů (stav.druhy), takže „Zrušit vše“ je zruší; výběr člověka nechá (rozsah stránky jako segment,
 // rozhodnutí koordinátora 18. 11. 2026). Hledání má jedno sdílené zpoždění (useZpozdeneHledani). Druhy se dál vybírají tady
 // nad načtenými řádky, parametry serveru beze změny.
+// ⚠ Přehled vedení úkol 10 (Albert 17. 11. 2026, D7) NAHRAZUJE výběr jednoho člověka (PersonPicker „Všechny / Bez volajícího /
+// Já / kdokoli“): výběr lidí LidePicker s předvolbou „Bez volajícího“, jen super admin. Všichni = jako dřív „Všechny“, Já =
+// p_user_id přihlášeného jako dřív, Bez volajícího = p_bez_volajiciho jako dřív, jinak p_user_ids (migrace 074: označení
+// a příznaky kohokoli z vybraných, každý kontakt jednou); server bez 074 s jedním vybraným = p_user_id, s víc lidmi hláška
+// BEZ_074_LIDE. Volajícímu beze změny.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getApi, type Kontakt, type OznaceneFiltry } from '../api';
@@ -55,7 +60,8 @@ import DovolaniTlacitko from '../components/DovolaniTlacitko';
 import FiltrPanel, { useZpozdeneHledani } from '../components/FiltrPanel';
 import { HvezdaPrepinac } from '../components/Hvezda';
 import KontaktDrawer from '../components/KontaktDrawer';
-import PersonPicker, { usePeople } from '../components/PersonPicker';
+import LidePicker, { usePeople } from '../components/LidePicker';
+import { VYBER_VSICHNI, clovekZ, lideDotaz, sLidmi, shrnutiVyberu, stejnyVyber, type Vyber } from '../lide';
 import { PRAZDNE_FILTRY, filtrZapnuty, filtryOznacenych, type StavFiltru } from '../filtry';
 import { isSuperAdmin } from '../roles';
 import { jeObor, segmentOf } from '../segment';
@@ -111,8 +117,14 @@ export default function OznacenePage() {
   const session = useSession();
   const people = usePeople();
   const jaSuper = isSuperAdmin(session.role);
-  // čí klienty: null = všichni (super admin) nebo svoji (Volající), číslo = jeden člověk, 'bez' = bez volajícího
-  const [kdo, setKdo] = useState<number | 'bez' | null>(null);
+  // čí klienty (úkol 10): výběr lidí super admina, výchozí Všichni (Volající bez výběru: svoji, hlídá server)
+  const [lideVyber, setLideVyber] = useState<Vyber>(VYBER_VSICHNI);
+  const lide = useMemo(() => people.map(clovekZ), [people]);
+  const dotaz = useMemo(
+    () => (jaSuper ? lideDotaz(lideVyber, lide, session.user_id) : ({ druh: 'vsichni' } as const)),
+    [jaSuper, lideVyber, lide, session.user_id]
+  );
+  const dotazKlic = JSON.stringify(dotaz);
   const [stav, setStav] = useState<StavFiltru>(PRAZDNE_FILTRY);
   // pilulky „Co je potřeba“ ve stavu filtrů (úkol 11: „Zrušit vše“ je zruší)
   const druhy = stav.druhy;
@@ -141,11 +153,19 @@ export default function OznacenePage() {
       segment: stav.segment || null,
       razeni: stav.razeni || null,
       hledat: hledani || null,
-      ...(kdo === 'bez' ? { bez_volajiciho: true } : typeof kdo === 'number' ? { user_id: kdo } : {}),
+      ...(dotaz.druh === 'bez'
+        ? { bez_volajiciho: true }
+        : dotaz.druh === 'ja'
+          ? { user_id: session.user_id }
+          : dotaz.druh === 'lide'
+            ? { user_ids: dotaz.ids }
+            : {}),
     }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [stav.statusy, stav.znamky, stav.jenHvezda, stav.jenOdpovedel, stav.mlciMin, stav.mlciMax, stav.segment, stav.razeni, hledani, kdo]
+    [stav.statusy, stav.znamky, stav.jenHvezda, stav.jenOdpovedel, stav.mlciMin, stav.mlciMax, stav.segment, stav.razeni, hledani, dotazKlic]
   );
+  // jeden člověk výběru (dnešní p_user_id pro server bez 074 a příznaky přes list_flagged na serveru bez 060)
+  const jedenClovek = dotaz.druh === 'ja' ? session.user_id : dotaz.druh === 'lide' && dotaz.ids.length === 1 ? dotaz.ids[0] : null;
 
   const load = useCallback(async () => {
     const muj = ++posledni.current;
@@ -154,13 +174,18 @@ export default function OznacenePage() {
     try {
       let r: Kontakt[];
       try {
-        r = await getApi().listOznacene(session.token, filtry);
+        // migrace 074: výběr lidí; server bez 074 s jedním vybraným = jako dřív s p_user_id
+        r = await sLidmi(
+          dotaz,
+          () => getApi().listOznacene(session.token, filtry),
+          (id) => getApi().listOznacene(session.token, { ...filtry, user_ids: null, user_id: id })
+        );
         if (muj !== posledni.current) return;
         setStary(false);
       } catch (e) {
         if (errMsg(e) !== BEZ_060_OZNACENE) throw e;
         // server bez 060: příznaky jako dřív (segment se vybere tady), nové filtry nejdou
-        r = await getApi().listFlagged(session.token, null, typeof kdo === 'number' ? kdo : null);
+        r = await getApi().listFlagged(session.token, null, jedenClovek);
         if (muj !== posledni.current) return;
         if (filtry.segment) r = r.filter((x) => segmentOf(x) === filtry.segment);
         setStary(true);
@@ -174,7 +199,8 @@ export default function OznacenePage() {
     } finally {
       if (muj === posledni.current) setLoading(false);
     }
-  }, [session.token, filtry, kdo, jaSuper]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session.token, filtry, dotazKlic, jaSuper]);
 
   useEffect(() => {
     void load();
@@ -245,10 +271,10 @@ export default function OznacenePage() {
     setSelected((s) => (s && s.id === k.id ? k : s));
   };
 
-  const nicNeniVubec = rows.length === 0 && !filtrZapnuty(stav) && !stav.segment && kdo === null;
-  // křížek čipu člověka (úkol 11): zpět na všechny (super admin) nebo svoje (Volající); „Zrušit vše“ výběr nechá
+  const nicNeniVubec = rows.length === 0 && !filtrZapnuty(stav) && !stav.segment && stejnyVyber(lideVyber, VYBER_VSICHNI);
+  // křížek čipu člověka (úkol 11): zpět na všechny (super admin); „Zrušit vše“ výběr nechá
   const vsechnyLidi = () => {
-    setKdo(null);
+    setLideVyber(VYBER_VSICHNI);
     setSelected(null);
   };
 
@@ -274,33 +300,28 @@ export default function OznacenePage() {
           if (f.segment !== stav.segment) setSelected(null);
           setStav(f);
         }}
-        // řada 1: čí klienty (jen super admin, i „Bez volajícího“, PersonPicker jako dřív; úkol 10 sem dá výběr lidí)
+        // řada 1: čí klienty, jen super admin (výběr lidí s „Bez volajícího“, úkol 10)
         lide={
-          <PersonPicker
-            people={people}
-            value={typeof kdo === 'number' ? kdo : null}
-            onChange={(id) => {
-              setKdo(id);
-              setSelected(null);
-            }}
-            label="Čí klienty zobrazit"
-            allOption="Všechny"
-            bezVolajiciho="Bez volajícího"
-            bezVybrano={kdo === 'bez'}
-            onBezVolajiciho={() => {
-              setKdo('bez');
-              setSelected(null);
-            }}
-          />
+          jaSuper ? (
+            <LidePicker
+              value={lideVyber}
+              onChange={(v) => {
+                setLideVyber(v);
+                setSelected(null);
+              }}
+              lide={lide}
+              ja={session.user_id}
+              allowBezVolajiciho
+              popisek="Čí klienty zobrazit"
+              vychozi={VYBER_VSICHNI}
+            />
+          ) : null
         }
         lideCip={
-          kdo === null
+          !jaSuper || stejnyVyber(lideVyber, VYBER_VSICHNI)
             ? null
             : {
-                text:
-                  kdo === 'bez'
-                    ? 'Bez volajícího'
-                    : `Volající: ${kdo === session.user_id ? 'já' : (people.find((p) => p.user_id === kdo)?.display_name ?? 'vybraný člověk')}`,
+                text: lideVyber.bezVolajiciho ? 'Bez volajícího' : `Volající: ${shrnutiVyberu(lideVyber, lide, session.user_id)}`,
                 zrus: vsechnyLidi,
               }
         }

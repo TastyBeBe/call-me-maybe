@@ -417,6 +417,11 @@ export interface MojiFiltry {
   mlci_max?: number | null;
   /** migrace 068 (Albert 13. 11. 2026): jen klient, který nám napsal, neodmítl a web ještě nepotvrdil */
   odpovedel?: boolean | null;
+  /**
+   * Migrace 074 (Přehled vedení, Albert 17. 11. 2026, D7): výběr lidí = klienti kohokoli z nich (p_user_ids). Appka ho posílá
+   * jen místo `userId` (nikdy s ním) a jen když výběr není „jen já“; server bez 074 = BEZ_074_LIDE.
+   */
+  user_ids?: number[] | null;
 }
 
 export interface AdminMessage {
@@ -547,6 +552,11 @@ export interface ListKontaktyFilters {
   mlci_max?: number | null;
   /** migrace 068 (Albert 13. 11. 2026): jen klient, který nám napsal, neodmítl a web ještě nepotvrdil */
   odpovedel?: boolean | null;
+  /**
+   * Migrace 074 (Přehled vedení, Albert 17. 11. 2026, D7): výběr lidí (p_user_ids) = sjednocení dnešního `caller` za každého
+   * z nich. Nikdy spolu s `caller` (server by odmítl); server bez 074 = BEZ_074_LIDE.
+   */
+  user_ids?: number[] | null;
 }
 
 /**
@@ -570,6 +580,8 @@ export interface OznaceneFiltry extends Omit<FiltryMlceni, 'kategorie'> {
   bez_volajiciho?: boolean | null;
   hledat?: string | null;
   razeni?: Razeni | null;
+  /** migrace 074 (D7): označení a příznaky kohokoli z vybraných (p_user_ids); nikdy s `user_id` ani `bez_volajiciho` */
+  user_ids?: number[] | null;
 }
 
 /**
@@ -978,6 +990,114 @@ export type FazeOdmitnuti = 'nahled' | 'sleva';
 /** Kód důvodu, proč klient odmítl návrh (kontrakt §3.2; štítky v DUVODY, src/components/DuvodOdmitnuti.tsx). */
 export type DuvodOdmitnutiKod = 'ma_web' | 'cena' | 'navrh' | 'nepotrebuje' | 'pozdeji' | 'konci' | 'jine' | 'neuvedl';
 
+/* ---- Přehled vedení: obálka, metrika a lidé (migrace 073, kontrakt docs/superpowers/specs/2026-11-17-prehled-kontrakt.md §2.5–§2.7,
+   §5.5 a §7). Jen to, co appka čte; tvary jsou doslova jako v kontraktu. ---- */
+
+/** Kvalita čísla (kontrakt §2.6): dostupne = celé, castecne = část neznámá nebo odhad, nedostupne = chybí zdroj. */
+export type KvalitaMetriky = 'dostupne' | 'castecne' | 'nedostupne';
+export type MenaPrehledu = 'CZK' | 'EUR';
+export type AtribucePrehledu = 'posledni_zajem' | 'prvni_zajem' | 'spravuje';
+
+/** Pokrytí: kolik jednotek má známou hodnotu (podíl na 6 míst, null při celkem 0). */
+export interface PokrytiMetriky {
+  zname: number;
+  celkem: number;
+  nezname: number;
+  podil: number | null;
+}
+
+/** Peníze jedné měny: hodnota je desetinný text na 2 místa („7000.00“); CZK a EUR se nikdy nesčítají. */
+export interface CastkaMeny {
+  mena: MenaPrehledu;
+  hodnota: string | null;
+  pokryti: PokrytiMetriky;
+}
+
+/** Normalizovaný filtr (meta.filtr, proklik.filtr): všechny klíče vždy přítomné. */
+export interface PrehledFiltr {
+  od: string;
+  do: string;
+  lide: number[] | null;
+  atribuce: AtribucePrehledu;
+  segment: string[] | null;
+  obor: string[] | null;
+  kraj: string[] | null;
+  mena: MenaPrehledu | 'obe';
+  zaklad: 'prirozeny' | 'aktivita' | 'prodej' | 'faktura' | 'platba';
+  k_datu: string | null;
+  /** výběr řádků prokliku (jen prehled_radky; tvar Vyber v kontraktu §7); jinde null */
+  vyber: Record<string, unknown> | null;
+}
+
+/** Vstupní filtr p_filtr: každý klíč nepovinný (neznámý klíč nebo špatná hodnota = „Neplatný filtr: <klíč>“). */
+export type PrehledFiltrVstup = Partial<PrehledFiltr>;
+
+export interface PrehledProklik {
+  zdroj: string;
+  filtr: PrehledFiltr;
+}
+
+/** Metrika (kontrakt §2.6): všech 13 klíčů vždy; peníze v `castky` (hodnota null), podíly s čitatelem a jmenovatelem. */
+export interface Metrika {
+  klic: string;
+  verze: number;
+  nazev: string;
+  hodnota: number | null;
+  castky: CastkaMeny[];
+  citatel: number | null;
+  jmenovatel: number | null;
+  n: number | null;
+  pokryti: PokrytiMetriky | null;
+  kvalita: KvalitaMetriky;
+  duvod: string | null;
+  zaklad: string;
+  proklik: PrehledProklik | null;
+}
+
+export interface PrehledMeta {
+  vygenerovano: string;
+  k_datu: string;
+  casove_pasmo: 'Europe/Prague';
+  filtr: PrehledFiltr | null;
+  zdroje: { zdroj: string; od: string | null; aktualni_k: string | null }[];
+  varovani: { kod: string; text: string }[];
+}
+
+/** Obálka odpovědi reportovací funkce (kontrakt §2.5). */
+export interface PrehledObalka<T> {
+  api_verze: '1';
+  definice_verze: string;
+  meta: PrehledMeta;
+  data: T;
+}
+
+/** Klíče metrik řádku lidí (kontrakt MetrikyCloveka, vždy všech 23). */
+export type MetrikaCloveka =
+  | 'hovory' | 'unikatni_klienti' | 'dovolano' | 'mira_dovolani' | 'zajem' | 'odmitnuto' | 'nerelevantni' | 'preplanovano'
+  | 'konverze' | 'navrhy' | 'pocet_prodeju' | 'hodnota_prodeju' | 'provize_narok' | 'provize_vyplaceno' | 'provize_zbyva'
+  | 'odpracovane_hodiny' | 'vysledku_za_hodinu' | 'planovane_hodiny' | 'plneni_planu' | 'sla_prvni_kontakt_median'
+  | 'sla_prvni_kontakt_p90' | 'naplanovane_hotove' | 'naplanovane_po_terminu';
+
+/** Řádek tabulky lidí (prehled_lide): člověk, Nepřiřazeno, nebo součet „Celkem“. */
+export interface RadekLide {
+  druh: 'osoba' | 'neprirazeno' | 'soucet';
+  user_id: number | null;
+  display_name: string;
+  role: Role | null;
+  active: boolean | null;
+  tym_id: number | null;
+  tym_nazev: string | null;
+  sla_cenzurovano: number | null;
+  metriky: Record<MetrikaCloveka, Metrika>;
+}
+
+/** data funkce prehled_lide. */
+export interface DataLide {
+  atribuce: AtribucePrehledu;
+  radky: RadekLide[];
+  soucet: RadekLide;
+}
+
 /** Jednotné API rozhraní — implementuje ho reálný Supabase klient i demo mock. */
 export interface Api {
   login(username: string, password: string): Promise<Session>;
@@ -1087,12 +1207,16 @@ export interface Api {
     applyAlways: boolean
   ): Promise<AdminMessage>;
   /* ---- chat (migrace 002) ---- */
-  /** Vlákna, která přihlášený smí vidět; super admin může userId = jeden z jeho lidí (023). */
+  /**
+   * Vlákna, která přihlášený smí vidět; super admin může userId = jeden z jeho lidí (023). Od migrace 074 (D7) `userIds` =
+   * vlákna kohokoli z vybraných (p_user_ids, nikdy s `userId`); server bez 074 = BEZ_074_LIDE.
+   */
   listThreads(
     token: string,
     status?: ThreadStatus | null,
     scope?: ThreadScope | null,
-    userId?: number | null
+    userId?: number | null,
+    userIds?: number[] | null
   ): Promise<ChatThread[]>;
   /** Vyřeší všechna otevřená vlákna o téže poruše najednou. */
   resolveAlert(
@@ -1143,7 +1267,14 @@ export interface Api {
    * Kalendář: svůj každý; super admin kohokoli (userId) nebo všech (vsichni). `jenCekajici` (p_jen_cekajici, po recenzi
    * 21. 10. 2026): jen čekající hovory, bez uzavřených za 14 dní (připomínky a odznak to víc nepotřebují).
    */
-  zavolatSeznam(token: string, userId?: number | null, vsichni?: boolean, jenCekajici?: boolean): Promise<ZavolatSeznam>;
+  zavolatSeznam(
+    token: string,
+    userId?: number | null,
+    vsichni?: boolean,
+    jenCekajici?: boolean,
+    /** migrace 074 (D7): hovory kohokoli z vybraných (p_user_ids, nikdy s `userId` ani `vsichni`); server bez 074 = BEZ_074_LIDE */
+    userIds?: number[] | null
+  ): Promise<ZavolatSeznam>;
   /**
    * Čekající hovor kontaktu (po recenzi 21. 10. 2026): Volající jen svůj hovor, super admin kterýkoli; jinak null.
    * Detail kontaktu podle něj ukáže, kdy a kdo volá, a okno otevře jako Přesunout.
@@ -1204,4 +1335,11 @@ export interface Api {
     duvod: DuvodOdmitnutiKod,
     text?: string | null
   ): Promise<{ ok: true }>;
+  /* ---- Přehled vedení (migrace 073, Albert 17. 11. 2026) ---- */
+  /**
+   * Lidé a volání (prehled_lide, kontrakt §5.5): řádek za každého z `filtr.lide` (null = všichni a řádek Nepřiřazeno) a součet
+   * vybraných (Statistiky „kombinované karty“). Jen super admin („Přehled vidí jen super admin.“); server bez 073 = chyba
+   * BEZ_073_LIDE.
+   */
+  prehledLide(token: string, filtr?: PrehledFiltrVstup | null): Promise<PrehledObalka<DataLide>>;
 }

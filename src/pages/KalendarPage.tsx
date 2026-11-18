@@ -20,17 +20,22 @@
 // or in the notes, the automation actually reads it“): ten text teď jde i do vlákna klienta jako zpráva člověka (server
 // zavolat_hotovo, jen kdo klienta smí upravit), takže ho automatizace přečte; okno to říká. Text „dovolání: …“, kterým appka po
 // zápisu dovolání uzavírá hovor (poDovolani), server do vlákna nedává: vzkaz už poslal zapis_hovor.
+// ⚠ Přehled vedení úkol 10 (Albert 17. 11. 2026, D7: „view their entire team … everyone together … individual people“)
+// NAHRAZUJE výběr „Čí kalendář“ (#kalendar-kdo: Já / jeden člověk / Všichni volající): výběr lidí LidePicker, jen super admin.
+// Já = svůj kalendář jako dřív, Všichni = p_vsichni jako dřív „Všichni volající“, jinak p_user_ids (migrace 074: hovory kohokoli
+// z vybraných); server bez 074 s jedním vybraným = p_user_id jako dřív, s víc lidmi hláška BEZ_074_LIDE. Volajícímu beze změny.
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { getApi, type Kontakt, type ZavolatPolozka, type ZavolatSeznam } from '../api';
 import { audio } from '../audio';
 import { useSession } from '../auth';
 import DovolaniOkno, { type DovolaniZapsano } from '../components/DovolaniOkno';
 import KontaktDrawer from '../components/KontaktDrawer';
-import { usePeople } from '../components/PersonPicker';
+import LidePicker, { usePeople } from '../components/LidePicker';
 import ZavolatModal from '../components/ZavolatModal';
 import { CalendarIcon } from '../icons';
+import { VYBER_JA, clovekZ, lideDotaz, sLidmi, shrnutiVyberu, type Vyber } from '../lide';
 import { prahaDen } from '../praha';
 import { isAdminRole, isSuperAdmin, roleLabel } from '../roles';
 import { useZavolat } from '../zavolat';
@@ -48,9 +53,6 @@ import {
   formatRelativne,
   kontaktJmeno,
 } from '../ui';
-
-/** Volba filtru super admina: „ja“, id člověka, nebo „vsichni“. */
-type Kdo = 'ja' | 'vsichni' | number;
 
 const STAV_UZAVRENY: Record<string, string> = { hotovo: 'hotovo', zruseno: 'zrušeno' };
 
@@ -141,7 +143,28 @@ export default function KalendarPage() {
   const navigate = useNavigate();
   const jaSuper = isSuperAdmin(session.role);
   const people = usePeople();
-  const [kdo, setKdo] = useState<Kdo>('ja');
+  // čí kalendář (úkol 10): výběr lidí super admina, výchozí Já
+  const [kdo, setKdo] = useState<Vyber>(VYBER_JA);
+  const lideVyberu = useMemo(() => people.map(clovekZ), [people]);
+  const dotaz = useMemo(
+    () => (jaSuper ? lideDotaz(kdo, lideVyberu, session.user_id) : ({ druh: 'ja' } as const)),
+    [jaSuper, kdo, lideVyberu, session.user_id]
+  );
+  const dotazKlic = JSON.stringify(dotaz);
+  /** zavolat_seznam podle výběru: Já svůj, Všichni p_vsichni, jinak p_user_ids (server bez 074: jeden člověk p_user_id). */
+  const seznam = useCallback(
+    () =>
+      sLidmi(
+        dotaz,
+        () =>
+          dotaz.druh === 'lide'
+            ? getApi().zavolatSeznam(session.token, null, false, false, dotaz.ids)
+            : getApi().zavolatSeznam(session.token, null, dotaz.druh === 'vsichni'),
+        (id) => getApi().zavolatSeznam(session.token, id, false)
+      ),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [session.token, dotazKlic]
+  );
   const [data, setData] = useState<ZavolatSeznam | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -168,11 +191,7 @@ export default function KalendarPage() {
       const muj = ++posledni.current;
       if (!tiche) setLoading(true);
       try {
-        const s = await getApi().zavolatSeznam(
-          session.token,
-          typeof kdo === 'number' ? kdo : null,
-          kdo === 'vsichni'
-        );
+        const s = await seznam();
         if (muj !== posledni.current) return;
         setData(s);
         setNacteno(Date.now());
@@ -184,7 +203,7 @@ export default function KalendarPage() {
         if (muj === posledni.current && !tiche) setLoading(false);
       }
     },
-    [session.token, kdo]
+    [seznam]
   );
 
   useEffect(() => {
@@ -202,9 +221,9 @@ export default function KalendarPage() {
     if (zavolat.podpis === podpisPred.current) return;
     podpisPred.current = zavolat.podpis;
     // změna, kterou udělala tahle stránka, už je načtená (událost cmm:zavolat-changed): neptat se podruhé
-    if (kdo === 'ja' && Date.now() - nacteno > 3000) void nacti(true);
+    if (dotaz.druh === 'ja' && Date.now() - nacteno > 3000) void nacti(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [zavolat.podpis, kdo, nacti]);
+  }, [zavolat.podpis, dotazKlic, nacti]);
 
   const akce = async (fn: () => Promise<unknown>) => {
     setBusy(true);
@@ -236,7 +255,7 @@ export default function KalendarPage() {
     }
     setInfo(veta);
     try {
-      const s = await getApi().zavolatSeznam(session.token, typeof kdo === 'number' ? kdo : null, kdo === 'vsichni');
+      const s = await seznam();
       if (s.polozky.some((x) => x.id === z.id && x.stav === 'ceka')) {
         // nejvýš 500 znaků jako poznámka k naplánovanému hovoru (app_zavolat_poznamka)
         const vys = [...`dovolání: ${zapsano.text.toLowerCase()}${zapsano.poznamka ? ` · ${zapsano.poznamka}` : ''}`].slice(0, 500).join('');
@@ -264,9 +283,8 @@ export default function KalendarPage() {
     else dny.push([den, [z]]);
   }
   const uzavrene = polozky.filter((z) => z.stav !== 'ceka');
-  const ukazKdo = kdo !== 'ja';
-  const kohoJmeno =
-    kdo === 'vsichni' ? 'všichni volající' : typeof kdo === 'number' ? people.find((p) => p.user_id === kdo)?.display_name ?? '' : '';
+  const ukazKdo = dotaz.druh !== 'ja';
+  const kohoJmeno = ukazKdo ? shrnutiVyberu(kdo, lideVyberu, session.user_id) : '';
 
   // „Kdo zavolá“ při přesunu (jen super admin): aktivní lidé a vždy i ten, kdo hovor má (jinak by výběr tiše
   // spadl na přihlášeného a přesun by hovor přeřadil)
@@ -327,29 +345,18 @@ export default function KalendarPage() {
       </h1>
 
       {jaSuper && people.length > 0 && (
-        <div className="field" style={{ maxWidth: 360 }}>
-          <label htmlFor="kalendar-kdo">Čí kalendář</label>
-          <select
-            id="kalendar-kdo"
-            value={String(kdo)}
-            onChange={(e) => {
-              const v = e.target.value;
-              setKdo(v === 'ja' || v === 'vsichni' ? v : Number(v));
-              setDetail(null);
-            }}
-          >
-            <option value="ja">Já ({session.display_name})</option>
-            {people
-              .filter((p) => p.user_id !== session.user_id)
-              .map((p) => (
-                <option key={p.user_id} value={p.user_id}>
-                  {p.display_name} · {roleLabel(p.role)}
-                  {p.active ? '' : ' · neaktivní'}
-                </option>
-              ))}
-            <option value="vsichni">Všichni volající</option>
-          </select>
-        </div>
+        <LidePicker
+          value={kdo}
+          onChange={(v) => {
+            setKdo(v);
+            setDetail(null);
+          }}
+          lide={lideVyberu}
+          ja={session.user_id}
+          popisek="Čí kalendář"
+          vychozi={VYBER_JA}
+          className="lide-stranka"
+        />
       )}
 
       <ErrorBox>{error}</ErrorBox>

@@ -10,6 +10,7 @@ import type {
   ChatMessage,
   ChatThread,
   DruhSignalu,
+  DataLide,
   DuvodOdmitnutiKod,
   FazeOdmitnuti,
   FiltryMlceni,
@@ -23,6 +24,8 @@ import type {
   MyStats,
   OborNika,
   OznaceneFiltry,
+  PrehledFiltrVstup,
+  PrehledObalka,
   ResolveCallArgs,
   Role,
   Rozvrh,
@@ -119,6 +122,16 @@ export const BEZ_064_OBOR = 'Server ještě neumí volat tenhle obor (chybí na 
  * k ní připíše „Důvod odmítnutí se ale neuložil:“). Časovač práce (prace_tep) na serveru bez 072 nic neříká, jen se zastaví.
  */
 export const BEZ_072_DUVOD = 'Důvod odmítnutí server ještě neumí (chybí na něm migrace 072).';
+/**
+ * Migrace 074 (Přehled vedení, Albert 17. 11. 2026, D7): výběr lidí (p_user_ids) na pěti seznamech proti serveru bez 074
+ * (PGRST202). Appka parametr posílá jen s výběrem, který není „jen já“ ani „všichni“; s jedním vybraným člověkem pak stránka
+ * zavolá znovu dnešní volání jednoho člověka (sLidmi v src/lide.ts), s víc lidmi ukáže tuhle hlášku.
+ */
+export const BEZ_074_LIDE = 'Výběr víc lidí server ještě neumí (chybí na něm migrace 074). Vyberte jednoho člověka, Já nebo Všichni.';
+/** Migrace 073 (Přehled vedení): součty víc lidí ve Statistikách (prehled_lide) proti serveru bez 073 (PGRST202). */
+export const BEZ_073_LIDE = 'Součty víc lidí server ještě neumí (chybí na něm migrace 073). Vyberte jednoho člověka.';
+/** Výběr lidí pro server: jen neprázdný (null a [] = dnešní volání bez p_user_ids). */
+const sVyberem = (ids: number[] | null | undefined): ids is number[] => Array.isArray(ids) && ids.length > 0;
 
 /** Filtry z migrace 060 jen zapnuté: prázdné pole, false a null se serveru neposílají (server bez 060 je nezná). */
 function filtry060(f: FiltryMlceni | null | undefined): Record<string, unknown> {
@@ -294,11 +307,13 @@ export const supabaseApi: Api = {
   async listKontakty(token: string, f: ListKontaktyFilters): Promise<ListKontaktyResult> {
     // migrace 060: nové filtry jen zapnuté (server bez 060 je nezná)
     const nove = filtry060(f);
+    // migrace 074: výběr lidí místo p_caller (nikdy oba, server by odmítl), jen neprázdný
+    const lide = sVyberem(f.user_ids);
     try {
       return await rpc<ListKontaktyResult>('list_kontakty', {
         p_token: token,
         p_status: f.status ?? null,
-        p_caller: f.caller ?? null,
+        ...(lide ? {} : { p_caller: f.caller ?? null }),
         p_rating: f.rating ?? null,
         p_search: f.search ?? null,
         p_cekani: f.cekani ?? null,
@@ -310,8 +325,11 @@ export const supabaseApi: Api = {
         // migrace 056: řazení jen když je zvolené (server bez 056 p_razeni nezná)
         ...(f.razeni ? { p_razeni: f.razeni } : {}),
         ...nove,
+        ...(lide ? { p_user_ids: f.user_ids } : {}),
       });
     } catch (e) {
+      // migrace 074: server bez 074 výběr lidí nezná (PGRST202; s jedním člověkem stránka zavolá znovu s p_caller)
+      if (lide && neniNaServeru(e)) throw new Error(BEZ_074_LIDE);
       // migrace 060: server bez 060 nové filtry nezná (PGRST202) a řazení mlceni a hvezda odmítne
       if (nove.p_odpovedel && neniNaServeru(e)) throw new Error(BEZ_068_ODPOVEDEL);
       if (Object.keys(nove).length > 0 && neniNaServeru(e)) throw new Error(BEZ_060_FILTRY);
@@ -343,17 +361,22 @@ export const supabaseApi: Api = {
       ...(filtry?.kos ? { p_kos: filtry.kos } : {}),
       ...(filtry?.razeni ? { p_razeni: filtry.razeni } : {}),
     };
+    // migrace 074: výběr lidí místo p_user_id (nikdy oba), jen neprázdný
+    const lide = sVyberem(filtry?.user_ids);
     try {
       return await rpc<ListKontaktyResult>('my_kontakty', {
         p_token: token,
         p_limit: limit,
         p_offset: offset,
-        p_user_id: userId,
+        ...(lide ? {} : { p_user_id: userId }),
         ...(segment ? { p_segment: segment } : {}),
         ...navic,
         ...nove,
+        ...(lide ? { p_user_ids: filtry!.user_ids } : {}),
       });
     } catch (e) {
+      // migrace 074: server bez 074 výběr lidí nezná (s jedním člověkem stránka zavolá znovu s p_user_id)
+      if (lide && neniNaServeru(e)) throw new Error(BEZ_074_LIDE);
       // migrace 060: nové filtry a řazení mlceni a hvezda na serveru bez 060 srozumitelně (jako v Kontaktech)
       if (nove.p_odpovedel && neniNaServeru(e)) throw new Error(BEZ_068_ODPOVEDEL);
       if (Object.keys(nove).length > 0 && neniNaServeru(e)) throw new Error(BEZ_060_FILTRY);
@@ -414,9 +437,13 @@ export const supabaseApi: Api = {
           ...(f.bez_volajiciho ? { p_bez_volajiciho: true } : {}),
           ...(hledat ? { p_hledat: hledat } : {}),
           ...(f.razeni ? { p_razeni: f.razeni } : {}),
+          // migrace 074: výběr lidí (stránka ho nikdy nepošle s user_id ani bez_volajiciho)
+          ...(sVyberem(f.user_ids) ? { p_user_ids: f.user_ids } : {}),
         })) ?? []
       );
     } catch (e) {
+      // migrace 074: server bez 074 výběr lidí nezná (napřed: bez 074 i bez 060 je PGRST202 taky)
+      if (sVyberem(f.user_ids) && neniNaServeru(e)) throw new Error(BEZ_074_LIDE);
       // migrace 068: server s 060 bez 068 nezná jen p_odpovedel
       if (f.odpovedel && neniNaServeru(e)) throw new Error(BEZ_068_ODPOVEDEL);
       if (neniNaServeru(e)) throw new Error(BEZ_060_OZNACENE);
@@ -540,17 +567,25 @@ export const supabaseApi: Api = {
     token: string,
     status?: ThreadStatus | null,
     scope?: ThreadScope | null,
-    userId?: number | null
+    userId?: number | null,
+    userIds?: number[] | null
   ): Promise<ChatThread[]> {
     // Filtry se posílají zvlášť a server je kombinuje (migrace 017); userId = jen
     // vlákna jednoho z lidí pod super adminem (migrace 023, server to hlídá).
-    const out = await rpc<{ threads: ChatThread[] }>('list_threads', {
-      p_token: token,
-      p_status: status ?? null,
-      p_scope: scope ?? null,
-      p_user_id: userId ?? null,
-    });
-    return out?.threads ?? [];
+    // Migrace 074 (D7): userIds = vlákna kohokoli z vybraných (p_user_ids místo p_user_id, nikdy oba).
+    const lide = sVyberem(userIds);
+    try {
+      const out = await rpc<{ threads: ChatThread[] }>('list_threads', {
+        p_token: token,
+        p_status: status ?? null,
+        p_scope: scope ?? null,
+        ...(lide ? { p_user_ids: userIds } : { p_user_id: userId ?? null }),
+      });
+      return out?.threads ?? [];
+    } catch (e) {
+      if (lide && neniNaServeru(e)) throw new Error(BEZ_074_LIDE);
+      throw e;
+    }
   },
 
   async resolveAlert(token: string, key: string) {
@@ -641,8 +676,18 @@ export const supabaseApi: Api = {
     token: string,
     userId: number | null = null,
     vsichni = false,
-    jenCekajici = false
+    jenCekajici = false,
+    userIds: number[] | null = null
   ): Promise<ZavolatSeznam> {
+    // Migrace 074 (D7): hovory kohokoli z vybraných (p_user_ids místo p_user_id a p_vsichni, nikdy spolu)
+    if (sVyberem(userIds)) {
+      try {
+        return await rpc<ZavolatSeznam>('zavolat_seznam', { p_token: token, p_jen_cekajici: jenCekajici, p_user_ids: userIds });
+      } catch (e) {
+        if (neniNaServeru(e)) throw new Error(BEZ_074_LIDE);
+        throw e;
+      }
+    }
     return rpc<ZavolatSeznam>('zavolat_seznam', {
       p_token: token,
       p_user_id: userId,
@@ -747,6 +792,16 @@ export const supabaseApi: Api = {
       });
     } catch (e) {
       if (neniNaServeru(e)) throw new Error(BEZ_072_DUVOD);
+      throw e;
+    }
+  },
+
+  async prehledLide(token: string, filtr: PrehledFiltrVstup | null = null): Promise<PrehledObalka<DataLide>> {
+    // prehled_lide (migrace 073, kontrakt §5.5): obálka s řádky lidí a součtem; server bez 073 = BEZ_073_LIDE
+    try {
+      return await rpc<PrehledObalka<DataLide>>('prehled_lide', { p_token: token, p_filtr: filtr });
+    } catch (e) {
+      if (neniNaServeru(e)) throw new Error(BEZ_073_LIDE);
       throw e;
     }
   },

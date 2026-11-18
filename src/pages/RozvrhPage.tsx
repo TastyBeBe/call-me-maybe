@@ -1,8 +1,10 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { getApi, type Rozvrh, type RozvrhDenVstup, type RozvrhPrehledRadek } from '../api';
 import { audio } from '../audio';
 import { useSession } from '../auth';
-import { isSuperAdmin, roleLabel } from '../roles';
+import LidePicker, { usePeople } from '../components/LidePicker';
+import { VYBER_VSICHNI, clovekZ, rozbalVyber, shrnutiVyberu, stejnyVyber, type Vyber } from '../lide';
+import { isSuperAdmin } from '../roles';
 import { DNY, datumKratce, denStav, dnesHlaska, hodin, hovoru, stavHlaska } from '../rozvrh';
 import { ConfirmModal, ErrorBox, Spinner, errMsg, formatDateTime } from '../ui';
 
@@ -14,6 +16,10 @@ import { ConfirmModal, ErrorBox, Spinner, errMsg, formatDateTime } from '../ui';
  *   - volající: svůj rozvrh nastaví jednou, pak je zamčený; poznámky ke dnům píše jen on;
  *   - super admin: vidí přehled všech (kdo je pozadu, je první), otevře a změní rozvrh kohokoli
  *     a smí ho volajícímu odemknout, poznámky jen čte.
+ * ⚠ Přehled vedení úkol 10 (Albert 17. 11. 2026, D7) NAHRAZUJE výběr „Čí rozvrh“ (#rozvrh-kdo, jeden člověk): výběr lidí
+ * LidePicker zúží přehled na vybrané (Já, Můj tým, tým každého super admina, kdokoli; výchozí Všichni = celý přehled jako
+ * dřív). Úprava rozvrhu je dál pro jednoho člověka: koho výběr ukazuje, když je to jeden člověk, nebo na koho super admin
+ * v přehledu klikne. Server se nemění (rozvrh_prehled vrací všechny, zužuje appka).
  */
 
 const HODINY = Array.from({ length: 25 }, (_, i) => i / 2); // 0 až 12 po půlhodinách
@@ -41,15 +47,20 @@ function Prehled({
   radky,
   vybrany,
   onVyber,
+  kdo = null,
 }: {
   radky: RozvrhPrehledRadek[];
   vybrany: number;
   onVyber: (id: number) => void;
+  /** zúžený přehled: text výběru lidí („Můj tým (3)“); null = všichni volající */
+  kdo?: string | null;
 }) {
-  if (radky.length === 0) return null;
+  if (radky.length === 0) {
+    return kdo ? <p className="muted rozvrh-nikdo">Nikdo z výběru ({kdo}) tento týden v přehledu není (rozvrh mají Volající a super admini, kteří si ho nastavili).</p> : null;
+  }
   return (
     <div className="card panel" style={{ marginBottom: 20 }}>
-      <p className="panel-title">všichni volající tento týden · kdo je pozadu, je nahoře</p>
+      <p className="panel-title">{kdo ? `${kdo} tento týden` : 'všichni volající tento týden'} · kdo je pozadu, je nahoře</p>
       <div className="panel-body">
         {radky.map((p) => {
           const s = p.souhrn;
@@ -91,6 +102,10 @@ export default function RozvrhPage() {
   const session = useSession();
   const isSuper = isSuperAdmin(session.role);
   const [vybrany, setVybrany] = useState<number>(session.user_id);
+  // úkol 10: výběr lidí zúží přehled (jen super admin); úprava je dál pro jednoho člověka (vybrany)
+  const people = usePeople();
+  const lide = useMemo(() => people.map(clovekZ), [people]);
+  const [lideVyber, setLideVyber] = useState<Vyber>(VYBER_VSICHNI);
   const [r, setR] = useState<Rozvrh | null>(null);
   const [prehled, setPrehled] = useState<RozvrhPrehledRadek[]>([]);
   const [loading, setLoading] = useState(true);
@@ -139,14 +154,10 @@ export default function RozvrhPage() {
     return () => clearInterval(timer);
   }, [nacti]);
 
-  const vsichni: { id: number; jmeno: string; role: string }[] = isSuper
-    ? [
-        { id: session.user_id, jmeno: `Já (${session.display_name})`, role: '' },
-        ...prehled
-          .filter((p) => p.user_id !== session.user_id)
-          .map((p) => ({ id: p.user_id, jmeno: p.display_name, role: roleLabel(p.role) })),
-      ]
-    : [];
+  // přehled zúžený na vybrané lidi (Všichni = celý jako dřív)
+  const vybraniIds = isSuper ? rozbalVyber(lideVyber, lide, session.user_id) : null;
+  const radkyPrehledu = vybraniIds === null ? prehled : prehled.filter((p) => vybraniIds.includes(p.user_id));
+  const zuzeno = !stejnyVyber(lideVyber, VYBER_VSICHNI);
 
   const zacniUpravu = () => {
     if (!r) return;
@@ -224,20 +235,28 @@ export default function RozvrhPage() {
 
       {isSuper && (
         <>
-          <Prehled radky={prehled} vybrany={vybrany} onVyber={setVybrany} />
-          {vsichni.length > 1 && (
-            <div className="field" style={{ maxWidth: 360 }}>
-              <label htmlFor="rozvrh-kdo">Čí rozvrh</label>
-              <select id="rozvrh-kdo" value={String(vybrany)} onChange={(e) => setVybrany(Number(e.target.value))}>
-                {vsichni.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.jmeno}
-                    {p.role ? ` · ${p.role}` : ''}
-                  </option>
-                ))}
-              </select>
-            </div>
+          {lide.length > 1 && (
+            <LidePicker
+              value={lideVyber}
+              onChange={(v) => {
+                setLideVyber(v);
+                // jeden vybraný člověk = jeho rozvrh v úpravě (jako dřív „Čí rozvrh“)
+                const ids = rozbalVyber(v, lide, session.user_id);
+                if (ids && ids.length === 1) setVybrany(ids[0]);
+              }}
+              lide={lide}
+              ja={session.user_id}
+              popisek="Čí rozvrh"
+              vychozi={VYBER_VSICHNI}
+              className="lide-stranka"
+            />
           )}
+          <Prehled
+            radky={radkyPrehledu}
+            vybrany={vybrany}
+            onVyber={setVybrany}
+            kdo={zuzeno ? shrnutiVyberu(lideVyber, lide, session.user_id) : null}
+          />
         </>
       )}
 

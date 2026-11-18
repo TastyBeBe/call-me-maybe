@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { getApi, type Kontakt } from '../api';
+import { getApi, type Kontakt, type ListKontaktyFilters } from '../api';
 import { audio } from '../audio';
 import { useSession } from '../auth';
 import DovolaniTlacitko from '../components/DovolaniTlacitko';
@@ -8,7 +8,8 @@ import FiltrPanel, { useZpozdeneHledani } from '../components/FiltrPanel';
 import { HvezdaPrepinac } from '../components/Hvezda';
 import { HodnoceniVSeznamu } from '../components/JejichWeb';
 import KontaktDrawer from '../components/KontaktDrawer';
-import { usePeople } from '../components/PersonPicker';
+import LidePicker, { usePeople } from '../components/LidePicker';
+import { VYBER_VSICHNI, clovekZ, lideDotaz, sLidmi, shrnutiVyberu, stejnyVyber, type LideDotaz, type Vyber } from '../lide';
 import { PRAZDNE_FILTRY, filtrJenSvoje, filtryBezStavu, filtryNaServer, type StavFiltru } from '../filtry';
 import { isAdminRole, isSuperAdmin } from '../roles';
 import { icoVidi } from '../segment';
@@ -89,6 +90,13 @@ const PAGE_SIZE = 50;
 // vpravo, pod ní koše, 3. řada čipy a „Zrušit vše“; na telefonu okno „Filtry (n)“). Čekání a koš jsou ve stavu filtrů
 // (Zrušit vše je zruší; vybraného volajícího nechá jako segment, rozhodnutí koordinátora 18. 11. 2026), hledání má jedno
 // sdílené zpoždění (useZpozdeneHledani). Parametry serveru beze změny.
+// ⚠ Přehled vedení úkol 10 (Albert 17. 11. 2026, D7: „all the super admins can view everyone, but they can also filter out only
+// their team … compare or combine any two callers“) NAHRAZUJE výběr jednoho volajícího super admina (select „Filtr volajícího“
+// s „Všichni volající“ a jménem každého): výběr lidí LidePicker (Já, Můj tým, Všichni, tým každého super admina, kdokoli
+// zaškrtnutý). Všichni = bez filtru volajícího jako dřív, Já = p_caller se jménem přihlášeného jako dřív, jinak p_user_ids
+// (migrace 074: kontakty, jejichž last_caller je kdokoli z vybraných; server bez 074 s jedním vybraným = p_caller s jeho
+// jménem, s víc lidmi hláška BEZ_074_LIDE). Stejný výběr jde do počtů u stavů a košů. Volajícímu beze změny: svůj výběr
+// „Všichni volající / Naposledy volal/a já“.
 export default function AdminPage() {
   const session = useSession();
   // migrace 064: zástupný text hledání zmíní firmu, jen když jsou v appce niky oboru
@@ -100,7 +108,9 @@ export default function AdminPage() {
   // migrace 060: segment, stav, známka, hvězda, označení, mlčení, řazení a hledání v jednom stavu (src/filtry.ts)
   const [filtry, setFiltry] = useState<StavFiltru>({ ...PRAZDNE_FILTRY, hledat: searchParams.get('search') ?? '' });
   const segment = filtry.segment;
+  // Volající: „Naposledy volal/a já“ (jméno) jako dřív; super admin: výběr lidí (úkol 10), výchozí Všichni
   const [caller, setCaller] = useState('');
+  const [lideVyber, setLideVyber] = useState<Vyber>(VYBER_VSICHNI);
   // čekání na odpověď (migrace 014); při zapnutí se rovnou zapne koš „k zavolání",
   // aby začátek seznamu nezaplavili klienti, kteří mlčí rok (Albert 2026-09-07; sCekanim v src/filtry.ts).
   // Od úkolu 11 ve stavu filtrů (Zrušit vše je zruší).
@@ -128,6 +138,28 @@ export default function AdminPage() {
   const [error, setError] = useState('');
   const [selected, setSelected] = useState<Kontakt | null>(null);
   const callers = usePeople();   // jen super admin; ostatní mají prázdný seznam
+  const lide = useMemo(() => callers.map(clovekZ), [callers]);
+  // co jde serveru za výběr lidí super admina (Volající null: jeho výběr volajícího jako dřív)
+  const dotaz: LideDotaz | null = useMemo(
+    () => (isSuper ? lideDotaz(lideVyber, lide, session.user_id) : null),
+    [isSuper, lideVyber, lide, session.user_id]
+  );
+  const dotazKlic = JSON.stringify(dotaz);
+  /**
+   * list_kontakty s volajícím: Volající jeho výběr (p_caller) jako dřív; super admin Všichni = bez filtru, Já = p_caller se svým
+   * jménem, jinak p_user_ids (074) a na serveru bez 074 s jedním vybraným p_caller s jeho jménem (sLidmi).
+   */
+  const seznam = (f: ListKontaktyFilters) => {
+    const api = getApi();
+    if (!dotaz) return api.listKontakty(session.token, { ...f, caller: caller || null });
+    const lidePar: Pick<ListKontaktyFilters, 'caller' | 'user_ids'> =
+      dotaz.druh === 'ja' ? { caller: session.display_name } : dotaz.druh === 'lide' ? { user_ids: dotaz.ids } : {};
+    return sLidmi(
+      dotaz,
+      () => api.listKontakty(session.token, { ...f, ...lidePar }),
+      (id) => api.listKontakty(session.token, { ...f, caller: lide.find((c) => c.id === id)?.display_name ?? null })
+    );
+  };
   const [statusCounts, setStatusCounts] = useState<Record<string, number>>({});
   const reloadTick = useRef(0);
   const [tick, setTick] = useState(0);
@@ -157,13 +189,11 @@ export default function AdminPage() {
     setStatusCounts({});
     (async () => {
       try {
-        const api = getApi();
         const counts = await Promise.all(
           ALL_STATUSES.map(async (s) => {
-            const r = await api.listKontakty(session.token, {
+            const r = await seznam({
               ...bezStavu,
               status: s,
-              caller: caller || null,
               search: debouncedSearch.trim() || null,
               cekani: cekani || null,
               kos: cekani ? kos || null : null,
@@ -181,7 +211,8 @@ export default function AdminPage() {
     return () => {
       alive = false;
     };
-  }, [session.token, segment, tick, isSuper, bezStavu, caller, debouncedSearch, cekani, kos]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session.token, segment, tick, isSuper, bezStavu, caller, dotazKlic, debouncedSearch, cekani, kos]);
 
   // počty v koších (jen když je filtr čekání zapnutý) — ať je vidět, kolik jich
   // je v tom studeném balíku, aniž by zaplavily začátek seznamu; jen super admin (migrace 045)
@@ -193,13 +224,11 @@ export default function AdminPage() {
     let alive = true;
     (async () => {
       try {
-        const api = getApi();
         // ⚠ 13. 11. 2026: počet v koši se zapnutými filtry seznamu (stav, volající, hledání …), NAHRAZUJE jen segment
         const counts = await Promise.all(
           ALL_KOSE.map(async (k) => {
-            const r = await api.listKontakty(session.token, {
+            const r = await seznam({
               ...naServer,
-              caller: caller || null,
               search: debouncedSearch.trim() || null,
               cekani,
               kos: k,
@@ -217,16 +246,16 @@ export default function AdminPage() {
     return () => {
       alive = false;
     };
-  }, [session.token, cekani, segment, tick, isSuper, naServer, caller, debouncedSearch]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session.token, cekani, segment, tick, isSuper, naServer, caller, dotazKlic, debouncedSearch]);
 
   const load = useCallback(async () => {
     const muj = ++posledniSeznam.current;
     setLoading(true);
     setError('');
     try {
-      const r = await getApi().listKontakty(session.token, {
+      const r = await seznam({
         ...naServer,
-        caller: caller || null,
         search: debouncedSearch.trim() || null,
         cekani: cekani || null,
         kos: cekani ? kos || null : null,
@@ -246,7 +275,8 @@ export default function AdminPage() {
     } finally {
       if (muj === posledniSeznam.current) setLoading(false);
     }
-  }, [session.token, segment, naServer, caller, debouncedSearch, cekani, kos, razeni, page]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session.token, segment, naServer, caller, dotazKlic, debouncedSearch, cekani, kos, razeni, page]);
 
   useEffect(() => {
     void load();
@@ -294,38 +324,54 @@ export default function AdminPage() {
           setFiltry(f);
           setPage(0);
         }}
-        // řada 1: volající (super admin kohokoli, Volající „Naposledy volal/a já“, jako dřív; úkol 10 sem dá výběr lidí)
+        // řada 1: super admin výběr lidí (úkol 10), Volající „Naposledy volal/a já“ jako dřív
         lide={
-          <select
-            value={caller}
-            onChange={(e) => {
-              setCaller(e.target.value);
-              setPage(0);
-            }}
-            aria-label="Filtr volajícího"
-          >
-            <option value="">Všichni volající</option>
-            {isSuper ? (
-              callers.map((c) => (
-                <option key={c.user_id} value={c.display_name}>
-                  {c.user_id === session.user_id ? `Já (${c.display_name})` : c.display_name}
-                </option>
-              ))
-            ) : (
+          isSuper ? (
+            <LidePicker
+              value={lideVyber}
+              onChange={(v) => {
+                setLideVyber(v);
+                setPage(0);
+              }}
+              lide={lide}
+              ja={session.user_id}
+              popisek="Volající"
+              vychozi={VYBER_VSICHNI}
+            />
+          ) : (
+            <select
+              value={caller}
+              onChange={(e) => {
+                setCaller(e.target.value);
+                setPage(0);
+              }}
+              aria-label="Filtr volajícího"
+            >
+              <option value="">Všichni volající</option>
               <option value={session.display_name}>Naposledy volal/a já</option>
-            )}
-          </select>
+            </select>
+          )
         }
         lideCip={
-          caller
-            ? {
-                text: isSuper ? `Volající: ${caller}` : 'Naposledy volal/a já',
-                zrus: () => {
-                  setCaller('');
-                  setPage(0);
-                },
-              }
-            : null
+          isSuper
+            ? stejnyVyber(lideVyber, VYBER_VSICHNI)
+              ? null
+              : {
+                  text: `Volající: ${shrnutiVyberu(lideVyber, lide, session.user_id)}`,
+                  zrus: () => {
+                    setLideVyber(VYBER_VSICHNI);
+                    setPage(0);
+                  },
+                }
+            : caller
+              ? {
+                  text: 'Naposledy volal/a já',
+                  zrus: () => {
+                    setCaller('');
+                    setPage(0);
+                  },
+                }
+              : null
         }
         hledat={{
           aria: 'Hledat v kontaktech',

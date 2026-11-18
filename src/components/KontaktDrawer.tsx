@@ -94,7 +94,7 @@ import DuvodOdmitnuti, {
 } from './DuvodOdmitnuti';
 import { HvezdaPrepinac } from './Hvezda';
 import PrehledPanel from './PrehledPanel';
-import { usePeople } from './PersonPicker';
+import { usePeople } from './LidePicker';
 import ZavolatModal from './ZavolatModal';
 import { gmailOdkaz } from '../gmail';
 import {

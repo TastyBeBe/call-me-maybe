@@ -180,7 +180,8 @@ await blok('S', async () => {
   over('S3b', Object.keys(top).join() === 'je_prvni' && typeof top.je_prvni === 'boolean', 'top_prodejce super adminovi vrátí jen {je_prvni}', JSON.stringify(top));
   await chyba('S4', () => api.prehledRozvrhu(petra), /^Přehled rozvrhů vidí jen super admin/, 'přehled rozvrhů (plnění všech) Volajícímu odmítnut');
   await chyba('S4b', () => api.rozvrh(petra, 3), /^Rozvrh jiného člověka vidí jen super admin/, 'rozvrh kolegy Volajícímu odmítnut');
-  await chyba('S4c', () => api.myKontakty(petra, 200, 0, 3), /jiného člověka vidí jen super admin/, 'Moji klienti kolegy Volajícímu odmítnuti');
+  // ⚠ Přehled vedení úkol 10 (18. 11. 2026): mock píše větu serveru („… vidí jen jeho super admin.“), NAHRAZUJE „… jen super admin.“
+  await chyba('S4c', () => api.myKontakty(petra, 200, 0, 3), /^Klienty jiného člověka vidí jen jeho super admin\.$/, 'Moji klienti kolegy Volajícímu odmítnuti větou serveru');
   await chyba('S4d', () => api.listKontakty(petra, { caller: 'Honza', limit: 5 }), /^Podle volajícího můžete filtrovat jen sebe/, 'filtr Kontaktů podle kolegy Volajícímu odmítnut');
   // hledání v poznámkách: Honza je v mocku jen v hlavičkách „[2026-08-.. Honza]“
   const honzaV = await api.listKontakty(petra, { search: 'Honza', limit: 200 });
@@ -340,8 +341,9 @@ await blok('S', async () => {
   // migrace 069 (Albert 15. 11. 2026): tabulka „Zájem podle volajících“ (počty klientů všech volajících) jen super admin
   over('S7h', /\{isSuper && <ZajemVolajicich/.test(stats) && (stats.match(/<ZajemVolajicich/g) ?? []).length === 1,
     'Statistiky: tabulka „Zájem podle volajících“ jen pro super admina');
-  const picker = readFileSync(join(ROOT, 'src/components/PersonPicker.tsx'), 'utf8');
-  over('S7c', /if \(!superAdmin\) \{\s*setPeople\(\[\]\);\s*return;/.test(picker), 'výběr člověka (PersonPicker) volá allStats jen pro super admina');
+  // ⚠ Přehled vedení úkol 10 (17. 11. 2026): seznam lidí (usePeople) je v src/components/LidePicker.tsx, NAHRAZUJE PersonPicker.tsx
+  const picker = readFileSync(join(ROOT, 'src/components/LidePicker.tsx'), 'utf8');
+  over('S7c', /if \(!superAdmin\) \{\s*setPeople\(\[\]\);\s*return;/.test(picker), 'výběr lidí (LidePicker, usePeople) volá allStats jen pro super admina');
   const uziv = readFileSync(join(ROOT, 'src/pages/UzivatelePage.tsx'), 'utf8');
   over('S7d', /if \(!isSuper\) return;[^\n]*\n[\s\S]{0,200}allStats/.test(uziv), 'stránka Uživatelé volá allStats jen pro super admina');
   const pig = readFileSync(join(ROOT, 'src/pig/PigLayer.tsx'), 'utf8');
