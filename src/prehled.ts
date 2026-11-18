@@ -12,7 +12,7 @@ import type { CastkaJedna, CenaRozbor, JednotkaMetriky, KvalitaMetriky, MenaPreh
 import { maskujOsobni, type TypSloupceCsv } from './csv';
 import { prahaCas, prahaDen } from './praha';
 
-/** Názvy a definice, které appka říká jinak než katalog serveru (jen tyhle dvě metriky). */
+/** Názvy a definice, které appka říká jinak než katalog serveru (jen tyhle metriky). */
 export const NAZVY_APPKY: Record<string, { nazev: string; definice: string }> = {
   dovolano: {
     nazev: 'Spojeno',
@@ -22,6 +22,23 @@ export const NAZVY_APPKY: Record<string, { nazev: string; definice: string }> = 
   mira_dovolani: {
     nazev: 'Míra spojení',
     definice: 'Spojeno ÷ hovory: kolik pokusů o hovor skončilo spojením s člověkem (cokoli kromě „nedovoláno“).',
+  },
+  // krok trychtýře (kontrakt §5.4 „Dovolán“) se stejným významem jako metrika dovolano (úkol 14a, rozhodnutí koordinátora 18. 11. 2026)
+  dovolan: {
+    nazev: 'Spojen',
+    definice: 'Kontakt, se kterým jsme se spojili: aspoň jeden jeho hovor skončil jinak než „nedovoláno“ (zájem, odmítnutí, nerelevantní, přeplánováno).',
+  },
+  // plán z rozvrhu (koordinátor 18. 11. 2026 z revize databáze): server počítá plán za KAŽDÝ den období od nastavení rozvrhu,
+  // i za dny, které teprve přijdou, a svátky neodečítá; v půlce měsíce je proto plnění postup k plánu celého období, ne neúspěch
+  planovane_hodiny: {
+    nazev: 'Plán za celé období',
+    definice:
+      'Hodiny podle dnešní šablony rozvrhu za každý den období od nastavení rozvrhu, i za dny, které teprve přijdou; svátky se neodečítají. Uprostřed období je to plán celého období, ne plán do dneška.',
+  },
+  plneni_planu: {
+    nazev: 'Splněno z plánu období',
+    definice:
+      'Odpracované hodiny ÷ plán za celé období (každý den období od nastavení rozvrhu, i dny, které teprve přijdou, bez odečtení svátků). Uprostřed období proto ukazuje, kolik z plánu celého období je hotové, ne skluz proti plánu do dneška; může být víc než 100 %.',
   },
 };
 export const nazevMetriky = (klic: string, nazev: string): string => NAZVY_APPKY[klic]?.nazev ?? nazev;
@@ -89,6 +106,8 @@ export function formatCastka(hodnota: string | number, mena: MenaPrehledu | null
 }
 /** „44,4 %“ (plnění může být víc než 100 %). */
 export const formatPodil = (h: number): string => `${cislo(h * 100, 1)} %`;
+/** Počet v tabulce („1 234“); neznámý „—“, nikdy „0“. */
+export const formatPocet = (n: number | null | undefined): string => (n === null || n === undefined ? '—' : cislo(n));
 export const formatHodiny = (h: number): string => `${cislo(h, 1)} h`;
 /** „1 den“, „2 dny“, „5 dní“, „3,2 dne“. */
 export function formatDny(d: number): string {
@@ -278,3 +297,53 @@ export const SLOUPCE_RADKU: Record<RadkyZdroj, SloupecRadku[]> = {
 
 /** Řádek jako záznam pro sloupce. */
 export const radekZaznam = (r: RadekPrehledu): R => r as unknown as R;
+
+/* ---- záložky (úkol 14a): text čísla v tabulce a řazení tabulky porovnání lidí ---- */
+
+/** Číslo metriky v buňce tabulky: hlavní hodnota a druhá měna za tečkou („10 500 Kč · 75 €“), neznámé „—“ (nikdy „0“). */
+export function textMetriky(m: Metrika | undefined, jednotka: JednotkaMetriky): string {
+  if (!m) return '—';
+  const f = formatMetriky(m, jednotka);
+  return [f.hlavni, ...f.dalsi].join(' · ');
+}
+
+export type SmerRazeni = 'vzestupne' | 'sestupne';
+export interface RazeniTabulky {
+  /** klíč metriky, nebo „jmeno“ */
+  klic: string;
+  smer: SmerRazeni;
+}
+
+/** Číslo metriky pro řazení a mini pruh: peníze = částka měny filtru (u obou měn CZK), jinak hodnota; neznámé null. */
+export function hodnotaRazeni(m: Metrika | undefined, mena: MenaPrehledu | 'obe'): number | null {
+  if (!m || m.kvalita === 'nedostupne') return null;
+  if (m.castky.length > 0 && m.hodnota === null) {
+    const c = m.castky.find((x) => x.mena === (mena === 'obe' ? 'CZK' : mena)) ?? m.castky[0];
+    return c && c.hodnota !== null ? Number(c.hodnota) : null;
+  }
+  return m.hodnota;
+}
+
+const kolator = new Intl.Collator('cs');
+/**
+ * Řádky tabulky porovnání seřazené podle sloupce: čísla oběma směry, neznámé vždy na konci (nikdy jako 0), shoda a jména podle
+ * české abecedy (Č po C). Nepřiřazeno a součet řadí volající zvlášť (nejsou to lidé).
+ */
+export function seradRadkyLidi<T extends { nazev: string; radek: { metriky: Partial<Record<string, Metrika>> } }>(
+  radky: readonly T[],
+  klic: string,
+  smer: SmerRazeni,
+  mena: MenaPrehledu | 'obe'
+): T[] {
+  return [...radky].sort((a, b) => {
+    if (klic === 'jmeno') {
+      const c = kolator.compare(a.nazev, b.nazev);
+      return smer === 'vzestupne' ? c : -c;
+    }
+    const va = hodnotaRazeni(a.radek.metriky[klic], mena);
+    const vb = hodnotaRazeni(b.radek.metriky[klic], mena);
+    if (va === null || vb === null) return va === vb ? kolator.compare(a.nazev, b.nazev) : va === null ? 1 : -1;
+    if (va !== vb) return smer === 'vzestupne' ? va - vb : vb - va;
+    return kolator.compare(a.nazev, b.nazev);
+  });
+}

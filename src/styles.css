@@ -5619,3 +5619,703 @@ table.kontakty.kompakt .mlceni-bunka > * {
     font-size: 30px;
   }
 }
+
+/* ---------- Přehled vedení: záložky, tabulky a grafy (úkol 14a, Albert 17. 11. 2026; spec §7.2) ----------
+   Tokeny grafů z tokenů appky: jedna řada = oranžová appky; pořadí (kroky trychtýře, pásma stáří) = rampa jednoho odstínu kolem
+   oranžové, světlá → tmavá, ověřená skriptem skillu dataviz (validate_palette.js --ordinal --surface #fdf6e9: monotónní světlost,
+   rozestup ≥ 0,06, světlý konec ≥ 2 : 1 proti krémové; čísla jsou vždy i v popiscích a v tabulce). Text v grafu nikdy v barvě dat.
+   Mřížka a osy tenké a tiché. Tabulky se na telefonu posouvají ve svém rámečku, stránka nikdy. */
+
+:root {
+  --graf-rada: var(--orange);
+  --graf-krok-1: #fd8e67;
+  --graf-krok-2: #ed7549;
+  --graf-krok-3: var(--orange);
+  --graf-krok-4: #be4a1b;
+  --graf-krok-5: #a63801;
+  --graf-krok-6: #892c00;
+  --graf-krok-7: #6d2100;
+  --graf-pasmo-1: var(--graf-krok-1);
+  --graf-pasmo-2: var(--graf-krok-3);
+  --graf-pasmo-3: var(--graf-krok-5);
+  --graf-pasmo-4: var(--graf-krok-7);
+  --graf-mrizka: color-mix(in srgb, var(--ink) 12%, var(--cream));
+  --graf-zaklad: color-mix(in srgb, var(--ink) 35%, var(--cream));
+}
+
+/* části záložky */
+
+.prehled-blok {
+  padding: 16px 18px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+.prehled-blok-hlava {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+}
+
+.prehled-blok-nadpis {
+  font-size: 18px;
+  font-weight: 800;
+  margin: 0;
+}
+
+.prehled-blok-popis {
+  margin: 0;
+  font-size: 13.5px;
+  line-height: 1.45;
+  color: var(--ink-tlumena);
+  max-width: 75ch;
+}
+
+.prehled-dvojice {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(440px, 100%), 1fr));
+  gap: 16px;
+  align-items: start;
+}
+
+.prehled-dvojice > *,
+.prehled-graf-blok,
+.prehled-grafy-trendu,
+.prehled-nacteno {
+  min-width: 0;
+}
+
+.prehled-graf-blok,
+.prehled-grafy-trendu {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.prehled-nacteno {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  transition: opacity 160ms ease;
+}
+
+.prehled-zalozka-obsah .prepocitava {
+  opacity: 0.55;
+}
+
+.prehled-znacka {
+  display: inline-block;
+  margin-left: 6px;
+  font-size: 11.5px;
+  font-weight: 800;
+  border: 2px solid var(--ink);
+  border-radius: var(--r-pill);
+  padding: 0 7px;
+  background: var(--yellow);
+  vertical-align: 1px;
+  white-space: nowrap;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--ink);
+}
+
+.prehled-znacka.po-terminu {
+  background: var(--cream-deep);
+  border-style: dashed;
+}
+
+.prehled-znacka.odhad {
+  background: var(--cream-deep);
+}
+
+.prehled-rozbal {
+  font-size: 13.5px;
+}
+
+.prehled-rozbal summary {
+  cursor: pointer;
+  font-weight: 800;
+}
+
+.prehled-rozbal summary:focus-visible {
+  outline: 3px solid var(--orange);
+  outline-offset: 2px;
+}
+
+.prehled-stavy-kohorty,
+.prehled-seznam-cisel {
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  font-size: 13.5px;
+}
+
+.prehled-stavy-kohorty li {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.prehled-seznam-cisel {
+  flex-direction: column;
+  color: var(--ink-tlumena);
+}
+
+/* věta pod počty akčního seznamu podle signálu (součet vyšší než počet případů) */
+.akce-pozn {
+  margin-top: 6px;
+}
+
+/* věta pod kartami Lidí: plán je za celé období, v běžícím období není nízké plnění skluz */
+.prehled-plan-pozn {
+  margin-top: 10px;
+}
+
+.prehled-udaje {
+  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(180px, 100%), 1fr));
+  gap: 10px 16px;
+}
+
+.prehled-udaje dt {
+  font-size: 12.5px;
+  font-weight: 800;
+  color: var(--ink-tlumena);
+}
+
+.prehled-udaje dd {
+  margin: 2px 0 0;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.prehled-udaje-cislo {
+  font-size: 24px;
+  font-weight: 800;
+}
+
+.prehled-cekani-mrizka {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr));
+  gap: 14px;
+}
+
+.prehled-cekani {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 2px 0 2px 14px;
+  border-left: 1px solid var(--graf-mrizka);
+}
+
+.prehled-cekani:first-child {
+  border-left: none;
+  padding-left: 0;
+}
+
+.prehled-cekani-nadpis {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 800;
+}
+
+.prehled-cekani-cislo {
+  margin: 0;
+  font-size: 30px;
+  font-weight: 800;
+  line-height: 1.05;
+}
+
+.lide-pohled button {
+  font-size: 14px;
+  padding: 5px 14px;
+}
+
+/* tabulky záložek */
+
+.prehled-tabulka-blok {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.prehled-tabulka-napoveda {
+  margin: 0;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--ink-tlumena);
+}
+
+.prehled-tabulka-napoveda[hidden] {
+  display: none;
+}
+
+.prehled-tabulka-obal {
+  overflow-x: auto;
+  border: 2px solid var(--ink);
+  border-radius: var(--r-ctl);
+  background: var(--cream);
+  min-width: 0;
+}
+
+.prehled-tabulka-obal:focus-visible {
+  outline: 3px solid var(--orange);
+  outline-offset: 2px;
+}
+
+.prehled-tabulka {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13.5px;
+}
+
+.prehled-tabulka th,
+.prehled-tabulka td {
+  text-align: left;
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--butter-dot);
+  vertical-align: top;
+}
+
+.prehled-tabulka thead th {
+  font-size: 12.5px;
+  font-weight: 800;
+  background: var(--cream-deep);
+  white-space: nowrap;
+  vertical-align: bottom;
+}
+
+.prehled-tabulka tbody th {
+  font-weight: 800;
+  min-width: 8em;
+}
+
+/* tabulky s větami (akční seznam, důvody): na telefonu se posouvají do strany, místo aby se sloupce slily do úzkých pruhů */
+.prehled-tabulka[data-tabulka='akce'],
+.prehled-tabulka[data-tabulka='duvody'] {
+  min-width: 680px;
+}
+
+.prehled-tabulka tbody tr:hover {
+  background: var(--cream-deep);
+}
+
+.prehled-tabulka .cislo-sloupec {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.prehled-tabulka td.cislo-sloupec .prehled-bunka-pozn {
+  white-space: normal;
+  max-width: 16em;
+  margin-left: auto;
+}
+
+.prehled-tabulka tfoot th,
+.prehled-tabulka tfoot td {
+  border-top: 2px solid var(--ink);
+  border-bottom: none;
+  font-weight: 800;
+  background: var(--cream-deep);
+}
+
+.prehled-bunka-pozn {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-tlumena);
+  line-height: 1.35;
+}
+
+.prehled-radek-neprirazeno th,
+.prehled-radek-neprirazeno td {
+  border-top: 2px dashed var(--ink-soft);
+  font-style: italic;
+}
+
+/* číslo s řádky: tlačítko, které vypadá jako číslo (podtržení při najetí, fokus oranžově) */
+
+.cislo-btn,
+.prehled-cislo {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 3px;
+  min-width: 2.5em;
+}
+
+.cislo-btn {
+  font: inherit;
+  font-weight: 800;
+  color: inherit;
+  background: none;
+  border: none;
+  padding: 2px 0;
+  cursor: pointer;
+  text-align: right;
+}
+
+.cislo-btn .cislo-text {
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--orange) 55%, transparent);
+  text-decoration-thickness: 2px;
+  text-underline-offset: 3px;
+}
+
+.cislo-btn:hover .cislo-text {
+  text-decoration-color: var(--orange);
+}
+
+.cislo-btn:focus-visible {
+  outline: 3px solid var(--orange);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+.mini-pruh {
+  display: block;
+  width: 64px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--graf-mrizka);
+  overflow: hidden;
+}
+
+.mini-pruh-vypln {
+  display: block;
+  height: 100%;
+  border-radius: 2px;
+  background: var(--graf-rada);
+}
+
+.metr {
+  display: block;
+  width: 96px;
+  height: 8px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--orange) 22%, var(--cream));
+  overflow: hidden;
+}
+
+.metr-vypln {
+  display: block;
+  height: 100%;
+  border-radius: 4px;
+  background: var(--graf-rada);
+}
+
+.metr.pres .metr-vypln {
+  background: var(--graf-krok-5);
+}
+
+.razeni {
+  font: inherit;
+  font-weight: 800;
+  color: inherit;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  text-align: inherit;
+}
+
+.razeni:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.razeni:focus-visible {
+  outline: 3px solid var(--orange);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+.razeni-sipka {
+  display: inline-flex;
+  min-width: 12px;
+}
+
+.razeni-sipka.vzestupne svg {
+  transform: rotate(180deg);
+}
+
+.tabulka-lidi-jmeno .lide-znacka {
+  margin-left: 6px;
+}
+
+.tabulka-lidi .cislo-sloupec {
+  min-width: 5.5em;
+}
+
+/* záhlaví tabulky porovnání se smí zalomit (dlouhé názvy metrik), čísla ne; dvě třídy, ať přebije nowrap číselného
+   sloupce (.prehled-tabulka .cislo-sloupec), jinak se na 1280 px dlouhá záhlaví („Hovory se zájmem“) překrývala */
+.prehled-tabulka.tabulka-lidi thead th {
+  white-space: normal;
+  min-width: 5.5em;
+  max-width: 9em;
+}
+
+.tabulka-lidi .razeni {
+  max-width: 100%;
+}
+
+.tabulka-lidi thead th:first-child {
+  min-width: 8em;
+}
+
+.tabulka-lidi .mini-pruh {
+  width: 48px;
+}
+
+/* grafy */
+
+.graf {
+  margin: 0;
+  background: var(--cream);
+  border: var(--border);
+  border-radius: var(--r-card);
+  box-shadow: var(--shadow-hard);
+  padding: 16px 18px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.graf-hlava {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+}
+
+.graf-nadpis {
+  font-size: 18px;
+  font-weight: 800;
+  margin: 0;
+}
+
+.graf-ovladani {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.graf-vyber {
+  font-size: 13.5px;
+}
+
+.graf-popis {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--ink-tlumena);
+  max-width: 75ch;
+}
+
+.graf-legenda {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.graf-legenda-polozka {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.graf-obsah {
+  min-width: 0;
+}
+
+.graf-plocha {
+  position: relative;
+  width: 100%;
+  min-width: 0;
+}
+
+.graf-svg {
+  display: block;
+  overflow: visible;
+  font-family: var(--font-ui);
+}
+
+.graf-svg text {
+  pointer-events: none;
+}
+
+.graf-popisek {
+  font-size: 13px;
+  font-weight: 800;
+  fill: var(--ink);
+}
+
+.graf-hodnota {
+  font-size: 13px;
+  font-weight: 800;
+  fill: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.graf-osa {
+  font-size: 11.5px;
+  font-weight: 700;
+  fill: var(--ink-tlumena);
+  font-variant-numeric: tabular-nums;
+}
+
+.graf-cil-popisek {
+  font-size: 12px;
+  font-weight: 800;
+  fill: var(--ink);
+}
+
+.graf-v-pruhu {
+  font-size: 12px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.graf-v-pruhu.na-svetle {
+  fill: var(--ink);
+}
+
+.graf-v-pruhu.na-tmave {
+  fill: var(--paper-on-dark);
+}
+
+.graf-zaklad {
+  stroke: var(--graf-zaklad);
+  stroke-width: 1;
+}
+
+.graf-mrizka {
+  stroke: var(--graf-mrizka);
+  stroke-width: 1;
+}
+
+.graf-nitka {
+  stroke: var(--ink-tlumena);
+  stroke-width: 1;
+  pointer-events: none;
+}
+
+.graf-cil-mysi.klikaci,
+.graf-pruh.klikaci {
+  cursor: pointer;
+}
+
+.graf-polozka:hover .graf-pruh,
+.graf-pruh:hover {
+  filter: brightness(1.08) saturate(1.05);
+}
+
+.graf-bublina {
+  position: absolute;
+  z-index: 6;
+  min-width: 140px;
+  max-width: 260px;
+  pointer-events: none;
+  background: var(--cream);
+  border: 2px solid var(--ink);
+  border-radius: var(--r-ctl);
+  box-shadow: var(--shadow-hard-sm);
+  padding: 8px 10px;
+  font-size: 12.5px;
+  transform: translateY(-100%);
+}
+
+.graf-bublina p {
+  margin: 0;
+}
+
+.graf-bublina-nadpis {
+  font-weight: 800;
+  margin-bottom: 2px !important;
+}
+
+.graf-bublina-radek {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  color: var(--ink-tlumena);
+}
+
+.graf-bublina-radek strong {
+  color: var(--ink);
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.graf-bublina-pozn {
+  margin-top: 4px !important;
+  color: var(--ink-tlumena);
+  line-height: 1.35;
+}
+
+.graf-tabulka .prehled-tabulka {
+  border: 2px solid var(--ink);
+  border-radius: var(--r-ctl);
+  border-collapse: separate;
+  border-spacing: 0;
+  overflow: hidden;
+}
+
+.graf-tabulka {
+  overflow-x: auto;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .prehled-nacteno {
+    transition: none;
+  }
+}
+
+@media (max-width: 640px) {
+  .prehled-blok,
+  .graf {
+    padding: 12px 12px 14px;
+    border-radius: var(--r-tile);
+  }
+  .prehled-blok-nadpis,
+  .graf-nadpis {
+    font-size: 16.5px;
+  }
+  .graf-hlava,
+  .prehled-blok-hlava {
+    align-items: flex-start;
+  }
+  .lide-pohled {
+    display: flex;
+    width: 100%;
+  }
+  .lide-pohled button {
+    flex: 1;
+    padding: 6px 8px;
+  }
+  .prehled-tabulka th,
+  .prehled-tabulka td {
+    padding: 6px 8px;
+  }
+}

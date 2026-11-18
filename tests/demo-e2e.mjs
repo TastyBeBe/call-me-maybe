@@ -4309,6 +4309,369 @@ await blok050('PV12 CSV po zavření', async () => {
   await ctx.close();
 });
 
+/* ============ PZ (Přehled vedení úkol 14a, Albert 17. 11. 2026, D1, D6, D7 a D12): záložky s daty a grafy ============ */
+// Spec §7.2: Vedení (karty, trend proti cíli, trychtýř, týmy a segmenty, akční seznam), Lidé a volání (porovnání vybraných lidí
+// s kombinovaným řádkem, řazení, mini pruhy, odpracováno proti plánu), Pipeline, Klienti a sektory, Komunikace a ztráty, Finance
+// (náklady po kategoriích a dohromady, výsledek, provize, hosting), Dodání, Prognóza a data. Grafy (src/components/grafy): SVG
+// s title a desc, legenda, „Zobrazit jako tabulku“ se stejnými čísly. Klik na číslo = řádky se stejným součtem (hodnota prodejů,
+// náklady celkem, hovory jednoho člověka, jedno pásmo pipeline). Filtr (Lidé, Období, Segment) mění karty i tabulky. Volající nic,
+// telefon 320/360/390 bez posunu stránky do strany (široké tabulky se posouvají ve svém rámečku s nápovědou).
+const ZALOZKY_PZ = { vedeni: 'Vedení', lide: 'Lidé a volání', pipeline: 'Pipeline', klienti: 'Klienti a sektory', komunikace: 'Komunikace a ztráty', finance: 'Finance', dodani: 'Dodání', prognoza: 'Prognóza a data' };
+/** Hlavní prvky záložky (aspoň jeden výskyt), podle kterých se pozná, že ukazuje svá data, ne obecné karty. */
+const PRVKY_PZ = {
+  vedeni: ['figure.graf[data-graf="trend"]', 'figure.graf[data-graf="trychtyr"]', 'table[data-tabulka="tymy"]', 'table[data-tabulka="segmenty"]', 'table[data-tabulka="akce"]'],
+  lide: ['table[data-tabulka="lide"]', 'figure.graf[data-graf="trend"]'],
+  pipeline: ['table[data-tabulka="faze"]', 'figure.graf[data-graf="pasma"]', 'table[data-tabulka="kohorty"]', 'table[data-tabulka="kalibrace"]'],
+  klienti: ['table[data-tabulka="segmenty"]', 'figure.graf[data-graf="segmenty"]', 'table[data-tabulka="hodnoceni"]'],
+  komunikace: ['[data-blok="cekani"]', 'table[data-tabulka="zpravy"]', 'figure.graf[data-graf="duvody"]', 'figure.graf[data-graf="po-navrhu"]'],
+  finance: ['table[data-tabulka="naklady"]', 'figure.graf[data-graf="naklady"]', '.kpi-karta[data-klic="naklady_celkem"]', '.kpi-karta[data-klic="vysledek"]', '.kpi-karta[data-klic="provize_zbyva"]'],
+  dodani: ['table[data-tabulka="dodani"]', 'figure.graf[data-graf="dodani"]', '[data-blok="blokace"]', 'table[data-tabulka="prace"]'],
+  prognoza: ['.kpi-karta[data-klic="prognoza_zakladni"]', 'table[data-tabulka="prognoza"]', '[data-blok="presnost"]', 'table[data-tabulka="ceny"]'],
+};
+const cisloPZ = (s) => Number(txt(s).replace(/[^\d,-]/g, '').replace(',', '.'));
+const radkyPanelu = async (page) => Number(/z (\d+)/.exec(txt(await page.locator('.proklik-souhrn').innerText().catch(() => '')))?.[1] ?? NaN);
+const souctyPanelu = async (page) => txt(await page.locator('.proklik-souhrn strong').first().innerText().catch(() => ''));
+const zavriPanelPZ = async (page) => {
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(200);
+};
+/** Počet hovorů člověka v pražských dnech [od, do] ze stavu mocku (call_log). */
+const hovoryPZ = async (page, uid, od, doDne) => (await stav(page)).callLog.filter((l) => l.user_id === uid && denP(l.created_at) >= od && denP(l.created_at) <= doDne).length;
+/** Řádky tabulky porovnání: jméno (bez popisu pod ním), celý text první buňky (jméno a popis) a text buňky sloupce. */
+const tabulkaLidiPZ = async (page, tabulka, sloupec) => page.locator(`table[data-tabulka="${tabulka}"] tbody tr`).evaluateAll((rs, s) => rs.map((r) => ({
+  jmeno: (r.querySelector('.tabulka-lidi-nazev')?.textContent ?? '').replace(/\s+/g, ' ').trim(),
+  cely: [...(r.querySelector('th')?.children ?? [])].map((e) => (e.textContent ?? '').trim()).join(' ').replace(/\s+/g, ' ').trim(),
+  druh: r.getAttribute('data-druh'),
+  hodnota: (r.querySelector(`td[data-sloupec="${s}"] .cislo-text`)?.textContent ?? '').replace(/\s+/g, ' ').trim(),
+})), sloupec);
+const soucetLidiPZ = async (page, tabulka, sloupec) => txt(await page.locator(`table[data-tabulka="${tabulka}"] tfoot td[data-sloupec="${sloupec}"] .cislo-text`).innerText().catch(() => ''));
+
+await blok050('PZ1 Vedení', async () => {
+  const { ctx, page } = await novaStranka('admin');
+  await jdi(page, '#/prehled/vedeni', 1400);
+  const grafy = await page.locator('figure.graf').evaluateAll((fs) => fs.map((f) => ({ graf: f.getAttribute('data-graf'), title: f.querySelector('svg > title')?.textContent ?? '', desc: f.querySelector('svg > desc')?.textContent ?? '' })));
+  over('PZ1a', ['trend', 'trychtyr'].every((g) => grafy.some((x) => x.graf === g && x.title.length > 3 && x.desc.length > 10)),
+    'Vedení: graf trendu proti cíli a trychtýř, oba SVG s title a desc', JSON.stringify(grafy));
+  // trend proti cíli: firma má v demu cíl 50 000 Kč na tento měsíc (lide null, CZK)
+  const cil = txt(await page.locator('figure[data-graf="trend"] .graf-cil-popisek').textContent().catch(() => ''));
+  const rada = await posledniPV(page, 'prehledRada');
+  over('PZ1b', /50 000/.test(cil) && rada?.args[0] === 'hodnota_prodeju' && rada?.args[1] === 'den' && (await page.locator('figure[data-graf="trend"] .graf-cara').count()) === 1,
+    'trend: hodnota prodejů po dnech kumulativně, čára a cíl 50 000 Kč s popiskem', `${cil} ${JSON.stringify(rada?.args.slice(0, 2))}`);
+  await page.locator('figure[data-graf="trend"] select[aria-label="Co ukázat v grafu"]').selectOption('hovory');
+  await klid(page, 900);
+  const rada2 = await posledniPV(page, 'prehledRada');
+  over('PZ1c', rada2?.args[0] === 'hovory' && /Hovory/.test(await page.locator('figure[data-graf="trend"] svg > title').textContent()),
+    'výběr metriky grafu načte řadu hovorů a graf se přejmenuje', JSON.stringify(rada2?.args.slice(0, 2)));
+  // trychtýř: krok dovolan = „Spojen“, tabulka se stejnými čísly, bublina nad pruhem
+  const trychtyr = page.locator('figure[data-graf="trychtyr"]');
+  const popisky = txt(await trychtyr.innerText());
+  await trychtyr.locator('rect[data-cil-kroku="osloven"]').hover();
+  await page.waitForTimeout(150);
+  const bublina = txt(await trychtyr.locator('.graf-bublina').innerText().catch(() => ''));
+  const nGrafu = await trychtyr.locator('text.graf-hodnota[data-krok]').evaluateAll((ts) => Object.fromEntries(ts.map((t) => [t.getAttribute('data-krok'), (t.textContent ?? '').trim()])));
+  await trychtyr.locator('button.graf-prepinac').click();
+  await page.waitForTimeout(150);
+  const radkyT = await trychtyr.locator('.graf-tabulka tbody tr[data-radek]').evaluateAll((rs) => rs.map((r) => [r.getAttribute('data-radek'), (r.children[1]?.textContent ?? '').trim()]));
+  const stejneN = radkyT.length === 7 && radkyT.every(([k, n]) => !(k in nGrafu) || nGrafu[k].startsWith(n));
+  over('PZ1d', /Spojen/.test(popisky) && !/Dovol/.test(popisky) && stejneN && /Osloven/.test(bublina) && (await trychtyr.locator('button.graf-prepinac').getAttribute('aria-expanded')) === 'true'
+    && /Zobrazit jako graf/.test(await trychtyr.locator('button.graf-prepinac').innerText()),
+    'trychtýř: „Spojen“ (nikdy „Dovolán“), bublina nad pruhem, „Zobrazit jako tabulku“ ukáže 7 kroků se stejnými čísly jako graf',
+    JSON.stringify({ nGrafu, radkyT, bublina }));
+  // týmy: řádek za tým (prehled_lide s členy týmu), Nepřiřazeno zvlášť, Celkem = celý výběr
+  const tymy = await tabulkaLidiPZ(page, 'tymy', 'hovory');
+  const celkemT = cisloPZ(await soucetLidiPZ(page, 'tymy', 'hovory'));
+  const lideVolani = (await volani(page)).filter((v) => v.fn === 'prehledLide').map((v) => JSON.stringify(v.args[0]?.lide ?? null));
+  const tymove = tymy.filter((r) => r.druh === 'tym');
+  over('PZ1e', tymove.some((r) => r.jmeno === 'Tým Albert') && tymove.some((r) => r.jmeno === 'Tým Mikuláš')
+    && tymove.reduce((a, r) => a + cisloPZ(r.hodnota), 0) === celkemT && celkemT === (await stav(page)).callLog.filter((l) => denP(l.created_at) >= `${dnesPV().slice(0, 8)}01` && denP(l.created_at) <= dnesPV()).length
+    && lideVolani.includes('[1,2,5]') && lideVolani.includes('[3,4]'),
+    'týmy: Tým Albert a Tým Mikuláš ze součtů prehled_lide s jejich lidmi, hovory týmů dají „Celkem“ (= hovory měsíce)', JSON.stringify({ tymy, celkemT, lideVolani }));
+  // segmenty: kontakty segmentu = kontakty v demu; jen ten sloupec má řádky
+  const seg = await page.locator('table[data-tabulka="segmenty"] tbody tr').evaluateAll((rs) => rs.map((r) => ({ k: r.getAttribute('data-radek'), n: (r.querySelector('td[data-sloupec="kontakty"]')?.textContent ?? '').trim() })));
+  const st = await stav(page);
+  over('PZ1f', seg.length >= 2 && seg.every((s) => Number(s.n.replace(/\s/g, '')) === st.kontakty.filter((c) => c.segment === s.k).length),
+    'segmenty: řádek za segment, počet kontaktů sedí s daty dema', JSON.stringify(seg));
+  // akční seznam: případy jako karta k zásahu, „Zobrazit všech“ otevře jejich řádky
+  const karta = Number(txt(await kartaPV(page, 'k_zasahu').locator('.kpi-hlavni').innerText()));
+  const radkuAkci = await page.locator('table[data-tabulka="akce"] tbody tr').count();
+  // počty podle signálu: klient může mít víc signálů, a když je součet vyšší než počet případů, řekne to věta pod nimi
+  const signaly = await page.locator('section[data-blok="akce"] ul.prehled-stavy-kohorty li').allInnerTexts();
+  const soucetSignalu = signaly.reduce((a, t) => a + Number((txt(t).match(/(\d[\d\s]*)$/) ?? [null, '0'])[1].replace(/\s/g, '')), 0);
+  const vetaSignalu = await page.locator('section[data-blok="akce"] .akce-pozn').count();
+  await enterPV(page, page.locator('button.akce-vse'));
+  await klid(page, 700);
+  const vPanelu = await radkyPanelu(page);
+  over('PZ1g', karta > 0 && radkuAkci === Math.min(karta, 8) && vPanelu === karta && signaly.length > 0 && (soucetSignalu > karta) === (vetaSignalu === 1),
+    'akční seznam: počty podle signálu (s větou, když je jejich součet vyšší než počet případů), nejbližší případy (nejvýš 8), „Zobrazit všech“ otevře řádky všech případů k zásahu (= karta)',
+    JSON.stringify({ karta, radkuAkci, vPanelu, signaly, soucetSignalu, vetaSignalu }));
+  await zavriPanelPZ(page);
+  await ctx.close();
+});
+
+await blok050('PZ2 záložky', async () => {
+  // Albert: snímky bez oslavy odemčeného nástroje prasátka (ostatní super admini si nástroje odemykají; Mikuláše měří PV5)
+  const { ctx, page } = await novaStranka('admin');
+  const vysl = {};
+  for (const z of Object.keys(ZALOZKY_PZ)) {
+    await jdi(page, `#/prehled/${z}`, 1400);
+    const chybi = [];
+    for (const sel of PRVKY_PZ[z]) if ((await page.locator(sel).count()) === 0) chybi.push(sel);
+    const obsah = await page.locator('.prehled-stranka').innerText();
+    const grafy = await page.locator('figure.graf').evaluateAll((fs) => fs.every((f) => !!f.querySelector('svg > title')?.textContent && !!f.querySelector('svg > desc')?.textContent
+      && !!f.querySelector('button.graf-prepinac')));
+    vysl[z] = { chybi, chyba: await page.locator('.prehled-chyba').count(), nadpis: await page.locator('.prehled-sekce-nadpis').count(), karet: await page.locator('.kpi-karta').count(),
+      dovolano: /Dovol[aá]n/.test(obsah), obecna: await page.locator('.prehled-skupina-nadpis', { hasText: 'Další čísla' }).count(), grafy };
+    await snimekCely(page, `zalozka-${z}-1280`);
+  }
+  over('PZ2', Object.values(vysl).every((v) => v.chybi.length === 0 && v.chyba === 0 && v.nadpis === 1 && v.karet > 0 && !v.dovolano && v.obecna === 0 && v.grafy),
+    'každá záložka ukáže svá data (tabulky, grafy s title, desc a přepínačem na tabulku, karty), bez chyby, bez „Dovoláno“ a bez obecných „Dalších čísel“',
+    JSON.stringify(vysl));
+  await ctx.close();
+});
+
+await blok050('PZ3 porovnání lidí', async () => {
+  const { ctx, page } = await novaStranka('admin');
+  await jdi(page, '#/prehled/lide', 1200);
+  // všichni: Nepřiřazeno je vlastní popsaný řádek, ne člověk
+  const vsichni = await tabulkaLidiPZ(page, 'lide', 'hovory');
+  // záhlaví devíti sloupců pohledu Volání se zalomí, nepřekrývají se (dlouhé názvy metrik na 1280 px)
+  const pretekla = await page.locator('table[data-tabulka="lide"] thead th').evaluateAll((ths) => ths.filter((th) => th.scrollWidth > th.clientWidth + 1)
+    .map((th) => (th.textContent ?? '').trim()));
+  over('PZ3a', vsichni.filter((r) => r.druh === 'osoba').length === 5 && vsichni.some((r) => r.druh === 'neprirazeno' && r.jmeno === 'Nepřiřazeno' && /bez připsaného/.test(r.cely))
+    && vsichni[vsichni.length - 1].druh === 'neprirazeno' && pretekla.length === 0,
+    'Lidé, všichni: pět lidí a pod nimi řádek „Nepřiřazeno“ s popisem (klienti bez připsaného člověka); záhlaví se nepřekrývají',
+    JSON.stringify({ vsichni, pretekla }));
+  // výběr dvou lidí: Petra a Honza
+  await jenClovek(page, UID.petra);
+  await klid(page, 900);
+  await vLidech(page, (panel) => panel.locator(`.lide-radek[data-user-id="${UID.honza}"] input[type="checkbox"]`).click());
+  await klid(page, 1200);
+  const l = await posledniPV(page, 'prehledLide');
+  const dva = await tabulkaLidiPZ(page, 'lide', 'hovory');
+  const celkem = cisloPZ(await soucetLidiPZ(page, 'lide', 'hovory'));
+  const od = `${dnesPV().slice(0, 8)}01`;
+  const doDne = posledniDenMesicePV(dnesPV());
+  const petra = await hovoryPZ(page, UID.petra, od, doDne);
+  const honza = await hovoryPZ(page, UID.honza, od, doDne);
+  const hodnotaPetry = cisloPZ(dva.find((r) => r.jmeno.startsWith('Petra'))?.hodnota ?? '');
+  over('PZ3b', JSON.stringify(l?.args[0]?.lide) === '[2,3]' && (await hashPV(page)).includes('lide=2,3') && dva.length === 2 && dva.every((r) => r.druh === 'osoba')
+    && hodnotaPetry === petra && celkem === petra + honza && /^Celkem/.test(txt(await page.locator('table[data-tabulka="lide"] tfoot tr').innerText())),
+    'dva lidé: řádek Petry a Honzy, kombinovaný řádek „Celkem“ = jejich součet, čísla = hovory v datech, adresa i volání s lide=2,3',
+    JSON.stringify({ lide: l?.args[0]?.lide, dva, celkem, petra, honza }));
+  // řazení podle sloupce: sestupně, pak vzestupně
+  const zahlavi = page.locator('table[data-tabulka="lide"] thead th[data-sloupec="hovory"]');
+  await zahlavi.locator('button').click();
+  await page.waitForTimeout(150);
+  const s1 = (await tabulkaLidiPZ(page, 'lide', 'hovory')).map((r) => r.jmeno);
+  const a1 = await zahlavi.getAttribute('aria-sort');
+  await zahlavi.locator('button').click();
+  await page.waitForTimeout(150);
+  const s2 = (await tabulkaLidiPZ(page, 'lide', 'hovory')).map((r) => r.jmeno);
+  const a2 = await zahlavi.getAttribute('aria-sort');
+  const vetsi = honza >= petra ? 'Honza' : 'Petra';
+  over('PZ3c', a1 === 'descending' && a2 === 'ascending' && s1[0] === vetsi && s2[1] === vetsi && (await page.locator('table[data-tabulka="lide"] .mini-pruh').count()) > 0,
+    'řazení: první klik sestupně (víc hovorů nahoře), druhý vzestupně; aria-sort u záhlaví; mini pruhy v buňkách', JSON.stringify({ a1, a2, s1, s2 }));
+  // odpracováno proti plánu (pohled Čas)
+  await page.locator('.lide-pohled button', { hasText: 'Čas' }).click();
+  await page.waitForTimeout(200);
+  const plan = await page.locator('table[data-tabulka="lide"] tbody td[data-sloupec="odpracovane_hodiny"]').allInnerTexts();
+  // koordinátor 18. 11. 2026: plán počítá každý den celého období (i budoucí), takže popisky říkají „za celé období“
+  const zahlaviPlanu = txt(await page.locator('table[data-tabulka="lide"] thead th[data-sloupec="odpracovane_hodiny"]').innerText());
+  const kartyPlanu = txt((await page.locator('.kpi-karta[data-klic="planovane_hodiny"], .kpi-karta[data-klic="plneni_planu"]').allInnerTexts()).join(' | '));
+  over('PZ3d', plan.length === 2 && plan.every((t) => /h/.test(t)) && plan.some((t) => /z\s+[\d,]+\s*h|plán/.test(txt(t))) && (await page.locator('table[data-tabulka="lide"] .metr').count()) > 0
+    && /za celé období/.test(zahlaviPlanu) && /Plán za celé období/.test(kartyPlanu) && /Splněno z plánu období/.test(kartyPlanu),
+    'pohled Čas: odpracované hodiny proti plánu z rozvrhu (měřák), u člověka bez rozvrhu věta; plán a plnění nazvané „za celé období“',
+    JSON.stringify({ plan: plan.map(txt), zahlaviPlanu, kartyPlanu: kartyPlanu.slice(0, 160) }));
+  await snimekCely(page, 'lide-porovnani-1280');
+  // jiné období: čísla tabulky z nové odpovědi
+  await page.locator('.prehled-obdobi select').selectOption('minuly_mesic');
+  await klid(page, 1200);
+  const mDo = posunPV(`${dnesPV().slice(0, 8)}01`, -1);
+  const mOd = `${mDo.slice(0, 8)}01`;
+  await page.locator('.lide-pohled button', { hasText: 'Volání' }).click();
+  await page.waitForTimeout(150);
+  const minule = await tabulkaLidiPZ(page, 'lide', 'hovory');
+  const l2 = await posledniPV(page, 'prehledLide');
+  over('PZ3e', l2?.args[0]?.od === mOd && l2?.args[0]?.do === mDo && cisloPZ(minule.find((r) => r.jmeno.startsWith('Petra'))?.hodnota ?? '') === await hovoryPZ(page, UID.petra, mOd, mDo),
+    'Minulý měsíc: nové volání s jeho dny a tabulka ukáže hovory toho měsíce', JSON.stringify({ args: l2?.args[0], minule }));
+  await ctx.close();
+});
+
+await blok050('PZ9 segment', async () => {
+  const { ctx, page } = await novaStranka('admin');
+  await jdi(page, '#/prehled/klienti', 1200);
+  const pred = await page.locator('table[data-tabulka="segmenty"] tbody tr').evaluateAll((rs) => rs.map((r) => r.getAttribute('data-radek')));
+  const kartaPred = txt(await kartaPV(page, 'koncentrace_top1').locator('.kpi-pokryti').innerText().catch(() => ''));
+  await vyber(page, 'Filtr segmentu', ['architekt']);
+  await klid(page, 1200);
+  const k = await posledniPV(page, 'prehledKlienti');
+  const po = await page.locator('table[data-tabulka="segmenty"] tbody tr').evaluateAll((rs) => rs.map((r) => ({ k: r.getAttribute('data-radek'),
+    n: Number((r.querySelector('td[data-sloupec="kontakty"]')?.textContent ?? '').replace(/\s/g, '')) })));
+  const architektu = (await stav(page)).kontakty.filter((c) => c.segment === 'architekt').length;
+  const kartaPo = txt(await kartaPV(page, 'koncentrace_top1').locator('.kpi-pokryti').innerText().catch(() => ''));
+  over('PZ9', pred.length >= 2 && JSON.stringify(k?.args[0]?.segment) === '["architekt"]' && (await hashPV(page)).includes('seg=architekt')
+    && po.length === 1 && po[0].k === 'architekt' && po[0].n === architektu && kartaPo !== kartaPred,
+    'Segment = architekti: volání se segmentem, tabulka jen s architekty (počet z dat) a karty se přepočítají', JSON.stringify({ pred, po, architektu, kartaPred, kartaPo }));
+  // se segmentem server pracovní čas ani náklady z evidence nerozdělí: „—“ s jeho důvodem, nikdy 0; provize se segmentem řídí dál
+  const dotaz = (await hashPV(page)).split('?')[1] ?? '';
+  await jdi(page, `#/prehled/lide?${dotaz}`, 1400);
+  await page.locator('.lide-pohled button', { hasText: 'Čas' }).click();
+  await page.waitForTimeout(200);
+  const cas = (await page.locator('table[data-tabulka="lide"] td[data-sloupec="odpracovane_hodiny"]').allInnerTexts()).map(txt);
+  const kartyCasu = (await page.locator('.kpi-karta[data-klic="odpracovane_hodiny"], .kpi-karta[data-klic="plneni_planu"]').allInnerTexts()).map(txt);
+  await jdi(page, `#/prehled/finance?${dotaz}`, 1400);
+  const naklady = await page.locator('table[data-tabulka="naklady"] tbody tr').evaluateAll((rs) => rs.map((r) => ({ k: r.getAttribute('data-radek'),
+    castka: (r.querySelector('td[data-sloupec="castka"] .cislo-text')?.textContent ?? '').replace(/\s+/g, ' ').trim(), t: (r.textContent ?? '').replace(/\s+/g, ' ').trim() })));
+  over('PZ9b', cas.length >= 2 && cas.every((t) => /^—/.test(t) && /segment/.test(t) && !/\b0 h\b|plán —/.test(t)) && kartyCasu.length === 2 && kartyCasu.every((t) => /—/.test(t) && /segment/.test(t))
+    && naklady.length === 6 && naklady.filter((r) => r.k !== 'provize').every((r) => r.castka === '—' && /nejsou rozdělené/.test(r.t)) && /Kč/.test(naklady.find((r) => r.k === 'provize')?.castka ?? ''),
+    'se segmentem: pracovní čas (tabulka i karty) „—“ s důvodem serveru, nikdy 0; náklady z evidence „—“ s důvodem, provize dál podle segmentu',
+    JSON.stringify({ cas, kartyCasu: kartyCasu.map((t) => t.slice(0, 120)), naklady }));
+  await ctx.close();
+});
+
+await blok050('PZ4 řádky = číslo', async () => {
+  const { ctx, page } = await novaStranka('admin');
+  const vysl = {};
+  // a) hovory jednoho člověka v tabulce porovnání
+  await jdi(page, '#/prehled/lide', 1200);
+  const tlHovory = page.locator('table[data-tabulka="lide"] tbody tr', { hasText: 'Petra' }).locator('td[data-sloupec="hovory"] button.cislo-btn');
+  const hovory = cisloPZ(await tlHovory.innerText());
+  await enterPV(page, tlHovory);
+  await klid(page, 700);
+  vysl.hovory = { hovory, radku: await radkyPanelu(page), vTabulce: await page.locator('.proklik-panel tbody tr').count(), nadpis: txt(await page.locator('.proklik-panel h2').innerText()) };
+  await zavriPanelPZ(page);
+  // b) hodnota prodejů celého výběru (řádek Celkem)
+  const tlHodnota = page.locator('table[data-tabulka="lide"] tfoot td[data-sloupec="hodnota_prodeju"] button.cislo-btn');
+  await page.locator('.lide-pohled button', { hasText: 'Obchod' }).click();
+  await page.waitForTimeout(150);
+  const hodnota = txt(await tlHodnota.innerText());
+  await enterPV(page, tlHodnota);
+  await klid(page, 700);
+  vysl.hodnota = { hodnota, soucet: await souctyPanelu(page) };
+  await zavriPanelPZ(page);
+  // c) náklady celkem (karta na Finance)
+  await jdi(page, '#/prehled/finance', 1200);
+  const naklady = txt(await kartaPV(page, 'naklady_celkem').locator('.kpi-hlavni').innerText());
+  await enterPV(page, kartaPV(page, 'naklady_celkem').locator('.kpi-proklik'));
+  await klid(page, 700);
+  vysl.naklady = { naklady, soucet: await souctyPanelu(page) };
+  await zavriPanelPZ(page);
+  // d) jedno pásmo pipeline: číslo v tabulce grafu (klávesnicí) i segment grafu (myší)
+  await jdi(page, '#/prehled/pipeline', 1200);
+  const pasma = page.locator('figure[data-graf="pasma"]');
+  const segment = pasma.locator('rect[data-pasmo]').first();
+  const fazeSeg = await segment.getAttribute('data-faze');
+  const pasmoSeg = await segment.getAttribute('data-pasmo');
+  const nSeg = Number(await segment.getAttribute('data-n'));
+  await segment.click();
+  await klid(page, 700);
+  vysl.segment = { faze: fazeSeg, pasmo: pasmoSeg, n: nSeg, radku: await radkyPanelu(page) };
+  await zavriPanelPZ(page);
+  await pasma.locator('button.graf-prepinac').click();
+  await page.waitForTimeout(150);
+  const tlPasma = pasma.locator(`.graf-tabulka tr[data-radek="${fazeSeg}"] td[data-pasmo="${pasmoSeg}"] button.cislo-btn`);
+  const nTab = cisloPZ(await tlPasma.innerText());
+  await enterPV(page, tlPasma);
+  await klid(page, 700);
+  vysl.pasmo = { n: nTab, radku: await radkyPanelu(page) };
+  await zavriPanelPZ(page);
+  over('PZ4', vysl.hovory.hovory > 0 && vysl.hovory.radku === vysl.hovory.hovory && vysl.hovory.vTabulce === vysl.hovory.hovory && /Petra/.test(vysl.hovory.nadpis)
+    && vysl.hodnota.soucet.replace(/\s/g, '') === vysl.hodnota.hodnota.replace(/\s/g, '') && vysl.naklady.soucet.replace(/\s/g, '') === vysl.naklady.naklady.replace(/\s/g, '')
+    && vysl.segment.n > 0 && vysl.segment.radku === vysl.segment.n && vysl.pasmo.n === vysl.segment.n && vysl.pasmo.radku === vysl.pasmo.n,
+    'klik na číslo: hovory Petry = řádky hovorů, hodnota prodejů výběru = součet řádků, náklady celkem = součet řádků, pásmo pipeline (graf myší i tabulka klávesnicí) = řádky pásma',
+    JSON.stringify(vysl));
+  await ctx.close();
+});
+
+await blok050('PZ5 náklady', async () => {
+  const { ctx, page } = await novaStranka('admin');
+  await jdi(page, '#/prehled/finance', 1200);
+  const radky = await page.locator('table[data-tabulka="naklady"] tbody tr').evaluateAll((rs) => rs.map((r) => ({ k: r.getAttribute('data-radek'), t: (r.textContent ?? '').replace(/\s+/g, ' ').trim(),
+    castka: (r.querySelector('td[data-sloupec="castka"] .cislo-text')?.textContent ?? '').replace(/\s+/g, ' ').trim(), overit: !!r.querySelector('.overit-znacka') })));
+  const celkem = cisloPZ(await kartaPV(page, 'naklady_celkem').locator('.kpi-hlavni').innerText());
+  const soucet = radky.reduce((a, r) => a + cisloPZ(r.castka), 0);
+  const graf = await page.locator('figure[data-graf="naklady"] [data-sloupec]').count();
+  over('PZ5a', JSON.stringify(radky.map((r) => r.k)) === JSON.stringify(['provize', 'claude', 'lovable', 'domena', 'hosting', 'jine'])
+    && radky.every((r) => r.castka !== '') && Math.round(soucet) === celkem && radky.find((r) => r.k === 'domena')?.overit && !radky.find((r) => r.k === 'claude')?.overit && graf >= 3,
+    'náklady: šest kategorií každá zvlášť (provize a pět z evidence), „ověřit“ u domény, dohromady = karta Náklady celkem; graf kategorií',
+    JSON.stringify({ radky, celkem, soucet, graf }));
+  // s výběrem lidí jen provize: evidence nákladů není po lidech
+  await jdi(page, '#/prehled/finance?od=' + `${dnesPV().slice(0, 8)}01` + '&do=' + posledniDenMesicePV(dnesPV()) + '&lide=2', 1200);
+  const sLidmi = await page.locator('table[data-tabulka="naklady"] tbody tr').evaluateAll((rs) => rs.map((r) => ({ k: r.getAttribute('data-radek'),
+    castka: (r.querySelector('td[data-sloupec="castka"] .cislo-text')?.textContent ?? '').replace(/\s+/g, ' ').trim(), t: (r.textContent ?? '').replace(/\s+/g, ' ').trim() })));
+  over('PZ5b', sLidmi.filter((r) => r.k !== 'provize').every((r) => r.castka === '—' && /nejsou rozdělené podle lidí/.test(r.t)) && /Kč/.test(sLidmi.find((r) => r.k === 'provize')?.castka ?? '')
+    && /—/.test(await kartaPV(page, 'naklady_celkem').locator('.kpi-hlavni').innerText()),
+    's výběrem lidí: kategorie z evidence „—“ s důvodem, provize dál podle výběru, náklady celkem „—“ (nikdy 0)', JSON.stringify(sLidmi));
+  await ctx.close();
+});
+
+await blok050('PZ6 grafy jako tabulka', async () => {
+  const { ctx, page } = await novaStranka('admin');
+  const vysl = {};
+  for (const z of ['vedeni', 'lide', 'pipeline', 'klienti', 'komunikace', 'finance', 'dodani']) {
+    await jdi(page, `#/prehled/${z}`, 1200);
+    const grafy = page.locator('figure.graf');
+    const n = await grafy.count();
+    const v = [];
+    for (let i = 0; i < n; i += 1) {
+      const g = grafy.nth(i);
+      const prepinac = g.locator('button.graf-prepinac');
+      await prepinac.click();
+      await page.waitForTimeout(120);
+      v.push({ graf: await g.getAttribute('data-graf'), radku: await g.locator('.graf-tabulka tbody tr').count(), svg: await g.locator('svg[role="img"]').count(),
+        expanded: await prepinac.getAttribute('aria-expanded') });
+      await prepinac.click();
+      await page.waitForTimeout(80);
+    }
+    vysl[z] = v;
+  }
+  // Klienti: čísla tabulky = čísla grafu
+  await jdi(page, '#/prehled/klienti', 1200);
+  const g = page.locator('figure[data-graf="segmenty"]');
+  const vGrafu = await g.locator('text.graf-hodnota[data-hodnota]').evaluateAll((ts) => ts.map((t) => (t.textContent ?? '').trim()));
+  await g.locator('button.graf-prepinac').click();
+  await page.waitForTimeout(120);
+  const vTabulce = await g.locator('.graf-tabulka tbody tr td:last-child').evaluateAll((ts) => ts.map((t) => (t.textContent ?? '').trim()));
+  over('PZ6', Object.values(vysl).every((v) => v.length > 0 && v.every((x) => x.radku > 0 && x.svg === 0 && x.expanded === 'true'))
+    && vGrafu.length > 0 && vGrafu.every((t) => vTabulce.includes(t)),
+    'každý graf: „Zobrazit jako tabulku“ ukáže tabulku místo grafu (aria-expanded), čísla tabulky = popisky grafu', JSON.stringify({ vysl, vGrafu, vTabulce }));
+  await ctx.close();
+});
+
+await blok050('PZ7 Volající', async () => {
+  const { ctx, page } = await novaStranka('petra');
+  const hashe = [];
+  for (const z of [...Object.keys(ZALOZKY_PZ), 'nastaveni/cile']) {
+    await jdi(page, `#/prehled/${z}?od=2026-11-01&do=2026-11-30&lide=1,4`, 600);
+    hashe.push(await hashPV(page));
+  }
+  const zakazana = (await volani(page)).filter((v) => /^(prehled|cile|naklady|provize)/i.test(v.fn)).map((v) => v.fn);
+  over('PZ7', hashe.every((h) => h === '#/') && zakazana.length === 0 && (await page.locator('nav a[href="#/prehled"]').count()) === 0,
+    'Volající: žádná záložka Přehledu (ani s cizími lidmi v adrese) nic neukáže ani nezavolá; pilulka není', JSON.stringify({ hashe, zakazana }));
+  await ctx.close();
+});
+
+for (const sirka of [320, 360, 390]) {
+  await blok050(`PZ8 ${sirka}`, async () => {
+    const { ctx, page } = await novaStranka('admin', { sirka, vyska: 844 });
+    const vysl = {};
+    for (const z of Object.keys(ZALOZKY_PZ)) {
+      await jdi(page, `#/prehled/${z}`, 1200);
+      vysl[z] = await page.evaluate(() => document.documentElement.scrollWidth);
+      if (sirka === 390) await snimekCely(page, `zalozka-${z}-390`);
+    }
+    await jdi(page, '#/prehled/lide', 1200);
+    const obal = await page.locator('table[data-tabulka="lide"]').evaluate((t) => {
+      const o = t.closest('.prehled-tabulka-obal');
+      const s = o ? getComputedStyle(o).overflowX : '';
+      return { siroka: !!o && o.scrollWidth > o.clientWidth + 1, posun: s, napoveda: !!o?.parentElement?.querySelector('.prehled-tabulka-napoveda:not([hidden])') };
+    });
+    over(`PZ8 ${sirka}`, Object.values(vysl).every((w) => w <= sirka) && obal.siroka && /auto|scroll/.test(obal.posun) && obal.napoveda,
+      `telefon ${sirka} px: všech osm záložek bez posunu stránky do strany; široká tabulka lidí se posouvá ve svém rámečku a má nápovědu`, JSON.stringify({ ...vysl, obal }));
+    await ctx.close();
+  });
+}
+
 await browser.close();
 server.close();
 rmSync(OUT, { recursive: true, force: true });

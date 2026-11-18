@@ -2971,6 +2971,29 @@ let nextPraceId = 1;
 const DRUHY_SIGNALU: readonly DruhSignalu[] = ['karta', 'tep', 'konec'];
 
 /**
+ * Ukázkové signály časovače jen pro Přehled (úkol 14a, D5): u každého výsledku hovoru ukázkových dat z posledních 14 dní karta
+ * 6 minut před ním, tep každou minutu 20 minut po něm a konec, takže pohled Čas (odpracováno z plánu) a řada odpracovaných hodin
+ * mají v demu čísla a starší dny zůstanou odhadem z výsledků (CASOVAC_OD). Přehled je čte přes signalyPrace(); uložené signály
+ * appky (praceAktivita, háček stav().prace, testy časovače) se nemění.
+ */
+const PREHLED_SIGNALY_DEMO: MockSignal[] = (() => {
+  const ted = Date.now();
+  const out: MockSignal[] = [];
+  let id = 900000;
+  for (const l of callLog) {
+    const t = Date.parse(l.created_at);
+    if (ted - t > 14 * 86400000 || ted - t < 25 * 60000) continue;
+    const s = (druh: DruhSignalu, posun: number, kontakt: number | null) => out.push({ id: id++, user_id: l.user_id, druh, at: new Date(t + posun * 60000).toISOString(), kontakt_id: kontakt });
+    s('karta', -6, l.kontakt_id);
+    for (let m = 1; m <= 20; m += 1) s('tep', m, null);
+    s('konec', 21, null);
+  }
+  return out;
+})();
+/** Signály časovače, které Přehled počítá: uložené (praceAktivita) a ukázkové (PREHLED_SIGNALY_DEMO). */
+const signalyPrace = (): MockSignal[] => [...praceAktivita, ...PREHLED_SIGNALY_DEMO];
+
+/**
  * Registr důvodů odmítnutí návrhu (kontrakt §3.2, spec §3.7; na serveru komentář migrace 072 a prehled_definice): kódy, štítky
  * a pořadí. Appka má týž registr v DUVODY (src/components/DuvodOdmitnuti.tsx); tests/pracovnicas.test.mjs (M14) hlídá, že se
  * neliší. „Nereagoval ani na nabídku za polovinu“ řádek není (počítá se z události sleva_vyprsela).
@@ -3189,7 +3212,7 @@ function pracovniUseky(uid: number, kMs: number): SurovyRadek['useky'] {
   ]
     .filter((k) => k.t <= kMs)
     .sort((a, b) => a.t - b.t);
-  const signaly = praceAktivita
+  const signaly = signalyPrace()
     .filter((s) => s.user_id === uid && Date.parse(s.at) <= kMs)
     .map((s) => ({ t: Date.parse(s.at), druh: s.druh, kid: s.kontakt_id }))
     .sort((a, b) => a.t - b.t);
@@ -3322,6 +3345,10 @@ function sectiRadky(rs: SurovyRadek[]): SurovyRadek {
   };
 }
 
+/** Pracovní čas (úseky a plán z rozvrhu) a důvod, proč ho filtr segmentu, oboru nebo kraje nerozdělí (úkol 14a). */
+const PRACE_METRIKY = ['odpracovane_hodiny', 'vysledku_za_hodinu', 'planovane_hodiny', 'plneni_planu'] as const;
+const PRACE_BEZ_DIMENZE = 'Pracovní čas není rozdělený podle segmentu, oboru ani kraje; zrušte tyto filtry.';
+
 /** Metriky řádku (kontrakt §2.6: všech 13 klíčů; nula jen ověřená; neznámé v pokrytí). */
 function metrikyRadku(s: SurovyRadek, f: PrehledFiltr, vyber: Record<string, unknown>): Record<MetrikaCloveka, Metrika> {
   const meny: MenaPrehledu[] = f.mena === 'obe' ? ['CZK', 'EUR'] : [f.mena];
@@ -3396,6 +3423,11 @@ function metrikyRadku(s: SurovyRadek, f: PrehledFiltr, vyber: Record<string, unk
     podil('plneni_planu', hodiny, zaokr(s.plan.hodiny, 2), useky.length, pokrytiPrace, castecne ? 'castecne' : 'dostupne',
       odhady > 0 ? `Odpracované hodiny jsou u ${odhady} z ${useky.length} úseků odhad.` : planDuvod);
   }
+  // úkol 14a (koordinátor 18. 11. 2026 z revize databáze): pracovní čas není po klientech, s filtrem segmentu, oboru nebo
+  // kraje ho server vrací nedostupný s důvodem (provize se filtrem řídí dál)
+  if (f.segment || f.obor || f.kraj) {
+    for (const klic of PRACE_METRIKY) dej(klic, { kvalita: 'nedostupne', duvod: PRACE_BEZ_DIMENZE });
+  }
   const zmerene = s.sla.map((x) => x.hodiny).filter((x): x is number => x !== null);
   const necenz = s.sla.length - zmerene.length;
   for (const [klic, p] of [['sla_prvni_kontakt_median', 0.5], ['sla_prvni_kontakt_p90', 0.9]] as const) {
@@ -3462,7 +3494,7 @@ function prehledLideMock(me: MockUser, vstup: PrehledFiltrVstup | null | undefin
     sla_cenzurovano: cenzurovano(vsechno), metriky: metrikyRadku(vsechno, f, {}),
   };
   const varovani: PrehledMeta['varovani'] = [];
-  const prvniSignal = praceAktivita.map((p) => p.at).sort()[0];
+  const prvniSignal = signalyPrace().map((p) => p.at).sort()[0];
   if (vsechno.useky.some((u) => u.odhad)) {
     varovani.push({ kod: 'CASOVAC_OD', text: prvniSignal
       ? `Časovač práce běží od ${denCesky(prvniSignal)}; dny před ním jsou odhad z výsledků hovorů, bez časovače.`
@@ -4041,7 +4073,7 @@ function rozsahZdroje(z: ZdrojKlicPrehledu): { od: string | null; aktualni_k: st
     case 'platby': return rozsah(PREHLED_PLATBY.map((e) => e.at));
     case 'historie': return { od: PREHLED_HISTORIE_OD, aktualni_k: [PREHLED_HISTORIE_OD, ...kontakty.map((c) => c.updated_at)].sort().pop() ?? null };
     case 'tymy': return { od: PREHLED_HISTORIE_OD, aktualni_k: PREHLED_HISTORIE_OD };
-    case 'casovac': return rozsah(praceAktivita.map((p) => p.at));
+    case 'casovac': return rozsah(signalyPrace().map((p) => p.at));
     case 'gmail': return { od: GMAIL_OD, aktualni_k: PREHLED_EMAIL_SYNC[0]?.posledni_uspech ?? null };
     case 'duvody': return rozsah([...odmitnutiRadky.map((r) => r.at), ...PREHLED_DUVODY_ZPETNE.map((r) => r.at)]);
     case 'naklady': return rozsah(PREHLED_NAKLADY.map((n) => n.zapsano_at));
@@ -4082,7 +4114,7 @@ function varovaniPrehledu(x: KontextPrehledu | null, o: { historie?: boolean; zd
     dej('HISTORIE_OD', `Historie změn stavů a cen začíná ${denCesky(PREHLED_HISTORIE_OD)}; dřívější průchody fázemi nejsou známé.`);
   }
   if (x && o.casovac) {
-    const prvni = praceAktivita.map((p) => p.at).sort()[0];
+    const prvni = signalyPrace().map((p) => p.at).sort()[0];
     if (!prvni || x.odMs < Date.parse(prvni)) {
       dej('CASOVAC_OD', prvni ? `Časovač práce běží od ${denCesky(prvni)}; dny před ním jsou odhad z výsledků hovorů, bez časovače.`
         : 'Časovač práce zatím nemá žádný signál; odpracovaný čas je odhad z výsledků hovorů, bez časovače.');
@@ -4553,7 +4585,10 @@ function prehledRadaMock(me: MockUser, metrika: unknown, zrnitost: unknown, vstu
     const doMs = zacatekDnePraha(posunDen(doDne, 1));
     const uplny = zacatekJednotky >= x.f.od && konecJednotky <= x.f.do;
     let bod: BodRady;
-    if (odMs > x.kMs) {
+    if (metrika === 'odpracovane_hodiny' && (x.f.segment || x.f.obor || x.f.kraj)) {
+      // úkol 14a: pracovní čas filtr segmentu, oboru ani kraje nerozdělí (jako metriky lidí)
+      bod = { od, do: doDne, uplny, hodnota: null, castky: [], kvalita: 'nedostupne', duvod: PRACE_BEZ_DIMENZE };
+    } else if (odMs > x.kMs) {
       bod = { od, do: doDne, uplny, hodnota: null, castky: def.jednotka === 'mena' ? x.meny.map((mena) => ({ mena, hodnota: null })) : [], kvalita: 'nedostupne', duvod: 'Sloupec je až po datu dat (ještě nenastal).' };
     } else if (zdrojStart && doMs <= Date.parse(zdrojStart)) {
       bod = { od, do: doDne, uplny, hodnota: null, castky: def.jednotka === 'mena' ? x.meny.map((mena) => ({ mena, hodnota: null })) : [], kvalita: 'nedostupne', duvod: `Sloupec je před začátkem zdroje (${denCesky(zdrojStart)}).` };
@@ -5237,8 +5272,8 @@ function prehledKvalitaMock(me: MockUser): PrehledObalka<DataKvalita> {
       nezname: r.filter((v) => v === 'nezname').length, chybi: r.filter((v) => v === 'chybi').length };
   }).filter((s) => s.celkem > 0);
   const bezEmailu = kontakty.filter((c) => navrhAt(c) && !(c.email ?? '').trim()).length;
-  const sedmDni = praceAktivita.filter((p) => Date.now() - Date.parse(p.at) <= 7 * 86400000);
-  const prvniSignal = praceAktivita.map((p) => p.at).sort()[0] ?? null;
+  const sedmDni = signalyPrace().filter((p) => Date.now() - Date.parse(p.at) <= 7 * 86400000);
+  const prvniSignal = signalyPrace().map((p) => p.at).sort()[0] ?? null;
   const data: DataKvalita = {
     ceny,
     navrhy_bez_emailu: pocetMetrika('kvalita_navrhy_bez_emailu', x, bezEmailu),

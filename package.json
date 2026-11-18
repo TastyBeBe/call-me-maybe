@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
-    "test": "node tests/segment.test.mjs && node tests/priznak.test.mjs && node tests/rozvrh.test.mjs && node tests/aktualizace.test.mjs && node tests/volani.test.mjs && node tests/filtry.test.mjs && node tests/filtrpanel.test.mjs && node tests/dovolani.test.mjs && node tests/zobrazeni.test.mjs && node tests/pracovnicas.test.mjs && node tests/lide.test.mjs && node tests/prehled.test.mjs",
+    "test": "node tests/segment.test.mjs && node tests/priznak.test.mjs && node tests/rozvrh.test.mjs && node tests/aktualizace.test.mjs && node tests/volani.test.mjs && node tests/filtry.test.mjs && node tests/filtrpanel.test.mjs && node tests/dovolani.test.mjs && node tests/zobrazeni.test.mjs && node tests/pracovnicas.test.mjs && node tests/lide.test.mjs && node tests/prehled.test.mjs && node tests/prehledzalozky.test.mjs",
     "test:e2e": "node tests/demo-e2e.mjs"
   },
   "dependencies": {

@@ -54,30 +54,40 @@ export function jednotkaMetriky(definice: PrehledObalka<DataDefinice> | null, m:
   return m.jmenovatel !== null ? 'podil' : 'pocet';
 }
 
-export interface StavDat<T> {
-  data: PrehledObalka<T> | null;
+export interface StavNacteni<T> {
+  data: T | null;
   chyba: string | null;
   /** načítá se (i znovu po změně filtru; stará data pak zůstanou vidět ztlumená) */
   nacita: boolean;
   znovu: () => void;
 }
+export type StavDat<T> = StavNacteni<PrehledObalka<T>>;
 
 /**
- * Načte funkci Přehledu pro filtr záložky. Odpověď na starší filtr se zahodí (rychlé klikání ve filtru), chyba je věta pro člověka
- * (server bez 073 = „Přehled potřebuje migraci 073“), data z minulého filtru zůstanou do nové odpovědi (ztlumená, aria-busy).
+ * Načte data záložky pro filtr (i víc funkcí naráz, třeba prehled_lide pro každý tým; úkol 14a). Odpověď na starší filtr se
+ * zahodí (rychlé klikání ve filtru), chyba je věta pro člověka (server bez 073 = „Přehled potřebuje migraci 073“), data z minulého
+ * filtru zůstanou do nové odpovědi (ztlumená, aria-busy). `verze` vrátí definice_verze všech odpovědí (každá se hlásí stránce,
+ * kontrakt §5.17); `klic` = další důvod načíst znovu kromě filtru (třeba metrika grafu). ⚠ Úkol 14a: NAHRAZUJE jen tělo
+ * usePrehledData (dál stejné chování, nově nad tímto hookem).
  */
-export function usePrehledData<T>(nacti: (token: string, filtr: PrehledFiltrVstup) => Promise<PrehledObalka<T>>): StavDat<T> {
+export function usePrehledNacteni<T>(
+  nacti: (token: string, filtr: PrehledFiltrVstup) => Promise<T>,
+  verze: (t: T) => (string | null | undefined)[],
+  klic = ''
+): StavNacteni<T> {
   const session = useSession();
   const { serverFiltr, klicFiltru, hlasVerzi } = usePrehled();
   const hlasVerziRef = useRef(hlasVerzi);
   hlasVerziRef.current = hlasVerzi;
-  const [data, setData] = useState<PrehledObalka<T> | null>(null);
+  const [data, setData] = useState<T | null>(null);
   const [chyba, setChyba] = useState<string | null>(null);
   const [nacita, setNacita] = useState(true);
   const [kolo, setKolo] = useState(0);
   const cislo = useRef(0);
   const nactiRef = useRef(nacti);
   nactiRef.current = nacti;
+  const verzeRef = useRef(verze);
+  verzeRef.current = verze;
 
   useEffect(() => {
     const moje = ++cislo.current;
@@ -89,7 +99,7 @@ export function usePrehledData<T>(nacti: (token: string, filtr: PrehledFiltrVstu
         if (moje !== cislo.current) return;
         setData(o);
         setNacita(false);
-        hlasVerziRef.current(o.definice_verze);
+        for (const v of verzeRef.current(o)) hlasVerziRef.current(v);
       })
       .catch((e: unknown) => {
         if (moje !== cislo.current) return;
@@ -98,8 +108,19 @@ export function usePrehledData<T>(nacti: (token: string, filtr: PrehledFiltrVstu
         setNacita(false);
       });
     // serverFiltr se mění s klicFiltru (otisk); objekt sám se tvoří při každém vykreslení, proto v závislostech není
-  }, [session.token, klicFiltru, kolo]);
+  }, [session.token, klicFiltru, kolo, klic]);
 
   const znovu = useCallback(() => setKolo((k) => k + 1), []);
   return { data, chyba, nacita, znovu };
+}
+
+/** Jedna funkce Přehledu pro filtr záložky (obálka §2.5); `klic` jako u usePrehledNacteni. */
+export function usePrehledData<T>(nacti: (token: string, filtr: PrehledFiltrVstup) => Promise<PrehledObalka<T>>, klic = ''): StavDat<T> {
+  return usePrehledNacteni(nacti, (o) => [o.definice_verze], klic);
+}
+
+/** Otevření panelu řádků z tabulky nebo grafu záložky (číslo, jeho název, kam vrátit fokus). */
+export function useOtevriRadky(): (p: PrehledProklik, nazev: string, odkud: HTMLElement | null) => void {
+  const { otevriProklik } = usePrehled();
+  return useCallback((p: PrehledProklik, nazev: string, odkud: HTMLElement | null) => otevriProklik({ proklik: p, nazev }, odkud), [otevriProklik]);
 }

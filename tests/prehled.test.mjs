@@ -664,9 +664,10 @@ await blok('R', async () => {
       && K.odkazGmailu('javascript:alert(1)') === null && K.odkazGmailu('https://zly.example/mail.google.com') === null && K.odkazGmailu('http://mail.google.com/x') === null,
       'odkaz do Gmailu jen https://mail.google.com, jinak žádný odkaz', '');
     const kartaH4 = K.renderToStaticMarkup(h(K.KpiKarta, { metrika: zakladMetriky({ klic: 'hovory', nazev: 'Hovory', hodnota: 3, n: 3, pokryti: { zname: 3, celkem: 3, nezname: 0, podil: 1 } }), jednotka: 'pocet', uroven: 4 }));
-    over('R11c', /<h4 class="kpi-nazev"/.test(kartaH4) && /<h4 class="kpi-nazev"/.test(src('src/pages/prehled/ZalozkaObecna.tsx').replace(/[\s\S]*/, '') + kartaH4)
-      && /uroven=\{4\}/.test(src('src/pages/prehled/ZalozkaObecna.tsx')),
-      'nadpisy: karta pod skupinou (h3) je h4 (ZalozkaObecna)', kartaH4.slice(0, 120));
+    // ⚠ úkol 14a: obecná záložka úkolu 13 je pryč; karty pod nadpisem skupiny (h3) dávají záložky přes Karty s uroven 4
+    // (NAHRAZUJE kontrolu zdroje ZalozkaObecna.tsx, jejíž druhá část byla mrtvá, minor-findings úkolu 13)
+    over('R11c', /<h4 class="kpi-nazev"/.test(kartaH4) && /uroven=\{4\}/.test(src('src/pages/prehled/ZalozkaFinance.tsx')) && /uroven=\{uroven\}/.test(src('src/pages/prehled/Karty.tsx')),
+      'nadpisy: karta pod nadpisem skupiny (h3) je h4 (záložky předají uroven 4 přes Karty)', kartaH4.slice(0, 120));
     over('R11d', /zrusenoCsv|csvZruseno/.test(src('src/components/prehled/ProklikPanel.tsx')) && /return \(\) => \{[\s\S]{0,200}(zrusenoCsv|csvZruseno)\.current = true/.test(src('src/components/prehled/ProklikPanel.tsx')),
       'běžící CSV se zavřením panelu zruší (žádné stažení po zavření)', '');
   }

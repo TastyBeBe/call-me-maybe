@@ -3,8 +3,9 @@
 // Stránka #/prehled/<záložka> jen pro super admina (trasa v App.tsx pod RequireAuth superAdmin a pojistka tady: Volajícímu
 // se nevykreslí nic a nezavolá se nic). Hlavička s čerstvostí dat („Data: dnes 9:05“, zdroje), řada filtrů s filtrem v adrese,
 // osm záložek a Nastavení, panel řádků za číslem (CSV). Server bez migrace 073 = chyba „Přehled potřebuje migraci 073“, nikdy
-// ukázková data. V DEMO pruh „Ukázková data“. Obsah záložek (grafy, tabulky, porovnání) staví úkol 14 nad kontextem
-// (pages/prehled/kontext.tsx).
+// ukázková data. V DEMO pruh „Ukázková data“. Obsah záložek (grafy, tabulky, porovnání) staví úkol 14a nad kontextem
+// (pages/prehled/kontext.tsx): každá záložka má svou komponentu Zalozka<Název>.tsx (⚠ NAHRAZUJE obecnou záložku úkolu 13
+// s kartami metrik po skupinách).
 // Oprava po recenzi 18. 11. 2026: možnosti (hlavička čerstvosti) se načtou znovu při změně záložky a nejvýš po 5 minutách, když
 // je stránka vidět; katalog znovu, když odpověď nese jinou definice_verze (kontrakt §5.17). Zpět/Vpřed s otevřeným panelem řádků
 // panel zavře (fokus na kartu, a když karta zmizela, na nadpis). ⚠ NAHRAZUJE načtení možností a katalogu jen jednou za návštěvu.
@@ -22,8 +23,14 @@ import { casText, chybaPrehledu, ZDROJ_NAZVY } from '../../prehled';
 import { ctiFiltr, dnesVPraze, filtrProServer, NASTAVENI_SEKCE, zapisFiltr, ZALOZKY, type FiltrPrehledu, type NastaveniKlic } from '../../prehledFiltr';
 import { isSuperAdmin } from '../../roles';
 import { PrehledKontext, type OtevrenyProklik, type PrehledKontextHodnota } from './kontext';
+import ZalozkaDodani from './ZalozkaDodani';
+import ZalozkaFinance from './ZalozkaFinance';
+import ZalozkaKlienti from './ZalozkaKlienti';
+import ZalozkaKomunikace from './ZalozkaKomunikace';
+import ZalozkaLide from './ZalozkaLide';
 import ZalozkaNastaveni from './ZalozkaNastaveni';
-import ZalozkaObecna from './ZalozkaObecna';
+import ZalozkaPipeline from './ZalozkaPipeline';
+import ZalozkaPrognoza from './ZalozkaPrognoza';
 import ZalozkaVedeni from './ZalozkaVedeni';
 
 const STAV_ZDROJE: Record<string, string> = { ok: 'v pořádku', zastarale: 'zastaralé', chyba: 'chyba', chybi: 'zatím nic' };
@@ -257,10 +264,22 @@ function PrehledObsah({ session }: { session: Session }) {
           <Zalozky aktivni={zalozka} filtr={filtr} />
           {zalozka === 'vedeni' ? (
             <ZalozkaVedeni />
-          ) : zalozka === 'nastaveni' ? (
-            <ZalozkaNastaveni sekce={sekce} hledani={`?${zapisFiltr(filtr)}`} />
+          ) : zalozka === 'lide' ? (
+            <ZalozkaLide />
+          ) : zalozka === 'pipeline' ? (
+            <ZalozkaPipeline />
+          ) : zalozka === 'klienti' ? (
+            <ZalozkaKlienti />
+          ) : zalozka === 'komunikace' ? (
+            <ZalozkaKomunikace />
+          ) : zalozka === 'finance' ? (
+            <ZalozkaFinance />
+          ) : zalozka === 'dodani' ? (
+            <ZalozkaDodani />
+          ) : zalozka === 'prognoza' ? (
+            <ZalozkaPrognoza />
           ) : (
-            <ZalozkaObecna key={zalozka} klic={zalozka} />
+            <ZalozkaNastaveni sekce={sekce} hledani={`?${zapisFiltr(filtr)}`} />
           )}
           {proklik && proklik.misto === misto && <ProklikPanel proklik={proklik.p.proklik} nazev={proklik.p.nazev} popis={proklik.p.popis} onZavri={zavriProklik} />}
         </PrehledKontext.Provider>

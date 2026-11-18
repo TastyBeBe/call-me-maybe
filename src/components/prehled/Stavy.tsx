@@ -4,6 +4,7 @@
 // a nic jiného), prázdno = co to znamená a co zkusit, částečná data = varování serveru a počet neúplných čísel, demo = pruh nahoře
 // (ukázková data, ne skutečná čísla). Volající nic z toho nevidí (stránka ho přesměruje).
 
+import type { ReactNode } from 'react';
 import type { Metrika, PrehledMeta } from '../../api/types';
 import { WarningIcon, ZnovuIcon } from '../../icons';
 import { bezMigrace073, KVALITA_NAZVY, nazevMetriky } from '../../prehled';
@@ -86,6 +87,28 @@ export function PrehledCastecne({ varovani, metriky }: { varovani: PrehledMeta['
         </ul>
       )}
     </details>
+  );
+}
+
+/**
+ * Část záložky nad vlastním načtením (úkol 14a): chyba s „Zkusit znovu“, kostra při prvním načtení, jinak obsah; při novém
+ * načtení zůstane starý obsah ztlumený (aria-busy), žádný skok ani bliknutí kostry.
+ */
+export function NacitanyObsah<T>({
+  stav,
+  karet = 2,
+  children,
+}: {
+  stav: { data: T | null; chyba: string | null; nacita: boolean; znovu: () => void };
+  karet?: number;
+  children: (data: T) => ReactNode;
+}) {
+  if (stav.chyba) return <PrehledChyba text={stav.chyba} onZnovu={stav.znovu} />;
+  if (!stav.data) return <PrehledNacita karet={karet} />;
+  return (
+    <div className={`prehled-nacteno${stav.nacita ? ' prepocitava' : ''}`} aria-busy={stav.nacita}>
+      {children(stav.data)}
+    </div>
   );
 }
 
