@@ -965,6 +965,19 @@ export interface ZobrazenyStav {
   stav: KontaktStatus;
 }
 
+/**
+ * Signál neviditelného časovače práce (prace_tep, migrace 072; Albert 17. 11. 2026, rozhodnutí D5): `karta` = karta ve volání
+ * na obrazovce (s kontaktem), `tep` = appka je otevřená a vidět, `konec` = stránka se zavřela nebo schovala. Odpracovaný čas
+ * z nich a z výsledků hovorů počítá jen server (kontrakt §5.14); Volající časovač nevidí.
+ */
+export type DruhSignalu = 'karta' | 'tep' | 'konec';
+
+/** Fáze odmítnutí (kontrakt §3.4): `nahled` = odmítl náhled (návrh webu), `sleva` = odmítl i nabídku za polovinu. */
+export type FazeOdmitnuti = 'nahled' | 'sleva';
+
+/** Kód důvodu, proč klient odmítl návrh (kontrakt §3.2; štítky v DUVODY, src/components/DuvodOdmitnuti.tsx). */
+export type DuvodOdmitnutiKod = 'ma_web' | 'cena' | 'navrh' | 'nepotrebuje' | 'pozdeji' | 'konci' | 'jine' | 'neuvedl';
+
 /** Jednotné API rozhraní — implementuje ho reálný Supabase klient i demo mock. */
 export interface Api {
   login(username: string, password: string): Promise<Session>;
@@ -1170,4 +1183,25 @@ export interface Api {
    * cizí (ani super adminovi). Appka jimi nahradí jen popisek stavu (src/zobrazeni.ts). Server bez 071 = prázdný seznam.
    */
   zobrazeneStavy(token: string): Promise<ZobrazenyStav[]>;
+  /* ---- časovač práce a důvody odmítnutí (migrace 072, Přehled vedení; Albert 17. 11. 2026, D5 a D8) ---- */
+  /**
+   * Signál časovače práce (prace_tep) vždy jen za přihlášeného (uživatel z tokenu). `kontaktId` jen u `karta`; server ji uloží
+   * jen u kontaktu, který přihlášený smí dělat (cizí a neexistující stejnou odpovědí bez zápisu). true = server signál vzal
+   * ({ok: true}), false = server funkci nemá (bez migrace 072, PGRST202): časovač se pak zastaví. `konec` jde s keepalive
+   * (dojde i ze zavírané stránky). Jiné chyby (síť, relace) hodí; časovač je spolkne.
+   */
+  praceTep(token: string, druh: DruhSignalu, kontaktId?: number | null): Promise<boolean>;
+  /**
+   * Proč klient odmítl návrh (odmitnuti_duvod_zapis): Volající jen u klienta, kterého smí upravit a který dostal návrh
+   * (first_proposal_at); cizí, neexistující a bez návrhu stejnou větou. Super admin u každého klienta s návrhem. `text` jen
+   * u `jine` (povinný, nejvýš 450 znaků). Přidá řádek (nikdy nepřepisuje), odpověď přesně {ok: true}. Appka ho volá až po
+   * uloženém výsledku hovoru nebo změně stavu; server bez 072 = chyba BEZ_072_DUVOD.
+   */
+  odmitnutiDuvodZapis(
+    token: string,
+    kontaktId: number,
+    faze: FazeOdmitnuti,
+    duvod: DuvodOdmitnutiKod,
+    text?: string | null
+  ): Promise<{ ok: true }>;
 }

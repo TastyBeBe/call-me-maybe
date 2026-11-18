@@ -31,6 +31,8 @@ import {
 import { isSuperAdmin } from '../roles';
 import ZavolatModal, { PREPLANOVAT_NEJDRIV_MIN } from '../components/ZavolatModal';
 import PrehledPanel from '../components/PrehledPanel';
+import DuvodOdmitnuti, { DUVOD_NEULOZEN, PRAZDNA_VOLBA, chceDuvod, duvodChybi, fazeOdmitnuti, ulozDuvod, type VolbaDuvodu } from '../components/DuvodOdmitnuti';
+import { nastavKartu } from '../pracovniCas';
 import {
   AlarmIcon,
   ArrowDownIcon,
@@ -181,6 +183,8 @@ export default function CallPage() {
   // (nastav_hvezdu za resolve_call; nejde-li, hovor je uložený a appka to řekne)
   const [hvezda, setHvezda] = useState(false);
   const [note, setNote] = useState('');
+  // Přehled vedení úkol 12 (Albert 17. 11. 2026, D8): proč klient s návrhem (vrácený do fronty) odmítl; studená karta se neptá
+  const [volbaDuvodu, setVolbaDuvodu] = useState<VolbaDuvodu>(PRAZDNA_VOLBA);
   // Kliknul na číslo (tel:). Karta je pak rozdělaná: přepnutí segmentu ji tiše nevrátí
   // a „Přepnout hned“ nabídne zapsat Nedovoláno (audit APP-3).
   const [vytoceno, setVytoceno] = useState(false);
@@ -412,6 +416,14 @@ export default function CallPage() {
     };
   }, [session.token, segment, kartaId, empty, sObory]);
 
+  // Přehled vedení úkol 12 (Albert 17. 11. 2026, D5: „It starts when a caller opens a client card …“): karta na obrazovce pro
+  // neviditelný časovač práce (src/pracovniCas.ts pošle za každou kartu jednou signál karta); bez karty a po odchodu z volání null
+  const kartaNaObrazovce = !loading && !empty && kontakt ? kontakt.id : null;
+  useEffect(() => {
+    nastavKartu(kartaNaObrazovce);
+  }, [kartaNaObrazovce]);
+  useEffect(() => () => nastavKartu(null), []);
+
   const hlavicka = (
     <>
       <SegmentSwitch value={segment} onChange={zvolitSegment} disabled={busy} />
@@ -466,7 +478,8 @@ export default function CallPage() {
    */
   const resolve = async (
     outcome: VysledekHovoru,
-    extra: { note?: string; kdy?: string } = {},
+    // úkol 12 (D8): `duvod` = proč klient s návrhem odmítl (jen u odmitnuto; uloží se až po výsledku)
+    extra: { note?: string; kdy?: string; duvod?: VolbaDuvodu } = {},
     vOkne = false
   ): Promise<string | null> => {
     if (!kontakt) return null;
@@ -493,6 +506,14 @@ export default function CallPage() {
           await getApi().nastavHvezdu(session.token, kontakt.id, true, null);
         } catch (e) {
           hlaska = `Zájem je uložený, ale hvězdu se nepodařilo dát (${errMsg(e)}). Dej ji v detailu klienta v Moji klienti.`;
+          audio.play('error');
+        }
+      }
+      // úkol 12 (D8): důvod odmítnutí až po uloženém výsledku; chyba hovor nevrací, jen se ukáže nad další kartou
+      if (outcome === 'odmitnuto' && extra.duvod) {
+        const neulozen = await ulozDuvod(getApi(), session.token, kontakt.id, fazeOdmitnuti(kontakt.status), extra.duvod);
+        if (neulozen) {
+          hlaska = [hlaska, `Odmítnutí je zapsané. ${DUVOD_NEULOZEN} ${neulozen}`].filter(Boolean).join(' ');
           audio.play('error');
         }
       }
@@ -802,7 +823,14 @@ export default function CallPage() {
             <button className="pill-btn" disabled={busy} onClick={() => void resolve('nedovolano')}>
               <PhoneOffIcon size={18} /> Nedovoláno
             </button>
-            <button className="pill-btn warn" disabled={busy} onClick={() => setModal('odmitnout')}>
+            <button
+              className="pill-btn warn"
+              disabled={busy}
+              onClick={() => {
+                setVolbaDuvodu(PRAZDNA_VOLBA);
+                setModal('odmitnout');
+              }}
+            >
               <ThumbsDownIcon size={18} /> Odmítnuto
             </button>
             <button className="pill-btn go" disabled={busy} onClick={() => setShowZajem(true)}>
@@ -946,13 +974,26 @@ export default function CallPage() {
           confirmLabel="Ano, odmítli"
           confirmClass="warn"
           busy={busy}
+          confirmDisabled={chceDuvod(kontakt) && duvodChybi(volbaDuvodu) !== null}
+          // s výběrem důvodu nad sloupcem prasátka (na telefonu by zakryl začátek výběru); studená karta beze změny
+          scrimClassName={chceDuvod(kontakt) ? 'nad-prokchopem' : undefined}
           onCancel={() => setModal(null)}
           onConfirm={() => {
             setModal(null);
-            void resolve('odmitnuto');
+            void resolve('odmitnuto', chceDuvod(kontakt) ? { duvod: volbaDuvodu } : {});
           }}
         >
           Kontakt se označí jako <b>odmítnuto</b> a už mu nikdy nebudeme volat.
+          {/* úkol 12 (Albert 17. 11. 2026, D8): jen klient, kterému odešel návrh (studená karta beze změny) */}
+          {chceDuvod(kontakt) && (
+            <DuvodOdmitnuti
+              id="volani-duvod"
+              faze={fazeOdmitnuti(kontakt.status)}
+              volba={volbaDuvodu}
+              onVolba={setVolbaDuvodu}
+              disabled={busy}
+            />
+          )}
         </ConfirmModal>
       )}
 

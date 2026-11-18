@@ -1039,8 +1039,10 @@ await blok('X', async () => {
     'supabase.ts posílá status_duvod v p_patch update_kontakt', JSON.stringify(posl?.body ?? null));
   // detail kontaktu (klikání měří e2e): pole důvodu jen při změně stavu, bez důvodu tlačítko neuloží (kromě Alberta)
   const drawer = readFileSync(join(ROOT, 'src/components/KontaktDrawer.tsx'), 'utf8');
+  // ⚠ Přehled vedení úkol 12 (Albert 17. 11. 2026, D8): tlačítko je vypnuté i bez povinného důvodu odmítnutí klienta s návrhem
+  // (chybiDuvodOdmitnuti, tests/pracovnicas.test.mjs W4); NAHRAZUJE kotvu „disabled={busy || !dirty || duvodChybi}“ bez něj
   over('X15', /const duvodChybi = stavZmenen && stavChceDuvod\(session\.user_id\) && duvod\.trim\(\) === '';/.test(drawer)
-    && /if \(duvod\.trim\(\)\) patch\.status_duvod = duvod\.trim\(\);/.test(drawer) && /disabled=\{busy \|\| !dirty \|\| duvodChybi\}/.test(drawer)
+    && /if \(duvod\.trim\(\)\) patch\.status_duvod = duvod\.trim\(\);/.test(drawer) && /disabled=\{busy \|\| !dirty \|\| duvodChybi \|\| chybiDuvodOdmitnuti\}/.test(drawer)
     && /\{stavZmenen && \(/.test(drawer) && /maxLength=\{STATUS_DUVOD_MAX\}/.test(drawer),
     'detail: pole důvodu jen při změně stavu, nejvýš 500 znaků, bez důvodu nejde uložit, důvod jde jako status_duvod');
 });

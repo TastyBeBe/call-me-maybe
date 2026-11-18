@@ -26,6 +26,9 @@
 // a Odmítnuto se hovor neplánuje (tlačítko Naplánovat hovor není, hovorPlanovatSmi) a změna na ně řekne, že se čekající hovory
 // zruší (zruší je server). Nové řádky poznámky dostane automatizace jako vzkaz agentovi (update_kontakt od 062, rozhodnutí D15:
 // Albert 2. 11. 2026 „or in the notes, the automation actually reads it“); pod polem to stojí a vzkazy se po uložení načtou znovu.
+// Přehled vedení úkol 12 (Albert 17. 11. 2026, D8): změna stavu na Odmítnuto u klienta, kterému odešel návrh, chce povinný
+// výběr „Proč návrh odmítl“ (DuvodOdmitnuti). Stav se uloží napřed a beze změny (update_kontakt), důvod (odmitnuti_duvod_zapis)
+// hned po něm; když se neuloží, stav zůstane uložený a detail řekne proč. Klient bez návrhu se na důvod neptá.
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
@@ -79,6 +82,16 @@ import {
   stavyVMenu,
   zmenenoKdy,
 } from '../ui';
+import DuvodOdmitnuti, {
+  DUVOD_NEULOZEN,
+  PRAZDNA_VOLBA,
+  chceDuvod,
+  // v detailu je duvodChybi už důvod změny stavu (migrace 059)
+  duvodChybi as chybiVDuvoduOdmitnuti,
+  fazeOdmitnuti,
+  ulozDuvod,
+  type VolbaDuvodu,
+} from './DuvodOdmitnuti';
 import { HvezdaPrepinac } from './Hvezda';
 import PrehledPanel from './PrehledPanel';
 import { usePeople } from './PersonPicker';
@@ -681,6 +694,10 @@ export default function KontaktDrawer({
   const [duvod, setDuvod] = useState('');
   const stavZmenen = status !== kontakt.status;
   const duvodChybi = stavZmenen && stavChceDuvod(session.user_id) && duvod.trim() === '';
+  // Přehled vedení úkol 12 (D8): proč klient s návrhem web nechce, jen při změně na Odmítnuto (bez návrhu se neptá)
+  const [volbaDuvodu, setVolbaDuvodu] = useState<VolbaDuvodu>(PRAZDNA_VOLBA);
+  const ptatSeNaDuvod = status === 'odmitnuto' && kontakt.status !== 'odmitnuto' && chceDuvod(kontakt);
+  const chybiDuvodOdmitnuti = ptatSeNaDuvod && chybiVDuvoduOdmitnuti(volbaDuvodu) !== null;
   const [email, setEmail] = useState(kontakt.email ?? '');
   const [note, setNote] = useState(kontakt.note ?? '');
   const [cenaWeb, setCenaWeb] = useState(kontakt.cena_web ?? '');
@@ -744,12 +761,24 @@ export default function KontaktDrawer({
     if (cenaHosting !== (kontakt.cena_hosting ?? '')) patch.cena_hosting = cenaProServer(cenaHosting);
     if (rating !== (kontakt.rating ?? '')) patch.rating = rating;
     if (Object.keys(patch).length === 0) return;
+    if (chybiDuvodOdmitnuti) return;
+    // úkol 12 (D8): fáze ze stavu PŘED změnou (po uložení už je Odmítnuto)
+    const duvodPoUlozeni = ptatSeNaDuvod && 'status' in patch ? { faze: fazeOdmitnuti(kontakt.status), volba: volbaDuvodu } : null;
     setBusy(true);
     setError('');
     try {
       const updated = await getApi().updateKontakt(session.token, kontakt.id, patch);
       audio.play('success');
       onSaved?.(updated);
+      // úkol 12 (D8): důvod odmítnutí až po uloženém stavu; chyba stav nevrací, jen se ukáže
+      if (duvodPoUlozeni) {
+        const neulozen = await ulozDuvod(getApi(), session.token, kontakt.id, duvodPoUlozeni.faze, duvodPoUlozeni.volba);
+        if (neulozen) {
+          setError(`Stav je uložený. ${DUVOD_NEULOZEN} ${neulozen}`);
+          audio.play('error');
+        }
+        setVolbaDuvodu(PRAZDNA_VOLBA);
+      }
       // server vrátí uloženou poznámku: obyčejný řádek pod zápisem kolegy v ní už má vlastní hlavičku (recenze 046),
       // pole ji ukáže hned a uložení se nezdá rozpracované
       if ('note' in patch) setNote(updated.note ?? '');
@@ -960,6 +989,16 @@ export default function KontaktDrawer({
                 ))}
               </select>
             </div>
+            {/* úkol 12 (Albert 17. 11. 2026, D8): proč klient s návrhem web nechce, povinně (bez návrhu se neptá) */}
+            {ptatSeNaDuvod && (
+              <DuvodOdmitnuti
+                id="detail-duvod"
+                faze={fazeOdmitnuti(kontakt.status)}
+                volba={volbaDuvodu}
+                onVolba={setVolbaDuvodu}
+                disabled={busy}
+              />
+            )}
             {stavZmenen && (
               <div className="field duvod-stavu">
                 <label htmlFor="duvod-stavu">
@@ -1038,8 +1077,8 @@ export default function KontaktDrawer({
 
         {!obsahJenCteni && (
           <div style={{ display: 'flex', gap: 10 }}>
-            <button className="pill-btn go" onClick={() => void save()} disabled={busy || !dirty || duvodChybi}
-              title={duvodChybi ? 'Napiš krátce, proč stav měníš' : undefined}>
+            <button className="pill-btn go" onClick={() => void save()} disabled={busy || !dirty || duvodChybi || chybiDuvodOdmitnuti}
+              title={duvodChybi ? 'Napiš krátce, proč stav měníš' : chybiDuvodOdmitnuti ? 'Vyber, proč klient návrh odmítl' : undefined}>
               {busy ? 'Ukládám…' : 'Uložit změny'}
             </button>
             <button className="pill-btn" onClick={onClose} disabled={busy}>

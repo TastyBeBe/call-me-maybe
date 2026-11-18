@@ -29,6 +29,10 @@
 // jsou vypnutá s důvodem ze serveru (rozhodnutí D2 a D3): klient po prodeji, Eskalace nebo Pozastaveno u Volajícího a bez
 // označení Volající, který klienta nevede (posledním volajícím je kolega). Kterou větev server vybral, vrací `oznaceno`
 // a věta po zápisu to řekne (bez označení, nebo označení mezitím zmizelo, nebo se označení tímhle uzavřelo).
+// Přehled vedení úkol 12 (Albert 17. 11. 2026, D8: „why did they reject the preview after they viewed it“): „Nechce web“
+// u klienta, kterému odešel návrh (first_proposal_at), chce povinný výběr „Proč návrh odmítl“ (DuvodOdmitnuti). zapis_hovor jde
+// napřed a beze změny, důvod (odmitnuti_duvod_zapis) hned po něm; když se neuloží, hovor zůstane zapsaný a věta pro stránku
+// řekne proč. Klient bez návrhu se na důvod neptá (beze změny). Fáze sleva u Nabídnuté slevy, jinak nahled.
 
 import { useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
@@ -36,6 +40,7 @@ import { getApi, type Kontakt, type OznaceniKategorie, type VysledekDovolani, ty
 import { audio } from '../audio';
 import { useSession } from '../auth';
 import { HvezdaIcon } from '../icons';
+import DuvodOdmitnuti, { DUVOD_NEULOZEN, PRAZDNA_VOLBA, chceDuvod, duvodChybi, fazeOdmitnuti, ulozDuvod, type VolbaDuvodu } from './DuvodOdmitnuti';
 import { OWNER_USER_ID, isSuperAdmin } from '../roles';
 import { rodinaOf, segmentOf } from '../segment';
 import {
@@ -293,6 +298,10 @@ export default function DovolaniOkno({
   const [hvezda, setHvezda] = useState(maHvezdu);
   const [busy, setBusy] = useState(false);
   const [chyba, setChyba] = useState('');
+  // Přehled vedení úkol 12 (D8): důvod odmítnutí jen u „Nechce web“ klienta s návrhem
+  const [volbaDuvodu, setVolbaDuvodu] = useState<VolbaDuvodu>(PRAZDNA_VOLBA);
+  const ptatSeNaDuvod = vysledek === 'nechce' && chceDuvod(kontakt);
+  const chybiDuvod = ptatSeNaDuvod && duvodChybi(volbaDuvodu) !== null;
   const okno = useRef<HTMLDivElement>(null);
   useOkno(okno, onZavrit, busy);
   const oznaceno = kategorie !== null;
@@ -317,7 +326,7 @@ export default function DovolaniOkno({
   // v každém stavu: text psaný u delšího výsledku (2 000) a pak přepnutý na nechce či nekontaktovat (450) maxLength nezkrátí
   const prilisDlouhy = delka > max;
   const zapsat = async () => {
-    if (!vysledek || chybiText || prilisDlouhy || vypnuta(vysledek)) return;
+    if (!vysledek || chybiText || prilisDlouhy || vypnuta(vysledek) || chybiDuvod) return;
     setBusy(true);
     setChyba('');
     try {
@@ -330,11 +339,21 @@ export default function DovolaniOkno({
         smiHvezdu && hvezda !== maHvezdu ? hvezda : null
       );
       audio.play('success');
+      // úkol 12 (D8): důvod až po uloženém hovoru; chyba hovor nevrací, jen se připíše do věty pro stránku
+      let duvodVeta = '';
+      if (ptatSeNaDuvod) {
+        const neulozen = await ulozDuvod(getApi(), session.token, kontakt.id, fazeOdmitnuti(kontakt.status), volbaDuvodu);
+        if (neulozen) {
+          duvodVeta = ` ${DUVOD_NEULOZEN} ${neulozen}`;
+          audio.play('error');
+        }
+      }
       onHotovo(
         `Hovor s klientem ${kontaktJmeno(kontakt)} je zapsaný: ${volba?.text.toLowerCase() ?? vysledek}.` +
           (v?.poznamka_predana === false ? ' Poznámka se uložila jen k záznamu pokusu, v appce ji nikdo neuvidí.' : '') +
           // migrace 062: kterou větev server vybral (oznaceno)
-          vetaOznaceni(v?.oznaceno, oznaceno, vysledek),
+          vetaOznaceni(v?.oznaceno, oznaceno, vysledek) +
+          duvodVeta,
         { vysledek, text: volba?.text ?? vysledek, poznamka: text.trim() || null, odpoved: v ?? null }
       );
     } catch (e) {
@@ -406,6 +425,16 @@ export default function DovolaniOkno({
             </p>
           )}
           {volba && <p className="muted dovolani-co" style={{ fontSize: 13.5 }}>{coDovolani(volba.v, kontext)}</p>}
+          {/* úkol 12 (Albert 17. 11. 2026, D8): proč klient s návrhem web nechce, povinně (bez návrhu se neptá) */}
+          {ptatSeNaDuvod && (
+            <DuvodOdmitnuti
+              id="dovolani-duvod"
+              faze={fazeOdmitnuti(kontakt.status)}
+              volba={volbaDuvodu}
+              onVolba={setVolbaDuvodu}
+              disabled={busy}
+            />
+          )}
           {/* migrace 061: poznámka pro automatizaci vždy, i před výběrem výsledku */}
           <div className="field dovolani-poznamka">
             <label htmlFor="dovolani-text">
@@ -464,7 +493,7 @@ export default function DovolaniOkno({
             type="button"
             className="pill-btn go"
             onClick={() => void zapsat()}
-            disabled={busy || !vysledek || chybiText || prilisDlouhy || (!!vysledek && vypnuta(vysledek))}
+            disabled={busy || !vysledek || chybiText || prilisDlouhy || (!!vysledek && vypnuta(vysledek)) || chybiDuvod}
           >
             {busy ? 'Ukládám…' : 'Zapsat hovor'}
           </button>

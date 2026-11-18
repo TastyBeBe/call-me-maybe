@@ -528,6 +528,8 @@ export function ConfirmModal({
   onConfirm,
   onCancel,
   busy = false,
+  confirmDisabled = false,
+  scrimClassName,
 }: {
   title: string;
   children?: ReactNode;
@@ -537,9 +539,13 @@ export function ConfirmModal({
   onConfirm: () => void;
   onCancel: () => void;
   busy?: boolean;
+  /** potvrzení zatím nejde (Přehled vedení úkol 12: ve volání chybí povinný důvod odmítnutí klienta s návrhem) */
+  confirmDisabled?: boolean;
+  /** třída navíc pro pozadí okna (úkol 12: `nad-prokchopem` = okno nad sloupcem prasátka, styles.css) */
+  scrimClassName?: string;
 }) {
   return (
-    <div className="scrim" onClick={onCancel}>
+    <div className={scrimClassName ? `scrim ${scrimClassName}` : 'scrim'} onClick={onCancel}>
       <div className="modal card" onClick={(e) => e.stopPropagation()}>
         <h3 className="modal-title">{title}</h3>
         {children && <div className="modal-body">{children}</div>}
@@ -547,7 +553,7 @@ export function ConfirmModal({
           <button className="pill-btn" onClick={onCancel} disabled={busy}>
             {cancelLabel}
           </button>
-          <button className={`pill-btn ${confirmClass}`} onClick={onConfirm} disabled={busy}>
+          <button className={`pill-btn ${confirmClass}`} onClick={onConfirm} disabled={busy || confirmDisabled}>
             {busy ? 'Ukládám…' : confirmLabel}
           </button>
         </div>

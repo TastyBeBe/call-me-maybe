@@ -9,6 +9,9 @@ import type {
   AutomationStatus,
   ChatMessage,
   ChatThread,
+  DruhSignalu,
+  DuvodOdmitnutiKod,
+  FazeOdmitnuti,
   FiltryMlceni,
   FlagKind,
   Kontakt,
@@ -110,6 +113,12 @@ const neniNaServeru = (e: unknown): boolean => e instanceof RpcChyba && e.kod ==
  * nemá ani migraci 064, takže obor nezná vůbec.
  */
 export const BEZ_064_OBOR = 'Server ještě neumí volat tenhle obor (chybí na něm migrace 064). Chaty volat jde.';
+/**
+ * Migrace 072 (Přehled vedení, Albert 17. 11. 2026, D8): důvod odmítnutí návrhu proti serveru bez 072 (PGRST202). Appka ho
+ * ukládá až po výsledku hovoru nebo změně stavu, takže výsledek je uložený a hláška jen řekne, co server neumí (stránka
+ * k ní připíše „Důvod odmítnutí se ale neuložil:“). Časovač práce (prace_tep) na serveru bez 072 nic neříká, jen se zastaví.
+ */
+export const BEZ_072_DUVOD = 'Důvod odmítnutí server ještě neumí (chybí na něm migrace 072).';
 
 /** Filtry z migrace 060 jen zapnuté: prázdné pole, false a null se serveru neposílají (server bez 060 je nezná). */
 function filtry060(f: FiltryMlceni | null | undefined): Record<string, unknown> {
@@ -135,7 +144,11 @@ class RpcChyba extends Error {
   }
 }
 
-async function rpc<T>(fn: string, body: Record<string, unknown>): Promise<T> {
+/**
+ * `keepalive` (Přehled vedení úkol 12): požadavek dojde i ze stránky, která se právě zavírá (signál konec časovače práce
+ * z pagehide); fetch se spustí hned při volání, hlavičky jsou stejné jako u ostatních volání.
+ */
+async function rpc<T>(fn: string, body: Record<string, unknown>, { keepalive = false }: { keepalive?: boolean } = {}): Promise<T> {
   const { supabaseUrl, anonKey } = getConfig();
   let res: Response;
   try {
@@ -147,6 +160,7 @@ async function rpc<T>(fn: string, body: Record<string, unknown>): Promise<T> {
         Authorization: `Bearer ${anonKey}`,
       },
       body: JSON.stringify(body),
+      ...(keepalive ? { keepalive: true } : {}),
     });
   } catch {
     throw new Error('Server neodpovídá. Zkontrolujte připojení k internetu.');
@@ -695,6 +709,44 @@ export const supabaseApi: Api = {
       return await rpc<ZajemPodleVolajicich>('zajem_podle_volajicich', { p_token: token, ...(segment ? { p_segment: segment } : {}) });
     } catch (e) {
       if (neniNaServeru(e)) throw new Error(BEZ_069_ZAJEM);
+      throw e;
+    }
+  },
+
+  async praceTep(token: string, druh: DruhSignalu, kontaktId: number | null = null): Promise<boolean> {
+    // prace_tep (migrace 072, kontrakt §4.1): kontakt jen u karty; konec s keepalive (pagehide, zavírání stránky). Server bez
+    // 072 funkci nemá (PGRST202) = false, časovač se zastaví; jiné chyby hodí (časovač je spolkne).
+    try {
+      await rpc<{ ok: boolean }>(
+        'prace_tep',
+        { p_token: token, p_druh: druh, ...(druh === 'karta' ? { p_kontakt_id: kontaktId } : {}) },
+        { keepalive: druh === 'konec' }
+      );
+      return true;
+    } catch (e) {
+      if (neniNaServeru(e)) return false;
+      throw e;
+    }
+  },
+
+  async odmitnutiDuvodZapis(
+    token: string,
+    kontaktId: number,
+    faze: FazeOdmitnuti,
+    duvod: DuvodOdmitnutiKod,
+    text: string | null = null
+  ): Promise<{ ok: true }> {
+    // odmitnuti_duvod_zapis (migrace 072, kontrakt §4.2): server bez 072 = BEZ_072_DUVOD, jiné odmítnutí projde, jak přišlo
+    try {
+      return await rpc<{ ok: true }>('odmitnuti_duvod_zapis', {
+        p_token: token,
+        p_kontakt_id: kontaktId,
+        p_faze: faze,
+        p_duvod: duvod,
+        p_text: text,
+      });
+    } catch (e) {
+      if (neniNaServeru(e)) throw new Error(BEZ_072_DUVOD);
       throw e;
     }
   },

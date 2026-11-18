@@ -16,6 +16,9 @@ import type {
   ChatSender,
   ChatThread,
   ChatThreadInfo,
+  DruhSignalu,
+  DuvodOdmitnutiKod,
+  FazeOdmitnuti,
   FiltryMlceni,
   FlagKind,
   Kontakt,
@@ -2860,6 +2863,64 @@ function noveRadkyPoznamky(stara: string | null, nova: string | null, jmeno: str
   obnovOznaceni(10, true);
 })();
 
+/* ---- časovač práce a důvody odmítnutí: zrcadlí db/migration_072_prehled_zaklad.sql (Přehled vedení, Albert 17. 11. 2026,
+   rozhodnutí D5 a D8; kontrakt docs/superpowers/specs/2026-11-17-prehled-kontrakt.md §4.1 prace_tep, §4.2 odmitnuti_duvod_zapis) ---- */
+
+/** Řádek prace_aktivita: signál neviditelného časovače (karta, tep, konec), vždy za uživatele z tokenu, nikdy z parametru. */
+interface MockSignal {
+  id: number;
+  user_id: number;
+  druh: DruhSignalu;
+  at: string;
+  kontakt_id: number | null;
+}
+const praceAktivita: MockSignal[] = [];
+let nextPraceId = 1;
+const DRUHY_SIGNALU: readonly DruhSignalu[] = ['karta', 'tep', 'konec'];
+
+/**
+ * Registr důvodů odmítnutí návrhu (kontrakt §3.2, spec §3.7; na serveru komentář migrace 072 a prehled_definice): kódy, štítky
+ * a pořadí. Appka má týž registr v DUVODY (src/components/DuvodOdmitnuti.tsx); tests/pracovnicas.test.mjs (M14) hlídá, že se
+ * neliší. „Nereagoval ani na nabídku za polovinu“ řádek není (počítá se z události sleva_vyprsela).
+ */
+export const DUVODY_ODMITNUTI: readonly { kod: DuvodOdmitnutiKod; text: string }[] = [
+  { kod: 'ma_web', text: 'Už má web nebo ho dělá někdo jiný' },
+  { kod: 'cena', text: 'Je to pro něj drahé' },
+  { kod: 'navrh', text: 'Nelíbí se mu návrh' },
+  { kod: 'nepotrebuje', text: 'Web nepotřebuje' },
+  { kod: 'pozdeji', text: 'Teď ne, možná později' },
+  { kod: 'konci', text: 'Končí s podnikáním' },
+  { kod: 'jine', text: 'Jiný důvod' },
+  { kod: 'neuvedl', text: 'Neřekl proč' },
+];
+
+/** Řádek odmitnuti: jen přidávání (nikdy úprava); přehled bere nejnovější řádek pro (kontakt, fáze). Pořadí klíčů jako tabulka. */
+interface MockOdmitnuti {
+  id: number;
+  kontakt_id: number;
+  faze: FazeOdmitnuti;
+  duvod: DuvodOdmitnutiKod;
+  text: string | null;
+  zdroj: 'volajici' | 'super_admin';
+  zapsal: string;
+  at: string;
+}
+const odmitnutiRadky: MockOdmitnuti[] = [];
+let nextOdmitnutiId = 1;
+/** Jedna věta Volajícímu pro cizí, neexistující i vlastní kontakt bez návrhu (podle ní nic nepozná). */
+const ODMITNUTI_JEN_SVUJ = 'Důvod odmítnutí zapíšete jen u svého klienta, kterému odešel návrh webu.';
+
+/**
+ * Smí člověk kontakt dělat (signál karta, kontrakt R25)? Kontakt existuje a zámek je jeho, nebo ho smí upravit (app_smi_upravit),
+ * nebo je to jeho klient (app_kontakty_uzivatelu), nebo k němu má vlastní čekající naplánovaný hovor.
+ */
+function smiDelatKontakt(u: MockUser, kid: number): boolean {
+  const c = kontakty.find((x) => x.id === kid);
+  if (!c) return false;
+  return c.lock_by === u.id || canEdit(u, kid) || kontaktyOf([u.id]).has(kid)
+    || zavolatRadky.some((z) => z.kontakt_id === kid && z.user_id === u.id && z.stav === 'ceka');
+}
+
 const mockApiZaklad: Api = {
   async login(username: string, password: string): Promise<Session> {
     await delay();
@@ -4930,6 +4991,79 @@ const mockApiZaklad: Api = {
     }
     return { radky, bez_volajiciho: bez, celkem };
   },
+
+  async praceTep(token: string, druh: DruhSignalu, kontaktId: number | null = null): Promise<boolean> {
+    await delay(60);
+    // prace_tep (migrace 072, kontrakt §4.1): každý přihlášený jen sám za sebe; odpověď vždy stejná, bez čísel (true = {ok: true})
+    const user = auth(token);
+    if (!DRUHY_SIGNALU.includes(druh)) fail(`Neplatný druh signálu: ${druh ?? '(null)'}. Povolené: karta, tep, konec.`);
+    if (druh === 'karta' && (kontaktId === null || kontaktId === undefined)) fail('Signál karta potřebuje kontakt.');
+    // úklid jako server: řádky starší 400 dní, nejvýš 1 000 za volání
+    const hranice = Date.now() - 400 * 86400000;
+    for (let i = praceAktivita.length - 1, n = 0; i >= 0 && n < 1000; i--) {
+      if (new Date(praceAktivita[i].at).getTime() < hranice) {
+        praceAktivita.splice(i, 1);
+        n += 1;
+      }
+    }
+    const zapis = (kid: number | null) => praceAktivita.push({ id: nextPraceId++, user_id: user.id, druh, at: now(), kontakt_id: kid });
+    if (druh === 'karta') {
+      // jen kontakt, který smí dělat; cizí a neexistující stejnou odpovědí bez zápisu (nic neprozradí)
+      if (smiDelatKontakt(user, kontaktId as number)) zapis(kontaktId as number);
+    } else if (druh === 'tep') {
+      // tep nejvýš jednou za 20 s (mladší tep téhož člověka = nic)
+      const posledni = praceAktivita.filter((p) => p.user_id === user.id && p.druh === 'tep').pop();
+      if (!posledni || Date.now() - new Date(posledni.at).getTime() >= 20000) zapis(null);
+    } else {
+      zapis(null);
+    }
+    return true;
+  },
+
+  async odmitnutiDuvodZapis(
+    token: string,
+    kontaktId: number,
+    faze: FazeOdmitnuti,
+    duvod: DuvodOdmitnutiKod,
+    text: string | null = null
+  ): Promise<{ ok: true }> {
+    await delay(60);
+    // odmitnuti_duvod_zapis (migrace 072, kontrakt §4.2). Pořadí kontrol jako server: relace, role, fáze, důvod, text, kontakt.
+    const user = authAdmin(token);
+    if (faze !== 'nahled' && faze !== 'sleva') fail(`Neplatná fáze odmítnutí: ${faze ?? '(null)'}. Povolené: nahled, sleva.`);
+    if (!DUVODY_ODMITNUTI.some((d) => d.kod === duvod)) {
+      fail(`Neplatný důvod odmítnutí: ${duvod ?? '(null)'}. Povolené: ma_web, cena, navrh, nepotrebuje, pozdeji, konci, jine, neuvedl.`);
+    }
+    // text jako server (regexp_replace '\r\n|[\r\n]' na mezeru, btrim mezer a tabulátorů): prázdný = null, nejvýš 450
+    // znaků, u jine povinný
+    const t = String(text ?? '').replace(/\r\n|[\r\n]/g, ' ').replace(/^[ \t]+|[ \t]+$/g, '') || null;
+    if (duvod === 'jine' && t === null) fail('U důvodu „Jiný důvod“ napište, proč návrh odmítl.');
+    if (t !== null && [...t].length > 450) fail('Text důvodu je moc dlouhý: nejvýš 450 znaků.');
+    const c = kontakty.find((x) => x.id === kontaktId);
+    const sup = user.role === 'super_admin';
+    if (!sup) {
+      // Volající: jen klient, kterého smí upravit a který dostal návrh; cizí, neexistující a bez návrhu jednou větou
+      if (!c || !canEdit(user, c.id) || !c.first_proposal_at) fail(ODMITNUTI_JEN_SVUJ);
+    } else {
+      // super admin u každého klienta s návrhem (i u toho, kterého upravit nesmí)
+      if (!c) fail(`Kontakt id=${kontaktId} neexistuje.`);
+      if (!c.first_proposal_at) fail('Klientovi ještě neodešel návrh webu: důvod odmítnutí návrhu se u něj nezapisuje.');
+    }
+    // jména kolegů v textu maskou 045 (super admin vidí všechny, jeho text zůstane)
+    const { cizi, vidi } = jmenaPro(user);
+    odmitnutiRadky.push({
+      id: nextOdmitnutiId++,
+      kontakt_id: c.id,
+      faze,
+      duvod,
+      text: poznamkaBezCizich(t, cizi, vidi),
+      zdroj: sup ? 'super_admin' : 'volajici',
+      zapsal: `app:${user.id}`,
+      at: now(),
+    });
+    // bez čísla řádku (pořadové číslo celé firmy je číslo, které Volající vidět nesmí)
+    return { ok: true };
+  },
 };
 
 /**
@@ -4957,6 +5091,11 @@ interface DemoTestHacek {
   nastavStavNiky?: (klic: string, stav: MockNika['stav']) => void;
   /** recenze B9: vlastní naplánovaný hovor člověka `uid`, jehož čas už nastal (e2e OB6: řádek „Máš naplánovaný hovor“) */
   naplanujDosly?: (kid: number, uid: number) => number;
+  /**
+   * Přehled vedení úkol 12: vynucená chyba volání (vrátí text chyby, nebo nic = volání proběhne). e2e T12l jím měří, že neuložený
+   * důvod odmítnutí výsledek hovoru nezruší (server bez migrace 072).
+   */
+  selhani?: (fn: string, args: unknown[]) => string | null | undefined;
 }
 
 function sDemoTestem(api: Api): Api {
@@ -5041,6 +5180,9 @@ function sDemoTestem(api: Api): Api {
       return kand ? [{ kontakt_id: c.id, kategorie: kand.kategorie, od: kand.od }] : [];
     }),
     dovolani: [...dovolaniUspesna.entries()].map(([kontakt_id, casy]) => ({ kontakt_id, casy: [...casy] })),
+    // Přehled vedení úkol 12 (migrace 072): uložené signály časovače práce a důvody odmítnutí (e2e blok T12, npm test pracovnicas)
+    prace: praceAktivita.map((p) => ({ ...p })),
+    odmitnuti: odmitnutiRadky.map((r) => ({ ...r })),
   });
   return new Proxy(api, {
     get(target, prop, receiver) {
@@ -5052,6 +5194,12 @@ function sDemoTestem(api: Api): Api {
         hacek.volani!.push(zaznam);
         const ms = Number(hacek.zpozdeni?.(String(prop), args.slice(1)) ?? 0);
         if (ms > 0) await new Promise<void>((r) => setTimeout(r, ms));
+        const vynucena = hacek.selhani?.(String(prop), args.slice(1));
+        if (vynucena) {
+          zaznam.ok = false;
+          zaznam.chyba = vynucena;
+          throw new Error(vynucena);
+        }
         try {
           const out = (await fn.apply(target, args)) as { id?: number; kontakt_id?: number } | null;
           zaznam.ok = true;

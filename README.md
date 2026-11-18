@@ -26,7 +26,7 @@ npm install
 npm run dev      # dev server ⚠ bez DEMO jede proti ŽIVÉ DB, viz níž
 npm run build    # produkční build do dist/ (tsc -b, zapnuté noUnusedLocals, pak vite build)
 npm run preview  # náhled produkčního buildu
-npm test         # test chování segmentu, e-mailového příznaku, volání, rozvrhu, od 056 filtrů, od úkolu 11 panelu filtrů a od 062 dovolání nad demo mockem (bez sítě, bez živé DB)
+npm test         # test chování segmentu, e-mailového příznaku, volání, rozvrhu, od 056 filtrů, od úkolu 11 panelu filtrů, od 062 dovolání a od úkolu 12 časovače práce a důvodu odmítnutí nad demo mockem (bez sítě, bez živé DB)
 npm run test:e2e # zkouška stránek v DEMO v headless prohlížeči (viz níž)
 ```
 
@@ -622,6 +622,39 @@ segmentem a výběrem člověka nad ním, výběrem volajícího a čekání upr
   super admina na klientech Petry FP6, okno na 390, 360 a 320 px, Volající v okně) a bloky, které na telefonu otevírají
   okno filtrů (pomocník `vFiltrech`: U, F056, R057, O060).
 
+## Časovač práce a důvod odmítnutí návrhu (Přehled vedení úkol 12, Albert 17. 11. 2026)
+
+Podklady pro Přehled vedení (super admin), migrace 072 (kontrakt `../docs/superpowers/specs/2026-11-17-prehled-kontrakt.md`
+§4.1 `prace_tep`, §4.2 `odmitnuti_duvod_zapis`). Volajícímu nic nového neukazují: žádné číslo, žádný čas, nic o kolezích.
+
+- **Neviditelný časovač** `src/pracovniCas.ts` (rozhodnutí D5: „It starts when a caller opens a client card and then enters a
+  call result, keeps running while they keep entering results, and stops when they close the app … Callers do not see the
+  timer.“). `App.tsx` (`PracovniCasovac`) ho spustí jednou s appkou a zastaví s ní; posílá jen signály `prace_tep`, vždy za
+  přihlášeného: **karta** jednou za každou kartu ve volání (CallPage ji hlásí `nastavKartu`, časovač se dívá každou
+  sekundu), **tep** každých 60 s, dokud je stránka vidět (a hned po otevření, po přihlášení a po návratu na stránku), **konec** při
+  `pagehide` nebo schování stránky, jednou, `fetch` s `keepalive` a stejnými hlavičkami jako ostatní RPC. Po odhlášení nic.
+  Chyby polyká; server bez 072 (PGRST202, `praceTep` vrátí false) časovač tiše zastaví. Odpracovaný čas z nich a z výsledků
+  hovorů počítá jen server (kontrakt §5.14: po víc než 30 min bez výsledku končí čas posledním výsledkem). Žádné UI.
+- **Důvod odmítnutí** `src/components/DuvodOdmitnuti.tsx` (rozhodnutí D8: „why did they reject the preview after they viewed
+  it, not why they refused to see the preview in the first place“): povinný výběr **„Proč návrh odmítl“** s registrem
+  `DUVODY` (Už má web nebo ho dělá někdo jiný, Je to pro něj drahé, Nelíbí se mu návrh, Web nepotřebuje, Teď ne, možná
+  později, Končí s podnikáním, Jiný důvod s povinným textem do 450 znaků, Neřekl proč). Jen u klienta, kterému odešel návrh
+  (`first_proposal_at`): v okně „Zavolal/a jsem“ u **Nechce web**, v detailu při změně stavu na **Odmítnuto** a ve volání
+  u **Odmítnuto** (klient s návrhem vrácený do fronty; potvrzení je pak nad sloupcem prasátka). Odmítnutí ve studeném hovoru
+  a klient bez návrhu beze změny, bez otázky. Výsledek (`zapis_hovor`, `update_kontakt`, `resolve_call`) se uloží napřed
+  a beze změny, důvod (`odmitnuti_duvod_zapis`) hned po něm; fáze **sleva** u stavu Nabídnuta sleva, jinak **nahled**. Když
+  se důvod neuloží (server bez 072: „Důvod odmítnutí server ještě neumí (chybí na něm migrace 072).“), výsledek zůstává
+  uložený a stránka připíše „Důvod odmítnutí se ale neuložil: …“.
+- **Mock**: `praceTep` a `odmitnutiDuvodZapis` jako kontrakt (signál jen za sebe, karta jen u kontaktu, který přihlášený
+  smí dělat, cizí a neexistující stejnou odpovědí bez zápisu, tep nejvýš jednou za 20 s; důvod Volající jen u svého klienta
+  s návrhem, cizí, neexistující a bez návrhu jednou větou, super admin u každého klienta s návrhem, maska jmen kolegů),
+  registr `DUVODY_ODMITNUTI`, háček `stav().prace` a `stav().odmitnuti`, `selhani` (vynucená chyba volání v testu).
+- **Testy**: `npm test` soubor `tests/pracovnicas.test.mjs` (časovač s falešnými hodinami, co jde serveru a server bez 072,
+  pravidla mocku, registr a výběr, zapojení stránek) a `tests/volani.test.mjs` X15; `npm run test:e2e` blok T12 (Volající
+  ve volání pošle kartu a tep, konec, nic po odhlášení; „Nechce web“ po návrhu chce důvod, před návrhem ne; fáze sleva;
+  detail; chyba uložení důvodu hovor nezruší; volání) a upravené V4a, V6a (signály časovače se nepočítají) a O61b (u 93
+  a 94 „Nechce web“ chce důvod).
+
 ## Účty a přihlášení (produkce)
 
 - Vlastní auth v Postgresu (žádný Supabase Auth): funkce `login` vrací token,
@@ -823,7 +856,7 @@ který schvaluje Albert (u zprávy je vidět jeho stav).
 | ------------- | ------- | --------------------------------------------------------------- |
 | `#/login`     | všichni | přihlášení                                                       |
 | `#/`          | všichni | domů — dlaždice podle role                                       |
-| `#/call`      | všichni | fronta hovorů: přepínač chaty / architekti (028), karta kontaktu + výsledky (nedovoláno/odmítnuto/zájem, od 050 i nerelevantní a přeplánovat; `?zavolat=<id>` = karta z kalendáře); kontakt, kterému Volající ještě nevolal, bez stavu, poznámek a příznaku (045, 20. 10. 2026). Poznámka k hovoru je **nepovinná** — zájem jde uložit i bez ní (Albert 2026-09-23; dřív se při prázdné poznámce otevíralo potvrzovací okno navíc); od migrace 051 (Albert 22. 10. 2026) i bez ceny webu a hostingu, povinná je jen známka (⚠ NAHRAZUJE povinné ceny z 1. 9. 2026); od migrace 060 (Albert 1. 11. 2026) u zájmu „Velký zájem (hvězda)“ a u svého klienta přehled klienta (`kontakt_prehled`) |
+| `#/call`      | všichni | fronta hovorů: přepínač chaty / architekti (028), karta kontaktu + výsledky (nedovoláno/odmítnuto/zájem, od 050 i nerelevantní a přeplánovat; `?zavolat=<id>` = karta z kalendáře); kontakt, kterému Volající ještě nevolal, bez stavu, poznámek a příznaku (045, 20. 10. 2026). Poznámka k hovoru je **nepovinná** — zájem jde uložit i bez ní (Albert 2026-09-23; dřív se při prázdné poznámce otevíralo potvrzovací okno navíc); od migrace 051 (Albert 22. 10. 2026) i bez ceny webu a hostingu, povinná je jen známka (⚠ NAHRAZUJE povinné ceny z 1. 9. 2026); od migrace 060 (Albert 1. 11. 2026) u zájmu „Velký zájem (hvězda)“ a u svého klienta přehled klienta (`kontakt_prehled`); od 17. 11. 2026 (úkol 12) karta na obrazovce pro neviditelný časovač práce a u klienta s návrhem Odmítnuto s povinným „Proč návrh odmítl“ |
 | `#/kalendar`  | všichni | kalendář hovorů (050): svůj každý, super admin kohokoli nebo všech; Po termínu, Dnes, Nadcházející, Hotové a zrušené; Zavolat teď, Hotovo, Přesunout, Zrušit; ⚠ od migrace 062 (Albert 2. 11. 2026) Hotovo u klienta mimo frontu, kterému jde zapsat dovolání, otevře okno „Zavolal/a jsem“ (NAHRAZUJE „Hotovo jen s textem“ u takového klienta); ⚠ od 3. 11. 2026 (ověření 062) si napřed přečte označení z přehledu klienta (`kontakt_prehled`), takže označený klient dostane okno s označením a kampaňová chata s označením okno „Zavolal/a jsem“, ne „Hovor je hotový?“ |
 | `#/stats`     | všichni | moje statistiky; super admin (i Albert) přes dropdown kohokoli (027) a trychtýř „Klienti podle stavu" (součty celé databáze) s filtrem segmentu (028); ⚠ trychtýř od 19. 10. 2026 a dlaždice „jako #1 prodejce“ od 20. 10. 2026 jen super admin (migrace 045, NAHRAZUJE „(admin)“): Volající vidí jen svoje čísla; od migrace 056 (Albert 27. 10. 2026) super admin i statistiky za jeden den (Celkem / Jeden den, den v Praze); od migrace 069 (Albert 15. 11. 2026) super admin v pohledu Celkem i tabulku „Zájem podle volajících“ (chce web, odpověděl, zájem celkem, čeká na odpověď po volajících, bez volajícího a celkem, s filtrem segmentu) |
 | `#/moji`      | všichni | moji klienti (+ historie poznámek v detailu); super admin může vybrat kohokoli (027); filtr segmentu (028); od migrace 056 (Albert 27. 10. 2026) super admin stejné filtry jako Kontakty a řazení podle poslední změny, Volající beze změny; od migrace 057 sloupec posledního hovoru (Volajícímu „Můj poslední hovor“) a super admin řadí i podle něj; ⚠ od migrace 060 (Albert 1. 11. 2026) filtry, hledání na serveru a řazení i Volající nad svými klienty (NAHRAZUJE „Volající beze změny“), sloupec Mlčí, hvězda, „Zavolal/a jsem“ v přehledu detailu; ⚠ od migrace 061 (Albert 2. 11. 2026) řádky o dvou řádcích bez posunu do strany (NAHRAZUJE tabulku posouvanou v rámečku); ⚠ od migrace 062 (Albert 2. 11. 2026) „Zavolal/a jsem“ v 1. řádku i u klienta bez označení (NAHRAZUJE „jen v přehledu detailu u označení“), v detailu i bez označení, menu stavů jen se stavy, které člověk smí nastavit; ⚠ od 17. 11. 2026 (úkol 11) panel filtrů ve třech řadách s čipy a „Zrušit vše“, na telefonu okno „Filtry (n)“ |

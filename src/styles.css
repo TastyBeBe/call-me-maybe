@@ -4051,6 +4051,54 @@ table.kontakty.kompakt .mlceni-bunka > * {
   color: var(--pink);
 }
 
+/* ---------- důvod odmítnutí návrhu (Přehled vedení úkol 12, Albert 17. 11. 2026, D8) ----------
+   Povinný výběr „Proč návrh odmítl“ (src/components/DuvodOdmitnuti.tsx) v okně Zavolal/a jsem, v detailu a v potvrzení
+   Odmítnuto ve volání, jen u klienta, kterému odešel návrh. Pole jako ostatní (.field), písmo 16 px: iPhone při výběru
+   stránku nezvětší. Věta o fázi a co chybí drobně pod výběrem. */
+.duvod-odmitnuti {
+  margin: 10px 0 0;
+}
+
+.duvod-odmitnuti .field {
+  margin-bottom: 0;
+}
+
+.duvod-odmitnuti .field + .field {
+  margin-top: 10px;
+}
+
+.duvod-odmitnuti select,
+.duvod-odmitnuti textarea {
+  font-size: 16px;
+}
+
+/* pole mají v appce outline: none; výběr z klávesnice (Tab) musí být vidět, oranžově jako ovládání filtrů (úkol 11) */
+.duvod-odmitnuti select:focus-visible {
+  outline: 3px solid var(--orange);
+  outline-offset: 2px;
+}
+
+.duvod-odmitnuti-faze,
+.duvod-odmitnuti-chybi {
+  margin: 2px 0 0;
+  font-size: 13px;
+}
+
+.duvod-odmitnuti-text .zavolat-pocet {
+  align-self: flex-end;
+}
+
+/* v detailu odděluje od pole „Proč měníš stav“ jako ostatní pole */
+.drawer .duvod-odmitnuti {
+  margin: 0 0 12px;
+}
+
+/* Potvrzení Odmítnuto ve volání s výběrem důvodu: nad sloupcem prasátka (pig.css z-index 1001) jako okno Zavolal/a jsem
+   (.dovolani-scrim, migrace 061), jinak by na telefonu zakrýval začátek výběru. Potvrzení studené karty zůstává jako dřív. */
+.scrim.nad-prokchopem {
+  z-index: 1002;
+}
+
 @media (max-width: 640px) {
   .modal.dovolani-okno {
     padding: 16px;

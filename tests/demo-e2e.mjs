@@ -109,8 +109,11 @@ const chybyStranky = [];
 const UID = { admin: 1, petra: 2, honza: 3, mikulas: 4, eva: 5 };
 const HESLO = { admin: 'admin', petra: 'volam', honza: 'volam', mikulas: 'mikulas', eva: 'eva' };
 
-async function novaStranka(kdo, { sirka = 1280, vyska = 900, ls = {} } = {}) {
+async function novaStranka(kdo, { sirka = 1280, vyska = 900, ls = {}, hodiny = false } = {}) {
   const ctx = await browser.newContext({ viewport: { width: sirka, height: vyska } });
+  // hodiny: falešné hodiny prohlížeče (Playwright clock) PŘED načtením appky; čas běží dál sám, test ho posune clock.runFor
+  // (Přehled vedení úkol 12: tep časovače práce každých 60 s, blok T12)
+  if (hodiny) await ctx.clock.install();
   // ls: další klíče localStorage před načtením appky (migrace 064: volacka_demo_obory zapne ukázkové niky, blok OB)
   await ctx.addInitScript((dalsi) => {
     localStorage.setItem('volacka_supabase_url', ' ');
@@ -309,7 +312,9 @@ const nazvyVolani = (vs) => vs.map((v) => v.fn);
   const stavPred = await stav(page);
   await prepinac(page, 'architekt').click();
   await klid(page, 500);
-  const po = (await volani(page)).slice(pred);
+  // ⚠ úkol 12 (Albert 17. 11. 2026, D5): signály neviditelného časovače práce (praceTep: karta do 1 s po zobrazení, tep
+  // každých 60 s) chodí nezávisle na kartě, do „přepnutí nevolá server“ se nepočítají (NAHRAZUJE „žádné volání vůbec“)
+  const po = (await volani(page)).slice(pred).filter((v) => v.fn !== 'praceTep');
   over('V4a', po.length === 0, 'přepnutí u rozdělané karty nevolá server (karta zůstává)', JSON.stringify(nazvyVolani(po)));
   over('V4b', (await kartaId(page)) === x, 'rozdělaná karta zůstala na obrazovce', `${await kartaId(page)} ≠ ${x}`);
   over('V4c', (await poznamka.inputValue()) === 'zkouška rozdělané karty', 'poznámka zůstala napsaná');
@@ -387,7 +392,8 @@ const bezVytaceni = (page) =>
   const stavPred = await stav(page);
   await prepinac(page, 'architekt').click();
   await klid(page, 400);
-  const po = (await volani(page)).slice(pred);
+  // ⚠ úkol 12: signály časovače práce (praceTep) se nepočítají, jako u V4a (NAHRAZUJE „žádné volání vůbec“)
+  const po = (await volani(page)).slice(pred).filter((v) => v.fn !== 'praceTep');
   over('V6a', po.length === 0 && (await kartaId(page)) === x, 'po kliknutí na číslo přepnutí kartu tiše nevrátí (zůstává, server se nevolá)', JSON.stringify(nazvyVolani(po)));
   over('V6b', /Po tomhle hovoru dostaneš architekta\./.test(await page.locator('.info-box').first().innerText({ timeout: 2000 }).catch(() => '')), 'žlutá cedulka jako u rozdělané karty');
   const hned = page.getByRole('button', { name: 'Přepnout hned' });
@@ -2227,15 +2233,21 @@ for (const [w, h, odkud] of [[360, 640, 'řádek'], [390, 844, 'řádek'], [1280
           volbaNahore: !!nahore?.closest('.dovolani-volby'),
           stitek: o.querySelector('label[for="dovolani-text"]')?.textContent ?? '',
           zapsat: [...o.querySelectorAll('.modal-actions button')].pop()?.disabled ?? null,
+          duvod: !!o.querySelector('.duvod-odmitnuti'),
         };
       });
       const povinna = POVINNA_061.includes(v);
+      // ⚠ úkol 12 (Albert 17. 11. 2026, D8): 93 i 94 dostali návrh, „Nechce web“ u nich chce povinný důvod odmítnutí
+      // (výběr „Proč návrh odmítl“), Zapsat hovor je bez něj vypnuté; poznámka zůstává nepovinná (NAHRAZUJE „vypnuté jen bez
+      // povinné poznámky“)
+      const sDuvodem = v === 'Nechce web';
       if (!m.vOkne) spatne.push(`${v}: okno přesahuje obrazovku`);
       if (!m.sirka) spatne.push(`${v}: okno se posouvá do strany`);
       if (!m.tlacitka) spatne.push(`${v}: Zpět nebo Zapsat hovor není vidět v okně`);
       if (!m.volbaNahore) spatne.push(`${v}: první volbu něco zakrývá`);
       if (/\(povinná\)/.test(m.stitek) !== povinna || (!povinna && !/\(nepovinná\)/.test(m.stitek))) spatne.push(`${v}: štítek „${txt(m.stitek)}“`);
-      if (m.zapsat !== povinna) spatne.push(`${v}: Zapsat hovor ${m.zapsat ? 'vypnuté' : 'zapnuté'} bez poznámky`);
+      if (m.duvod !== sDuvodem) spatne.push(`${v}: výběr důvodu odmítnutí ${m.duvod ? 'navíc' : 'chybí'}`);
+      if (m.zapsat !== (povinna || sDuvodem)) spatne.push(`${v}: Zapsat hovor ${m.zapsat ? 'vypnuté' : 'zapnuté'} bez poznámky${sDuvodem ? ' a důvodu' : ''}`);
     }
     // 500 znaků u „Mluvili jsme“, pak „Nechce web“ (nejvýš 450): zapsat nejde, počítadlo „500 / 450“ červeně
     await okno.getByRole('radio', { name: 'Mluvili jsme – co klient chce' }).click();
@@ -3274,6 +3286,261 @@ await blok050('FP5 petra 320', async () => {
     over(`FP5 ${hash}`, JSON.stringify(m.ovladace) === JSON.stringify(cekam) && zavreno <= 320 && m.sirka <= 320,
       `Volající (${hash}, 320 px): v okně tytéž filtry jako dřív, bez posunu do strany`, JSON.stringify({ zavreno, ...m }));
   }
+  await ctx.close();
+});
+
+/* ============ T12 (Přehled vedení úkol 12, Albert 17. 11. 2026, D5 a D8): neviditelný časovač práce a důvod odmítnutí ============ */
+// Časovač (src/pracovniCas.ts): Volající ve volání pošle signál karta za každou kartu na obrazovce a každých 60 s tep (hodiny
+// prohlížeče jsou falešné, ctx.clock), schovaná stránka konec, po odhlášení nic; na stránce o něm nic není. Důvod odmítnutí
+// (src/components/DuvodOdmitnuti.tsx): „Nechce web“ (okno Zavolal/a jsem), Odmítnuto v detailu a ve volání u klienta, kterému
+// odešel návrh, chce povinný výběr „Proč návrh odmítl“ a uloží ho (odmitnuti_duvod_zapis) až po výsledku; u klienta bez
+// návrhu (studený hovor, zájem bez návrhu) se neptá. Chyba uložení důvodu výsledek hovoru nezruší.
+const signaly = async (page) => (await volani(page)).filter((v) => v.fn === 'praceTep');
+const DUVODY_T12 = ['Už má web nebo ho dělá někdo jiný', 'Je to pro něj drahé', 'Nelíbí se mu návrh', 'Web nepotřebuje', 'Teď ne, možná později',
+  'Končí s podnikáním', 'Jiný důvod', 'Neřekl proč'];
+const schovejStranku = (page, schovat) => page.evaluate((s) => {
+  Object.defineProperty(document, 'visibilityState', { value: s ? 'hidden' : 'visible', configurable: true });
+  document.dispatchEvent(new Event('visibilitychange'));
+}, schovat);
+await blok050('T12a petra', async () => {
+  const { ctx, page } = await novaStranka('petra', { hodiny: true });
+  await jdi(page, '#/call');
+  const x = await kartaId(page);
+  await page.clock.runFor(1500);
+  await klid(page);
+  const s1 = await signaly(page);
+  const karty1 = s1.filter((v) => v.args[0] === 'karta');
+  const ulozene = (await stav(page)).prace;
+  over('T12a', x !== null && karty1.length === 1 && karty1[0].args[1] === x && karty1[0].ok === true && s1.some((v) => v.args[0] === 'tep' && v.ok)
+    && ulozene.some((p) => p.druh === 'karta' && p.kontakt_id === x && p.user_id === UID.petra) && ulozene.every((p) => p.user_id === UID.petra),
+    'Volající ve volání: jedna karta s kontaktem na obrazovce a tep; mock je uložil jen za ni', JSON.stringify({ x, s: s1.map((v) => v.args), ulozene }));
+  const tepu = (s) => s.filter((v) => v.args[0] === 'tep').length;
+  await page.clock.runFor(61000);
+  await klid(page);
+  const s2 = await signaly(page);
+  over('T12b', tepu(s2) === tepu(s1) + 1 && s2.filter((v) => v.args[0] === 'karta').length === 1,
+    'za 60 s další tep, karta se za tutéž kartu neopakuje', JSON.stringify(s2.map((v) => v.args)));
+  const viditelne = await page.evaluate(() => document.body.innerText);
+  over('T12c', !/časovač|odpracov|pracovní čas/i.test(viditelne), 'časovač na stránce nic neukazuje', viditelne.slice(0, 160));
+  await page.getByRole('button', { name: 'Nedovoláno' }).click();
+  await klid(page, 400);
+  await page.clock.runFor(1500);
+  await klid(page);
+  const y = await kartaId(page);
+  const s3 = await signaly(page);
+  over('T12d', y !== null && y !== x && JSON.stringify(s3.filter((v) => v.args[0] === 'karta').map((v) => v.args[1])) === JSON.stringify([x, y]),
+    'další karta po výsledku hovoru = další signál karta', JSON.stringify(s3.map((v) => v.args)));
+  await schovejStranku(page, true);
+  await klid(page);
+  const s4 = await signaly(page);
+  await page.clock.runFor(130000);
+  await klid(page);
+  const s5 = await signaly(page);
+  over('T12e', s4.at(-1)?.args[0] === 'konec' && s4.filter((v) => v.args[0] === 'konec').length === 1 && s5.length === s4.length,
+    'schovaná stránka pošle konec a pak žádný tep', JSON.stringify(s5.slice(s3.length).map((v) => v.args)));
+  await schovejStranku(page, false);
+  await klid(page);
+  const s6 = await signaly(page);
+  over('T12f', s6.length === s5.length + 1 && s6.at(-1)?.args[0] === 'tep', 'stránka zase vidět: hned tep', JSON.stringify(s6.slice(s5.length).map((v) => v.args)));
+  await page.getByRole('button', { name: 'odhlásit' }).click();
+  await page.waitForFunction(() => location.hash.includes('login'));
+  await klid(page);
+  const s7 = await signaly(page);
+  await page.clock.runFor(130000);
+  await page.waitForTimeout(200);
+  const s8 = await signaly(page);
+  over('T12g', s8.length === s7.length, 'po odhlášení žádný signál', JSON.stringify(s8.slice(s7.length).map((v) => v.args)));
+  await ctx.close();
+});
+
+/** Okno Zavolal/a jsem u řádku `jmeno` na stránce `hash`, výsledek „Nechce web“. */
+const nechceWeb = async (page, hash, jmeno) => {
+  await jdi(page, hash, 700);
+  await page.locator('table.kontakty tbody tr', { hasText: jmeno }).first().locator('button.zavolal-btn').click();
+  const okno = page.locator('.dovolani-okno');
+  await okno.waitFor(KRATKE);
+  const predVolbou = await okno.locator('.duvod-odmitnuti').count();
+  await okno.getByRole('radio', { name: 'Nechce web', exact: true }).click();
+  await page.waitForTimeout(80);
+  return { okno, predVolbou, zapsat: okno.getByRole('button', { name: 'Zapsat hovor' }) };
+};
+const zapisyDuvodu = async (page) => (await volani(page)).filter((v) => v.fn === 'zapisHovor' || v.fn === 'odmitnutiDuvodZapis' || v.fn === 'updateKontakt'
+  || v.fn === 'resolveCall');
+
+await blok050('T12h petra', async () => {
+  // 93: Petřin klient s návrhem (Moji klienti, označení „Neodpověděl na návrh“); Jiný důvod chce text
+  const { ctx, page } = await novaStranka('petra');
+  const { okno, predVolbou, zapsat } = await nechceWeb(page, '#/moji', 'U Rybníka');
+  const vyber = okno.locator('select#dovolani-duvod-vyber');
+  await vyber.waitFor(KRATKE);
+  const stitek = txt(await okno.locator('label[for="dovolani-duvod-vyber"]').innerText());
+  const moznosti = (await vyber.locator('option').allInnerTexts()).map(txt);
+  const faze = txt(await okno.locator('.duvod-odmitnuti-faze').innerText());
+  const bezDuvodu = await zapsat.isDisabled();
+  await vyber.selectOption('jine');
+  const bezTextu = await zapsat.isDisabled();
+  await okno.locator('#dovolani-duvod-text').fill('web mu udělá synovec');
+  const sTextem = !(await zapsat.isDisabled());
+  const pred = (await volani(page)).length;
+  await zapsat.click();
+  await klid(page, 700);
+  const vs = (await zapisyDuvodu(page)).filter((v) => (v.fn === 'zapisHovor' || v.fn === 'odmitnutiDuvodZapis'));
+  const s = await stav(page);
+  const info = txt(await page.locator('.dovolani-info').innerText().catch(() => ''));
+  over('T12h', predVolbou === 0 && /^Proč návrh odmítl/.test(stitek) && JSON.stringify(moznosti.slice(1)) === JSON.stringify(DUVODY_T12) && moznosti.length === 9
+    && faze === 'Zapíše se jako: Odmítl náhled (návrh webu).' && bezDuvodu && bezTextu && sTextem
+    && JSON.stringify(vs.map((v) => v.fn)) === '["zapisHovor","odmitnutiDuvodZapis"]' && vs.every((v) => v.ok)
+    && JSON.stringify(vs[0].args.slice(0, 2)) === '[93,"nechce"]' && JSON.stringify(vs[1].args) === '[93,"nahled","jine","web mu udělá synovec"]'
+    && s.odmitnuti.some((r) => r.kontakt_id === 93 && r.faze === 'nahled' && r.duvod === 'jine' && r.zdroj === 'volajici' && r.zapsal === 'app:2')
+    && s.kontakty.find((k) => k.id === 93)?.status === 'odmitnuto' && /je zapsaný: nechce web\./.test(info) && !/neuložil/.test(info)
+    && (await page.locator('.dovolani-okno').count()) === 0 && (await volani(page)).length > pred,
+    '„Nechce web“ u klienta s návrhem: povinný výběr „Proč návrh odmítl“ (8 důvodů), Jiný důvod chce text; zapis_hovor napřed, pak odmitnuti_duvod_zapis (93, nahled)',
+    JSON.stringify({ predVolbou, stitek, moznosti, faze, bezDuvodu, bezTextu, sTextem, vs: vs.map((v) => [v.fn, v.args]), info }));
+  await ctx.close();
+});
+
+await blok050('T12i honza', async () => {
+  // 3: Honzův klient v zájmu, návrh ještě nedostal: „Nechce web“ beze změny jako dřív (bez výběru důvodu, bez druhého volání)
+  const { ctx, page } = await novaStranka('honza');
+  const { okno, zapsat } = await nechceWeb(page, '#/moji', 'Chalupa Vysočina');
+  const vyber = await okno.locator('.duvod-odmitnuti').count();
+  const lze = !(await zapsat.isDisabled());
+  await zapsat.click();
+  await klid(page, 700);
+  const vs = await zapisyDuvodu(page);
+  over('T12i', vyber === 0 && lze && JSON.stringify(vs.map((v) => v.fn)) === '["zapisHovor"]' && vs[0].ok && (await stav(page)).kontakty.find((k) => k.id === 3)?.status === 'odmitnuto'
+    && (await stav(page)).odmitnuti.length === 0,
+    '„Nechce web“ u klienta bez návrhu: žádný výběr důvodu, Zapsat hovor hned, jen zapis_hovor', JSON.stringify({ vyber, lze, vs: vs.map((v) => v.fn) }));
+  await ctx.close();
+});
+
+await blok050('T12j mikulas', async () => {
+  // 97: Mikulášův klient ve stavu Nabídnuta sleva (Označené): fáze sleva
+  const { ctx, page } = await novaStranka('mikulas');
+  const { okno, zapsat } = await nechceWeb(page, '#/oznacene', 'Za Humny');
+  const faze = txt(await okno.locator('.duvod-odmitnuti-faze').innerText().catch(() => ''));
+  await okno.locator('select#dovolani-duvod-vyber').selectOption('cena');
+  await zapsat.click();
+  await klid(page, 700);
+  const vs = (await zapisyDuvodu(page)).filter((v) => v.fn === 'odmitnutiDuvodZapis');
+  const r = (await stav(page)).odmitnuti.at(-1);
+  over('T12j', faze === 'Zapíše se jako: Odmítl nabídku za polovinu.' && JSON.stringify(vs.map((v) => v.args)) === '[[97,"sleva","cena",null]]' && vs[0].ok
+    && r?.zdroj === 'super_admin' && r?.zapsal === 'app:4',
+    'klient s nabídnutou slevou: důvod se zapíše jako odmítnutí nabídky za polovinu (fáze sleva)', JSON.stringify({ faze, vs: vs.map((v) => v.args), r }));
+  await ctx.close();
+});
+
+await blok050('T12k petra', async () => {
+  // detail: změna stavu na Odmítnuto u klienta s návrhem (94) chce důvod a uloží ho po update_kontakt; bez návrhu (20) ne
+  const { ctx, page } = await novaStranka('petra');
+  await jdi(page, '#/moji', 700);
+  const otevri = async (jmeno) => {
+    if (await page.locator('.drawer-close').count()) {
+      await page.locator('.drawer-close').click();
+      await klid(page, 250);
+    }
+    await page.locator('table.kontakty tbody tr', { hasText: jmeno }).first().locator('td.row-name').click();
+    await klid(page, 500);
+  };
+  const stavSelect = () => page.locator('.drawer .field:has(> label:text-is("Status")) > select');
+  const ulozit = () => page.locator('.drawer').getByRole('button', { name: 'Uložit změny' });
+  await otevri('Chalupa Na Vršku');
+  await stavSelect().selectOption('odmitnuto');
+  const bezNavrhu = await page.locator('.drawer .duvod-odmitnuti').count();
+  await otevri('Roubenka Na Kopci');
+  const predZmenou = await page.locator('.drawer .duvod-odmitnuti').count();
+  await stavSelect().selectOption('odmitnuto');
+  await page.locator('#duvod-stavu').fill('návrh se mu nelíbí, řekl v telefonu');
+  const vyber = page.locator('.drawer select#detail-duvod-vyber');
+  const sVyberem = await vyber.count();
+  const bezDuvodu = await ulozit().isDisabled();
+  await vyber.selectOption('navrh');
+  const lze = !(await ulozit().isDisabled());
+  await ulozit().click();
+  await klid(page, 700);
+  const vs = (await zapisyDuvodu(page)).filter((v) => v.fn === 'updateKontakt' || v.fn === 'odmitnutiDuvodZapis');
+  const s = await stav(page);
+  over('T12k', bezNavrhu === 0 && predZmenou === 0 && sVyberem === 1 && bezDuvodu && lze
+    && JSON.stringify(vs.map((v) => v.fn)) === '["updateKontakt","odmitnutiDuvodZapis"]' && vs.every((v) => v.ok)
+    && vs[0].args[1]?.status === 'odmitnuto' && vs[0].args[1]?.status_duvod === 'návrh se mu nelíbí, řekl v telefonu'
+    && JSON.stringify(vs[1].args) === '[94,"nahled","navrh",null]' && s.kontakty.find((k) => k.id === 94)?.status === 'odmitnuto'
+    && (await page.locator('.drawer .error-box').count()) === 0,
+    'detail: Odmítnuto u klienta s návrhem chce „Proč návrh odmítl“ (bez něj Uložit vypnuté), stav jde stejně jako dřív a důvod po něm; bez návrhu (20) se neptá',
+    JSON.stringify({ bezNavrhu, predZmenou, sVyberem, bezDuvodu, lze, vs: vs.map((v) => [v.fn, v.args]) }));
+  await ctx.close();
+});
+
+await blok050('T12l petra', async () => {
+  // chyba při ukládání důvodu (server bez 072, vynucená háčkem mocku) výsledek hovoru nezruší: hovor zapsaný, věta řekne proč
+  const { ctx, page } = await novaStranka('petra');
+  const { okno, zapsat } = await nechceWeb(page, '#/moji', 'Chalupa Pod Skálou');
+  await okno.locator('select#dovolani-duvod-vyber').selectOption('pozdeji');
+  await page.evaluate(() => {
+    globalThis.__volackaDemoTest.selhani = (fn) => (fn === 'odmitnutiDuvodZapis' ? 'Důvod odmítnutí server ještě neumí (chybí na něm migrace 072).' : null);
+  });
+  await zapsat.click();
+  await klid(page, 700);
+  const vs = (await zapisyDuvodu(page)).filter((v) => v.fn === 'zapisHovor' || v.fn === 'odmitnutiDuvodZapis');
+  const info = txt(await page.locator('.dovolani-info').innerText().catch(() => ''));
+  const s = await stav(page);
+  over('T12l', JSON.stringify(vs.map((v) => [v.fn, v.ok])) === '[["zapisHovor",true],["odmitnutiDuvodZapis",false]]'
+    && s.kontakty.find((k) => k.id === 95)?.status === 'odmitnuto' && s.odmitnuti.length === 0 && (await page.locator('.dovolani-okno').count()) === 0
+    && /je zapsaný: nechce web\.( Zapsáno jako další hovor bez označení\.)? Důvod odmítnutí se ale neuložil: Důvod odmítnutí server ještě neumí \(chybí na něm migrace 072\)\.$/.test(info),
+    'neuložený důvod: hovor zůstane zapsaný (stav Odmítnuto), okno se zavře a věta řekne, že důvod se neuložil a proč', JSON.stringify({ vs: vs.map((v) => [v.fn, v.ok, v.chyba]), info }));
+  await ctx.close();
+});
+
+await blok050('T12m petra', async () => {
+  // volání: klient s návrhem, který se vrátil do fronty (95 → Nedovoláno v detailu) a má Petřin hovor, jehož čas nastal; Odmítnuto
+  // chce důvod a uloží ho po resolve_call. Studená karta bez návrhu (10, Petřin starší naplánovaný hovor, přijde první) má
+  // potvrzení beze změny.
+  const { ctx, page } = await novaStranka('petra');
+  await jdi(page, '#/moji', 700);
+  await page.locator('table.kontakty tbody tr', { hasText: 'Chalupa Pod Skálou' }).first().locator('td.row-name').click();
+  await klid(page, 500);
+  await page.locator('.drawer .field:has(> label:text-is("Status")) > select').selectOption('nedovolano');
+  await page.locator('#duvod-stavu').fill('zavolat znovu');
+  await page.locator('.drawer').getByRole('button', { name: 'Uložit změny' }).click();
+  await klid(page, 500);
+  await page.locator('.drawer-close').click();
+  await page.evaluate(() => globalThis.__volackaDemoTest.naplanujDosly(95, 2));
+  await jdi(page, '#/call', 700);
+  const studenaKarta = await kartaId(page);
+  await page.getByRole('button', { name: 'Odmítnuto' }).click();
+  const studene = page.locator('.modal', { hasText: 'Opravdu odmítnuto?' });
+  await studene.waitFor(KRATKE);
+  const studenaBezVyberu = (await studene.locator('.duvod-odmitnuti').count()) === 0 && !(await studene.getByRole('button', { name: 'Ano, odmítli' }).isDisabled());
+  await studene.getByRole('button', { name: 'Zpět' }).click();
+  await page.getByRole('button', { name: 'Nedovoláno' }).click();
+  await klid(page, 700);
+  const karta = await kartaId(page);
+  await page.getByRole('button', { name: 'Odmítnuto' }).click();
+  const modal = page.locator('.modal', { hasText: 'Opravdu odmítnuto?' });
+  await modal.waitFor(KRATKE);
+  const ano = modal.getByRole('button', { name: 'Ano, odmítli' });
+  const vypnuto = await ano.isDisabled();
+  // na telefonu (390 px) výběr nezakrývá sloupec prasátka (z-index 1001) a stránka se neposouvá do strany
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.waitForTimeout(200);
+  const naTelefonu = await page.evaluate(() => {
+    const s = document.querySelector('#volani-duvod-vyber');
+    const r = s.getBoundingClientRect();
+    const nahore = document.elementFromPoint(r.left + 6, r.top + r.height / 2);
+    return { odkryty: !!nahore && (nahore === s || s.contains(nahore)), bezPosunu: document.documentElement.scrollWidth <= innerWidth };
+  });
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.waitForTimeout(150);
+  await modal.locator('select#volani-duvod-vyber').selectOption('nepotrebuje');
+  await ano.click();
+  await klid(page, 700);
+  const vs = (await zapisyDuvodu(page)).filter((v) => v.fn === 'resolveCall' || v.fn === 'odmitnutiDuvodZapis');
+  const odmitnuti = vs.filter((v) => v.fn === 'odmitnutiDuvodZapis' || v.args[0]?.outcome === 'odmitnuto');
+  over('T12m', studenaKarta === 10 && studenaBezVyberu && karta === 95 && vypnuto && naTelefonu.odkryty && naTelefonu.bezPosunu
+    && JSON.stringify(odmitnuti.map((v) => v.fn)) === '["resolveCall","odmitnutiDuvodZapis"]' && odmitnuti.every((v) => v.ok)
+    && odmitnuti[0].args[0]?.kontakt_id === 95 && JSON.stringify(odmitnuti[1].args) === '[95,"nahled","nepotrebuje",null]'
+    && (await stav(page)).kontakty.find((k) => k.id === 95)?.status === 'odmitnuto',
+    'volání: studená karta (10) bez výběru důvodu; klient s návrhem zpátky ve frontě (95): Odmítnuto chce důvod (na telefonu nezakrytý), resolve_call napřed, pak odmitnuti_duvod_zapis',
+    JSON.stringify({ studenaKarta, studenaBezVyberu, karta, vypnuto, naTelefonu, vs: vs.map((v) => [v.fn, v.args]) }));
   await ctx.close();
 });
 

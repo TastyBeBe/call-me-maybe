@@ -15,6 +15,8 @@ import { isAdminRole, isSuperAdmin } from './roles';
 import { klicNikKVolani, nactiNiky, OBNOVA_NIK_MS, useNiky, viditelneNiky, zapomenNiky } from './obory';
 import { vychoziNikaRelace } from './segment';
 import { nactiZobrazeneStavy, zapomenZobrazeneStavy } from './zobrazeni';
+import { getApi } from './api';
+import { aktualniKarta, spustCasovac } from './pracovniCas';
 
 /** Logo = Prokchopova pochroumaná hlava v party čepici (public/icons). */
 const logoUrl = import.meta.env.BASE_URL + 'icons/procop_logo_256.png';
@@ -147,6 +149,19 @@ function ZobrazeniNacitani() {
     if (token) void nactiZobrazeneStavy(token);
     else zapomenZobrazeneStavy();
   }, [token]);
+  return null;
+}
+
+/**
+ * Neviditelný časovač práce (Přehled vedení úkol 12, Albert 17. 11. 2026, D5; src/pracovniCas.ts): spustí se jednou s appkou
+ * a zastaví se s ní. Token čte u každého signálu znovu (po odhlášení null = žádný signál), kartu z CallPage (aktualniKarta).
+ * Nic nevykresluje: Volající ani super admin o něm v appce nic nevidí; odpracovaný čas počítá server.
+ */
+function PracovniCasovac() {
+  const { session } = useAuth();
+  const token = useRef<string | null>(null);
+  token.current = session?.token ?? null;
+  useEffect(() => spustCasovac({ praceTep: (t, druh, kontaktId) => getApi().praceTep(t, druh, kontaktId) }, () => token.current, aktualniKarta), []);
   return null;
 }
 
@@ -299,6 +314,7 @@ export default function App() {
       <AudioLayer />
       <OboryNacitani />
       <ZobrazeniNacitani />
+      <PracovniCasovac />
       <TopBar />
       <PigBoundary>
         <PigLayer />
