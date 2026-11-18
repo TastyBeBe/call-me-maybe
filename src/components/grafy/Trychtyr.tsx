@@ -5,9 +5,9 @@
 // nikdy „Dovolán“. Kdo ještě běží (otevřených) a kdo má milník bez předchozího, je v bublině a v tabulce; nic se nedopočítává.
 // Neznámý krok (zdroj chybí) pruh nemá a ukáže „—“ s důvodem. Klik na pruh = řádky kroku; klávesnicí totéž v tabulce.
 
-import { useId, type PointerEvent as ReactPointerEvent } from 'react';
+import { useId, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 import type { PrehledProklik } from '../../api/types';
-import { formatPodil, nazevMetriky } from '../../prehled';
+import { formatPocet, formatPodil, nazevMetriky } from '../../prehled';
 import { CisloTlacitko } from '../prehled/Tabulka';
 import GrafRam, { Bublina, cestaPruhu, navratFokusu, Popisek, rozlozRadky, useBublina, useSirka } from './Ram';
 
@@ -26,7 +26,6 @@ export interface KrokGrafu {
 const RADEK = 46;
 const PRUH = 16;
 const PROSTOR_HODNOTY = 104;
-const cislo = (n: number | null): string => (n === null ? '—' : new Intl.NumberFormat('cs-CZ').format(n));
 const podil = (p: number | null): string => (p === null ? '—' : formatPodil(p));
 
 export default function Trychtyr({
@@ -37,6 +36,7 @@ export default function Trychtyr({
   kroky,
   onProklik,
   vychoziTabulka = false,
+  pata,
 }: {
   graf?: string;
   nadpis: string;
@@ -45,6 +45,8 @@ export default function Trychtyr({
   kroky: KrokGrafu[];
   onProklik?: (p: PrehledProklik, nazev: string, odkud: HTMLElement | null) => void;
   vychoziTabulka?: boolean;
+  /** obsah pod grafem v jeho kartě (rozbalení stavů kohorty na Vedení) */
+  pata?: ReactNode;
 }) {
   const id = useId();
   const [plocha, sirka] = useSirka<HTMLDivElement>();
@@ -56,7 +58,7 @@ export default function Trychtyr({
   const vyska = Math.max(RADEK, rozlozeni.vyska) + 2;
   const desc = kroky.length === 0
     ? 'Žádné kroky.'
-    : `Trychtýř o ${kroky.length} krocích: ${kroky.map((k, i) => `${nazvy[i]} ${cislo(k.n)}${k.zPredchoziho !== null ? ` (${podil(k.zPredchoziho)} z předchozího)` : ''}`).join(', ')}. Čísla jsou i v tabulce.`;
+    : `Trychtýř o ${kroky.length} krocích: ${kroky.map((k, i) => `${nazvy[i]} ${formatPocet(k.n)}${k.zPredchoziho !== null ? ` (${podil(k.zPredchoziho)} z předchozího)` : ''}`).join(', ')}. Čísla jsou i v tabulce.`;
   const tabulka = (
     <table className="prehled-tabulka">
       <thead>
@@ -77,20 +79,20 @@ export default function Trychtyr({
               {k.duvod ? <span className="prehled-bunka-pozn">{k.duvod}</span> : null}
             </th>
             <td className="cislo-sloupec">
-              <CisloTlacitko text={cislo(k.n)} nazev={`${nadpis} – ${nazvy[i]}`}
+              <CisloTlacitko text={formatPocet(k.n)} nazev={`${nadpis} – ${nazvy[i]}`}
                 onClick={k.proklik && onProklik && k.n !== null ? (el) => onProklik(k.proklik!, `${nadpis} – ${nazvy[i]}`, el) : null} />
             </td>
             <td className="cislo-sloupec">{podil(k.zPredchoziho)}</td>
             <td className="cislo-sloupec">{podil(k.zKohorty)}</td>
-            <td className="cislo-sloupec">{cislo(k.otevrenych)}</td>
-            <td className="cislo-sloupec">{cislo(k.bezPredchoziho)}</td>
+            <td className="cislo-sloupec">{formatPocet(k.otevrenych)}</td>
+            <td className="cislo-sloupec">{formatPocet(k.bezPredchoziho)}</td>
           </tr>
         ))}
       </tbody>
     </table>
   );
   return (
-    <GrafRam graf={graf} nadpis={nadpis} uroven={uroven} popis={popis} tabulka={tabulka} vychoziTabulka={vychoziTabulka}>
+    <GrafRam graf={graf} nadpis={nadpis} uroven={uroven} popis={popis} tabulka={tabulka} vychoziTabulka={vychoziTabulka} pata={pata}>
       <div className="graf-plocha" ref={plocha} onPointerLeave={skryj}>
         <svg role="img" aria-labelledby={`${id}-t ${id}-d`} width={sirka} height={vyska} viewBox={`0 0 ${sirka} ${vyska}`} className="graf-svg">
           <title id={`${id}-t`}>{nadpis}</title>
@@ -104,10 +106,10 @@ export default function Trychtyr({
             const hover = (e: ReactPointerEvent<SVGElement>) => ukaz(e, {
               nadpis: nazvy[i],
               radky: [
-                { nazev: 'klientů', hodnota: cislo(k.n), barva },
+                { nazev: 'klientů', hodnota: formatPocet(k.n), barva },
                 ...(k.zPredchoziho !== null ? [{ nazev: 'z předchozího kroku', hodnota: podil(k.zPredchoziho) }] : []),
-                ...(k.otevrenych ? [{ nazev: 'ještě běží', hodnota: cislo(k.otevrenych) }] : []),
-                ...(k.bezPredchoziho ? [{ nazev: 'bez předchozího kroku', hodnota: cislo(k.bezPredchoziho) }] : []),
+                ...(k.otevrenych ? [{ nazev: 'ještě běží', hodnota: formatPocet(k.otevrenych) }] : []),
+                ...(k.bezPredchoziho ? [{ nazev: 'bez předchozího kroku', hodnota: formatPocet(k.bezPredchoziho) }] : []),
               ],
               pozn: k.duvod,
             });
@@ -123,7 +125,7 @@ export default function Trychtyr({
                 <rect data-cil-kroku={k.klic} x="0" y={rozlozeni.y[i] + 2} width={sirka} height={RADEK - 4 + rozlozeni.navic[i]} fill="transparent" className={klikaci ? 'graf-cil-mysi klikaci' : 'graf-cil-mysi'}
                   onPointerMove={hover} onClick={klikaci ? (e) => otevri(e.currentTarget) : undefined} />
                 <text x={w + 8} y={y + 34} className="graf-hodnota" data-krok={k.klic}>
-                  {cislo(k.n)}
+                  {formatPocet(k.n)}
                   {k.zPredchoziho !== null ? ` · ${podil(k.zPredchoziho)}` : ''}
                 </text>
               </g>

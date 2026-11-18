@@ -108,12 +108,10 @@ export default function Sloupce({
                     data-sloupec={p.klic}
                     fill="var(--graf-rada)"
                     d={cestaPruhu(1, y + 20, Math.max(2, w), PRUH)}
-                    className={`graf-pruh${klikaci ? ' klikaci' : ''}`}
-                    onPointerMove={hover}
-                    onClick={klikaci ? (e) => otevri(p, e.currentTarget) : undefined}
+                    className="graf-pruh"
                   />
                 )}
-                {/* průhledný cíl ukazatele přes celý řádek: bublina i u krátkého pruhu */}
+                {/* průhledný cíl ukazatele přes celý řádek (nad pruhem, proto má klik i bublinu jen on): bublina i u krátkého pruhu */}
                 <rect x="0" y={rozlozeni.y[i] + 2} width={sirka} height={RADEK - 4 + rozlozeni.navic[i]} fill="transparent" className={klikaci ? 'graf-cil-mysi klikaci' : 'graf-cil-mysi'}
                   onPointerMove={hover} onClick={klikaci ? (e) => otevri(p, e.currentTarget) : undefined} />
                 <text x={w + 8} y={y + 32} className="graf-hodnota" data-hodnota={p.klic}>{p.text}</text>

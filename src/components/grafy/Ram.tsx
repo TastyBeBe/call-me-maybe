@@ -8,6 +8,7 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { SIRKA_ZNAKU, zalomText } from '../../grafy';
 import { ChartIcon, TableIcon } from '../../icons';
+import { TabulkaObal } from '../prehled/Tabulka';
 
 const useIzoEfekt = typeof window !== 'undefined' ? useLayoutEffect : useEffect;
 
@@ -163,6 +164,7 @@ export default function GrafRam({
   tabulka,
   vychoziTabulka = false,
   ovladani,
+  pata,
   children,
 }: {
   /** klíč grafu do data-graf (zkoušky, odkazy) */
@@ -178,15 +180,19 @@ export default function GrafRam({
   vychoziTabulka?: boolean;
   /** ovládání grafu vedle nadpisu (třeba výběr metriky); mění obsah, nikdy jen ozdoba */
   ovladani?: ReactNode;
+  /** obsah pod grafem uvnitř jeho karty (třeba rozbalení „Současné rozložení stavů“ pod trychtýřem) */
+  pata?: ReactNode;
   children: ReactNode;
 }) {
   const Nadpis = `h${uroven}` as 'h3' | 'h4';
   const [tabulkou, setTabulkou] = useState(vychoziTabulka);
   const id = useId();
+  const idNadpisu = useId();
+  // jméno obrázku je jen nadpis grafu (ne text výběru a přepínače v hlavičce; oprava po recenzi, drobnost 14)
   return (
-    <figure className="graf" data-graf={graf}>
+    <figure className="graf" data-graf={graf} aria-labelledby={idNadpisu}>
       <figcaption className="graf-hlava">
-        <Nadpis className="graf-nadpis">{nadpis}</Nadpis>
+        <Nadpis className="graf-nadpis" id={idNadpisu}>{nadpis}</Nadpis>
         <span className="graf-ovladani">
           {ovladani}
           <button
@@ -204,8 +210,14 @@ export default function GrafRam({
       {popis ? <p className="graf-popis">{popis}</p> : null}
       {!tabulkou && legenda && legenda.length >= 2 && <Legenda polozky={legenda} />}
       <div id={id} className="graf-obsah">
-        {tabulkou ? <div className="graf-tabulka">{tabulka}</div> : children}
+        {/* tabulka grafu v rámečku tabulky: posun do strany uvnitř, nápověda a fokus (oprava po recenzi, důležité 1) */}
+        {tabulkou ? (
+          <div className="graf-tabulka">
+            <TabulkaObal popisek={nadpis}>{tabulka}</TabulkaObal>
+          </div>
+        ) : children}
       </div>
+      {pata}
     </figure>
   );
 }

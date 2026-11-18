@@ -122,6 +122,8 @@ function PrehledObsah({ session }: { session: Session }) {
   const nactenoMoznosti = useRef(0);
   const cisloMoznosti = useRef(0);
   const [obnovaMoznosti, setObnovaMoznosti] = useState(0);
+  // pětiminutová obnova čerstvosti pro bloky nezávislé na filtru (kvalita dat; úkol 14a, oprava po recenzi)
+  const [obnova, setObnova] = useState(0);
   const verzeKatalogu = useRef<string | null>(null);
   const zkusenaVerze = useRef<string | null>(null);
   const { demo } = getConfig();
@@ -197,13 +199,19 @@ function PrehledObsah({ session }: { session: Session }) {
   useEffect(() => {
     if (!moznosti) return;
     const id = window.setTimeout(() => {
-      if (document.visibilityState === 'visible') obnovMoznosti();
+      if (document.visibilityState === 'visible') {
+        obnovMoznosti();
+        setObnova((o) => o + 1);
+      }
     }, OBNOVA_MOZNOSTI_MS);
     return () => window.clearTimeout(id);
   }, [moznosti, obnovaMoznosti, obnovMoznosti]);
   useEffect(() => {
     const zaseVidet = () => {
-      if (document.visibilityState === 'visible' && nactenoMoznosti.current > 0 && Date.now() - nactenoMoznosti.current >= OBNOVA_MOZNOSTI_MS) obnovMoznosti();
+      if (document.visibilityState === 'visible' && nactenoMoznosti.current > 0 && Date.now() - nactenoMoznosti.current >= OBNOVA_MOZNOSTI_MS) {
+        obnovMoznosti();
+        setObnova((o) => o + 1);
+      }
     };
     document.addEventListener('visibilitychange', zaseVidet);
     return () => document.removeEventListener('visibilitychange', zaseVidet);
@@ -238,8 +246,8 @@ function PrehledObsah({ session }: { session: Session }) {
   const kontext: PrehledKontextHodnota | null = useMemo(() => {
     if (!moznosti) return null;
     const serverFiltr = filtrProServer(filtr, moznosti.data.tymy);
-    return { filtr, serverFiltr, klicFiltru: JSON.stringify(serverFiltr), moznosti, definice, otevriProklik, hlasVerzi, dnes };
-  }, [filtr, moznosti, definice, otevriProklik, hlasVerzi, dnes]);
+    return { filtr, serverFiltr, klicFiltru: JSON.stringify(serverFiltr), moznosti, definice, otevriProklik, hlasVerzi, dnes, obnova };
+  }, [filtr, moznosti, definice, otevriProklik, hlasVerzi, dnes, obnova]);
 
   if (!znamaZalozka || (zalozka === 'nastaveni' && !NASTAVENI_SEKCE.some((s) => s.klic === sekce))) {
     return <Navigate to={{ pathname: zalozka === 'nastaveni' ? '/prehled/nastaveni/cile' : '/prehled/vedeni', search: location.search }} replace />;

@@ -7,12 +7,15 @@
 // odpracovaných hodin ukazuje i plán z rozvrhu za CELÉ období (server počítá každý den období, i budoucí, bez svátků) a měřák
 // „Splněno z plánu období“; nedostupný pracovní čas (filtr segmentu, oboru nebo kraje) je „—“ s důvodem serveru.
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { DataDefinice, MenaPrehledu, Metrika, MetrikaCloveka, PrehledObalka, PrehledProklik, RadekLide } from '../../api/types';
 import { CisloTlacitko, Metr, MiniPruh } from '../../components/prehled/Tabulka';
 import { ArrowDownIcon } from '../../icons';
 import { formatHodiny, formatPocet, formatPodil, hodnotaRazeni, nazevMetriky, presneCastky, seradRadkyLidi, textMetriky, type RazeniTabulky } from '../../prehled';
 import { definiceMetriky, jednotkaMetriky } from './kontext';
+
+/** Sloupce pracovního času (úseky a plán z rozvrhu): u Nepřiřazeno nedávají smysl. */
+const PRACE: ReadonlySet<MetrikaCloveka> = new Set<MetrikaCloveka>(['odpracovane_hodiny', 'vysledku_za_hodinu', 'planovane_hodiny', 'plneni_planu']);
 
 export interface RadekTabulkyLidi {
   klic: string;
@@ -57,7 +60,15 @@ export default function TabulkaLidi({
   onProklik?: (p: PrehledProklik, nazev: string, odkud: HTMLElement | null) => void;
   vychoziRazeni?: RazeniTabulky | null;
 }) {
-  const [razeni, setRazeni] = useState<RazeniTabulky | null>(vychoziRazeni);
+  const [razeniStav, setRazeni] = useState<RazeniTabulky | null>(vychoziRazeni);
+  // řazení podle sloupce, který po přepnutí pohledu zmizel, se vrátí na výchozí (oprava po recenzi, drobnost 6)
+  const viditelne = (r: RazeniTabulky | null): boolean => !r || r.klic === 'jmeno' || (sloupce as string[]).includes(r.klic);
+  const razeni = viditelne(razeniStav) ? razeniStav : vychoziRazeni;
+  const klicSloupcu = sloupce.join(',');
+  useEffect(() => {
+    setRazeni((r) => (viditelne(r) ? r : vychoziRazeni));
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- jen při změně sloupců (pohledu)
+  }, [klicSloupcu]);
   const lide = radky.filter((r) => r.druh !== 'neprirazeno');
   const nikdo = radky.filter((r) => r.druh === 'neprirazeno');
   const serazene = razeni ? seradRadkyLidi(lide, razeni.klic, razeni.smer, mena) : lide;
@@ -76,6 +87,14 @@ export default function TabulkaLidi({
     const m = r.metriky[k];
     const nazev = `${nazevSloupce(k)} – ${kdo}`;
     const otevri = m?.proklik && onProklik ? (el: HTMLElement) => onProklik(m.proklik!, nazev, el) : null;
+    // Nepřiřazení klienti nemají pracovní čas: sloupce práce jen „—“ (oprava po recenzi, drobnost 7)
+    if (r.druh === 'neprirazeno' && PRACE.has(k)) {
+      return (
+        <td key={k} data-sloupec={k} className="cislo-sloupec">
+          <CisloTlacitko text="—" nazev={nazev} title="Nepřiřazení klienti nemají pracovní čas." onClick={null} />
+        </td>
+      );
+    }
     if (k === 'odpracovane_hodiny') {
       const plan = r.metriky.planovane_hodiny;
       const plneni = r.metriky.plneni_planu;
@@ -101,6 +120,10 @@ export default function TabulkaLidi({
             title={bublina} onClick={m.proklik && onProklik ? (el) => onProklik(m.proklik!, nazevHodin, el) : null}>
             {znamyPlan && plneni && plneni.hodnota !== null ? <Metr podil={plneni.hodnota} /> : null}
           </CisloTlacitko>
+          {/* plnění i v textu, ne jen v bublině (oprava po recenzi, drobnost 14) */}
+          {znamyPlan && plneni && plneni.hodnota !== null ? (
+            <span className="prehled-bunka-pozn">splněno {formatPodil(plneni.hodnota)}{plneni.kvalita === 'castecne' ? ' · částečně' : ''}</span>
+          ) : null}
           {!znamyPlan && plan?.duvod ? <span className="prehled-bunka-pozn">{plan.duvod}</span> : null}
         </td>
       );
@@ -110,11 +133,15 @@ export default function TabulkaLidi({
     // podíl s nulovým jmenovatelem: krátce „0 z 0“ (celá věta serveru v bublině), jinak důvod neznámého čísla viditelně
     const nulovy = !!m && m.kvalita !== 'nedostupne' && m.hodnota === null && m.jmenovatel === 0;
     const v = hodnotaRazeni(m, mena);
+    // částečné číslo: viditelná značka a v bublině přesná částka i důvod (oprava po recenzi, drobnost 1)
+    const castecne = !neznamy && m?.kvalita === 'castecne';
+    const bublina = m ? [presneCastky(m), m.duvod].filter(Boolean).join(' · ') || null : null;
     return (
       <td key={k} data-sloupec={k} className="cislo-sloupec">
-        <CisloTlacitko text={text} nazev={nazev} title={m ? presneCastky(m) ?? m.duvod : null} onClick={neznamy ? null : otevri}>
+        <CisloTlacitko text={text} nazev={nazev} title={bublina} onClick={neznamy ? null : otevri}>
           {sPruhem && !neznamy ? <MiniPruh podil={maxSloupce[k] > 0 && v !== null ? v / maxSloupce[k] : null} /> : null}
         </CisloTlacitko>
+        {castecne ? <span className="prehled-bunka-pozn" title={m?.duvod ?? undefined}>částečně</span> : null}
         {neznamy && m ? <span className="prehled-bunka-pozn">{nulovy ? `${formatPocet(m.citatel)} z 0` : m.duvod}</span> : null}
       </td>
     );

@@ -108,6 +108,17 @@ export function formatCastka(hodnota: string | number, mena: MenaPrehledu | null
 export const formatPodil = (h: number): string => `${cislo(h * 100, 1)} %`;
 /** Počet v tabulce („1 234“); neznámý „—“, nikdy „0“. */
 export const formatPocet = (n: number | null | undefined): string => (n === null || n === undefined ? '—' : cislo(n));
+/**
+ * Počet se slovem ve správném tvaru, jediný pomocník množného čísla Přehledu (oprava po recenzi 18. 11. 2026, drobnost 11):
+ * `tvary` = [1, 2–4, 0 a 5 a víc], „#“ v tvaru se nahradí číslem (formatPocet), třeba ['# klient', '# klienti', '# klientů']
+ * nebo ['zbývá # den', 'zbývají # dny', 'zbývá # dní'].
+ */
+export function pocetSlovy(n: number | null | undefined, tvary: readonly [string, string, string]): string {
+  if (n === null || n === undefined) return tvary[2].replace('#', '—');
+  const a = Math.abs(n);
+  const tvar = a === 1 ? tvary[0] : Number.isInteger(a) && a >= 2 && a <= 4 ? tvary[1] : tvary[2];
+  return tvar.replace('#', formatPocet(n));
+}
 export const formatHodiny = (h: number): string => `${cislo(h, 1)} h`;
 /** „1 den“, „2 dny“, „5 dní“, „3,2 dne“. */
 export function formatDny(d: number): string {

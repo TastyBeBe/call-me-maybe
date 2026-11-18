@@ -3157,6 +3157,12 @@ interface SurovyRadek {
   provizeDoKonce: { kontakt_id: number; castka: number | null; mena: MenaPrehledu | null }[];
   useky: { od: number; do: number; kotev: number; odhad: boolean }[];
   plan: { hodiny: number; dni: number; castecne: boolean } | null;
+  /**
+   * Rozhodnutí koordinátora 18. 11. 2026 (oprava úkolu 14a): plnění plánu v součtu jen za lidi s plánem. `planUseky` = úseky
+   * lidí s plánem (u člověka jeho úseky, když plán má), `bezPlanu` = kolik lidí bez rozvrhu v období pracovalo. Chybí = člověk.
+   */
+  planUseky?: { od: number; do: number; kotev: number; odhad: boolean }[];
+  bezPlanu?: number;
   sla: { hodiny: number | null }[];
   hotove: number;
   poTerminu: number;
@@ -3337,6 +3343,8 @@ function sectiRadky(rs: SurovyRadek[]): SurovyRadek {
     provizeDoKonce: rs.flatMap((r) => r.provizeDoKonce),
     useky: rs.flatMap((r) => r.useky),
     plan: plany.length === 0 ? null : { hodiny: plany.reduce((a, p) => a + p.hodiny, 0), dni: plany.reduce((a, p) => a + p.dni, 0), castecne: plany.some((p) => p.castecne) },
+    planUseky: rs.flatMap((r) => (r.plan ? r.planUseky ?? r.useky : [])),
+    bezPlanu: rs.reduce((a, r) => a + (r.plan ? r.bezPlanu ?? 0 : r.useky.length > 0 ? 1 : 0), 0),
     sla: rs.flatMap((r) => r.sla),
     hotove: rs.reduce((a, r) => a + r.hotove, 0),
     poTerminu: rs.reduce((a, r) => a + r.poTerminu, 0),
@@ -3419,9 +3427,19 @@ function metrikyRadku(s: SurovyRadek, f: PrehledFiltr, vyber: Record<string, unk
   } else {
     const planDuvod = s.plan.castecne ? 'Rozvrh se v období měnil; starší šablony se nezaznamenávaly.' : null;
     dej('planovane_hodiny', { hodnota: zaokr(s.plan.hodiny, 2), n: s.plan.dni, pokryti: pokryti(s.plan.dni, s.plan.dni), kvalita: planDuvod ? 'castecne' : 'dostupne', duvod: planDuvod });
-    const castecne = odhady > 0 || !!planDuvod;
-    podil('plneni_planu', hodiny, zaokr(s.plan.hodiny, 2), useky.length, pokrytiPrace, castecne ? 'castecne' : 'dostupne',
-      odhady > 0 ? `Odpracované hodiny jsou u ${odhady} z ${useky.length} úseků odhad.` : planDuvod);
+    // plnění jen za lidi s plánem (rozhodnutí koordinátora 18. 11. 2026): jejich hodiny ÷ jejich plán; kdo bez rozvrhu pracoval,
+    // jeho hodiny se nepočítají a plnění je částečné s důvodem („Odpracováno“ v součtu dál za všechny)
+    const plUseky = s.planUseky ?? useky;
+    const plHodiny = zaokr(plUseky.reduce((a, u) => a + (u.do - u.od), 0) / HODINA_MS, 2);
+    const plOdhady = plUseky.filter((u) => u.odhad).length;
+    const bez = s.bezPlanu ?? 0;
+    const duvodPlneni = [
+      plOdhady > 0 ? `Odpracované hodiny jsou u ${plOdhady} z ${plUseky.length} úseků odhad.` : null,
+      planDuvod,
+      bez > 0 ? `Bez rozvrhu: ${bez === 1 ? '1 člověk; jeho' : `${bez} ${bez <= 4 ? 'lidé' : 'lidí'}; jejich`} hodiny se do plnění plánu nepočítají.` : null,
+    ].filter(Boolean).join(' ') || null;
+    podil('plneni_planu', plHodiny, zaokr(s.plan.hodiny, 2), plUseky.length, pokryti(plUseky.length - plOdhady, plUseky.length),
+      plOdhady > 0 || !!planDuvod || bez > 0 ? 'castecne' : 'dostupne', duvodPlneni);
   }
   // úkol 14a (koordinátor 18. 11. 2026 z revize databáze): pracovní čas není po klientech, s filtrem segmentu, oboru nebo
   // kraje ho server vrací nedostupný s důvodem (provize se filtrem řídí dál)
@@ -7854,7 +7872,7 @@ const mockApiZaklad: Api = {
  */
 interface DemoTestHacek {
   zpozdeni?: (fn: string, args: unknown[]) => number;
-  volani?: { fn: string; args: unknown[]; ok?: boolean; id?: number | null; chyba?: string }[];
+  volani?: { fn: string; args: unknown[]; ok?: boolean; id?: number | null; chyba?: string; zacatek?: number; konec?: number }[];
   stav?: () => unknown;
   /** migrace 063: služební cesty serveru (worker, tick), appka je nevolá; test jimi ověřuje pravidla mocku */
   hvezdaAutomatizace?: (kid: number, duvod: string | null) => unknown;
@@ -7878,6 +7896,9 @@ interface DemoTestHacek {
   /** totéž, bod 4: nejvýš tolik řádků na stránku prehled_radky (e2e PV11: chyba kurzoru na třetí stránce) */
   prehledLimit?: number;
 }
+
+/** Pořadí začátků a konců volání v záznamu e2e (zacatek, konec). */
+let poradiVolani = 0;
 
 function sDemoTestem(api: Api): Api {
   const hacek = (globalThis as { __volackaDemoTest?: DemoTestHacek }).__volackaDemoTest;
@@ -7971,7 +7992,8 @@ function sDemoTestem(api: Api): Api {
       if (typeof v !== 'function') return v;
       const fn = v as (...a: unknown[]) => Promise<unknown>;
       return async (...args: unknown[]) => {
-        const zaznam: NonNullable<DemoTestHacek['volani']>[number] = { fn: String(prop), args: args.slice(1) };
+        // zacatek a konec = pořadí událostí (úkol 14a, oprava po recenzi: e2e měří, že týmy Vedení začnou až po kartách)
+        const zaznam: NonNullable<DemoTestHacek['volani']>[number] = { fn: String(prop), args: args.slice(1), zacatek: ++poradiVolani };
         hacek.volani!.push(zaznam);
         const ms = Number(hacek.zpozdeni?.(String(prop), args.slice(1)) ?? 0);
         if (ms > 0) await new Promise<void>((r) => setTimeout(r, ms));
@@ -7979,16 +8001,19 @@ function sDemoTestem(api: Api): Api {
         if (vynucena) {
           zaznam.ok = false;
           zaznam.chyba = vynucena;
+          zaznam.konec = ++poradiVolani;
           throw new Error(vynucena);
         }
         try {
           const out = (await fn.apply(target, args)) as { id?: number; kontakt_id?: number } | null;
           zaznam.ok = true;
           zaznam.id = out === null ? null : out?.id ?? out?.kontakt_id;
+          zaznam.konec = ++poradiVolani;
           return out;
         } catch (e) {
           zaznam.ok = false;
           zaznam.chyba = String(e instanceof Error ? e.message : e);
+          zaznam.konec = ++poradiVolani;
           throw e;
         }
       };

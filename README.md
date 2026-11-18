@@ -853,6 +853,24 @@ Více funkcí naráz (týmy) načte `usePrehledNacteni` v `kontext.tsx` (každá
   období, změna segmentu s pracovním časem a náklady z evidence „—“ s důvodem, řádky = číslo u hodnoty prodejů,
   nákladů celkem, hovorů člověka a pásma pipeline, náklady po kategoriích a s výběrem lidí, grafy jako tabulka, Volající,
   telefon 320/360/390 se snímky všech záložek).
+- **Oprava po recenzi** (18. 11. 2026, rozhodnutí koordinátora v `.superpowers/sdd/task-14a-fixes.md`): tabulka grafu je
+  v rámečku `TabulkaObal` (posun do strany uvnitř, nápověda, fokus; ⚠ NAHRAZUJE vlastní rámeček `.graf-tabulka`); výběr metriky
+  trendu je nad grafem mimo načítaný obsah, takže je vidět i při načítání a po chybě (⚠ NAHRAZUJE výběr v hlavičce grafu);
+  týmy Vedení se načtou až po kartách, tým rovný celému výběru druhé stejné volání nedělá a člověk patří do týmu podle
+  `lide[].tym_id` (⚠ NAHRAZUJE členy podle `tymy[].clenove`, které se můžou překrývat); každý blok s vlastním voláním ukáže
+  varování své odpovědi (`NacitanyObsah varovani`); řazení podle sloupce, který po přepnutí pohledu zmizel, se zruší; řádek
+  Nepřiřazeno má ve sloupcích pracovního času „—“; částečné číslo v tabulce má značku „částečně“ a v bublině přesnou částku
+  i důvod, tabulka segmentů ukáže pokrytí neúplného součtu; plnění plánu člověka je vidět v buňce („splněno x %“); v oranžovém
+  pásmu stáří 8–14 dní není číslo (kontrast pod 4,5 : 1); popisky osy trendu se vybírají podle skutečných okrajů textu;
+  rozbalení stavů kohorty je v kartě trychtýře; poznámky nákladů jsou na telefonu pod řádkem přes celou šířku; jeden pomocník
+  množného čísla `pocetSlovy` (`src/prehled.ts`) a měsíc `mesicNazev` (`src/grafy.ts`); kvalita dat se načte jednou za návštěvu
+  záložky a znovu s pětiminutovou obnovou (`obnova` v kontextu Přehledu), ne při změně filtru; akční seznam s „K datu“ server
+  nevolá; obnovy hostingu jsou sdílená komponenta `src/pages/prehled/ObnovyHostingu.tsx`. Rozhodnutí koordinátora: **plnění
+  plánu v součtu počítá jen lidi s plánem** (jejich hodiny ÷ jejich plán); kdo bez rozvrhu pracoval, jeho hodiny se nepočítají
+  a plnění je částečné s důvodem „Bez rozvrhu: N lidí; jejich hodiny se do plnění plánu nepočítají.“, odpracováno v součtu dál
+  za všechny (⚠ NAHRAZUJE hodiny všech ÷ plány lidí s rozvrhem; mock stejně, databáze v opravě úkolu 4). Testy: Z2i až Z2l,
+  Z4e až Z4h, Z5e, Z7 s překrývajícími se týmy, Z9; e2e PZ10 a rozšířené PZ1d, PZ3d, PZ3e a PZ8 (záznam volání v DEMO má
+  pořadí `zacatek` a `konec`).
 
 ## Účty a přihlášení (produkce)
 

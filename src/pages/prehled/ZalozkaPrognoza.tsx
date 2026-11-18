@@ -8,14 +8,18 @@
 import { getApi } from '../../api';
 import { NacitanyObsah, PrehledCastecne, PrehledPrazdne } from '../../components/prehled/Stavy';
 import { Blok, CisloTlacitko, TabulkaObal } from '../../components/prehled/Tabulka';
-import { casText, denText, formatPocet, souctyPresne, souctyText, textMetriky } from '../../prehled';
+import { mesicNazev } from '../../grafy';
+import { casText, denText, formatPocet, formatPodil, pocetSlovy, souctyPresne, souctyText, textMetriky } from '../../prehled';
 import Karty from './Karty';
-import { useOtevriRadky, usePrehledData } from './kontext';
+import { useOtevriRadky, usePrehled, usePrehledData } from './kontext';
 
 function Kvalita() {
-  const stav = usePrehledData((t) => getApi().prehledKvalita(t));
+  // kvalita dat na filtru nezávisí: jednou za návštěvu záložky a znovu s pětiminutovou obnovou čerstvosti, ne při každé změně
+  // filtru (oprava po recenzi, drobnost 12)
+  const { obnova } = usePrehled();
+  const stav = usePrehledData((t) => getApi().prehledKvalita(t), String(obnova), { bezFiltru: true });
   return (
-    <NacitanyObsah stav={stav} karet={3}>
+    <NacitanyObsah stav={stav} karet={3} varovani={(o) => o.meta.varovani}>
       {(o) => {
         const d = o.data;
         const metriky = [d.navrhy_bez_emailu, d.nejasne_vazby, d.platby_bez_faktury];
@@ -58,14 +62,14 @@ function Kvalita() {
                 <div>
                   <dt>Historie změn kontaktů</dt>
                   <dd>
-                    {d.historie.od ? `od ${casText(d.historie.od)}, ${formatPocet(d.historie.radku)} řádků u ${formatPocet(d.historie.kontaktu)} kontaktů` : 'zatím žádná'}
+                    {d.historie.od ? `od ${casText(d.historie.od)}, ${pocetSlovy(d.historie.radku, ['# řádek', '# řádky', '# řádků'])} u ${pocetSlovy(d.historie.kontaktu, ['# kontaktu', '# kontaktů', '# kontaktů'])}` : 'zatím žádná'}
                     {d.historie.duvod ? <span className="prehled-bunka-pozn">{d.historie.duvod}</span> : null}
                   </dd>
                 </div>
                 <div>
                   <dt>Časovač práce</dt>
                   <dd>
-                    {d.casovac.od ? `od ${casText(d.casovac.od)}, za 7 dní ${formatPocet(d.casovac.signalu_7d)} signálů od ${formatPocet(d.casovac.lidi_7d)} lidí` : 'zatím žádný signál'}
+                    {d.casovac.od ? `od ${casText(d.casovac.od)}, za 7 dní ${pocetSlovy(d.casovac.signalu_7d, ['# signál', '# signály', '# signálů'])} od ${pocetSlovy(d.casovac.lidi_7d, ['# člověka', '# lidí', '# lidí'])}` : 'zatím žádný signál'}
                     {d.casovac.duvod ? <span className="prehled-bunka-pozn">{d.casovac.duvod}</span> : null}
                   </dd>
                 </div>
@@ -96,7 +100,7 @@ export default function ZalozkaPrognoza() {
               <PrehledCastecne varovani={o.meta.varovani} metriky={metriky} />
               <div className="prehled-skupina">
                 <h3 className="prehled-skupina-nadpis">
-                  Odhad do konce měsíce ({denText(d.od)} – {denText(d.do)}, zbývá {formatPocet(d.zbyva_dni)} dní) <span className="prehled-znacka odhad">{d.stitek}</span>
+                  Odhad do konce měsíce ({denText(d.od)} – {denText(d.do)}, {pocetSlovy(d.zbyva_dni, ['zbývá # den', 'zbývají # dny', 'zbývá # dní'])}) <span className="prehled-znacka odhad">{d.stitek}</span>
                 </h3>
                 <Karty metriky={metriky} obalka={o} uroven={4} />
               </div>
@@ -154,7 +158,7 @@ export default function ZalozkaPrognoza() {
                         <tbody>
                           {p.mesice.map((m) => (
                             <tr key={m.mesic} data-radek={m.mesic}>
-                              <th scope="row">{m.mesic}</th>
+                              <th scope="row">{mesicNazev(m.mesic)}</th>
                               <td>{denText(m.snimek_den)}</td>
                               <td className="cislo-sloupec">{souctyText(m.odhad) ?? '—'}</td>
                               <td className="cislo-sloupec">{souctyText(m.skutecnost) ?? '—'}</td>
@@ -174,7 +178,7 @@ export default function ZalozkaPrognoza() {
                       </div>
                       <div>
                         <dt>WAPE</dt>
-                        <dd>{p.wape.map((w) => `${w.mena}: ${w.hodnota === null ? '—' : `${new Intl.NumberFormat('cs-CZ', { maximumFractionDigits: 1 }).format(w.hodnota * 100)} %`}`).join(' · ') || '—'}</dd>
+                        <dd>{p.wape.map((w) => `${w.mena}: ${w.hodnota === null ? '—' : formatPodil(w.hodnota)}`).join(' · ') || '—'}</dd>
                       </div>
                     </dl>
                     {p.duvod ? <p className="prehled-blok-popis">{p.duvod}</p> : null}

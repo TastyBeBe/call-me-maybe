@@ -5690,10 +5690,45 @@ table.kontakty.kompakt .mlceni-bunka > * {
 }
 
 .prehled-graf-blok,
-.prehled-grafy-trendu {
+.prehled-grafy-trendu,
+.prehled-trend {
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+
+.prehled-trend {
+  min-width: 0;
+}
+
+/* výběr metriky trendu nad grafem, mimo načítaný obsah (úkol 14a, oprava po recenzi, drobnost 2) */
+.prehled-trend-vyber {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-size: 13.5px;
+  font-weight: 800;
+}
+
+.prehled-rozbal {
+  font-size: 13.5px;
+}
+
+/* rozbalení v kartě grafu (trychtýř na Vedení) */
+.graf > .prehled-rozbal {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--butter-dot);
+}
+
+/* poznámky nákladů: na širokém sloupec Poznámka, na telefonu řádek pod položkou přes celou šířku (drobnost 9) */
+.naklady-pozn-radek {
+  display: none;
+}
+
+.naklady-pozn-radek td {
+  padding-top: 0;
 }
 
 .prehled-nacteno {
@@ -5730,10 +5765,6 @@ table.kontakty.kompakt .mlceni-bunka > * {
 
 .prehled-znacka.odhad {
   background: var(--cream-deep);
-}
-
-.prehled-rozbal {
-  font-size: 13.5px;
 }
 
 .prehled-rozbal summary {
@@ -6274,16 +6305,9 @@ table.kontakty.kompakt .mlceni-bunka > * {
   line-height: 1.35;
 }
 
-.graf-tabulka .prehled-tabulka {
-  border: 2px solid var(--ink);
-  border-radius: var(--r-ctl);
-  border-collapse: separate;
-  border-spacing: 0;
-  overflow: hidden;
-}
-
+/* tabulka grafu je v rámečku TabulkaObal (okraj, posun do strany, nápověda); úkol 14a, oprava po recenzi, důležité 1 */
 .graf-tabulka {
-  overflow-x: auto;
+  min-width: 0;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -6317,5 +6341,15 @@ table.kontakty.kompakt .mlceni-bunka > * {
   .prehled-tabulka th,
   .prehled-tabulka td {
     padding: 6px 8px;
+  }
+  .naklady-sloupec-pozn {
+    display: none;
+  }
+  .naklady-pozn-radek {
+    display: table-row;
+  }
+  .naklady-ma-pozn th,
+  .naklady-ma-pozn td {
+    border-bottom: none;
   }
 }

@@ -92,24 +92,39 @@ export function PrehledCastecne({ varovani, metriky }: { varovani: PrehledMeta['
 
 /**
  * Část záložky nad vlastním načtením (úkol 14a): chyba s „Zkusit znovu“, kostra při prvním načtení, jinak obsah; při novém
- * načtení zůstane starý obsah ztlumený (aria-busy), žádný skok ani bliknutí kostry.
+ * načtení zůstane starý obsah ztlumený (aria-busy), žádný skok ani bliknutí kostry. `varovani` (a `metriky`) = co z odpovědi
+ * bloku ukázat jako částečná data nad obsahem: každý blok s vlastním voláním ukáže svá varování (oprava po recenzi, drobnost 5;
+ * třeba CASOVAC_OD z prehled_lide týmů na Vedení).
  */
 export function NacitanyObsah<T>({
   stav,
   karet = 2,
+  varovani,
+  metriky,
   children,
 }: {
   stav: { data: T | null; chyba: string | null; nacita: boolean; znovu: () => void };
   karet?: number;
+  varovani?: (data: T) => PrehledMeta['varovani'];
+  metriky?: (data: T) => Metrika[];
   children: (data: T) => ReactNode;
 }) {
   if (stav.chyba) return <PrehledChyba text={stav.chyba} onZnovu={stav.znovu} />;
   if (!stav.data) return <PrehledNacita karet={karet} />;
+  const v = varovani ? varovani(stav.data) : [];
+  const m = metriky ? metriky(stav.data) : [];
   return (
     <div className={`prehled-nacteno${stav.nacita ? ' prepocitava' : ''}`} aria-busy={stav.nacita}>
+      {varovani || metriky ? <PrehledCastecne varovani={v} metriky={m} /> : null}
       {children(stav.data)}
     </div>
   );
+}
+
+/** Varování víc odpovědí jednoho bloku bez opakování (stejný kód jen jednou). */
+export function varovaniBezOpakovani(...seznamy: PrehledMeta['varovani'][]): PrehledMeta['varovani'] {
+  const videno = new Set<string>();
+  return seznamy.flat().filter((v) => (videno.has(v.kod) ? false : (videno.add(v.kod), true)));
 }
 
 /** Pruh ukázkových dat (DEMO): jasně, že čísla nejsou skutečná. */

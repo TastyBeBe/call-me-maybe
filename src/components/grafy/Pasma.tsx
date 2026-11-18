@@ -7,14 +7,17 @@
 import { useId, type PointerEvent as ReactPointerEvent } from 'react';
 import type { PasmoStari, PrehledProklik } from '../../api/types';
 import { segmentyPruhu } from '../../grafy';
-import { formatDny } from '../../prehled';
+import { formatDny, formatPocet, pocetSlovy } from '../../prehled';
 import { CisloTlacitko } from '../prehled/Tabulka';
 import GrafRam, { Bublina, navratFokusu, Popisek, rozlozRadky, useBublina, useSirka, type PolozkaLegendy } from './Ram';
 
 export const PASMA_NAZVY: Record<PasmoStari, string> = { '0-7': '0–7 dní', '8-14': '8–14 dní', '15-30': '15–30 dní', '31+': '31 a víc dní' };
 const PORADI: PasmoStari[] = ['0-7', '8-14', '15-30', '31+'];
 /** Text v segmentu podle světlosti výplně: první (nejsvětlejší) pásmo inkoust, ostatní papír (kontrast i APCA). */
-const TEXT_NA: Record<PasmoStari, string> = { '0-7': 'na-svetle', '8-14': 'na-tmave', '15-30': 'na-tmave', '31+': 'na-tmave' };
+// číslo uvnitř pásma jen tam, kde text splní kontrast AA 4,5:1 při 12 px (oprava po recenzi, drobnost 8): ink na 0–7 dní 7,10:1,
+// krém na 15–30 dní 6,13:1 a na 31+ 10,46:1; na oranžovém 8–14 dní ink 4,22:1 ani krém 3,56:1 nestačí, takže tam číslo není
+// (je v bublině, v tabulce a v součtu fáze na konci pruhu)
+const TEXT_NA: Record<PasmoStari, string | null> = { '0-7': 'na-svetle', '8-14': null, '15-30': 'na-tmave', '31+': 'na-tmave' };
 
 export interface RadekPasem {
   klic: string;
@@ -29,7 +32,6 @@ export interface RadekPasem {
 const RADEK = 50;
 const PRUH = 20;
 const PROSTOR_HODNOTY = 120;
-const cislo = (n: number): string => new Intl.NumberFormat('cs-CZ').format(n);
 
 export default function Pasma({
   graf = 'pasma',
@@ -58,7 +60,7 @@ export default function Pasma({
   const max = Math.max(0, ...radky.map(celkem));
   const delka = Math.max(40, sirka - PROSTOR_HODNOTY);
   // popisek fáze nad pruhem, u fáze s klienty bez známého vstupu i jejich počet (za pruhem jen součet, ať nepřeteče okraj)
-  const popisky = radky.map((r) => `${r.nazev}${r.nezname > 0 ? ` · ${cislo(r.nezname)} neznámý vstup` : ''}`);
+  const popisky = radky.map((r) => `${r.nazev}${r.nezname > 0 ? ` · ${formatPocet(r.nezname)} neznámý vstup` : ''}`);
   const rozlozeni = rozlozRadky(popisky, sirka, RADEK);
   const vyska = Math.max(RADEK, rozlozeni.vyska) + 2;
   const legenda: PolozkaLegendy[] = PORADI.map((p, i) => ({ nazev: PASMA_NAZVY[p], barva: `var(--graf-pasmo-${i + 1})`, tvar: 'blok' }));
@@ -66,8 +68,8 @@ export default function Pasma({
   const neznamych = radky.reduce((a, r) => a + r.nezname, 0);
   const desc = radky.length === 0
     ? 'Žádné fáze.'
-    : `${radky.length} ${radky.length === 1 ? 'fáze' : radky.length <= 4 ? 'fáze' : 'fází'}; podle stáří ${PORADI.map((p, i) => `${PASMA_NAZVY[p]} ${cislo(vPasmech[i])}`).join(', ')}`
-      + `${neznamych > 0 ? `; bez známého vstupu do fáze ${cislo(neznamych)}` : ''}. Čísla jsou i v tabulce.`;
+    : `${pocetSlovy(radky.length, ['# fáze', '# fáze', '# fází'])}; podle stáří ${PORADI.map((p, i) => `${PASMA_NAZVY[p]} ${formatPocet(vPasmech[i])}`).join(', ')}`
+      + `${neznamych > 0 ? `; bez známého vstupu do fáze ${formatPocet(neznamych)}` : ''}. Čísla jsou i v tabulce.`;
   const nazevPasma = (r: RadekPasem, p: PasmoStari) => `${r.nazev}, ${PASMA_NAZVY[p]}`;
   const tabulka = (
     <table className="prehled-tabulka">
@@ -91,11 +93,11 @@ export default function Pasma({
               const n = b?.n ?? 0;
               return (
                 <td key={p} className="cislo-sloupec" data-pasmo={p}>
-                  <CisloTlacitko text={cislo(n)} nazev={nazevPasma(r, p)} onClick={b?.proklik && onProklik && n > 0 ? (el) => onProklik(b.proklik!, nazevPasma(r, p), el) : null} />
+                  <CisloTlacitko text={formatPocet(n)} nazev={nazevPasma(r, p)} onClick={b?.proklik && onProklik && n > 0 ? (el) => onProklik(b.proklik!, nazevPasma(r, p), el) : null} />
                 </td>
               );
             })}
-            <td className="cislo-sloupec">{cislo(r.nezname)}</td>
+            <td className="cislo-sloupec">{formatPocet(r.nezname)}</td>
             <td className="cislo-sloupec">{r.median === null ? '—' : formatDny(r.median)}</td>
             <td className="cislo-sloupec">{r.p90 === null ? '—' : formatDny(r.p90)}</td>
           </tr>
@@ -115,7 +117,7 @@ export default function Pasma({
             const c = celkem(r);
             const w = max > 0 ? (delka * c) / max : 0;
             const seg = segmentyPruhu(PORADI.map((p) => pocet(r, p)), w);
-            const souhrn = cislo(c);
+            const souhrn = formatPocet(c);
             return (
               <g key={r.klic} className="graf-polozka">
                 <Popisek x={4} y={rozlozeni.y[i] + 14} radky={rozlozeni.radky[i]} />
@@ -127,16 +129,16 @@ export default function Pasma({
                   const klikaci = !!b?.proklik && !!onProklik;
                   const hover = (e: ReactPointerEvent<SVGElement>) => ukaz(e, {
                     nadpis: r.nazev,
-                    radky: [{ nazev: PASMA_NAZVY[p], hodnota: cislo(n), barva: `var(--graf-pasmo-${j + 1})` }],
-                    pozn: r.nezname > 0 ? `${cislo(r.nezname)} bez známého vstupu do fáze` : null,
+                    radky: [{ nazev: PASMA_NAZVY[p], hodnota: formatPocet(n), barva: `var(--graf-pasmo-${j + 1})` }],
+                    pozn: r.nezname > 0 ? `${formatPocet(r.nezname)} bez známého vstupu do fáze` : null,
                   });
                   return (
                     <g key={p}>
                       <rect data-pasmo={p} data-faze={r.klic} data-n={n} fill={`var(--graf-pasmo-${j + 1})`} x={1 + s.x} y={y + 20} width={Math.max(1, s.w)} height={PRUH} rx="3"
                         className={`graf-pruh${klikaci ? ' klikaci' : ''}`} onPointerMove={hover}
                         onClick={klikaci ? (e) => onProklik!(b!.proklik!, nazevPasma(r, p), navratFokusu(e.currentTarget)) : undefined} />
-                      {s.w >= 22 && (
-                        <text x={1 + s.x + s.w / 2} y={y + 34} textAnchor="middle" className={`graf-v-pruhu ${TEXT_NA[p]}`} data-pasmo-text={p}>{cislo(n)}</text>
+                      {s.w >= 22 && TEXT_NA[p] !== null && (
+                        <text x={1 + s.x + s.w / 2} y={y + 34} textAnchor="middle" className={`graf-v-pruhu ${TEXT_NA[p]}`} data-pasmo-text={p}>{formatPocet(n)}</text>
                       )}
                     </g>
                   );

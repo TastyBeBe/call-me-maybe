@@ -5,7 +5,7 @@
 // 0 a součet je dál „částečně“. V tabulce je každý sloupec tlačítko na své řádky (proklik řady s vyber.od a vyber.do, jediný
 // výběr, který si appka skládá sama, kontrakt R19).
 
-import { useState, type ReactNode } from 'react';
+import { useState } from 'react';
 import { getApi, type DataRada, type MenaPrehledu, type MetrikaRadyKlic, type PrehledObalka, type PrehledProklik } from '../../api';
 import Cara, { type BodCary } from '../../components/grafy/Cara';
 import { NacitanyObsah } from '../../components/prehled/Stavy';
@@ -33,7 +33,7 @@ function bezCile(filtr: FiltrPrehledu, penize: boolean): string {
   return 'Pro toto období a výběr lidí není zadaný cíl.';
 }
 
-function GrafTrendu({ o, mena, vsechMen, filtr, ovladani }: { o: PrehledObalka<DataRada>; mena: MenaPrehledu | null; vsechMen: number; filtr: FiltrPrehledu; ovladani?: ReactNode }) {
+function GrafTrendu({ o, mena, vsechMen, filtr }: { o: PrehledObalka<DataRada>; mena: MenaPrehledu | null; vsechMen: number; filtr: FiltrPrehledu }) {
   const otevri = useOtevriRadky();
   const d = o.data;
   const jednotka = d.metrika.jednotka;
@@ -96,7 +96,7 @@ function GrafTrendu({ o, mena, vsechMen, filtr, ovladani }: { o: PrehledObalka<D
   );
   return (
     <Cara graf="trend" nadpis={nadpis} popis={popis} nazevRady={`${d.metrika.nazev} (kumulativně)`} body={body} cil={cil ? { hodnota: Number(cil.hodnota), text: fmt(Number(cil.hodnota)) } : null}
-      cele={jednotka === 'pocet'} tabulka={tabulka} ovladani={ovladani} />
+      cele={jednotka === 'pocet'} tabulka={tabulka} />
   );
 }
 
@@ -105,25 +105,30 @@ export default function Trend({ vychozi = 'hodnota_prodeju' }: { vychozi?: Metri
   const [metrika, setMetrika] = useState<MetrikaRadyKlic>(vychozi);
   const zrnitost = zrnitostObdobi(filtr.od, filtr.do);
   const stav = usePrehledData((t, f) => getApi().prehledRada(t, metrika, zrnitost, f), `${metrika}|${zrnitost}`);
-  const ovladani = (
-    <select className="prehled-select graf-vyber" aria-label="Co ukázat v grafu" value={metrika} onChange={(e) => setMetrika(e.target.value as MetrikaRadyKlic)}>
-      {METRIKY_TRENDU.map((m) => (
-        <option key={m.klic} value={m.klic}>{m.nazev}</option>
-      ))}
-    </select>
-  );
+  // výběr metriky je mimo načítaný obsah (oprava po recenzi, drobnost 2): je vidět i při prvním načtení a po chybě, takže z vadné
+  // metriky jde odejít; do adresy nepatří (pohled, ne filtr dat)
   return (
-    <NacitanyObsah stav={stav} karet={1}>
-      {(o) => {
-        const meny: (MenaPrehledu | null)[] = o.data.metrika.jednotka === 'mena' ? (filtr.mena === 'obe' ? ['CZK', 'EUR'] : [filtr.mena]) : [null];
-        return (
-          <div className="prehled-grafy-trendu">
-            {meny.map((m, i) => (
-              <GrafTrendu key={m ?? 'x'} o={o} mena={m} vsechMen={meny.length} filtr={filtr} ovladani={i === 0 ? ovladani : undefined} />
-            ))}
-          </div>
-        );
-      }}
-    </NacitanyObsah>
+    <div className="prehled-trend">
+      <label className="prehled-trend-vyber">
+        <span>Co ukázat v grafu</span>
+        <select className="prehled-select graf-vyber" aria-label="Co ukázat v grafu" value={metrika} onChange={(e) => setMetrika(e.target.value as MetrikaRadyKlic)}>
+          {METRIKY_TRENDU.map((m) => (
+            <option key={m.klic} value={m.klic}>{m.nazev}</option>
+          ))}
+        </select>
+      </label>
+      <NacitanyObsah stav={stav} karet={1} varovani={(o) => o.meta.varovani}>
+        {(o) => {
+          const meny: (MenaPrehledu | null)[] = o.data.metrika.jednotka === 'mena' ? (filtr.mena === 'obe' ? ['CZK', 'EUR'] : [filtr.mena]) : [null];
+          return (
+            <div className="prehled-grafy-trendu">
+              {meny.map((m) => (
+                <GrafTrendu key={m ?? 'x'} o={o} mena={m} vsechMen={meny.length} filtr={filtr} />
+              ))}
+            </div>
+          );
+        }}
+      </NacitanyObsah>
+    </div>
   );
 }

@@ -10,7 +10,7 @@ import { Blok, CisloTlacitko, TabulkaObal } from '../../components/prehled/Tabul
 import { formatDny, formatHodiny, formatPocet } from '../../prehled';
 import Karty from './Karty';
 import { useOtevriRadky, usePrehledData } from './kontext';
-import { ObnovyHostingu } from './ZalozkaFinance';
+import ObnovyHostingu from './ObnovyHostingu';
 
 const PRACE: Record<'build' | 'change', string> = { build: 'Nový web (build)', change: 'Úprava webu (change)' };
 

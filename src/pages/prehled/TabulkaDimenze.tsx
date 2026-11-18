@@ -4,8 +4,21 @@
 
 import type { RadekDimenze } from '../../api/types';
 import { CisloTlacitko, MiniPruh, TabulkaObal } from '../../components/prehled/Tabulka';
-import { formatPocet, nazevMetriky, souctyPresne, souctyText } from '../../prehled';
+import type { CastkaMeny } from '../../api/types';
+import { formatPocet, nazevMetriky, souctyPresne, souctyText, zeZ } from '../../prehled';
 import { useOtevriRadky } from './kontext';
+
+/**
+ * Pokrytí neúplného součtu hodnoty (oprava po recenzi 18. 11. 2026, drobnost 1): „pokrytí 2 ze 4“ (u víc měn s měnou), jen když
+ * některá položka nemá přesnou částku; úplný součet nic nepřidá.
+ */
+function pokrytiSouctu(castky: CastkaMeny[]): string | null {
+  const neuplne = castky.filter((c) => c.pokryti && c.pokryti.nezname > 0);
+  if (neuplne.length === 0) return null;
+  return neuplne
+    .map((c) => `${castky.length > 1 ? `${c.mena}: ` : ''}pokrytí ${formatPocet(c.pokryti.zname)} ${zeZ(c.pokryti.celkem)} ${formatPocet(c.pokryti.celkem)}`)
+    .join(' · ');
+}
 
 export default function TabulkaDimenze({ tabulka, popisek, prvni, radky }: { tabulka: string; popisek: string; prvni: string; radky: RadekDimenze[] }) {
   const otevri = useOtevriRadky();
@@ -42,7 +55,10 @@ export default function TabulkaDimenze({ tabulka, popisek, prvni, radky }: { tab
                   <MiniPruh podil={maxProdano > 0 ? r.prodano / maxProdano : null} />
                 </span>
               </td>
-              <td className="cislo-sloupec" title={souctyPresne(r.hodnota) ?? undefined}>{souctyText(r.hodnota) ?? '—'}</td>
+              <td className="cislo-sloupec" title={souctyPresne(r.hodnota) ?? undefined}>
+                {souctyText(r.hodnota) ?? '—'}
+                {pokrytiSouctu(r.hodnota) ? <span className="prehled-bunka-pozn">{pokrytiSouctu(r.hodnota)}</span> : null}
+              </td>
             </tr>
           ))}
         </tbody>

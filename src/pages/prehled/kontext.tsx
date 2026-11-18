@@ -31,6 +31,11 @@ export interface PrehledKontextHodnota {
   hlasVerzi: (verze: string | null | undefined) => void;
   /** dnešní den v Praze */
   dnes: string;
+  /**
+   * Počítadlo pětiminutové obnovy čerstvosti (časovač stránky a návrat ke skryté stránce; úkol 14a, oprava po recenzi): bloky,
+   * které na filtru nezávisí (kvalita dat), se načtou jednou za návštěvu a znovu jen s ním, ne při každé změně filtru.
+   */
+  obnova: number;
 }
 
 export const PrehledKontext = createContext<PrehledKontextHodnota | null>(null);
@@ -60,6 +65,17 @@ export interface StavNacteni<T> {
   /** načítá se (i znovu po změně filtru; stará data pak zůstanou vidět ztlumená) */
   nacita: boolean;
   znovu: () => void;
+  /** otisk filtru (klicFiltru), ke kterému patří data nebo chyba; null před první odpovědí */
+  pro: string | null;
+}
+
+/**
+ * Volby načtení (úkol 14a, oprava po recenzi): `aktivni: false` = zatím nevolat (třeba týmy Vedení, dokud nedorazí karty,
+ * nebo akční seznam s „K datu“); `bezFiltru` = funkce na filtru nezávisí, takže změna filtru ji znovu nevolá.
+ */
+export interface VolbyNacteni {
+  aktivni?: boolean;
+  bezFiltru?: boolean;
 }
 export type StavDat<T> = StavNacteni<PrehledObalka<T>>;
 
@@ -73,8 +89,11 @@ export type StavDat<T> = StavNacteni<PrehledObalka<T>>;
 export function usePrehledNacteni<T>(
   nacti: (token: string, filtr: PrehledFiltrVstup) => Promise<T>,
   verze: (t: T) => (string | null | undefined)[],
-  klic = ''
+  klic = '',
+  volby: VolbyNacteni = {}
 ): StavNacteni<T> {
+  const aktivni = volby.aktivni ?? true;
+  const bezFiltru = volby.bezFiltru ?? false;
   const session = useSession();
   const { serverFiltr, klicFiltru, hlasVerzi } = usePrehled();
   const hlasVerziRef = useRef(hlasVerzi);
@@ -83,21 +102,27 @@ export function usePrehledNacteni<T>(
   const [chyba, setChyba] = useState<string | null>(null);
   const [nacita, setNacita] = useState(true);
   const [kolo, setKolo] = useState(0);
+  const [pro, setPro] = useState<string | null>(null);
   const cislo = useRef(0);
   const nactiRef = useRef(nacti);
   nactiRef.current = nacti;
   const verzeRef = useRef(verze);
   verzeRef.current = verze;
 
+  const klicNacteni = bezFiltru ? '' : klicFiltru;
   useEffect(() => {
     const moje = ++cislo.current;
     setNacita(true);
     setChyba(null);
+    // neaktivní: nevolat; při změně na aktivní se efekt spustí znovu (aktivni je v závislostech)
+    if (!aktivni) return;
+    const k = klicFiltru;
     nactiRef
       .current(session.token, serverFiltr)
       .then((o) => {
         if (moje !== cislo.current) return;
         setData(o);
+        setPro(k);
         setNacita(false);
         for (const v of verzeRef.current(o)) hlasVerziRef.current(v);
       })
@@ -105,18 +130,19 @@ export function usePrehledNacteni<T>(
         if (moje !== cislo.current) return;
         setData(null);
         setChyba(chybaPrehledu(e));
+        setPro(k);
         setNacita(false);
       });
     // serverFiltr se mění s klicFiltru (otisk); objekt sám se tvoří při každém vykreslení, proto v závislostech není
-  }, [session.token, klicFiltru, kolo, klic]);
+  }, [session.token, klicNacteni, kolo, klic, aktivni]);
 
   const znovu = useCallback(() => setKolo((k) => k + 1), []);
-  return { data, chyba, nacita, znovu };
+  return { data, chyba, nacita, znovu, pro };
 }
 
 /** Jedna funkce Přehledu pro filtr záložky (obálka §2.5); `klic` jako u usePrehledNacteni. */
-export function usePrehledData<T>(nacti: (token: string, filtr: PrehledFiltrVstup) => Promise<PrehledObalka<T>>, klic = ''): StavDat<T> {
-  return usePrehledNacteni(nacti, (o) => [o.definice_verze], klic);
+export function usePrehledData<T>(nacti: (token: string, filtr: PrehledFiltrVstup) => Promise<PrehledObalka<T>>, klic = '', volby: VolbyNacteni = {}): StavDat<T> {
+  return usePrehledNacteni(nacti, (o) => [o.definice_verze], klic, volby);
 }
 
 /** Otevření panelu řádků z tabulky nebo grafu záložky (číslo, jeho název, kam vrátit fokus). */

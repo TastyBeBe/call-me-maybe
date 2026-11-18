@@ -5,13 +5,15 @@
 // provize nárok / vyplaceno / zbývá, hosting (roční, MRR, ARR) s obnovami a slevy. S výběrem lidí, segmentu, oboru nebo kraje jsou
 // náklady z evidence „—“ s důvodem (nejsou po lidech ani klientech), provize se řídí filtrem. CZK a EUR nikdy dohromady.
 
+import { Fragment } from 'react';
 import { getApi, type DataFinance, type MenaPrehledu } from '../../api';
 import Sloupce from '../../components/grafy/Sloupce';
-import { NacitanyObsah, PrehledCastecne, PrehledPrazdne } from '../../components/prehled/Stavy';
+import { NacitanyObsah, PrehledCastecne } from '../../components/prehled/Stavy';
 import { Blok, CisloTlacitko, TabulkaObal } from '../../components/prehled/Tabulka';
 import { castkaVMene } from '../../grafy';
-import { casText, denText, formatCastka, formatPocet, presneCastky, textMetriky } from '../../prehled';
+import { formatCastka, formatPocet, pocetSlovy, presneCastky, textMetriky } from '../../prehled';
 import Karty from './Karty';
+import ObnovyHostingu from './ObnovyHostingu';
 import { useOtevriRadky, usePrehled, usePrehledData } from './kontext';
 
 function Naklady({ d }: { d: DataFinance }) {
@@ -53,24 +55,35 @@ function Naklady({ d }: { d: DataFinance }) {
               <tr>
                 <th scope="col">Kategorie</th>
                 <th scope="col" className="cislo-sloupec">Částka</th>
-                <th scope="col">Poznámka</th>
+                <th scope="col" className="naklady-sloupec-pozn">Poznámka</th>
               </tr>
             </thead>
             <tbody>
               {d.naklady.kategorie.map((k) => {
                 const m = k.castka;
                 const text = textMetriky(m, 'mena');
+                const pozn = k.overit > 0 || m.duvod ? (
+                  <>
+                    {k.overit > 0 && <span className="prehled-znacka overit-znacka">ověřit ({formatPocet(k.overit)})</span>}
+                    {m.duvod ? <span className="prehled-bunka-pozn">{m.duvod}</span> : null}
+                  </>
+                ) : null;
                 return (
-                  <tr key={k.kategorie} data-radek={k.kategorie}>
-                    <th scope="row">{k.nazev}</th>
-                    <td className="cislo-sloupec" data-sloupec="castka">
-                      <CisloTlacitko text={text} nazev={`Náklady – ${k.nazev}`} title={presneCastky(m)} onClick={m.proklik && m.kvalita !== 'nedostupne' ? (el) => otevri(m.proklik!, `Náklady – ${k.nazev}`, el) : null} />
-                    </td>
-                    <td>
-                      {k.overit > 0 && <span className="prehled-znacka overit-znacka">ověřit ({formatPocet(k.overit)})</span>}
-                      {m.duvod ? <span className="prehled-bunka-pozn">{m.duvod}</span> : null}
-                    </td>
-                  </tr>
+                  <Fragment key={k.kategorie}>
+                    <tr data-radek={k.kategorie} className={pozn ? 'naklady-ma-pozn' : undefined}>
+                      <th scope="row">{k.nazev}</th>
+                      <td className="cislo-sloupec" data-sloupec="castka">
+                        <CisloTlacitko text={text} nazev={`Náklady – ${k.nazev}`} title={presneCastky(m)} onClick={m.proklik && m.kvalita !== 'nedostupne' ? (el) => otevri(m.proklik!, `Náklady – ${k.nazev}`, el) : null} />
+                      </td>
+                      <td className="naklady-sloupec-pozn" data-pozn-pro={k.kategorie}>{pozn}</td>
+                    </tr>
+                    {/* na telefonu poznámka pod řádkem přes celou šířku místo úzkého sloupce (oprava po recenzi, drobnost 9) */}
+                    {pozn && (
+                      <tr className="naklady-pozn-radek">
+                        <td colSpan={2} data-pozn-pro={k.kategorie}>{pozn}</td>
+                      </tr>
+                    )}
+                  </Fragment>
                 );
               })}
             </tbody>
@@ -81,8 +94,13 @@ function Naklady({ d }: { d: DataFinance }) {
                   <CisloTlacitko text={textMetriky(d.naklady.celkem, 'mena')} nazev="Náklady celkem" title={presneCastky(d.naklady.celkem)}
                     onClick={d.naklady.celkem.proklik && d.naklady.celkem.kvalita !== 'nedostupne' ? (el) => otevri(d.naklady.celkem.proklik!, 'Náklady celkem', el) : null} />
                 </td>
-                <td>{d.naklady.celkem.duvod ? <span className="prehled-bunka-pozn">{d.naklady.celkem.duvod}</span> : null}</td>
+                <td className="naklady-sloupec-pozn" data-pozn-pro="celkem">{d.naklady.celkem.duvod ? <span className="prehled-bunka-pozn">{d.naklady.celkem.duvod}</span> : null}</td>
               </tr>
+              {d.naklady.celkem.duvod && (
+                <tr className="naklady-pozn-radek">
+                  <td colSpan={2} data-pozn-pro="celkem"><span className="prehled-bunka-pozn">{d.naklady.celkem.duvod}</span></td>
+                </tr>
+              )}
             </tfoot>
           </table>
         </TabulkaObal>
@@ -131,7 +149,7 @@ export default function ZalozkaFinance() {
                 <Karty metriky={platby} obalka={o} uroven={4} />
                 <p className="prehled-cil muted">
                   {d.platby.odvozene > 0 ? `Odvozených plateb (stav Zaplaceno bez potvrzení): ${formatPocet(d.platby.odvozene)}. ` : ''}
-                  {d.pohledavky.nejstarsi_dni !== null ? `Nejstarší nezaplacená faktura je ${formatPocet(d.pohledavky.nejstarsi_dni)} dní stará; přes 14 dní: ${formatPocet(d.pohledavky.po_14_dnech)}.` : 'Žádná nezaplacená faktura.'}
+                  {d.pohledavky.nejstarsi_dni !== null ? `Nejstarší nezaplacená faktura je ${pocetSlovy(d.pohledavky.nejstarsi_dni, ['# den', '# dny', '# dní'])} stará; přes 14 dní: ${formatPocet(d.pohledavky.po_14_dnech)}.` : 'Žádná nezaplacená faktura.'}
                 </p>
               </div>
               <div className="prehled-skupina">
@@ -154,34 +172,5 @@ export default function ZalozkaFinance() {
         }}
       </NacitanyObsah>
     </section>
-  );
-}
-
-/** Obnovy hostingu (Finance i Dodání): klient, poslední platba, splatnost a roční částka. */
-export function ObnovyHostingu({ obnovy }: { obnovy: DataFinance['hosting']['obnovy'] }) {
-  if (obnovy.length === 0) return <PrehledPrazdne nadpis="Žádná obnova v příštích 60 dnech." text="Ani žádná po splatnosti." />;
-  return (
-    <TabulkaObal popisek="Obnovy hostingu">
-      <table className="prehled-tabulka" data-tabulka="obnovy">
-        <thead>
-          <tr>
-            <th scope="col">Klient</th>
-            <th scope="col">Zaplaceno</th>
-            <th scope="col">Splatnost</th>
-            <th scope="col" className="cislo-sloupec">Ročně</th>
-          </tr>
-        </thead>
-        <tbody>
-          {obnovy.map((r) => (
-            <tr key={r.kontakt_id} data-radek={r.kontakt_id}>
-              <th scope="row">{r.jmeno}</th>
-              <td>{casText(r.zaplaceno_at)}</td>
-              <td>{denText(r.splatnost)}</td>
-              <td className="cislo-sloupec">{r.castka === null ? 'neznámá' : formatCastka(r.castka, r.mena)}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </TabulkaObal>
   );
 }

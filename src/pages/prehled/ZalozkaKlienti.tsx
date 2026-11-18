@@ -7,7 +7,7 @@ import { getApi } from '../../api';
 import Sloupce from '../../components/grafy/Sloupce';
 import { NacitanyObsah, PrehledCastecne, PrehledPrazdne } from '../../components/prehled/Stavy';
 import { Blok, CisloTlacitko, TabulkaObal } from '../../components/prehled/Tabulka';
-import { formatPocet, formatPodil } from '../../prehled';
+import { formatPocet, formatPodil, pocetSlovy } from '../../prehled';
 import { ZAKLAD_POPISKY } from '../../prehledFiltr';
 import Karty from './Karty';
 import { useOtevriRadky, usePrehled, usePrehledData } from './kontext';
@@ -43,7 +43,7 @@ export default function ZalozkaKlienti() {
                   popis={kohortove ? 'Prodaní klienti kohorty k datu.' : 'Prodeje s datem prodeje v období.'}
                   nazevPolozky="Segment"
                   nazevHodnoty="Prodáno"
-                  polozky={d.podle_segmentu.map((r) => ({ klic: r.klic, nazev: r.nazev, hodnota: r.prodano, text: formatPocet(r.prodano), pozn: `${formatPocet(r.kontakty)} kontaktů` }))}
+                  polozky={d.podle_segmentu.map((r) => ({ klic: r.klic, nazev: r.nazev, hodnota: r.prodano, text: formatPocet(r.prodano), pozn: pocetSlovy(r.kontakty, ['# kontakt', '# kontakty', '# kontaktů']) }))}
                   onProklik={otevri}
                 />
               )}

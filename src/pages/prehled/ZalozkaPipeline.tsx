@@ -8,15 +8,12 @@ import { getApi, type DataPipeline } from '../../api';
 import Pasma from '../../components/grafy/Pasma';
 import { NacitanyObsah, PrehledCastecne, PrehledPrazdne } from '../../components/prehled/Stavy';
 import { Blok, CisloTlacitko, TabulkaObal } from '../../components/prehled/Tabulka';
-import { formatCastka, formatDny, formatPocet, formatPodil, nazevMetriky, souctyPresne, souctyText } from '../../prehled';
+import { mesicNazev } from '../../grafy';
+import { formatCastka, formatDny, formatPocet, formatPodil, nazevMetriky, pocetSlovy, souctyPresne, souctyText } from '../../prehled';
 import Karty from './Karty';
 import { useOtevriRadky, usePrehledData } from './kontext';
 
 const ZNAMKY: Record<string, string> = { A: 'Známka A', B: 'Známka B', C: 'Známka C', bez: 'Bez známky' };
-const mesicText = (m: string): string => {
-  const [y, mm] = m.split('-').map(Number);
-  return `${['leden', 'únor', 'březen', 'duben', 'květen', 'červen', 'červenec', 'srpen', 'září', 'říjen', 'listopad', 'prosinec'][mm - 1]} ${y}`;
-};
 
 function Faze({ d }: { d: DataPipeline }) {
   const otevri = useOtevriRadky();
@@ -82,9 +79,9 @@ function Kohorty({ d }: { d: DataPipeline }) {
         <tbody>
           {d.kohorty.map((k) => (
             <tr key={k.mesic} data-radek={k.mesic}>
-              <th scope="row">{mesicText(k.mesic)}</th>
+              <th scope="row">{mesicNazev(k.mesic)}</th>
               <td className="cislo-sloupec">
-                <CisloTlacitko text={formatPocet(k.n)} nazev={`Kohorta ${mesicText(k.mesic)}`} onClick={k.proklik && k.n > 0 ? (el) => otevri(k.proklik!, `Kohorta ${mesicText(k.mesic)}`, el) : null} />
+                <CisloTlacitko text={formatPocet(k.n)} nazev={`Kohorta ${mesicNazev(k.mesic)}`} onClick={k.proklik && k.n > 0 ? (el) => otevri(k.proklik!, `Kohorta ${mesicNazev(k.mesic)}`, el) : null} />
               </td>
               <td className="cislo-sloupec">{formatPocet(k.dovolano)}</td>
               <td className="cislo-sloupec">{formatPocet(k.zajem)}</td>
@@ -187,7 +184,7 @@ export default function ZalozkaPipeline() {
               <PrehledCastecne varovani={o.meta.varovani} metriky={metriky} />
               <Karty metriky={metriky} obalka={o} />
               {d.rychlost_navrhu.cenzurovano ? (
-                <p className="prehled-cil muted">Na návrh ještě čeká {formatPocet(d.rychlost_navrhu.cenzurovano)} klientů se zájmem z období (v mediánu nejsou, jejich čas běží).</p>
+                <p className="prehled-cil muted">Na návrh ještě {pocetSlovy(d.rychlost_navrhu.cenzurovano, ['čeká # klient', 'čekají # klienti', 'čeká # klientů'])} se zájmem z období (v mediánu nejsou, jejich čas běží).</p>
               ) : null}
               <Blok nadpis="Otevřené fáze" blok="faze" popis="Klienti v otevřených stavech k datu, známá hodnota (cena nabídky za polovinu, jinak cena webu) a jak dlouho jsou ve fázi.">
                 <Faze d={d} />
@@ -212,7 +209,7 @@ export default function ZalozkaPipeline() {
                   <ul className="prehled-seznam-cisel">
                     {d.slevy.ceny.map((c) => (
                       <li key={c.mena}>
-                        {formatPocet(c.n)} nabídek: původně {formatCastka(c.puvodni, c.mena, true)}, nabídnuto {formatCastka(c.nabidnuta, c.mena, true)}
+                        {pocetSlovy(c.n, ['# nabídka', '# nabídky', '# nabídek'])}: původně {formatCastka(c.puvodni, c.mena, true)}, nabídnuto {formatCastka(c.nabidnuta, c.mena, true)}
                       </li>
                     ))}
                   </ul>

@@ -4357,7 +4357,7 @@ await blok050('PZ1 Vedení', async () => {
   const rada = await posledniPV(page, 'prehledRada');
   over('PZ1b', /50 000/.test(cil) && rada?.args[0] === 'hodnota_prodeju' && rada?.args[1] === 'den' && (await page.locator('figure[data-graf="trend"] .graf-cara').count()) === 1,
     'trend: hodnota prodejů po dnech kumulativně, čára a cíl 50 000 Kč s popiskem', `${cil} ${JSON.stringify(rada?.args.slice(0, 2))}`);
-  await page.locator('figure[data-graf="trend"] select[aria-label="Co ukázat v grafu"]').selectOption('hovory');
+  await page.locator('.prehled-trend select[aria-label="Co ukázat v grafu"]').selectOption('hovory');
   await klid(page, 900);
   const rada2 = await posledniPV(page, 'prehledRada');
   over('PZ1c', rada2?.args[0] === 'hovory' && /Hovory/.test(await page.locator('figure[data-graf="trend"] svg > title').textContent()),
@@ -4374,8 +4374,8 @@ await blok050('PZ1 Vedení', async () => {
   const radkyT = await trychtyr.locator('.graf-tabulka tbody tr[data-radek]').evaluateAll((rs) => rs.map((r) => [r.getAttribute('data-radek'), (r.children[1]?.textContent ?? '').trim()]));
   const stejneN = radkyT.length === 7 && radkyT.every(([k, n]) => !(k in nGrafu) || nGrafu[k].startsWith(n));
   over('PZ1d', /Spojen/.test(popisky) && !/Dovol/.test(popisky) && stejneN && /Osloven/.test(bublina) && (await trychtyr.locator('button.graf-prepinac').getAttribute('aria-expanded')) === 'true'
-    && /Zobrazit jako graf/.test(await trychtyr.locator('button.graf-prepinac').innerText()),
-    'trychtýř: „Spojen“ (nikdy „Dovolán“), bublina nad pruhem, „Zobrazit jako tabulku“ ukáže 7 kroků se stejnými čísly jako graf',
+    && /Zobrazit jako graf/.test(await trychtyr.locator('button.graf-prepinac').innerText()) && (await trychtyr.locator('details.prehled-rozbal').count()) === 1,
+    'trychtýř: „Spojen“ (nikdy „Dovolán“), bublina nad pruhem, „Zobrazit jako tabulku“ ukáže 7 kroků se stejnými čísly jako graf; rozbalení stavů v kartě grafu',
     JSON.stringify({ nGrafu, radkyT, bublina }));
   // týmy: řádek za tým (prehled_lide s členy týmu), Nepřiřazeno zvlášť, Celkem = celý výběr
   const tymy = await tabulkaLidiPZ(page, 'tymy', 'hovory');
@@ -4478,10 +4478,12 @@ await blok050('PZ3 porovnání lidí', async () => {
   // koordinátor 18. 11. 2026: plán počítá každý den celého období (i budoucí), takže popisky říkají „za celé období“
   const zahlaviPlanu = txt(await page.locator('table[data-tabulka="lide"] thead th[data-sloupec="odpracovane_hodiny"]').innerText());
   const kartyPlanu = txt((await page.locator('.kpi-karta[data-klic="planovane_hodiny"], .kpi-karta[data-klic="plneni_planu"]').allInnerTexts()).join(' | '));
+  // oprava po recenzi (drobnost 6): řazení podle sloupce, který po přepnutí pohledu zmizel, se vrátí na výchozí (bez aria-sort)
+  const razeniCas = await page.locator('table[data-tabulka="lide"] thead th[aria-sort]').count();
   over('PZ3d', plan.length === 2 && plan.every((t) => /h/.test(t)) && plan.some((t) => /z\s+[\d,]+\s*h|plán/.test(txt(t))) && (await page.locator('table[data-tabulka="lide"] .metr').count()) > 0
-    && /za celé období/.test(zahlaviPlanu) && /Plán za celé období/.test(kartyPlanu) && /Splněno z plánu období/.test(kartyPlanu),
-    'pohled Čas: odpracované hodiny proti plánu z rozvrhu (měřák), u člověka bez rozvrhu věta; plán a plnění nazvané „za celé období“',
-    JSON.stringify({ plan: plan.map(txt), zahlaviPlanu, kartyPlanu: kartyPlanu.slice(0, 160) }));
+    && /za celé období/.test(zahlaviPlanu) && /Plán za celé období/.test(kartyPlanu) && /Splněno z plánu období/.test(kartyPlanu) && razeniCas === 0,
+    'pohled Čas: odpracované hodiny proti plánu z rozvrhu (měřák), u člověka bez rozvrhu věta; plán a plnění nazvané „za celé období“; skryté řazení se zruší',
+    JSON.stringify({ plan: plan.map(txt), zahlaviPlanu, kartyPlanu: kartyPlanu.slice(0, 160), razeniCas }));
   await snimekCely(page, 'lide-porovnani-1280');
   // jiné období: čísla tabulky z nové odpovědi
   await page.locator('.prehled-obdobi select').selectOption('minuly_mesic');
@@ -4492,8 +4494,10 @@ await blok050('PZ3 porovnání lidí', async () => {
   await page.waitForTimeout(150);
   const minule = await tabulkaLidiPZ(page, 'lide', 'hovory');
   const l2 = await posledniPV(page, 'prehledLide');
-  over('PZ3e', l2?.args[0]?.od === mOd && l2?.args[0]?.do === mDo && cisloPZ(minule.find((r) => r.jmeno.startsWith('Petra'))?.hodnota ?? '') === await hovoryPZ(page, UID.petra, mOd, mDo),
-    'Minulý měsíc: nové volání s jeho dny a tabulka ukáže hovory toho měsíce', JSON.stringify({ args: l2?.args[0], minule }));
+  const razeniZpet = await page.locator('table[data-tabulka="lide"] thead th[aria-sort]').count();
+  over('PZ3e', l2?.args[0]?.od === mOd && l2?.args[0]?.do === mDo && cisloPZ(minule.find((r) => r.jmeno.startsWith('Petra'))?.hodnota ?? '') === await hovoryPZ(page, UID.petra, mOd, mDo)
+    && razeniZpet === 0,
+    'Minulý měsíc: nové volání s jeho dny a tabulka ukáže hovory toho měsíce; po návratu do pohledu Volání žádné staré řazení', JSON.stringify({ args: l2?.args[0], minule, razeniZpet }));
   await ctx.close();
 });
 
@@ -4520,7 +4524,7 @@ await blok050('PZ9 segment', async () => {
   const cas = (await page.locator('table[data-tabulka="lide"] td[data-sloupec="odpracovane_hodiny"]').allInnerTexts()).map(txt);
   const kartyCasu = (await page.locator('.kpi-karta[data-klic="odpracovane_hodiny"], .kpi-karta[data-klic="plneni_planu"]').allInnerTexts()).map(txt);
   await jdi(page, `#/prehled/finance?${dotaz}`, 1400);
-  const naklady = await page.locator('table[data-tabulka="naklady"] tbody tr').evaluateAll((rs) => rs.map((r) => ({ k: r.getAttribute('data-radek'),
+  const naklady = await page.locator('table[data-tabulka="naklady"] tbody tr[data-radek]').evaluateAll((rs) => rs.map((r) => ({ k: r.getAttribute('data-radek'),
     castka: (r.querySelector('td[data-sloupec="castka"] .cislo-text')?.textContent ?? '').replace(/\s+/g, ' ').trim(), t: (r.textContent ?? '').replace(/\s+/g, ' ').trim() })));
   over('PZ9b', cas.length >= 2 && cas.every((t) => /^—/.test(t) && /segment/.test(t) && !/\b0 h\b|plán —/.test(t)) && kartyCasu.length === 2 && kartyCasu.every((t) => /—/.test(t) && /segment/.test(t))
     && naklady.length === 6 && naklady.filter((r) => r.k !== 'provize').every((r) => r.castka === '—' && /nejsou rozdělené/.test(r.t)) && /Kč/.test(naklady.find((r) => r.k === 'provize')?.castka ?? ''),
@@ -4586,7 +4590,7 @@ await blok050('PZ4 řádky = číslo', async () => {
 await blok050('PZ5 náklady', async () => {
   const { ctx, page } = await novaStranka('admin');
   await jdi(page, '#/prehled/finance', 1200);
-  const radky = await page.locator('table[data-tabulka="naklady"] tbody tr').evaluateAll((rs) => rs.map((r) => ({ k: r.getAttribute('data-radek'), t: (r.textContent ?? '').replace(/\s+/g, ' ').trim(),
+  const radky = await page.locator('table[data-tabulka="naklady"] tbody tr[data-radek]').evaluateAll((rs) => rs.map((r) => ({ k: r.getAttribute('data-radek'), t: (r.textContent ?? '').replace(/\s+/g, ' ').trim(),
     castka: (r.querySelector('td[data-sloupec="castka"] .cislo-text')?.textContent ?? '').replace(/\s+/g, ' ').trim(), overit: !!r.querySelector('.overit-znacka') })));
   const celkem = cisloPZ(await kartaPV(page, 'naklady_celkem').locator('.kpi-hlavni').innerText());
   const soucet = radky.reduce((a, r) => a + cisloPZ(r.castka), 0);
@@ -4597,7 +4601,7 @@ await blok050('PZ5 náklady', async () => {
     JSON.stringify({ radky, celkem, soucet, graf }));
   // s výběrem lidí jen provize: evidence nákladů není po lidech
   await jdi(page, '#/prehled/finance?od=' + `${dnesPV().slice(0, 8)}01` + '&do=' + posledniDenMesicePV(dnesPV()) + '&lide=2', 1200);
-  const sLidmi = await page.locator('table[data-tabulka="naklady"] tbody tr').evaluateAll((rs) => rs.map((r) => ({ k: r.getAttribute('data-radek'),
+  const sLidmi = await page.locator('table[data-tabulka="naklady"] tbody tr[data-radek]').evaluateAll((rs) => rs.map((r) => ({ k: r.getAttribute('data-radek'),
     castka: (r.querySelector('td[data-sloupec="castka"] .cislo-text')?.textContent ?? '').replace(/\s+/g, ' ').trim(), t: (r.textContent ?? '').replace(/\s+/g, ' ').trim() })));
   over('PZ5b', sLidmi.filter((r) => r.k !== 'provize').every((r) => r.castka === '—' && /nejsou rozdělené podle lidí/.test(r.t)) && /Kč/.test(sLidmi.find((r) => r.k === 'provize')?.castka ?? '')
     && /—/.test(await kartaPV(page, 'naklady_celkem').locator('.kpi-hlavni').innerText()),
@@ -4651,6 +4655,76 @@ await blok050('PZ7 Volající', async () => {
   await ctx.close();
 });
 
+// Oprava po recenzi úkolu 14a (18. 11. 2026, .superpowers/sdd/task-14a-fixes.md): týmy Vedení až po kartách a bez dvojího
+// volání stejného výběru, varování odpovědi bloku vidět, akční seznam s „K datu“ bez volání, výběr metriky grafu i při chybě
+// a při načítání, kvalita dat jednou za návštěvu.
+await blok050('PZ10 oprava po recenzi', async () => {
+  const { ctx, page } = await novaStranka('admin');
+  await jdi(page, '#/prehled/vedeni', 1600);
+  const v1 = await volani(page);
+  const souhrn = v1.filter((v) => v.fn === 'prehledSouhrn').pop();
+  const lideV = v1.filter((v) => v.fn === 'prehledLide' && v.zacatek > (souhrn?.zacatek ?? 0));
+  const varovaniTymu = await page.locator('section[data-blok="tymy"] .prehled-varovani li[data-kod="CASOVAC_OD"]').count();
+  over('PZ10a', !!souhrn && lideV.length >= 2 && lideV.every((v) => v.zacatek > souhrn.konec) && varovaniTymu === 1,
+    'Vedení: týmy se načtou až po kartách (žádné prehled_lide před koncem prehled_souhrn); blok Týmy ukáže varování své odpovědi (CASOVAC_OD)',
+    JSON.stringify({ souhrn: souhrn && [souhrn.zacatek, souhrn.konec], lide: lideV.map((v) => v.zacatek), varovaniTymu }));
+  const od = `${dnesPV().slice(0, 8)}01`;
+  const doDne = posledniDenMesicePV(dnesPV());
+  const pred = (await volani(page)).length;
+  await jdi(page, `#/prehled/vedeni?od=${od}&do=${doDne}&lide=1,2,5`, 1600);
+  const poZmene = (await volani(page)).slice(pred);
+  const lideTym = poZmene.filter((v) => v.fn === 'prehledLide');
+  const souhrnB = poZmene.find((v) => v.fn === 'prehledSouhrn');
+  over('PZ10b', lideTym.length === 1 && JSON.stringify(lideTym[0].args[0]?.lide) === '[1,2,5]' && (await page.locator('table[data-tabulka="tymy"] tbody tr[data-druh="tym"]').count()) === 1
+    && !!souhrnB && lideTym[0].zacatek > souhrnB.konec,
+    'výběr = celý jeden tým: jedno prehled_lide (řádek týmu z téže odpovědi), ne dvě stejná volání; i po změně filtru až po kartách',
+    JSON.stringify({ lide: lideTym.map((v) => [v.args[0]?.lide, v.zacatek]), souhrn: souhrnB && [souhrnB.zacatek, souhrnB.konec] }));
+  const predK = (await volani(page)).length;
+  const k = new Date(Date.now() - 2 * 86400000).toISOString();
+  await jdi(page, `#/prehled/vedeni?od=${od}&do=${doDne}&k=${encodeURIComponent(k)}`, 1600);
+  const akceK = (await volani(page)).slice(predK).filter((v) => v.fn === 'prehledAkce').length;
+  const vetaK = txt(await page.locator('section[data-blok="akce"]').innerText());
+  over('PZ10c', akceK === 0 && /jen pro dnešek/.test(vetaK), 'K datu: akční seznam server nevolá a řekne, že je jen pro dnešek', JSON.stringify({ akceK, vetaK: vetaK.slice(0, 120) }));
+  await ctx.close();
+
+  const { ctx: ctx2, page: p2 } = await novaStranka('admin');
+  // výběr metriky grafu je vidět už během prvního načtení řady …
+  await p2.evaluate(() => {
+    globalThis.__volackaDemoTest.zpozdeni = (fn) => (fn === 'prehledRada' ? 2500 : 0);
+  });
+  await p2.evaluate(() => { location.hash = '#/prehled/vedeni'; });
+  await p2.waitForTimeout(700);
+  const vyberPriNacitani = await p2.locator('select[aria-label="Co ukázat v grafu"]').count();
+  const grafPriNacitani = await p2.locator('figure[data-graf="trend"]').count();
+  await klid(p2, 300);
+  // … i po chybě řady, a jde jím z vadné metriky odejít
+  await p2.evaluate(() => {
+    globalThis.__volackaDemoTest.zpozdeni = () => 0;
+    globalThis.__volackaDemoTest.selhani = (fn, args) => (fn === 'prehledRada' && args[0] === 'inkaso' ? 'Řada teď nejde načíst (test).' : null);
+  });
+  const vyber = p2.locator('select[aria-label="Co ukázat v grafu"]');
+  await vyber.selectOption('inkaso');
+  await klid(p2, 600);
+  const chybaRady = await p2.locator('.prehled-trend .prehled-chyba').count();
+  const vyberPriChybe = await vyber.count();
+  await vyber.selectOption('hovory');
+  await klid(p2, 900);
+  const radaH = await posledniPV(p2, 'prehledRada');
+  over('PZ10d', vyberPriNacitani === 1 && grafPriNacitani === 0 && chybaRady === 1 && vyberPriChybe === 1 && radaH?.args[0] === 'hovory' && radaH?.ok === true
+    && (await p2.locator('.prehled-trend figure[data-graf="trend"]').count()) === 1,
+    'výběr metriky grafu je vidět při prvním načtení i po chybě řady a přepne na jinou metriku (mimo adresu)',
+    JSON.stringify({ vyberPriNacitani, grafPriNacitani, chybaRady, vyberPriChybe, rada: radaH && [radaH.args[0], radaH.ok] }));
+  await p2.evaluate(() => { globalThis.__volackaDemoTest.selhani = () => null; });
+  // kvalita dat: jedno volání za návštěvu záložky, změna filtru ji znovu nevolá
+  await jdi(p2, '#/prehled/prognoza', 1600);
+  const kv1 = (await volani(p2)).filter((v) => v.fn === 'prehledKvalita').length;
+  await p2.locator('.prehled-obdobi select').selectOption('minuly_mesic');
+  await klid(p2, 1400);
+  const kv2 = (await volani(p2)).filter((v) => v.fn === 'prehledKvalita').length;
+  over('PZ10e', kv1 === 1 && kv2 === 1, 'kvalita dat: jedno volání za návštěvu záložky, změna filtru ji znovu nevolá', JSON.stringify({ kv1, kv2 }));
+  await ctx2.close();
+});
+
 for (const sirka of [320, 360, 390]) {
   await blok050(`PZ8 ${sirka}`, async () => {
     const { ctx, page } = await novaStranka('admin', { sirka, vyska: 844 });
@@ -4666,8 +4740,32 @@ for (const sirka of [320, 360, 390]) {
       const s = o ? getComputedStyle(o).overflowX : '';
       return { siroka: !!o && o.scrollWidth > o.clientWidth + 1, posun: s, napoveda: !!o?.parentElement?.querySelector('.prehled-tabulka-napoveda:not([hidden])') };
     });
-    over(`PZ8 ${sirka}`, Object.values(vysl).every((w) => w <= sirka) && obal.siroka && /auto|scroll/.test(obal.posun) && obal.napoveda,
-      `telefon ${sirka} px: všech osm záložek bez posunu stránky do strany; široká tabulka lidí se posouvá ve svém rámečku a má nápovědu`, JSON.stringify({ ...vysl, obal }));
+    // oprava po recenzi (důležité 1): tabulka grafu (pásma stáří) má rámeček s nápovědou a fokusem, stránka se do strany neposune
+    await jdi(page, '#/prehled/pipeline', 1200);
+    await page.locator('figure[data-graf="pasma"] button.graf-prepinac').click();
+    await page.waitForTimeout(250);
+    const tabGrafu = await page.locator('figure[data-graf="pasma"] .graf-tabulka').evaluate((g) => {
+      const o = g.querySelector('.prehled-tabulka-obal');
+      return { obal: !!o, tabIndex: o ? o.tabIndex : null, napoveda: !!g.querySelector('.prehled-tabulka-napoveda:not([hidden])'), siroka: !!o && o.scrollWidth > o.clientWidth + 1 };
+    });
+    const stranaGrafu = await page.evaluate(() => document.documentElement.scrollWidth);
+    // drobnost 9: popisky osy X trendu se nepřekrývají (skutečné okraje textu, poslední zarovnaný doprava)
+    await jdi(page, '#/prehled/vedeni', 1200);
+    const osa = await page.locator('figure[data-graf="trend"] svg text.graf-osa').evaluateAll((ts) => {
+      const maxY = Math.max(...ts.map((t) => Number(t.getAttribute('y'))));
+      return ts.filter((t) => Number(t.getAttribute('y')) === maxY).map((t) => { const r = t.getBoundingClientRect(); return [Math.round(r.left), Math.round(r.right), t.textContent]; })
+        .sort((a, b) => a[0] - b[0]);
+    });
+    const prekryv = osa.filter((r, i) => i > 0 && r[0] < osa[i - 1][1] + 6).map((r) => r[2]);
+    // drobnost 9: poznámka u nákladů je na telefonu čitelná (pod řádkem přes celou šířku, ne úzký sloupec)
+    await jdi(page, '#/prehled/finance', 1200);
+    const sirkaPozn = await page.locator('table[data-tabulka="naklady"] [data-pozn-pro="provize"]').evaluateAll((els) =>
+      Math.max(0, ...els.filter((e) => e.offsetParent !== null && (e.textContent ?? '').trim().length > 0).map((e) => Math.round(e.getBoundingClientRect().width))));
+    over(`PZ8 ${sirka}`, Object.values(vysl).every((w) => w <= sirka) && obal.siroka && /auto|scroll/.test(obal.posun) && obal.napoveda
+      && tabGrafu.obal && (!tabGrafu.siroka || (tabGrafu.tabIndex === 0 && tabGrafu.napoveda)) && (sirka !== 320 || tabGrafu.siroka) && stranaGrafu <= sirka
+      && osa.length >= 2 && prekryv.length === 0 && sirkaPozn >= 200,
+      `telefon ${sirka} px: všech osm záložek bez posunu stránky do strany; široká tabulka lidí i tabulka grafu se posouvají ve svém rámečku s nápovědou; popisky osy trendu bez překryvu; poznámka nákladů čitelná`,
+      JSON.stringify({ ...vysl, obal, tabGrafu, stranaGrafu, osa, prekryv, sirkaPozn }));
     await ctx.close();
   });
 }

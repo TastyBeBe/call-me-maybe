@@ -8,7 +8,7 @@ import { getApi, type DataKomunikace, type SkupinaCekani } from '../../api';
 import Sloupce from '../../components/grafy/Sloupce';
 import { NacitanyObsah, PrehledCastecne, PrehledPrazdne } from '../../components/prehled/Stavy';
 import { Blok, CisloTlacitko, TabulkaObal } from '../../components/prehled/Tabulka';
-import { formatDny, formatPocet, formatPodil } from '../../prehled';
+import { formatDny, formatPocet, formatPodil, pocetSlovy } from '../../prehled';
 import Karty from './Karty';
 import { useOtevriRadky, usePrehled, usePrehledData } from './kontext';
 
@@ -54,14 +54,14 @@ function PoNavrhu() {
   const otevri = useOtevriRadky();
   const stav = usePrehledData((t, f) => getApi().prehledTrychtyr(t, f));
   return (
-    <NacitanyObsah stav={stav} karet={1}>
+    <NacitanyObsah stav={stav} karet={1} varovani={(o) => o.meta.varovani}>
       {(o) => {
         const p = o.data.po_navrhu;
         return (
           <Sloupce
             graf="po-navrhu"
             nadpis="Co se stalo po návrhu"
-            popis={`${p.kohorta.popis}: ${formatPocet(p.kohorta.n)} klientů. Kroky se překrývají (klient může odpovědět i dostat nabídku); podíl je z celé kohorty.`}
+            popis={`${p.kohorta.popis}: ${pocetSlovy(p.kohorta.n, ['# klient', '# klienti', '# klientů'])}. Kroky se překrývají (klient může odpovědět i dostat nabídku); podíl je z celé kohorty.`}
             nazevPolozky="Výsledek"
             nazevHodnoty="Klientů"
             polozky={p.kroky.map((k) => ({

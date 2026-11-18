@@ -7,6 +7,11 @@
 import { useId, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 import { cestaCary, dilkyOsy } from '../../grafy';
 import GrafRam, { Bublina, useBublina, useSirka, type PolozkaLegendy } from './Ram';
+import { pocetSlovy } from '../../prehled';
+
+/** Šířka znaku popisku osy (11,5 px tučně, číslice a tečky; horní odhad) a mezera mezi popisky osy X. */
+const SIRKA_ZNAKU_OSY = 6.6;
+const MEZERA_POPISKU = 8;
 
 export interface BodCary {
   klic: string;
@@ -91,16 +96,29 @@ export default function Cara({
   hodnoty.forEach((v, i) => (v === null ? zavriUsek() : usek.push(i)));
   zavriUsek();
   const posledni = [...body.keys()].reverse().find((i) => hodnoty[i] !== null);
-  // popisky osy X: tak hustě, jak se vejdou (odhad šířky z nejdelšího popisku), první a poslední vždy; popisek těsně před posledním
-  // vypadne, ať se nepřekrývají
+  // popisky osy X: tak hustě, jak se vejdou (odhad šířky z nejdelšího popisku); poslední vždy. Oprava po recenzi (drobnost 9):
+  // skutečné okraje textu podle zarovnání (první od svého bodu doprava, poslední doleva, ostatní na střed) a mezera 8 px, takže
+  // se popisky nepřekrývají ani na telefonu 390 px
   const sirkaPopisku = Math.max(40, Math.max(0, ...body.map((b) => b.popisek.length)) * 6.5 + 12);
   const kazdy = Math.max(1, Math.ceil(body.length / Math.max(2, Math.floor(sirkaPlochy / sirkaPopisku))));
   const posledniX = body.length - 1;
-  const popiskyX = body.map((b, i) => ({ b, i }))
-    .filter(({ i }) => i % kazdy === 0 || i === posledniX)
-    .filter(({ i }) => i === 0 || i === posledniX || x(posledniX) - x(i) >= sirkaPopisku);
+  const okrajePopisku = (i: number): [number, number] => {
+    const w = body[i].popisek.length * SIRKA_ZNAKU_OSY;
+    if (body.length > 1 && i === 0) return [x(0), x(0) + w];
+    if (body.length > 1 && i === posledniX) return [x(i) - w, x(i)];
+    return [x(i) - w / 2, x(i) + w / 2];
+  };
+  const vybranePopisky: number[] = [];
+  const zacatekPosledniho = body.length > 1 ? okrajePopisku(posledniX)[0] : Infinity;
+  for (let i = 0; i < posledniX; i += kazdy) {
+    const [l, r] = okrajePopisku(i);
+    const predchozi = vybranePopisky.length > 0 ? okrajePopisku(vybranePopisky[vybranePopisky.length - 1])[1] : -Infinity;
+    if (l >= predchozi + MEZERA_POPISKU && r + MEZERA_POPISKU <= zacatekPosledniho) vybranePopisky.push(i);
+  }
+  if (body.length > 0) vybranePopisky.push(posledniX);
+  const popiskyX = vybranePopisky.map((i) => ({ b: body[i], i }));
   const legenda: PolozkaLegendy[] = cil ? [{ nazev: nazevRady, barva: 'var(--graf-rada)', tvar: 'cara' }, { nazev: `Cíl ${cil.text}`, barva: 'var(--ink)', tvar: 'prerusovana' }] : [];
-  const desc = `${nazevRady}, ${body.length} ${body.length === 1 ? 'bod' : body.length <= 4 ? 'body' : 'bodů'} od ${body[0]?.popisek ?? '—'} do ${body[body.length - 1]?.popisek ?? '—'}`
+  const desc = `${nazevRady}, ${pocetSlovy(body.length, ['# bod', '# body', '# bodů'])} od ${body[0]?.popisek ?? '—'} do ${body[body.length - 1]?.popisek ?? '—'}`
     + `${posledni !== undefined ? `; poslední známá hodnota ${body[posledni].text} (${body[posledni].popisek})` : '; žádná známá hodnota'}`
     + `${cil ? `; cíl ${cil.text}` : '; cíl není zadaný'}. Čísla jsou i v tabulce.`;
 

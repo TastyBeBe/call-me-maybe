@@ -107,6 +107,11 @@ export function segmentyPruhu(hodnoty: readonly number[], sirka: number, mezera 
 }
 
 const MESICE = ['leden', 'únor', 'březen', 'duben', 'květen', 'červen', 'červenec', 'srpen', 'září', 'říjen', 'listopad', 'prosinec'];
+/** Měsíc „2026-11“ (i „2026-11-05“) česky: „listopad 2026“ (popisky řady, kohorty, přesnost odhadu). */
+export function mesicNazev(den: string): string {
+  const [y, m] = den.split('-').map(Number);
+  return `${MESICE[m - 1]} ${y}`;
+}
 const dm = (den: string): [number, number, number] => {
   const [y, m, d] = den.split('-').map(Number);
   return [y, m, d];
@@ -114,9 +119,9 @@ const dm = (den: string): [number, number, number] => {
 
 /** Popisek sloupce řady: den „8. 11.“, týden „2.–8. 11.“ (přes měsíc „26. 10.–1. 11.“), měsíc „listopad 2026“. */
 export function popisekBodu(od: string, doDne: string, zrnitost: ZrnitostRady): string {
-  const [y1, m1, d1] = dm(od);
+  const [, m1, d1] = dm(od);
   const [, m2, d2] = dm(doDne);
-  if (zrnitost === 'mesic') return `${MESICE[m1 - 1]} ${y1}`;
+  if (zrnitost === 'mesic') return mesicNazev(od);
   if (zrnitost === 'den' || od === doDne) return `${d1}. ${m1}.`;
   return m1 === m2 ? `${d1}.–${d2}. ${m2}.` : `${d1}. ${m1}.–${d2}. ${m2}.`;
 }
