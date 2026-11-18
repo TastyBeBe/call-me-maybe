@@ -77,6 +77,16 @@ export function rozsahCile(c: Pick<Cil, 'user_id' | 'user_jmeno' | 'tym_id' | 't
   return 'Celá firma';
 }
 
+/**
+ * Proč je cíl jen ke čtení: věta serveru 072 (odmítnutí cile_uloz a cile_zrus) podle rozsahu; cíl firmy zadává jen Albert
+ * (recenze 14b, drobnost 5, ⚠ NAHRAZUJE jednu větu „Tenhle cíl mění jen jeho super admin nebo Albert.“ i u cíle firmy).
+ */
+export function procJenKCteniCile(c: { user_id: number | null; tym_id: number | null }): string {
+  if (c.user_id !== null) return 'Cíl pro tohoto člověka zadává jen jeho super admin nebo Albert.';
+  if (c.tym_id !== null) return 'Cíl pro tento tým zadává jen jeho super admin nebo Albert.';
+  return 'Cíl pro celou firmu zadává jen Albert.';
+}
+
 /** Hodnota cíle v jeho jednotce: peníze v měně cíle, počty celé, hodiny s „h“. */
 export function textHodnotyCile(c: Pick<Cil, 'metrika' | 'hodnota' | 'mena'>): string {
   const m = metrikaCile(c.metrika);

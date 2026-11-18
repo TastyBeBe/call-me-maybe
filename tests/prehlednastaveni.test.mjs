@@ -16,11 +16,14 @@
 //  N5) výplaty: super admin svému týmu (sobě a lidem s manager_id = on), Albert komukoli, právo i na uloženého příjemce,
 //      kontroly doslova, události vyplata_zmena,
 //  N6) uložení se projeví v číslech: náklad v Nákladech celkem (prehled_finance), cíl v Plnění cíle (prehled_souhrn),
-//      výplata v Provize vyplaceno a zbývá (prehled_finance i prehled_lide); zrušení je vrátí,
+//      výplata v Provize vyplaceno a zbývá (prehled_finance i prehled_lide); zrušení je vrátí, pohled k datu před zrušením je
+//      ještě má a cíl zadaný až po tom okamžiku ne (073; recenze 14b), čerstvost zdrojů počítá i zrušení,
 //  N7) pomocníci formulářů (src/prehledNastaveni.ts): registry kontraktu, částka „1 234,50“ → „1234.50“, rozsah cíle
-//      a příjemci výplaty podle práv z prehled_moznosti (D9, D10), datum včetně, pole chyby serveru,
+//      a příjemci výplaty podle práv z prehled_moznosti (D9, D10), datum včetně, pole chyby serveru, důvod „jen ke čtení“
+//      u cíle větou serveru podle rozsahu,
 //  N8) tabulky nastavení vykreslené na serveru: „ověřit“ jen u nákladů k ověření, částky každá ve své měně (nikdy sečtené),
-//      období včetně, tlačítka jen u řádků, které přihlášený smí měnit („jen ke čtení“ jinak),
+//      období včetně, tlačítka jen u řádků, které přihlášený smí měnit („jen ke čtení“ jinak), výslovné role tabulky (telefon
+//      ji skládá do bloků), povinné pole s aria-required,
 //  N9) zapojení: npm test soubor pouští, záložka Nastavení už neříká „Zadávání se připravuje.“
 // Klikání (formuláře, potvrzení zrušení, čísla v záložkách po uložení, práva Mikuláše, klávesnice, telefon, Volající) měří
 // tests/demo-e2e.mjs blok PN.
@@ -48,6 +51,8 @@ globalThis.localStorage = {
 // mock čeká 60 až 180 ms na každé volání; test to zkrátí na nulu
 const puvodniTimeout = globalThis.setTimeout;
 globalThis.setTimeout = (fn, _ms, ...a) => puvodniTimeout(fn, 0, ...a);
+/** Skutečné čekání (pohled k datu potřebuje okamžik mezi zápisem a zrušením; mock píše čas na milisekundy). */
+const pockej = (ms) => new Promise((r) => puvodniTimeout(r, ms));
 const odeslano = [];
 let odpoved = { status: 200, telo: '[]' };
 globalThis.fetch = async (url, init) => {
@@ -130,6 +135,7 @@ try {
     "export { TabulkaNakladu } from './src/pages/prehled/NastaveniNaklady.tsx';",
     "export { TabulkaVyplat } from './src/pages/prehled/NastaveniVyplaty.tsx';",
     "export { default as ZalozkaNastaveni } from './src/pages/prehled/ZalozkaNastaveni.tsx';",
+    "export { PoleFormulare } from './src/pages/prehled/NastaveniSpolecne.tsx';",
     "export { renderToStaticMarkup } from 'react-dom/server';",
     "export { createElement } from 'react';",
   ]);
@@ -448,6 +454,7 @@ await blok('N6', async () => {
     && kat1.jine.overit === kat0.jine.overit + 1 && /: 2\.$/.test(v1),
     'uložený náklad: Náklady celkem a kategorie Jiné o 1 234,50 Kč víc, „ověřit“ u kategorie a NAKLADY_OVERIT započítá nový řádek',
     JSON.stringify({ pred: f0.data.naklady.celkem.castky, po: f1.data.naklady.celkem.castky, v1 }));
+  await pockej(5);
   await api.nakladyZrus(ALBERT, n.id);
   const f2 = await api.prehledFinance(ALBERT, F);
   over('N6b', czk(f2.data.naklady.celkem) === czk(f0.data.naklady.celkem), 'zrušený náklad se už neúčtuje', JSON.stringify(f2.data.naklady.celkem.castky));
@@ -461,9 +468,27 @@ await blok('N6', async () => {
     && (p0.hodnota === null || Math.abs(p1.hodnota - p0.hodnota / 2) < 1e-6),
     'uložený cíl: Plnění cíle počítá s novou hodnotou (100 000 Kč), data.cil je uložený cíl', JSON.stringify({ p0: [p0.citatel, p0.jmenovatel, p0.hodnota], p1: [p1.citatel, p1.jmenovatel, p1.hodnota] }));
   // zrušený cíl firmy na měsíc: plnění vezme roční cíl firmy (nejkratší, který období obsahuje)
+  await pockej(5);
+  const kCil = new Date().toISOString(); // okamžik, kdy cíl 1 (100 000 Kč) ještě platí
+  await pockej(5);
   await api.cileZrus(ALBERT, 1);
   const s2 = await api.prehledSouhrn(ALBERT, F);
   over('N6d', s2.data.cil?.id === 4 && s2.data.karty.plneni_cile.jmenovatel === 400000, 'po zrušení cíle na měsíc platí roční cíl firmy', JSON.stringify(s2.data.cil));
+  // pohled k datu PŘED zrušením (scénář recenze 14b over-kdatu.mjs; 073: zadaný nejpozději k datu a zruseno_at > k_datu ještě
+  // platí): cíl 1 tam pořád je; cíl zadaný až po tom okamžiku tam není (souhrn i trend proti cíli)
+  const sK = await api.prehledSouhrn(ALBERT, { ...F, k_datu: kCil });
+  const X = await api.cileUloz(ALBERT, { metrika: 'hodnota_prodeju', obdobi_od: MESIC_OD, obdobi_do: MESIC_DO, user_id: null, tym_id: null, mena: 'CZK', hodnota: '60000' });
+  const s3 = await api.prehledSouhrn(ALBERT, F);
+  const s3K = await api.prehledSouhrn(ALBERT, { ...F, k_datu: kCil });
+  const cileRady = async (f) => (await api.prehledRada(ALBERT, 'hodnota_prodeju', 'den', f)).data.cile.map((c) => c.cil_id);
+  const rZive = await cileRady(F);
+  const rK = await cileRady({ ...F, k_datu: kCil });
+  over('N6d2', sK.data.cil?.id === 1 && sK.data.karty.plneni_cile.jmenovatel === 100000 && s3.data.cil?.id === X.id && s3K.data.cil?.id === 1
+    && rZive.includes(X.id) && !rZive.includes(1) && rK.includes(1) && !rK.includes(X.id),
+    'k datu před zrušením: zrušený cíl 1 v plnění cíle i v trendu dál platí, cíl zadaný až potom ne; živě naopak',
+    JSON.stringify({ kDatu: sK.data.cil, s3: s3.data.cil?.id, s3K: s3K.data.cil?.id, rZive, rK }));
+  await pockej(5);
+  await api.cileZrus(ALBERT, X.id);
   // výplata → Provize vyplaceno a zbývá (prehled_finance) a řádek člověka (prehled_lide)
   const fin0 = await api.prehledFinance(ALBERT, F);
   const lide0 = await api.prehledLide(ALBERT, { ...F, lide: [5] });
@@ -476,14 +501,30 @@ await blok('N6', async () => {
     && Math.abs(czk(fin0.data.provize.zbyva) - czk(fin1.data.provize.zbyva) - 777) < 0.005
     && Math.abs(czk(eva1.provize_vyplaceno) - czk(eva0.provize_vyplaceno) - 777) < 0.005 && Math.abs(czk(eva0.provize_zbyva) - czk(eva1.provize_zbyva) - 777) < 0.005,
     'uložená výplata: Provize vyplaceno o 777 Kč víc a zbývá o 777 Kč méně ve Financích i v řádku Evy', JSON.stringify({ f0: fin0.data.provize.vyplaceno.castky, f1: fin1.data.provize.vyplaceno.castky, eva1: eva1.provize_vyplaceno.castky }));
+  await pockej(5);
+  const kV = new Date().toISOString(); // okamžik, kdy výplata 777 Kč ještě platí
+  await pockej(5);
   await api.provizeVyplataZrus(ALBERT, v.id);
   const fin2 = await api.prehledFinance(ALBERT, F);
   over('N6f', czk(fin2.data.provize.vyplaceno) === czk(fin0.data.provize.vyplaceno), 'zrušená výplata se už nepočítá', JSON.stringify(fin2.data.provize.vyplaceno.castky));
+  // k datu před zrušením (073 app_prehled_vyplaty: zapsaná nejpozději k datu, zruseno_at > k_datu): výplata se pořád počítá ve
+  // Financích i v řádku Evy (vyplaceno i zbývá), jako v okamžiku, kdy platila
+  const finK = await api.prehledFinance(ALBERT, { ...F, k_datu: kV });
+  const evaK = (await api.prehledLide(ALBERT, { ...F, lide: [5], k_datu: kV })).data.radky.find((r) => r.user_id === 5).metriky;
+  over('N6f2', czk(finK.data.provize.vyplaceno) === czk(fin1.data.provize.vyplaceno) && czk(evaK.provize_vyplaceno) === czk(eva1.provize_vyplaceno)
+    && czk(evaK.provize_zbyva) === czk(eva1.provize_zbyva),
+    'k datu před zrušením: zrušená výplata ve Financích i v řádku člověka (vyplaceno i zbývá) dál platí',
+    JSON.stringify({ finK: finK.data.provize.vyplaceno.castky, fin1: fin1.data.provize.vyplaceno.castky, evaK: evaK.provize_vyplaceno.castky, eva1: eva1.provize_vyplaceno.castky }));
   // zdroj v hlavičce: poslední záznam nákladů, cílů a výplat je čas posledního uložení
   const m = await api.prehledMoznosti(ALBERT);
   const zdroj = (k) => m.data.zdroje.find((z) => z.zdroj === k);
   over('N6g', ['naklady', 'cile', 'vyplaty'].every((k) => zdroj(k)?.stav === 'ok' && Date.now() - Date.parse(zdroj(k).aktualni_k) < 60000),
     'prehled_moznosti: zdroje Náklady, Cíle a Výplaty provizí mají čerstvý poslední záznam', JSON.stringify(['naklady', 'cile', 'vyplaty'].map(zdroj)));
+  // zrušení je taky záznam (073 prehled_moznosti: greatest(max zapsáno, max zrušeno)): poslední byla zrušení, ne zápisy
+  over('N6g2', Date.parse(zdroj('naklady')?.aktualni_k) > Date.parse(n.zapsano_at) && Date.parse(zdroj('cile')?.aktualni_k) > Date.parse(X.zadano_at)
+    && Date.parse(zdroj('vyplaty')?.aktualni_k) > Date.parse(v.zapsano_at),
+    'čerstvost zdrojů Náklady, Cíle a Výplaty počítá i zrušení (poslední záznam = poslední zrušení)',
+    JSON.stringify({ naklady: [n.zapsano_at, zdroj('naklady')?.aktualni_k], cile: [X.zadano_at, zdroj('cile')?.aktualni_k], vyplaty: [v.zapsano_at, zdroj('vyplaty')?.aktualni_k] }));
 });
 
 /* ---------------- N7) pomocníci formulářů ---------------- */
@@ -551,6 +592,11 @@ await blok('N7', async () => {
   over('N7i', spatne.length === 0, 'chyba serveru ukáže na své pole (aria-invalid), věta formuláře bez pole na žádné', spatne.join(' | '));
   over('N7j', stejne(H.mesicDne('2026-11-18'), { od: '2026-11-01', do: '2026-11-30' }) && stejne(H.mesicDne('2028-02-10'), { od: '2028-02-01', do: '2028-02-29' }),
     'výchozí období nového cíle = celý měsíc dne (i přestupný únor)', '');
+  // důvod „jen ke čtení“ u cíle = věta serveru 072 podle rozsahu (recenze 14b, drobnost 5: cíl firmy zadává jen Albert)
+  const proc = typeof H.procJenKCteniCile === 'function'
+    ? [H.procJenKCteniCile({ user_id: null, tym_id: null }), H.procJenKCteniCile({ user_id: null, tym_id: 4 }), H.procJenKCteniCile({ user_id: 3, tym_id: null })] : null;
+  over('N7k', stejne(proc, ['Cíl pro celou firmu zadává jen Albert.', 'Cíl pro tento tým zadává jen jeho super admin nebo Albert.', 'Cíl pro tohoto člověka zadává jen jeho super admin nebo Albert.']),
+    'cíl jen ke čtení: důvod větou serveru podle rozsahu (firma jen Albert, tým a člověk jejich super admin nebo Albert)', JSON.stringify(proc));
 });
 
 /* ---------------- N8) tabulky nastavení ---------------- */
@@ -594,6 +640,27 @@ await blok('N8', async () => {
   over('N8d', [htmlN, htmlC, htmlV].every((x) => /<table[^>]*aria-label="[^"]+"/.test(x) && /<th scope="col"/.test(x))
     && /aria-label="Upravit náklad: Hosting \(náš náklad\)[^"]*"/.test(htmlN) && /aria-label="Zrušit cíl: Prodané weby[^"]*"/.test(htmlC),
     'tabulky mají popisek a záhlaví; tlačítka „Upravit …: <co>“ a „Zrušit …: <co>“ pro čtečky', '');
+  // cíl firmy jen ke čtení: věta serveru „Cíl pro celou firmu zadává jen Albert.“ v bublině i pro čtečky (recenze 14b, drobnost 5)
+  const radek1 = (new RegExp('<tr[^>]*data-id="1"[^>]*>([\\s\\S]*?)</tr>').exec(htmlC) ?? [])[1] ?? '';
+  over('N8b2', /title="Cíl pro celou firmu zadává jen Albert\."/.test(radek1) && /jen ke čtení\s*: Cíl pro celou firmu zadává jen Albert\./.test(text(radek1)),
+    'cíl firmy jen ke čtení: důvod „Cíl pro celou firmu zadává jen Albert.“ v bublině i textem pro čtečky', text(radek1));
+  // telefon (do 640 px) skládá tabulky do bloků: výslovné role (table, rowgroup, row, columnheader, rowheader, cell), ať čtečka
+  // (VoiceOver) tabulku dál čte jako tabulku (recenze 14b, drobnost 6)
+  const role = (html) => ({
+    table: /<table[^>]*role="table"/.test(html),
+    rowgroup: (html.match(/<(thead|tbody)[^>]*role="rowgroup"/g) ?? []).length === 2,
+    row: (html.match(/<tr\b/g) ?? []).length === (html.match(/<tr[^>]*role="row"/g) ?? []).length,
+    columnheader: (html.match(/<th scope="col"/g) ?? []).length === (html.match(/<th scope="col"[^>]*role="columnheader"/g) ?? []).length,
+    rowheader: (html.match(/<th scope="row"/g) ?? []).length === (html.match(/<th scope="row"[^>]*role="rowheader"/g) ?? []).length,
+    cell: (html.match(/<td\b/g) ?? []).length === (html.match(/<td[^>]*role="cell"/g) ?? []).length,
+  });
+  const roleTabulek = [htmlN, htmlC, htmlV].map(role);
+  over('N8f', roleTabulek.every((r) => Object.values(r).every(Boolean)),
+    'tabulky nastavení mají výslovné role tabulky (na telefonu display:block nesmí vzít čtečce tabulku)', JSON.stringify(roleTabulek));
+  // povinné pole: hvězdička i aria-required="true" na ovládacím prvku; nepovinné bez něj (recenze 14b, drobnost 4)
+  const pole = (povinne) => r(h(T.PoleFormulare, { id: 'p-x', popisek: 'Pole', povinne }, h('input', { id: 'p-x', type: 'text' })));
+  over('N8e', !!T.PoleFormulare && /<input[^>]*aria-required="true"/.test(pole(true)) && /class="req"/.test(pole(true)) && !/aria-required/.test(pole(false)),
+    'povinné pole formuláře nese aria-required="true" (jako důvod odmítnutí), nepovinné ne', JSON.stringify([pole(true), pole(false)]));
 });
 
 /* ---------------- N9) zapojení ---------------- */

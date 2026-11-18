@@ -146,10 +146,11 @@ function Segmenty() {
 }
 
 /**
- * Text tlačítka „Zobrazit … případů“ (karta Případy k zásahu). Neznámý počet „—“, nikdy 0 (úkol 14b, přeneseno z recenze 14a;
- * ⚠ NAHRAZUJE `karta.hodnota ?? 0`).
+ * Text tlačítka „Zobrazit … případů“ (karta Případy k zásahu). Neznámý počet „Zobrazit případy“ bez čísla, nikdy 0 (úkol 14b,
+ * přeneseno z recenze 14a, ⚠ NAHRAZUJE `karta.hodnota ?? 0`; recenze 14b, drobnost 7, ⚠ NAHRAZUJE „Zobrazit všech — případů“).
  */
 export function textZobrazitPripady(n: number | null): string {
+  if (n === null) return 'Zobrazit případy';
   return `Zobrazit ${n === 1 ? 'jeden případ' : pocetSlovy(n, ['# případ', 'všechny # případy', 'všech # případů'])}`;
 }
 

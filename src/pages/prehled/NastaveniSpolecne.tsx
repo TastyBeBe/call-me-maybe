@@ -5,7 +5,7 @@
 // v okně, Escape a „Ponechat“ nechají řádek, fokus zpět na tlačítko) a tlačítka řádku, nebo „jen ke čtení“, když přihlášený
 // řádek měnit nesmí. Volajícímu se nic z toho nevykreslí (stránka Přehledu ho přesměruje dřív).
 
-import { useCallback, useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { cloneElement, isValidElement, useCallback, useEffect, useId, useRef, useState, type FormEvent, type ReactElement, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { BEZ_072_NASTAVENI } from '../../api/supabase';
 import { useSession } from '../../auth';
@@ -98,15 +98,20 @@ export function ChybaFormulare({ id, text }: { id: string; text: string | null }
   );
 }
 
-/** Pole formuláře s popiskem (label for), hvězdičkou povinného a nápovědou pod ním. */
+/**
+ * Pole formuláře s popiskem (label for), hvězdičkou povinného a nápovědou pod ním. Povinné pole dá svému ovládacímu prvku
+ * (jedinému dítěti) aria-required="true", ať povinnost slyší i čtečka, jako u důvodu odmítnutí (recenze 14b, drobnost 4);
+ * kontroluje server (formulář má noValidate), proto bez atributu required.
+ */
 export function PoleFormulare({ id, popisek, povinne = false, napoveda, children }: { id: string; popisek: ReactNode; povinne?: boolean; napoveda?: ReactNode; children: ReactNode }) {
+  const prvek = povinne && isValidElement(children) ? cloneElement(children as ReactElement<{ 'aria-required'?: 'true' }>, { 'aria-required': 'true' }) : children;
   return (
     <div className="field nastaveni-pole">
       <label htmlFor={id}>
         {popisek}
         {povinne ? <span className="req"> *</span> : null}
       </label>
-      {children}
+      {prvek}
       {napoveda ? <p id={`${id}-napoveda`} className="nastaveni-napoveda">{napoveda}</p> : null}
     </div>
   );
@@ -215,7 +220,7 @@ export function vratFokus(odkud: HTMLElement | null, nahradni: HTMLElement | nul
  * úspěšném uložení nebo zrušení seznam znovu a `zmenaDat` z kontextu Přehledu (záložky se načtou znovu, hlavička čerstvosti
  * taky). Formulář se otevře s fokusem na prvním poli (`prvniPole`), zavře se s fokusem tam, odkud se otevřel.
  */
-export function useSpravaNastaveni<R extends { id: number }, F>({ nacti, uloz, zrus, ulozeno, zruseno }: {
+export function useSpravaNastaveni<R extends { id: number }, F extends { id: number | null }>({ nacti, uloz, zrus, ulozeno, zruseno }: {
   nacti: (token: string) => Promise<R[]>;
   uloz: (token: string, f: F) => Promise<unknown>;
   zrus: (token: string, id: number) => Promise<unknown>;
@@ -290,12 +295,14 @@ export function useSpravaNastaveni<R extends { id: number }, F>({ nacti, uloz, z
     if (!rusit || busyRuseni) return;
     setBusyRuseni(true);
     setChybaRuseni(null);
+    const zruseneId = rusit.id;
     try {
-      await zrusRef.current(session.token, rusit.id);
+      await zrusRef.current(session.token, zruseneId);
       setRusit(null);
       setHlaska(zruseno);
-      // zrušený řádek zmizí, i když byl otevřený ve formuláři
-      setFormular(null);
+      // zavře se jen formulář, který zrušený řádek upravuje; rozepsaný nový záznam nebo úprava jiného řádku zůstanou (recenze 14b,
+      // drobnost 3, ⚠ NAHRAZUJE zavření jakéhokoli otevřeného formuláře)
+      setFormular((f) => (f && f.id === zruseneId ? null : f));
       seznam.znovu();
       zmenaDat();
       // řádek po obnově seznamu zmizí: fokus na „Přidat“ (okno ho napřed vrátí na tlačítko řádku, tohle přijde po něm)

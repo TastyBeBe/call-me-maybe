@@ -12,8 +12,8 @@ import { PrehledPrazdne } from '../../components/prehled/Stavy';
 import { TabulkaObal } from '../../components/prehled/Tabulka';
 import { casText } from '../../prehled';
 import {
-  castkaDoPole, castkaProServer, datumNeboNull, MENY, mesicDne, METRIKY_CILU, metrikaCile, obdobiText, poleChyby, rozsahCile, rozsahZVolby, textHodnotyCile,
-  volbaZRozsahu, volbyRozsahuCile,
+  castkaDoPole, castkaProServer, datumNeboNull, MENY, mesicDne, METRIKY_CILU, metrikaCile, obdobiText, poleChyby, procJenKCteniCile, rozsahCile, rozsahZVolby,
+  textHodnotyCile, volbaZRozsahu, volbyRozsahuCile,
 } from '../../prehledNastaveni';
 import { usePrehled } from './kontext';
 import {
@@ -23,34 +23,38 @@ import {
 /** Cíl slovy (název tlačítek, okno zrušení). */
 export const popisCile = (c: Cil): string => `${metrikaCile(c.metrika)?.nazev ?? c.metrika}, ${rozsahCile(c)}, ${obdobiText(c.obdobi_od, c.obdobi_do)}, ${textHodnotyCile(c)}`;
 
-/** Tabulka cílů: kdo, co, období včetně, hodnota v jednotce cíle, kdo zadal; akce jen u řádků se smi_upravit. */
+/**
+ * Tabulka cílů: kdo, co, období včetně, hodnota v jednotce cíle, kdo zadal; akce jen u řádků se smi_upravit.
+ * Výslovné role tabulky (table, rowgroup, row, columnheader, rowheader, cell): telefon ji skládá do bloků (display: block)
+ * a VoiceOver by ji jinak nečetl jako tabulku (recenze 14b, drobnost 6).
+ */
 export function TabulkaCilu({ radky, onUpravit, onZrusit }: { radky: Cil[]; onUpravit: (c: Cil, el: HTMLButtonElement) => void; onZrusit: (c: Cil, el: HTMLButtonElement) => void }) {
   return (
     <TabulkaObal popisek="Cíle">
-      <table className="prehled-tabulka nastaveni-tabulka" data-tabulka="nastaveni-cile" aria-label="Cíle">
-        <thead>
-          <tr>
-            <th scope="col">Co</th>
-            <th scope="col">Pro koho</th>
-            <th scope="col">Období</th>
-            <th scope="col" className="cislo-sloupec">Hodnota</th>
-            <th scope="col">Zadal</th>
-            <th scope="col">Akce</th>
+      <table className="prehled-tabulka nastaveni-tabulka" data-tabulka="nastaveni-cile" aria-label="Cíle" role="table">
+        <thead role="rowgroup">
+          <tr role="row">
+            <th scope="col" role="columnheader">Co</th>
+            <th scope="col" role="columnheader">Pro koho</th>
+            <th scope="col" role="columnheader">Období</th>
+            <th scope="col" role="columnheader" className="cislo-sloupec">Hodnota</th>
+            <th scope="col" role="columnheader">Zadal</th>
+            <th scope="col" role="columnheader">Akce</th>
           </tr>
         </thead>
-        <tbody>
+        <tbody role="rowgroup">
           {radky.map((c) => (
-            <tr key={c.id} data-id={c.id}>
-              <th scope="row" data-label="Co">{metrikaCile(c.metrika)?.nazev ?? c.metrika}</th>
-              <td data-label="Pro koho">{rozsahCile(c)}</td>
-              <td data-label="Období" className="nastaveni-datum">{obdobiText(c.obdobi_od, c.obdobi_do)}</td>
-              <td data-label="Hodnota" className="cislo-sloupec">{textHodnotyCile(c)}</td>
-              <td data-label="Zadal" className="nastaveni-zapsal">
+            <tr key={c.id} data-id={c.id} role="row">
+              <th scope="row" role="rowheader" data-label="Co">{metrikaCile(c.metrika)?.nazev ?? c.metrika}</th>
+              <td role="cell" data-label="Pro koho">{rozsahCile(c)}</td>
+              <td role="cell" data-label="Období" className="nastaveni-datum">{obdobiText(c.obdobi_od, c.obdobi_do)}</td>
+              <td role="cell" data-label="Hodnota" className="cislo-sloupec">{textHodnotyCile(c)}</td>
+              <td role="cell" data-label="Zadal" className="nastaveni-zapsal">
                 {c.zadal}
                 <span className="prehled-bunka-pozn">{casText(c.zadano_at)}</span>
               </td>
-              <td data-label="Akce" className="nastaveni-akce">
-                <AkceRadku co="cíl" popis={popisCile(c)} smi={c.smi_upravit} proc="Tenhle cíl mění jen jeho super admin nebo Albert."
+              <td role="cell" data-label="Akce" className="nastaveni-akce">
+                <AkceRadku co="cíl" popis={popisCile(c)} smi={c.smi_upravit} proc={procJenKCteniCile(c)}
                   onUpravit={(el) => onUpravit(c, el)} onZrusit={(el) => onZrusit(c, el)} />
               </td>
             </tr>

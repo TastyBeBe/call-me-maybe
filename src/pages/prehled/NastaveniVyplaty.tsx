@@ -19,7 +19,11 @@ import {
 /** Výplata slovy (název tlačítek, okno zrušení). */
 export const popisVyplaty = (v: Vyplata): string => [v.jmeno, formatCastka(v.castka, v.mena), `vyplaceno ${denText(v.vyplaceno_dne)}`, v.poznamka].filter(Boolean).join(', ');
 
-/** Tabulka výplat: částka ve své měně, den výplaty, za období včetně; akce jen u výplat lidí, kterým přihlášený smí výplatu zapsat. */
+/**
+ * Tabulka výplat: částka ve své měně, den výplaty, za období včetně; akce jen u výplat lidí, kterým přihlášený smí výplatu zapsat.
+ * Výslovné role tabulky (table, rowgroup, row, columnheader, rowheader, cell): telefon ji skládá do bloků (display: block)
+ * a VoiceOver by ji jinak nečetl jako tabulku (recenze 14b, drobnost 6).
+ */
 export function TabulkaVyplat({ radky, smi, onUpravit, onZrusit }: {
   radky: Vyplata[];
   smi: (v: Vyplata) => boolean;
@@ -28,31 +32,31 @@ export function TabulkaVyplat({ radky, smi, onUpravit, onZrusit }: {
 }) {
   return (
     <TabulkaObal popisek="Výplaty provizí">
-      <table className="prehled-tabulka nastaveni-tabulka" data-tabulka="nastaveni-vyplaty" aria-label="Výplaty provizí">
-        <thead>
-          <tr>
-            <th scope="col">Komu</th>
-            <th scope="col" className="cislo-sloupec">Částka</th>
-            <th scope="col">Vyplaceno</th>
-            <th scope="col">Za období</th>
-            <th scope="col">Poznámka</th>
-            <th scope="col">Zapsal</th>
-            <th scope="col">Akce</th>
+      <table className="prehled-tabulka nastaveni-tabulka" data-tabulka="nastaveni-vyplaty" aria-label="Výplaty provizí" role="table">
+        <thead role="rowgroup">
+          <tr role="row">
+            <th scope="col" role="columnheader">Komu</th>
+            <th scope="col" role="columnheader" className="cislo-sloupec">Částka</th>
+            <th scope="col" role="columnheader">Vyplaceno</th>
+            <th scope="col" role="columnheader">Za období</th>
+            <th scope="col" role="columnheader">Poznámka</th>
+            <th scope="col" role="columnheader">Zapsal</th>
+            <th scope="col" role="columnheader">Akce</th>
           </tr>
         </thead>
-        <tbody>
+        <tbody role="rowgroup">
           {radky.map((v) => (
-            <tr key={v.id} data-id={v.id}>
-              <th scope="row" data-label="Komu">{v.jmeno}</th>
-              <td data-label="Částka" className="cislo-sloupec">{formatCastka(v.castka, v.mena)}</td>
-              <td data-label="Vyplaceno" className="nastaveni-datum">{denText(v.vyplaceno_dne)}</td>
-              <td data-label="Za období" className="nastaveni-datum">{obdobiText(v.za_obdobi_od, v.za_obdobi_do)}</td>
-              <td data-label="Poznámka">{v.poznamka ?? <span className="muted">—</span>}</td>
-              <td data-label="Zapsal" className="nastaveni-zapsal">
+            <tr key={v.id} data-id={v.id} role="row">
+              <th scope="row" role="rowheader" data-label="Komu">{v.jmeno}</th>
+              <td role="cell" data-label="Částka" className="cislo-sloupec">{formatCastka(v.castka, v.mena)}</td>
+              <td role="cell" data-label="Vyplaceno" className="nastaveni-datum">{denText(v.vyplaceno_dne)}</td>
+              <td role="cell" data-label="Za období" className="nastaveni-datum">{obdobiText(v.za_obdobi_od, v.za_obdobi_do)}</td>
+              <td role="cell" data-label="Poznámka">{v.poznamka ?? <span className="muted">—</span>}</td>
+              <td role="cell" data-label="Zapsal" className="nastaveni-zapsal">
                 {v.zapsal}
                 <span className="prehled-bunka-pozn">{casText(v.zapsano_at)}</span>
               </td>
-              <td data-label="Akce" className="nastaveni-akce">
+              <td role="cell" data-label="Akce" className="nastaveni-akce">
                 <AkceRadku co="výplatu" popis={popisVyplaty(v)} smi={smi(v)} proc="Výplatu tohoto člověka zapisuje jen jeho super admin nebo Albert."
                   onUpravit={(el) => onUpravit(v, el)} onZrusit={(el) => onZrusit(v, el)} />
               </td>

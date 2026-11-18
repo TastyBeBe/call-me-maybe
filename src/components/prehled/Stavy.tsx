@@ -8,23 +8,11 @@ import type { ReactNode } from 'react';
 import type { Metrika, PrehledMeta } from '../../api/types';
 import { WarningIcon, ZnovuIcon } from '../../icons';
 import { bezMigrace073, KVALITA_NAZVY, nazevMetriky } from '../../prehled';
+import { PrehledNacita } from './Kostra';
 
-/** Kostra karet během prvního načítání. */
-export function PrehledNacita({ karet = 8, popis = 'Načítám čísla…' }: { karet?: number; popis?: string }) {
-  return (
-    <div className="prehled-nacita" aria-busy="true" role="status" aria-label={popis}>
-      <div className="kpi-mrizka">
-        {Array.from({ length: karet }, (_, i) => (
-          <div key={i} className="kpi-karta kostra" aria-hidden="true">
-            <span className="kostra-radek kratky" />
-            <span className="kostra-radek velky" />
-            <span className="kostra-radek" />
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
+// kostra karet žije v Kostra.tsx (malý soubor pro hlavní balík, App.tsx ji ukáže, než se stáhne kód Přehledu); tady pod stejným
+// jménem jako dřív (recenze 14b, drobnost 9)
+export { PrehledNacita };
 
 /** Chyba načtení: server bez migrace 073 má vlastní nadpis, jinak věta serveru; vždy „Zkusit znovu“. */
 export function PrehledChyba({ text, onZnovu }: { text: string; onZnovu?: () => void }) {

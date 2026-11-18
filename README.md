@@ -883,7 +883,8 @@ serveru, „Přidat …“, u řádku „Upravit“ a „Zrušit…“ (zrušen�
 
 - **Cíle** (`NastaveniCile.tsx`, D9): `cile_seznam` (každý super admin vidí všechny cíle), `cile_uloz`, `cile_zrus`. Upravit
   a zrušit jde jen řádek se `smi_upravit` (Albert vše; jinak svůj cíl, cíle lidí s jeho `manager_id` a cíl svého týmu), ostatní
-  „jen ke čtení“. Formulář: Co (šest metrik cíle), Pro koho (jen rozsahy, které přihlášený smí: `firma_smim_cil`,
+  „jen ke čtení“ s větou serveru podle rozsahu (`procJenKCteniCile`: „Cíl pro celou firmu zadává jen Albert.“, u týmu a člověka
+  „… zadává jen jeho super admin nebo Albert.“; recenze 14b, ⚠ NAHRAZUJE jednu větu pro všechny cíle). Formulář: Co (šest metrik cíle), Pro koho (jen rozsahy, které přihlášený smí: `firma_smim_cil`,
   `tymy[].smim_cil`, `lide[].smim_cil` z `prehled_moznosti`), Od a Do (včetně; výchozí celý tento měsíc), hodnota (u peněz
   s měnou, počty celé). Server odmítne jen přesný duplikát (stejná metrika, rozsah, měna i období; R21), jiná délka období smí.
 - **Náklady** (`NastaveniNaklady.tsx`, D6): `naklady_seznam`, `naklady_uloz`, `naklady_zrus`; každý super admin smí každý
@@ -902,8 +903,11 @@ serveru, „Přidat …“, u řádku „Upravit“ a „Zrušit…“ (zrušen�
   den včetně (R6; tabulka `cile` má v databázi den po, převádí server).
 - **Přístupnost**: popisek u každého pole, formulář se otevře s fokusem na prvním poli a zavře s fokusem tam, odkud se otevřel;
   věta serveru má `role="alert"` a pole, které myslí, `aria-invalid` s odkazem na ni (`poleChyby`); hláška o uložení je živá
-  oblast (`role="status"`); okno zrušení je `role="dialog"` s fokusem na „Ponechat“, Tab zůstává v okně, Escape okno zavře.
-  Na telefonu (do 640 px) je tabulka seznamem řádků s popiskem každé buňky, stránka se do strany neposouvá.
+  oblast (`role="status"`); okno zrušení je `role="dialog"` s fokusem na „Ponechat“, Tab zůstává v okně, Escape okno zavře;
+  povinné pole má hvězdičku a `aria-required="true"` (`PoleFormulare`). Potvrzené zrušení zavře jen formulář, který zrušený
+  řádek upravuje; rozepsaný nový záznam nebo úprava jiného řádku zůstanou (recenze 14b, ⚠ NAHRAZUJE zavření každého formuláře).
+  Na telefonu (do 640 px) je tabulka seznamem řádků s popiskem každé buňky a s výslovnými rolemi (`table`, `rowgroup`, `row`,
+  `columnheader`, `rowheader`, `cell`), ať ji VoiceOver i v blocích čte jako tabulku; stránka se do strany neposouvá.
 - **Server bez migrace 072**: PGRST202 u kterékoli funkce nastavení = věta `BEZ_072_NASTAVENI` („Nastavení Přehledu potřebuje
   migraci 072 …“) s nadpisem „Nastavení potřebuje migraci 072“; nic se neuloží.
 - **Volající** nastavení nevidí (trasa i stránka ho vrátí domů) a appka mu nikdy nezavolá `cile_*`, `naklady_*` ani `provize_*`
@@ -916,22 +920,36 @@ serveru, „Přidat …“, u řádku „Upravit“ a „Zrušit…“ (zrušen�
   historie), oboru nebo kraje se zadaným K datu dělá metriky bloku „částečně“ s důvodem a varováním `HISTORIE_OD`; doba do
   zavolání, hovory po termínu a „Odpověděl“ po návrhu jsou s K datu nedostupné (jen pro dnešek); náklady z evidence s výběrem
   lidí nebo filtrem klientů nedostupné i v řadě nákladů, povinná kategorie bez zadaného nákladu dělá kategorii, Náklady celkem,
-  výsledek i řadu „částečně“ („Bez zadaného nákladu: …“), volitelná Jiné nikdy; výplaty provizí s filtrem segmentu, oboru nebo
-  kraje nedostupné (lidé, součet i Finance); v trychtýři je prodaný klient u kroků do „Prodáno“ uzavřený, u „Fakturováno“
-  a „Zaplaceno“ otevřený; hotový naplánovaný hovor (i jako výsledek pracovní doby) patří tomu, kdo ho uzavřel; pracovní doba
-  s filtrem klientů nedostupná s větou databáze (plán zůstává), bez jediného hovoru výsledků za hodinu nedostupné.
+  výsledek i řadu „částečně“ s větami 073 (7553864d) doslova: ve Financích „Pro kategorii „…“ není zadaný žádný náklad.“ u každé
+  prázdné kategorie, v řadě nákladů „Bez zadaného nákladu: …“ (recenze 14b, ⚠ NAHRAZUJE „Bez zadaného nákladu“ i ve Financích),
+  volitelná Jiné nikdy; výplaty provizí s filtrem segmentu, oboru nebo kraje nedostupné (lidé, součet i Finance); v trychtýři je
+  prodaný klient u kroků do „Prodáno“ uzavřený, u „Fakturováno“ a „Zaplaceno“ otevřený; hotový naplánovaný hovor (i jako
+  výsledek pracovní doby a v řádcích prokliku) patří tomu, kdo ho uzavřel, po termínu vlastníkovi, a buňka člověka ukáže jen
+  jeho hovory (`vyber.user_id`; recenze 14b, ⚠ NAHRAZUJE řádky podle vlastníka a všech lidí filtru); pracovní doba s filtrem
+  klientů nedostupná s větou databáze (plán zůstává), bez jediného hovoru výsledků za hodinu nedostupné. Pohled k datu bere
+  cíle, náklady i výplaty platné v tom okamžiku (zadané nejpozději v něm, zrušené až po něm: `platiKDatu`, 073) a čerstvost
+  zdrojů Náklady, Cíle a Výplaty provizí počítá i zrušení (recenze 14b, ⚠ NAHRAZUJE „jen nezrušené“ a čerstvost jen ze zápisů).
 - **Přeneseno z recenze 14a**: buňka odpracovaných hodin (i v týmech na Vedení) ukáže důvod částečného plnění plánu
   („Bez rozvrhu: N lidí; …“) v bublině i textem a částečné hodiny mají vlastní značku „částečně“; tlačítko akčního seznamu
-  s neznámým počtem ukáže „—“, nikdy 0 (`textZobrazitPripady`); tabulka akčního seznamu `TabulkaAkci` (termín jen dnem bez
+  s neznámým počtem ukáže „Zobrazit případy“, nikdy 0 (`textZobrazitPripady`; recenze 14b, ⚠ NAHRAZUJE „Zobrazit všech —
+  případů“); tabulka akčního seznamu `TabulkaAkci` (termín jen dnem bez
   „0:00“) je samostatná kvůli testu. Rámeček široké tabulky (`TabulkaObal`, `.prehled-tabulka-obal`) má `position: relative`:
   text jen pro čtečky (`.sr-only`) a cokoli dalšího s `position: absolute` v tabulce se posouvá v rámečku a stránku
   nerozšíří (bez toho měla Vedení na telefonu 777 px).
+- **Líné načtení** (recenze 14b): `App.tsx` načte stránku Přehledu přes `React.lazy` až s první návštěvou super admina; do té
+  doby kostra stránky `PrehledStrankaNacita` (`src/components/prehled/Kostra.tsx`, malý soubor, kostru karet `PrehledNacita`
+  nabízí dál i `Stavy.tsx`). Volající kód Přehledu nikdy nestáhne (trasu mu `RequireAuth` vrátí dřív). Hlavní balík 909,19 kB
+  (gzip 288,21 kB) → 755,90 kB (gzip 242,60 kB), Přehled zvlášť `PrehledPage-*.js` 156,91 kB (gzip 47,15 kB); ⚠ NAHRAZUJE
+  statický import `PrehledPage`.
 - **Testy**: `npm test` soubor `tests/prehlednastaveni.test.mjs` (N1 `supabase.ts` a PGRST202, N2 Volající u všech devíti volání,
   N3 náklady, N4 cíle a D9, N5 výplaty a D10, N6 uložení v číslech záložek, N7 pomocníci formulářů, N8 tabulky, N9 zapojení)
   a v `tests/prehledzalozky.test.mjs` Z10 (sedm pravidel sladění mocku), Z11 (věta „Bez rozvrhu“ pro 1, 2, 4 a 5 lidí), Z12
   (termín akčního seznamu a tlačítko), Z4i (buňka týmu); `npm run test:e2e` blok PN (cíle a Plnění cíle, náklady s potvrzením
   zrušení a Náklady celkem, výplaty a Provize vyplaceno a zbývá, práva Mikuláše, klávesnice a čtečky, telefon 320/360/390,
-  sladění v záložkách) a rozšířené PV6 a PZ7 (Volající ani v nastavení nic nezavolá).
+  sladění v záložkách, PN8 zrušení a otevřený formulář), PV13 (líné načtení: vlastní soubor, Volající ho nestáhne, kostra)
+  a rozšířené PV6 a PZ7 (Volající ani v nastavení nic nezavolá). Z recenze 14b: Z10f2 a Z10f3 (řádky prokliku naplánovaných
+  hovorů = karta), Z10c2 (věty prázdné kategorie), N6d2, N6f2 a N6g2 (pohled k datu před zrušením, čerstvost se zrušením),
+  N7k a N8b2 (důvod „jen ke čtení“ u cíle), N8e (aria-required), N8f (role tabulek), PN5d (aria-required v prohlížeči).
 
 ## Účty a přihlášení (produkce)
 

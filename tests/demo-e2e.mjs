@@ -22,7 +22,7 @@
 // a kalendáři, šestý výsledek „Chce web“, vypnutá odmítnutí s důvodem, menu stavů v detailu); bez posunu do strany O61a.
 
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { createRequire } from 'node:module';
 import { homedir, tmpdir } from 'node:os';
@@ -4783,7 +4783,8 @@ for (const sirka of [320, 360, 390]) {
 // cíl v Plnění cíle, výplata v Provize vyplaceno a zbývá), práva D9 a D10 (Mikuláš: cíle sobě, Honzovi a svému týmu, výplaty
 // jen svému týmu; náklady každý super admin), klávesnice a čtečky, telefon 320/360/390 bez posunu stránky do strany a snímky
 // 1280 a 390 (E2E_SNIMKY). Volajícího hlídají PV6 a PZ7 (žádné volání cile_*, naklady_*, provize_*). Na konci sladění mocku
-// s rozhodnutími databáze (kontrakt §9, 18. 11. 2026), jak je vidět v záložkách.
+// s rozhodnutími databáze (kontrakt §9, 18. 11. 2026), jak je vidět v záložkách, a z recenze 14b PN8 (potvrzené zrušení zavře
+// jen formulář svého řádku) a PV13 (Přehled se načítá líně, Volající jeho kód nestáhne).
 const sekcePN = (page, s) => page.locator(`section[data-sekce="${s}"]`);
 const radkyPN = (page, tab) => page.locator(`table[data-tabulka="nastaveni-${tab}"] tbody tr[data-id]`).evaluateAll((rs) => rs.map((r) => ({
   id: Number(r.getAttribute('data-id')), t: (r.textContent ?? '').replace(/\s+/g, ' ').trim(), upravit: !!r.querySelector('[data-akce="upravit"]'),
@@ -4919,8 +4920,11 @@ await blok050('PN2 náklady', async () => {
     'Náklady: 5 řádků (seed D6 a doména), „ověřit“ jen u domény, klient u domény, opakování česky, každý super admin smí každý řádek', JSON.stringify(r0));
   over('PN2b', /Náklad uložen/.test(hlaska1) && !!novy && novy.overit && /350 Kč/.test(novy.t) && /Hosting \(náš náklad\)/.test(novy.t) && /Hosting webu klienta/.test(novy.t),
     'nový náklad: hláška „Náklad uložen.“, v seznamu s „ověřit“, 350 Kč, kategorie a popis', JSON.stringify({ hlaska1, novy }));
-  over('PN2c', celkem1 === celkem0 + 350 && /^350 Kč$/.test(hosting1.castka) && hosting1.overit && !hosting0.overit && /Bez zadaného nákladu/.test(hosting0.t) && !/Bez zadaného nákladu/.test(hosting1.t),
-    'Finance po uložení: Náklady celkem o 350 Kč víc, hosting 350 Kč s „ověřit“ a bez „Bez zadaného nákladu“', JSON.stringify({ celkem0, celkem1, hosting0, hosting1 }));
+  // věta prázdné kategorie ve Financích jako 073 prehled_finance (recenze 14b, drobnost 8; ⚠ NAHRAZUJE „Bez zadaného nákladu“)
+  const PRAZDNY_PN = /Pro kategorii „Hosting \(náš náklad\)“ není zadaný žádný náklad\./;
+  over('PN2c', celkem1 === celkem0 + 350 && /^350 Kč$/.test(hosting1.castka) && hosting1.overit && !hosting0.overit && PRAZDNY_PN.test(hosting0.t) && !/není zadaný žádný náklad/.test(hosting1.t)
+    && !/Bez zadaného nákladu/.test(hosting0.t),
+    'Finance po uložení: Náklady celkem o 350 Kč víc, hosting 350 Kč s „ověřit“; před uložením „Pro kategorii „Hosting (náš náklad)“ není zadaný žádný náklad.“, potom ne', JSON.stringify({ celkem0, celkem1, hosting0, hosting1 }));
   over('PN2d', /Zrušit náklad/.test(dialogText) && /350 Kč/.test(dialogText) && dialogAria.modal === 'true' && !!dialogAria.nadpis && fokusD === 'ponechat'
     && poEsc.dialog === 0 && poEsc.radek === 1 && /^Zrušit náklad/.test(poEsc.fokus) && poEsc.zruseni === 0,
     'potvrzení zrušení: okno (aria-modal) s tím, co se ruší, fokus na „Ponechat“; Escape okno zavře, řádek zůstane a fokus se vrátí na tlačítko',
@@ -4999,6 +5003,9 @@ await blok050('PN5 klávesnice', async () => {
   await page.waitForTimeout(150);
   const fokus1 = await page.evaluate(() => document.activeElement?.id ?? '');
   const bezPopisku = await page.locator('form[data-formular="vyplata"] :is(input, select, textarea)').evaluateAll((els) => els.filter((e) => !(e.labels && e.labels.length > 0)).map((e) => e.id || e.name));
+  // povinné pole (hvězdička v popisku) nese aria-required="true", nepovinné ne (recenze 14b, drobnost 4)
+  const povinnost = await page.locator('form[data-formular="vyplata"] :is(input, select, textarea)').evaluateAll((els) => els.map((e) => ({
+    id: e.id, hvezdicka: !!e.labels?.[0]?.querySelector('.req'), aria: e.getAttribute('aria-required') })));
   await page.fill('#vyplata-castka', '0');
   await page.focus('#vyplata-castka');
   await page.keyboard.press('Enter');
@@ -5016,6 +5023,8 @@ await blok050('PN5 klávesnice', async () => {
   over('PN5b', chyba === 'Částka výplaty musí být kladné číslo s nejvýš dvěma desetinnými místy.' && neplatne === 'true' && !!popsano && !!idChyby && popsano.split(' ').includes(idChyby),
     'Enter v poli odešle; věta serveru u formuláře a pole částky aria-invalid s odkazem na ni (aria-describedby)', JSON.stringify({ chyba, neplatne, popsano, idChyby }));
   over('PN5c', fokus2 === 'pridat' && formularu === 0, '„Zpět“ formulář zavře a fokus vrátí na „Přidat výplatu“', JSON.stringify({ fokus2, formularu }));
+  over('PN5d', povinnost.filter((p) => p.hvezdicka).length === 4 && povinnost.every((p) => (p.hvezdicka ? p.aria === 'true' : p.aria === null)),
+    'formulář výplaty: čtyři povinná pole (Komu, Částka, Měna, Vyplaceno dne) s aria-required="true", nepovinná bez něj', JSON.stringify(povinnost));
   await ctx.close();
 });
 
@@ -5073,6 +5082,84 @@ await blok050('PN7 sladění s databází', async () => {
   over('PN7c', /částečně/.test(karta) && /Segment podle dnešního stavu: historie začíná/.test(karta) && historie >= 1,
     'segment s K datu před začátkem historie: karta „částečně“ s větou o dnešním segmentu, varování HISTORIE_OD', JSON.stringify({ karta: karta.slice(0, 200), historie }));
   await ctx.close();
+});
+
+/* ---- PN8: potvrzené zrušení zavře jen formulář, který ten řádek upravuje (recenze 14b, drobnost 3) ---- */
+await blok050('PN8 zrušení a otevřený formulář', async () => {
+  const { ctx, page } = await novaStranka('admin');
+  await jdi(page, '#/prehled/nastaveni/naklady', 1000);
+  const formular = page.locator('form[data-formular="naklad"]');
+  const zrusRadek = async (id) => {
+    await page.locator(`table[data-tabulka="nastaveni-naklady"] tr[data-id="${id}"] button[data-akce="zrusit"]`).click();
+    await page.waitForTimeout(200);
+    await page.locator('[role="dialog"].nastaveni-potvrzeni button[data-akce="potvrdit"]').click();
+    await klid(page, 450);
+  };
+  // bez formuláře nic nečeká (inputValue by čekal 30 s na pole, které není)
+  const stav = async () => {
+    const formularu = await formular.count();
+    if (formularu === 0) return { formularu, nadpis: '', popis: null, castka: null };
+    return { formularu, nadpis: txt(await formular.locator('h4').innerText()), popis: await page.locator('#naklad-popis').inputValue(), castka: await page.locator('#naklad-castka').inputValue() };
+  };
+  // rozepsaný nový náklad zůstane, když se zruší jiný řádek
+  await sekcePN(page, 'naklady').locator('button[data-akce="pridat"]').click();
+  await page.waitForTimeout(150);
+  await page.fill('#naklad-popis', 'Rozepsaný náklad');
+  await page.fill('#naklad-castka', '123');
+  await zrusRadek(1);
+  const poZruseniJineho = await stav();
+  const r1 = (await radkyPN(page, 'naklady')).map((r) => r.id);
+  // úprava řádku 2 zůstane otevřená, když se zruší řádek 3
+  await page.locator('table[data-tabulka="nastaveni-naklady"] tr[data-id="2"] button[data-akce="upravit"]').click();
+  await page.waitForTimeout(150);
+  await page.fill('#naklad-popis', 'Upravuji dvojku');
+  await zrusRadek(3);
+  const upravaJineho = await stav();
+  // zrušení řádku, který formulář upravuje, formulář zavře
+  await zrusRadek(2);
+  const poZruseniSveho = await stav();
+  const r2 = (await radkyPN(page, 'naklady')).map((r) => r.id);
+  over('PN8a', poZruseniJineho.formularu === 1 && /Nový náklad/.test(poZruseniJineho.nadpis) && poZruseniJineho.popis === 'Rozepsaný náklad' && poZruseniJineho.castka === '123' && !r1.includes(1),
+    'zrušení jiného řádku nechá rozepsaný nový náklad otevřený i s vyplněnými poli', JSON.stringify({ poZruseniJineho, r1 }));
+  over('PN8b', upravaJineho.formularu === 1 && /Upravit náklad/.test(upravaJineho.nadpis) && upravaJineho.popis === 'Upravuji dvojku' && poZruseniSveho.formularu === 0 && !r2.includes(2) && !r2.includes(3),
+    'úprava řádku 2 přežije zrušení řádku 3; zrušení řádku 2 jeho formulář zavře', JSON.stringify({ upravaJineho, poZruseniSveho, r2 }));
+  await ctx.close();
+});
+
+/* ---- PV13: Přehled se načítá líně (recenze 14b, drobnost 9): Volající jeho kód nikdy nestáhne, super admin ano, s kostrou ---- */
+await blok050('PV13 líné načtení Přehledu', async () => {
+  const soubory = readdirSync(join(OUT, 'assets')).filter((f) => f.endsWith('.js'));
+  const hlavni = soubory.filter((f) => /^index-/.test(f));
+  const prehledSoubor = soubory.find((f) => /^PrehledPage-/.test(f)) ?? null;
+  // text, který je jen v kódu Přehledu (rámeček široké tabulky)
+  const VZOREK = 'Tabulka je širší než obrazovka';
+  const vHlavnim = hlavni.some((f) => readFileSync(join(OUT, 'assets', f), 'utf8').includes(VZOREK));
+  const vPrehledu = !!prehledSoubor && readFileSync(join(OUT, 'assets', prehledSoubor), 'utf8').includes(VZOREK);
+  // stažené skripty stránky od jejího načtení (Resource Timing; přihlášení a domov jich mají pár desítek, vyrovnávací paměť 250)
+  const skripty = (page) => page.evaluate(() => performance.getEntriesByType('resource').map((e) => new URL(e.name).pathname.split('/').pop()).filter((f) => /\.js$/.test(f)));
+  // Volající: #/prehled ho vrátí domů a kód Přehledu se nestáhne
+  const v = await novaStranka('petra');
+  await jdi(v.page, '#/prehled/vedeni', 700);
+  await jdi(v.page, '#/prehled/nastaveni/cile', 700);
+  const hashV = await v.page.evaluate(() => location.hash);
+  const sV = await skripty(v.page);
+  await v.ctx.close();
+  // super admin: kód Přehledu přijde až s první návštěvou; mezitím kostra karet ze Stavů (role status)
+  const a = await novaStranka('admin');
+  const predNavstevou = await skripty(a.page);
+  await a.ctx.route(/\/assets\/PrehledPage-[^/]+\.js$/, async (route) => { await new Promise((r) => setTimeout(r, 900)); await route.continue(); });
+  await a.page.evaluate(() => { location.hash = '#/prehled/vedeni'; });
+  await a.page.waitForTimeout(350);
+  const kostra = { pocet: await a.page.locator('.prehled-nacita[role="status"]').count(), karet: await a.page.locator('.prehled-nacita .kpi-karta.kostra').count() };
+  await klid(a.page, 1400);
+  const nadpis = txt(await a.page.locator('.prehled-stranka h1').innerText().catch(() => ''));
+  const sA = await skripty(a.page);
+  await a.ctx.close();
+  over('PV13a', !!prehledSoubor && vPrehledu && !vHlavnim, 'sestavení: Přehled je vlastní soubor (PrehledPage-*.js), hlavní balík jeho kód nemá',
+    JSON.stringify({ hlavni, prehledSoubor, vHlavnim, vPrehledu }));
+  over('PV13b', hashV === '#/' && sV.some((f) => /^index-/.test(f)) && !sV.some((f) => /^PrehledPage-/.test(f)), 'Volající: #/prehled ho vrátí domů a soubor Přehledu se nestáhne', JSON.stringify({ hashV, sV }));
+  over('PV13c', predNavstevou.some((f) => /^index-/.test(f)) && !predNavstevou.some((f) => /^PrehledPage-/.test(f)) && sA.some((f) => /^PrehledPage-/.test(f)) && kostra.pocet === 1 && kostra.karet > 0 && nadpis === 'Přehled vedení',
+    'super admin: soubor Přehledu až s první návštěvou, do té doby kostra karet (Stavy), pak stránka', JSON.stringify({ predNavstevou, sA, kostra, nadpis }));
 });
 
 await browser.close();

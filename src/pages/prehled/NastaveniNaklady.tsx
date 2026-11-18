@@ -22,41 +22,45 @@ export const platnostNakladu = (n: Pick<Naklad, 'opakovani' | 'plati_od' | 'plat
 export const popisNakladu = (n: Naklad): string =>
   [nazevKategorie(n.kategorie), formatCastka(n.castka, n.mena), nazevOpakovani(n.opakovani), platnostNakladu(n), n.popis].filter(Boolean).join(', ');
 
-/** Tabulka nákladů: každá částka ve své měně (nikdy sečtené), „ověřit“ jen u řádků k ověření. */
+/**
+ * Tabulka nákladů: každá částka ve své měně (nikdy sečtené), „ověřit“ jen u řádků k ověření.
+ * Výslovné role tabulky (table, rowgroup, row, columnheader, rowheader, cell): telefon ji skládá do bloků (display: block)
+ * a VoiceOver by ji jinak nečetl jako tabulku (recenze 14b, drobnost 6).
+ */
 export function TabulkaNakladu({ radky, onUpravit, onZrusit }: { radky: Naklad[]; onUpravit: (n: Naklad, el: HTMLButtonElement) => void; onZrusit: (n: Naklad, el: HTMLButtonElement) => void }) {
   return (
     <TabulkaObal popisek="Náklady">
-      <table className="prehled-tabulka nastaveni-tabulka" data-tabulka="nastaveni-naklady" aria-label="Náklady">
-        <thead>
-          <tr>
-            <th scope="col">Kategorie</th>
-            <th scope="col">Popis a klient</th>
-            <th scope="col" className="cislo-sloupec">Částka</th>
-            <th scope="col">Opakování</th>
-            <th scope="col">Platí</th>
-            <th scope="col">Zapsal</th>
-            <th scope="col">Akce</th>
+      <table className="prehled-tabulka nastaveni-tabulka" data-tabulka="nastaveni-naklady" aria-label="Náklady" role="table">
+        <thead role="rowgroup">
+          <tr role="row">
+            <th scope="col" role="columnheader">Kategorie</th>
+            <th scope="col" role="columnheader">Popis a klient</th>
+            <th scope="col" role="columnheader" className="cislo-sloupec">Částka</th>
+            <th scope="col" role="columnheader">Opakování</th>
+            <th scope="col" role="columnheader">Platí</th>
+            <th scope="col" role="columnheader">Zapsal</th>
+            <th scope="col" role="columnheader">Akce</th>
           </tr>
         </thead>
-        <tbody>
+        <tbody role="rowgroup">
           {radky.map((n) => (
-            <tr key={n.id} data-id={n.id}>
-              <th scope="row" data-label="Kategorie">
+            <tr key={n.id} data-id={n.id} role="row">
+              <th scope="row" role="rowheader" data-label="Kategorie">
                 {nazevKategorie(n.kategorie)}
                 {n.overit && <span className="prehled-znacka overit-znacka" title="Částka čeká na ověření.">ověřit</span>}
               </th>
-              <td data-label="Popis a klient">
+              <td role="cell" data-label="Popis a klient">
                 {n.popis ?? <span className="muted">bez popisu</span>}
                 {n.kontakt_id !== null && <span className="prehled-bunka-pozn">klient {n.kontakt_jmeno ?? `#${n.kontakt_id}`}</span>}
               </td>
-              <td data-label="Částka" className="cislo-sloupec">{formatCastka(n.castka, n.mena)}</td>
-              <td data-label="Opakování">{nazevOpakovani(n.opakovani)}</td>
-              <td data-label="Platí" className="nastaveni-datum">{platnostNakladu(n)}</td>
-              <td data-label="Zapsal" className="nastaveni-zapsal">
+              <td role="cell" data-label="Částka" className="cislo-sloupec">{formatCastka(n.castka, n.mena)}</td>
+              <td role="cell" data-label="Opakování">{nazevOpakovani(n.opakovani)}</td>
+              <td role="cell" data-label="Platí" className="nastaveni-datum">{platnostNakladu(n)}</td>
+              <td role="cell" data-label="Zapsal" className="nastaveni-zapsal">
                 {n.zapsal}
                 <span className="prehled-bunka-pozn">{casText(n.zapsano_at)}</span>
               </td>
-              <td data-label="Akce" className="nastaveni-akce">
+              <td role="cell" data-label="Akce" className="nastaveni-akce">
                 <AkceRadku co="náklad" popis={popisNakladu(n)} smi proc="" onUpravit={(el) => onUpravit(n, el)} onZrusit={(el) => onZrusit(n, el)} />
               </td>
             </tr>

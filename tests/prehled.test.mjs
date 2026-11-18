@@ -694,9 +694,13 @@ await blok('R', async () => {
 await blok('G', async () => {
   const app = src('src/App.tsx');
   const home = src('src/pages/HomePage.tsx');
-  over('G1', /path="\/prehled\/\*"\s+element=\{\s*<RequireAuth superAdmin>\s*<PrehledPage \/>/.test(app) && /\{isSuper && \(\s*<NavLink\s+to="\/prehled"/.test(app)
+  // stránka se načítá líně (React.lazy) v Suspense s kostrou UVNITŘ RequireAuth, ať Volající její kód nikdy nestáhne (recenze 14b,
+  // drobnost 9; ⚠ NAHRAZUJE <PrehledPage /> přímo pod RequireAuth se statickým importem)
+  over('G1', /path="\/prehled\/\*"\s+element=\{\s*<RequireAuth superAdmin>\s*<Suspense fallback=\{<PrehledStrankaNacita \/>\}>\s*<PrehledPage \/>/.test(app)
+    && /const PrehledPage = lazy\(\(\) => import\('\.\/pages\/prehled\/PrehledPage'\)\)/.test(app) && !/^import PrehledPage /m.test(app)
+    && /\{isSuper && \(\s*<NavLink\s+to="\/prehled"/.test(app)
     && />\s*přehled\s*</.test(app) && /\{isSuper && \(\s*<Link to="\/prehled"/.test(home) && /PŘEHLED/.test(home),
-    'trasa #/prehled/* jen pod RequireAuth superAdmin, pilulka „přehled“ a dlaždice PŘEHLED jen pod isSuper', '');
+    'trasa #/prehled/* jen pod RequireAuth superAdmin (líná stránka v Suspense s kostrou uvnitř), pilulka „přehled“ a dlaždice PŘEHLED jen pod isSuper', '');
   // nic jiného než Přehled a kombinované Statistiky (super admin) funkce Přehledu nevolá
   const stranky = ['src/pages/AdminPage.tsx', 'src/pages/CallPage.tsx', 'src/pages/HomePage.tsx', 'src/pages/KalendarPage.tsx', 'src/pages/MojiPage.tsx',
     'src/pages/OznacenePage.tsx', 'src/pages/RozvrhPage.tsx', 'src/pages/ZpravyPage.tsx', 'src/pages/UzivatelePage.tsx', 'src/App.tsx'];

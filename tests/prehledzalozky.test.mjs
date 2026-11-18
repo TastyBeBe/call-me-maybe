@@ -576,8 +576,9 @@ await blok('Z12', async () => {
   over('Z12a', /data-tabulka="akce"/.test(html) && /^20\. 3\. 2027 Klient 1/.test(radek(1)) && !/0:00/.test(radek(1)) && /^20\. 3\. 2027 9:15 po termínu/.test(radek(2)),
     'akční seznam: termín jen dnem se ukáže bez „0:00“, termín s časem s časem v Praze', JSON.stringify([radek(1), radek(2)]));
   const t = [1, 3, 12, null].map((n) => A.textZobrazitPripady(n));
-  over('Z12b', stejne(t, ['Zobrazit jeden případ', 'Zobrazit všechny 3 případy', 'Zobrazit všech 12 případů', 'Zobrazit všech — případů']),
-    'tlačítko akčního seznamu: tvar podle počtu, neznámý počet „—“ (nikdy 0)', JSON.stringify(t));
+  // neznámý počet: „Zobrazit případy“ bez čísla (recenze 14b, drobnost 7; ⚠ NAHRAZUJE „Zobrazit všech — případů“), nikdy 0
+  over('Z12b', stejne(t, ['Zobrazit jeden případ', 'Zobrazit všechny 3 případy', 'Zobrazit všech 12 případů', 'Zobrazit případy']),
+    'tlačítko akčního seznamu: tvar podle počtu, neznámý počet „Zobrazit případy“ (nikdy 0 ani „—“ uprostřed věty)', JSON.stringify(t));
 });
 
 /* ---------------- Z10) mock podle rozhodnutí databáze 18. 11. 2026 (kontrakt §9, úkol 4; úkol 14b) ---------------- */
@@ -658,14 +659,20 @@ await blok('Z10', async () => {
     if (!ok) vadyNakladu.push(`${JSON.stringify(f)}: ${JSON.stringify({ celkem: fin.data.naklady.celkem.kvalita, bod: r.data.body[0] })}`);
   }
   over('Z10c1', vadyNakladu.length === 0, 'náklady z evidence a výsledek s filtrem lidí, segmentu, oboru nebo kraje nedostupné s větou databáze, provize podle filtru; řada nákladů celá nedostupná', vadyNakladu.join(' | '));
+  // věty doslova jako 073 v 7553864d: Finance (prehled_finance) „Pro kategorii „…“ není zadaný žádný náklad.“ u kategorie i v Nákladech
+  // celkem, řada nákladů (prehled_rada) „Bez zadaného nákladu: …“ (recenze 14b, drobnost 8; ⚠ NAHRAZUJE „Bez zadaného nákladu: …“
+  // i ve Financích)
   const BEZ_HOSTINGU = 'Bez zadaného nákladu: Hosting (náš náklad).';
+  const PRAZDNY_HOSTING = 'Pro kategorii „Hosting (náš náklad)“ není zadaný žádný náklad.';
   const fin0 = await api.prehledFinance(T, { od: OD, do: DO });
   const kat0 = Object.fromEntries(fin0.data.naklady.kategorie.map((k) => [k.kategorie, k.castka]));
   const r0 = await api.prehledRada(T, 'naklady_celkem', 'mesic', { od: OD, do: DO });
-  over('Z10c2', kat0.jine.kvalita === 'dostupne' && kat0.jine.castky[0]?.hodnota === '0.00' && kat0.hosting.kvalita === 'castecne' && (kat0.hosting.duvod ?? '').includes(BEZ_HOSTINGU)
-    && (fin0.data.naklady.celkem.duvod ?? '').includes(BEZ_HOSTINGU) && !/Jiné/.test(fin0.data.naklady.celkem.duvod ?? '') && fin0.data.vysledek.kvalita === 'castecne'
-    && r0.data.body.every((b) => b.kvalita !== 'castecne' || ((b.duvod ?? '').includes(BEZ_HOSTINGU) && !/Jiné/.test(b.duvod ?? ''))) && r0.data.body.some((b) => (b.duvod ?? '').includes(BEZ_HOSTINGU)),
-    'prázdná povinná kategorie (hosting) dělá kategorii, náklady celkem, výsledek i řadu castecne „Bez zadaného nákladu: …“; prázdná volitelná Jiné je ověřená 0 a neúplnost nedělá',
+  over('Z10c2', kat0.jine.kvalita === 'dostupne' && kat0.jine.castky[0]?.hodnota === '0.00' && kat0.hosting.kvalita === 'castecne' && kat0.hosting.duvod === PRAZDNY_HOSTING
+    && (fin0.data.naklady.celkem.duvod ?? '').includes(PRAZDNY_HOSTING) && !/Jiné/.test(fin0.data.naklady.celkem.duvod ?? '') && fin0.data.vysledek.kvalita === 'castecne'
+    && !JSON.stringify(fin0.data.naklady).includes('Bez zadaného nákladu')
+    && r0.data.body.every((b) => b.kvalita !== 'castecne' || ((b.duvod ?? '').includes(BEZ_HOSTINGU) && !/Jiné/.test(b.duvod ?? ''))) && r0.data.body.some((b) => (b.duvod ?? '').includes(BEZ_HOSTINGU))
+    && !r0.data.body.some((b) => /Pro kategorii/.test(b.duvod ?? '')),
+    'prázdná povinná kategorie (hosting): ve Financích u kategorie i v Nákladech celkem věta 073 „Pro kategorii „Hosting (náš náklad)“ není zadaný žádný náklad.“ (výsledek castecne), řada nákladů „Bez zadaného nákladu: …“; prázdná volitelná Jiné je ověřená 0 a neúplnost nedělá',
     JSON.stringify({ jine: kat0.jine, hosting: kat0.hosting, celkem: fin0.data.naklady.celkem.duvod, bod: r0.data.body[0] }));
   // 4) výplaty s filtrem segmentu, oboru nebo kraje nedostupné v každém řádku lidí i v součtu (a ve Financích); s lidmi dál podle člověka
   const VYPL = 'Výplaty provizí nejsou rozdělené podle klientů; zrušte filtr.';
@@ -726,6 +733,26 @@ await blok('Z10', async () => {
     && poT(l6c, 3) === poT(l6b, 3) + 1 && poT(l6c, 4) === poT(l6b, 4),
     'hovor Honzy uzavřený Mikulášem: hotový i výsledek pracovní doby u Mikuláše (kdo uzavřel), po termínu zůstává vlastníkovi',
     JSON.stringify({ hot: [hot(l6a, 4), hot(l6b, 4), hot(l6a, 3), hot(l6b, 3)], kotvy: [kotvy(l6a, 4), kotvy(l6b, 4), kotvy(l6a, 3), kotvy(l6b, 3)], poT: [poT(l6b, 3), poT(l6c, 3)] }));
+  // řádky prokliku proti kartě (recenze 14b, důležité 1): hotové podle toho, kdo uzavřel, a jen člověka buňky (vyber.user_id),
+  // po termínu podle vlastníka a taky jen člověka buňky; součet = lidé filtru; počet řádků (různí klienti) = číslo v kartě
+  const idsRadku = async (m) => (m?.proklik ? (await api.prehledRadky(T, m.proklik.zdroj, m.proklik.filtr, null, 200)).data.radky.map((r) => r.kontakt_id) : null);
+  const metrikaU = (o, uid, k) => (uid === null ? o.data.soucet.metriky : radekU(o, uid))?.[k];
+  const hR = { m: await idsRadku(metrikaU(l6b, 4, 'naplanovane_hotove')), h: await idsRadku(metrikaU(l6b, 3, 'naplanovane_hotove')), s: await idsRadku(metrikaU(l6b, null, 'naplanovane_hotove')) };
+  const pR = { m: await idsRadku(metrikaU(l6c, 4, 'naplanovane_po_terminu')), h: await idsRadku(metrikaU(l6c, 3, 'naplanovane_po_terminu')), s: await idsRadku(metrikaU(l6c, null, 'naplanovane_po_terminu')) };
+  const hK = [metrikaU(l6b, 4, 'naplanovane_hotove')?.hodnota, metrikaU(l6b, 3, 'naplanovane_hotove')?.hodnota, metrikaU(l6b, null, 'naplanovane_hotove')?.hodnota];
+  const pK = [metrikaU(l6c, 4, 'naplanovane_po_terminu')?.hodnota, metrikaU(l6c, 3, 'naplanovane_po_terminu')?.hodnota, metrikaU(l6c, null, 'naplanovane_po_terminu')?.hodnota];
+  over('Z10f2', Object.values(hR).every(Array.isArray) && Object.values(pR).every(Array.isArray)
+    && hR.m.includes(kand[0].id) && !hR.h.includes(kand[0].id) && hR.s.includes(kand[0].id) && stejne([hR.m.length, hR.h.length, hR.s.length], hK)
+    && pR.h.includes(kand[1].id) && !pR.m.includes(kand[1].id) && pR.s.includes(kand[1].id) && stejne([pR.m.length, pR.h.length, pR.s.length], pK),
+    'řádky prokliku = karta: hotový hovor Honzy uzavřený Mikulášem v řádcích Mikuláše a součtu, ne Honzy; po termínu v řádcích vlastníka (Honzy) a součtu; každá buňka jen svého člověka',
+    JSON.stringify({ hotove: { radky: hR, karta: hK }, poTerminu: { radky: pR, karta: pK } }));
+  // scénář recenze 14b (over-hotove.mjs): ve filtru jen Mikuláš; Honzův hovor, který uzavřel, je v jeho kartě i v jeho řádcích
+  const l6d = await api.prehledLide(T, { od: DNES, do: DNES, lide: [4] });
+  const jenM = { karta: metrikaU(l6d, 4, 'naplanovane_hotove')?.hodnota, soucet: metrikaU(l6d, null, 'naplanovane_hotove')?.hodnota,
+    radky: await idsRadku(metrikaU(l6d, 4, 'naplanovane_hotove')), radkySoucet: await idsRadku(metrikaU(l6d, null, 'naplanovane_hotove')) };
+  over('Z10f3', Array.isArray(jenM.radky) && Array.isArray(jenM.radkySoucet) && jenM.radky.includes(kand[0].id) && jenM.radkySoucet.includes(kand[0].id)
+    && jenM.karta === hot(l6b, 4) && jenM.soucet === jenM.karta && jenM.radky.length === jenM.karta && jenM.radkySoucet.length === jenM.soucet,
+    'filtr jen Mikuláš: hovor Honzy uzavřený Mikulášem je v kartě i v řádcích Mikuláše a součtu (řádky = karta)', JSON.stringify(jenM));
   // 5) otevření v trychtýři: prodaný klient je u kroků do „prodáno“ včetně uzavřený, u „fakturováno“ a „zaplaceno“ otevřený
   const F5 = { od: posunD(DNES, -60), do: DNES };
   const t5 = await api.prehledTrychtyr(T, F5);

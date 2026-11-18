@@ -1,4 +1,4 @@
-import { Component, useEffect, useRef, type ErrorInfo, type ReactNode } from 'react';
+import { Component, lazy, Suspense, useEffect, useRef, type ErrorInfo, type ReactNode } from 'react';
 import {
   Link,
   Navigate,
@@ -29,7 +29,7 @@ import KalendarPage from './pages/KalendarPage';
 import LoginPage from './pages/LoginPage';
 import MojiPage from './pages/MojiPage';
 import OznacenePage from './pages/OznacenePage';
-import PrehledPage from './pages/prehled/PrehledPage';
+import { PrehledStrankaNacita } from './components/prehled/Kostra';
 import RozvrhPage from './pages/RozvrhPage';
 import SetupPage from './pages/SetupPage';
 import StatsPage from './pages/StatsPage';
@@ -38,6 +38,10 @@ import ZpravyPage from './pages/ZpravyPage';
 import PigLayer from './pig/PigLayer';
 import SoundMenu from './SoundMenu';
 import { useZavolat, ZavolatProvider } from './zavolat';
+
+// Přehled vedení (jen super admin, D2) se načítá líně: Volající jeho kód nikdy nestáhne a hlavní balík je menší; do té doby kostra
+// stránky (recenze 14b, drobnost 9, ⚠ NAHRAZUJE statický import PrehledPage)
+const PrehledPage = lazy(() => import('./pages/prehled/PrehledPage'));
 
 /** Prokchop je dekorace: když spadne, zaloguj to a vrstvu zahoď — appka jede dál. */
 class PigBoundary extends Component<{ children: ReactNode }, { broken: boolean }> {
@@ -426,7 +430,9 @@ export default function App() {
           path="/prehled/*"
           element={
             <RequireAuth superAdmin>
-              <PrehledPage />
+              <Suspense fallback={<PrehledStrankaNacita />}>
+                <PrehledPage />
+              </Suspense>
             </RequireAuth>
           }
         />
