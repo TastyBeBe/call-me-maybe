@@ -1,8 +1,9 @@
 // „i“ U METRIKY PŘEHLEDU (Přehled vedení úkol 13, Albert 17. 11. 2026; spec docs/superpowers/specs/2026-11-17-prehled-vedeni-design.md
 // §7.2: „‚i‘ popover (definition, basis, source, freshness, version)“). Tlačítko u názvu karty otevře okénko s definicí
 // z katalogu (prehled_definice; u „Spojeno“ vlastní definice appky, src/prehled.ts), přirozeným základem čísla, zdroji s tím,
-// k kdy jsou data (meta.zdroje odpovědi), pravidly kvality a verzí definice i katalogu. Klávesnice: Enter nebo mezerník otevře,
-// fokus jde do okénka, Escape nebo „Zavřít“ zavře a vrátí fokus na tlačítko; klik mimo zavře bez přesunu fokusu.
+// odkdy jsou a jak jsou aktuální (meta.zdroje odpovědi, „aktuální: dnes 9:05“), pravidly kvality a verzí definice i katalogu.
+// Klávesnice: Enter nebo mezerník otevře, fokus jde do okénka, Escape nebo „Zavřít“ zavře a vrátí fokus na tlačítko; klik mimo
+// zavře bez přesunu fokusu.
 
 import { useEffect, useId, useRef, useState } from 'react';
 import type { Metrika, MetrikaDefinice, PrehledMeta } from '../../api/types';
@@ -15,6 +16,7 @@ export default function DefinicePopover({
   definice,
   zdroje = [],
   definiceVerze,
+  uroven = 4,
   vychoziOtevreno = false,
 }: {
   metrika: Pick<Metrika, 'klic' | 'nazev' | 'verze' | 'zaklad'>;
@@ -24,9 +26,12 @@ export default function DefinicePopover({
   zdroje?: PrehledMeta['zdroje'];
   /** definice_verze obálky („2026-11-17.1“) */
   definiceVerze?: string | null;
+  /** úroveň nadpisu okénka (o jednu pod nadpisem karty) */
+  uroven?: 4 | 5 | 6;
   /** jen test (vykreslení na serveru): okénko otevřené hned */
   vychoziOtevreno?: boolean;
 }) {
+  const Nadpis = `h${uroven}` as 'h4' | 'h5' | 'h6';
   const [otevreno, setOtevreno] = useState(vychoziOtevreno);
   const obal = useRef<HTMLDivElement>(null);
   const tlacitko = useRef<HTMLButtonElement>(null);
@@ -89,9 +94,9 @@ export default function DefinicePopover({
       </button>
       {otevreno && (
         <div className="definice-okno" id={id} role="dialog" aria-modal="false" aria-labelledby={idNadpisu} ref={okno} tabIndex={-1}>
-          <h4 className="definice-nadpis" id={idNadpisu}>
+          <Nadpis className="definice-nadpis" id={idNadpisu}>
             {nazev}
-          </h4>
+          </Nadpis>
           <p className="definice-text">{definiceMetriky(metrika.klic, definice?.definice ?? 'Definice z katalogu se ještě načítá.')}</p>
           <dl className="definice-udaje">
             <dt>Základ</dt>
@@ -104,7 +109,7 @@ export default function DefinicePopover({
                     {zdrojeText.map((z) => (
                       <li key={z.z}>
                         {z.jmeno}
-                        {z.kdy ? <span className="muted"> · data k {z.kdy}</span> : null}
+                        {z.kdy ? <span className="muted"> · aktuální: {z.kdy}</span> : null}
                         {z.od ? <span className="muted"> · od {denText(prahaDen(z.od))}</span> : null}
                       </li>
                     ))}

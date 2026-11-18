@@ -9,7 +9,7 @@
 
 import { BEZ_073_LIDE, BEZ_073_PREHLED } from './api/supabase';
 import type { CastkaJedna, CenaRozbor, JednotkaMetriky, KvalitaMetriky, MenaPrehledu, Metrika, PokrytiMetriky, RadekPrehledu, RadkyZdroj } from './api/types';
-import type { TypSloupceCsv } from './csv';
+import { maskujOsobni, type TypSloupceCsv } from './csv';
 import { prahaCas, prahaDen } from './praha';
 
 /** Názvy a definice, které appka říká jinak než katalog serveru (jen tyhle dvě metriky). */
@@ -109,14 +109,24 @@ export interface FormatMetriky {
   prazdna: boolean;
 }
 
-/** Hodnota metriky podle jednotky (§3.11). Neznámé (null) je pomlčka, ověřená nula je „0“. */
+/** „— Kč“, „— €“: částka měny, která není známá (oprava po recenzi, bod 3: při obou měnách nikdy nezmizí). */
+const neznamaMena = (mena: MenaPrehledu): string => (mena === 'EUR' ? '— €' : '— Kč');
+
+/**
+ * Hodnota metriky podle jednotky (§3.11). Neznámé (null) je pomlčka, ověřená nula je „0“. U peněz každá měna filtru: jedna
+ * měna bez známé částky = „—“, při obou měnách neznámá měna „— €“ nebo „— Kč“ (oprava po recenzi, bod 3).
+ */
 export function formatMetriky(m: Metrika, jednotka: JednotkaMetriky): FormatMetriky {
   const pomlcka: FormatMetriky = { hlavni: '—', dalsi: [], prazdna: true };
   if (m.kvalita === 'nedostupne') return pomlcka;
-  const castky = m.castky.filter((c) => c.hodnota !== null).map((c) => formatCastka(c.hodnota!, c.mena, true));
-  if (jednotka === 'mena') return castky.length === 0 ? pomlcka : { hlavni: castky[0], dalsi: castky.slice(1), prazdna: false };
+  const znamych = m.castky.filter((c) => c.hodnota !== null).length;
+  const castky = m.castky.map((c) => (c.hodnota !== null ? formatCastka(c.hodnota, c.mena, true) : neznamaMena(c.mena)));
+  if (jednotka === 'mena') return znamych === 0 ? pomlcka : { hlavni: castky[0], dalsi: castky.slice(1), prazdna: false };
   if (m.hodnota === null) return pomlcka;
-  const dalsi = jednotka === 'pocet_a_mena' ? castky.map((c) => `známá hodnota ${c}`) : [];
+  // počet s penězi (otevřené obchody): známá hodnota po měnách; měna bez známé částky viditelně „neznámá“, nikdy nezmizí
+  const dalsi = jednotka === 'pocet_a_mena' && znamych > 0
+    ? m.castky.map((c) => (c.hodnota !== null ? `známá hodnota ${formatCastka(c.hodnota, c.mena, true)}` : `hodnota v ${c.mena === 'EUR' ? 'EUR' : 'Kč'} neznámá`))
+    : [];
   const hlavni = jednotka === 'podil' ? formatPodil(m.hodnota) : jednotka === 'h' ? formatHodiny(m.hodnota) : jednotka === 'd' ? formatDny(m.hodnota) : cislo(m.hodnota);
   return { hlavni, dalsi, prazdna: false };
 }
@@ -165,10 +175,45 @@ export function cenaText(c: CenaRozbor | null | undefined): string {
   if (c.stav === 'rozsah' && c.min !== null && c.max !== null) return `${formatCastka(c.min, null)}–${formatCastka(c.max, c.mena)}`;
   return 'neznámá';
 }
-/** Součty řádků po měnách („21 000 Kč · 75 €“). */
+/**
+ * Součty řádků po měnách stejně jako na kartě („16 888 Kč · 75,50 €“: koruny celé, oprava po recenzi, bod 8); neznámá měna
+ * „— €“. null = žádná známá částka.
+ */
 export function souctyText(soucty: CastkaJedna[]): string | null {
-  const t = soucty.filter((s) => s.hodnota !== null).map((s) => formatCastka(s.hodnota!, s.mena));
-  return t.length ? t.join(' · ') : null;
+  if (!soucty.some((s) => s.hodnota !== null)) return null;
+  return soucty.map((s) => (s.hodnota !== null ? formatCastka(s.hodnota, s.mena, true) : neznamaMena(s.mena))).join(' · ');
+}
+/** Tytéž součty přesně (haléře), do bubliny k zaokrouhlenému součtu. */
+export function souctyPresne(soucty: CastkaJedna[]): string | null {
+  if (!soucty.some((s) => s.hodnota !== null)) return null;
+  return soucty.map((s) => (s.hodnota !== null ? formatCastka(s.hodnota, s.mena) : neznamaMena(s.mena))).join(' · ');
+}
+/** Přesné částky karty (bublina u zaokrouhleného čísla), null když se zaokrouhlením nic nemění. */
+export function presneCastky(m: Metrika): string | null {
+  const presne = souctyPresne(m.castky);
+  return presne && presne !== souctyText(m.castky) ? presne : null;
+}
+
+/** Karty Vedení bez čísla (oprava po recenzi, bod 2): jen z dostupných karet a aspoň jedné; samé „nedostupné“ prázdno nejsou. */
+export function souhrnPrazdny(karty: Record<string, Metrika>): boolean {
+  const dostupne = Object.values(karty).filter((m) => m.kvalita !== 'nedostupne');
+  return dostupne.length > 0 && dostupne.every((m) => (m.hodnota === null || m.hodnota === 0) && m.castky.every((c) => c.hodnota === null || Number(c.hodnota) === 0));
+}
+
+/** Chyba kurzoru prehled_radky (§5.15): server říká „začněte znovu“, panel pak načte první stránku. */
+export function jeChybaKurzoru(text: string | null): boolean {
+  return !!text && (text === 'Neplatný kurzor.' || text.startsWith('Kurzor patří k jinému filtru nebo zdroji'));
+}
+
+/** Odkaz do Gmailu jen https://mail.google.com (jiný odkaz z dat se jako odkaz nevykreslí). */
+export function odkazGmailu(url: unknown): string | null {
+  if (typeof url !== 'string') return null;
+  try {
+    const u = new URL(url);
+    return u.protocol === 'https:' && u.host === 'mail.google.com' ? url : null;
+  } catch {
+    return null;
+  }
 }
 
 const VYSLEDKY: Record<string, string> = { nedovolano: 'Nedovoláno', odmitnuto: 'Odmítnuto', zajem: 'Zájem', nerelevantni: 'Nerelevantní', preplanovano: 'Přeplánováno' };
@@ -188,9 +233,14 @@ export interface SloupecRadku {
 }
 const cas = (k: string, nazev: string): SloupecRadku => ({ klic: k, nazev, typ: 'cas', hodnota: (r) => r[k], text: (r) => (typeof r[k] === 'string' ? casText(r[k] as string) : '—') });
 const den = (k: string, nazev: string): SloupecRadku => ({ klic: k, nazev, typ: 'datum', hodnota: (r) => r[k], text: (r) => (typeof r[k] === 'string' ? denText(r[k] as string) : '—') });
+// text do tabulky zamaskovaný stejně jako v CSV (oprava po recenzi, bod 11: volný text odmítnutí, jméno)
 const txt = (k: string, nazev: string, mapa?: Record<string, string>): SloupecRadku => ({
   klic: k, nazev, typ: 'text', hodnota: (r) => (mapa && typeof r[k] === 'string' ? mapa[r[k] as string] ?? r[k] : r[k]),
-  text: (r) => { const v = r[k]; return v === null || v === undefined || v === '' ? '—' : String(mapa && typeof v === 'string' ? mapa[v] ?? v : v); },
+  text: (r) => {
+    const v = r[k];
+    if (v === null || v === undefined || v === '') return '—';
+    return maskujOsobni(Array.isArray(v) ? v.map(String).join(', ') : String(mapa && typeof v === 'string' ? mapa[v] ?? v : v));
+  },
 });
 const cis = (k: string, nazev: string): SloupecRadku => ({ klic: k, nazev, typ: 'cislo', hodnota: (r) => r[k], text: (r) => (typeof r[k] === 'number' ? cislo(r[k] as number, 2) : '—') });
 const penize = (k: string, nazev: string, menaKlic = 'mena'): SloupecRadku => ({

@@ -3913,9 +3913,10 @@ await blok050('PV1 vstup', async () => {
   const hodnoty = await page.locator('.kpi-karta .kpi-hlavni').allInnerTexts();
   over('PV1c', hodnoty.length === 8 && hodnoty.every((h) => txt(h) !== '' && txt(h) !== '—'),
     'v demu má všech osm karet hodnotu (žádná pomlčka)', hodnoty.join(' | '));
-  over('PV1d', (await page.locator('.prehled-demo').count()) === 1 && /Data k/.test(await page.locator('.prehled-data-k').innerText())
+  // ⚠ oprava po recenzi (bod 9): „Data: dnes 9:05“, NAHRAZUJE „Data k dnes 9:05“
+  over('PV1d', (await page.locator('.prehled-demo').count()) === 1 && /^Data: /.test(txt(await page.locator('.prehled-data-k').innerText()))
     && (await page.locator('.prehled-cerstvost-cipy li').count()) === 4,
-    'hlavička: pruh DEMO, „Data k …“ a čerstvost zdrojů (automatizace, pošta, Gmail, snímek)', '');
+    'hlavička: pruh DEMO, „Data: …“ a čerstvost zdrojů (automatizace, pošta, Gmail, snímek)', txt(await page.locator('.prehled-data-k').innerText()));
   const spojeno = await page.locator('.kpi-karta .kpi-nazev').allInnerTexts();
   over('PV1e', !spojeno.some((t) => /Dovoláno/.test(t)), 'na Vedení se „Dovoláno“ nikde neobjeví', spojeno.join(' | '));
   await snimekCely(page, 'vedeni-1280');
@@ -4119,6 +4120,194 @@ for (const sirka of [320, 360, 390]) {
     await ctx.close();
   });
 }
+
+/* ---- PV8 až PV12: oprava po recenzi úkolu 13 (task-13-fixes.md, 18. 11. 2026) ---- */
+/** Den v e2e (en-US, mm/dd/yyyy) jako číslice pro psaní do pole data klávesnicí. */
+const klavesyDne = (den) => { const [y, m, d] = den.split('-'); return `${m}${d}${y}`; };
+const prvniDenMesicePV = (den, posun) => { const [y, m] = den.split('-').map(Number); const t = new Date(Date.UTC(y, m - 1 + posun, 1)); return t.toISOString().slice(0, 10); };
+const posledniDenMesicePV = (den) => posunPV(prvniDenMesicePV(den, 1), -1);
+/** Opustí pole data klávesou Tab (Tab v poli data chodí po měsíci, dni, roku a tlačítku kalendáře; pak teprve ven). */
+const vyjdiZPolePV = async (page, aria) => {
+  for (let i = 0; i < 6; i += 1) {
+    if ((await page.evaluate(() => document.activeElement?.getAttribute('aria-label'))) !== aria) return;
+    await page.keyboard.press('Tab');
+  }
+};
+
+await blok050('PV8 psané datum', async () => {
+  const { ctx, page } = await novaStranka('admin');
+  await jdi(page, '#/prehled/vedeni', 900);
+  const dnes = dnesPV();
+  const konec = posledniDenMesicePV(dnes);
+  const odCil = prvniDenMesicePV(dnes, -3);
+  const souhrnu = async () => (await volani(page)).filter((v) => v.fn === 'prehledSouhrn').length;
+  const pred = await souhrnu();
+  const historiePred = await page.evaluate(() => history.length);
+  await page.locator('.prehled-obdobi select').selectOption('vlastni');
+  await page.waitForTimeout(150);
+  await page.locator('input[aria-label="Období od"]').focus();
+  // Chromium posílá při psaní roku mezihodnoty (0002-…, 0020-…, 0202-…): do adresy smí jen celé datum
+  await page.keyboard.type(klavesyDne(odCil), { delay: 60 });
+  await vyjdiZPolePV(page, 'Období od');
+  await klid(page, 1200);
+  const h1 = await hashPV(page);
+  const nove = (await volani(page)).filter((v) => v.fn === 'prehledSouhrn').slice(pred);
+  over('PV8a', h1.includes(`od=${odCil}`) && h1.includes(`do=${konec}`) && nove.length === 1 && nove[0].args[0].od === odCil && nove[0].args[0].do === konec
+    && (await page.evaluate(() => history.length)) - historiePred <= 1,
+    'Vlastní „od“ napsané klávesnicí: jedno volání s konečným dnem, adresa od=…, konec období se nezměnil, nejvýš jeden záznam historie',
+    JSON.stringify({ h1, nove: nove.map((v) => [v.args[0].od, v.args[0].do]) }));
+  // obrácené období: chyba u pole, nic se nepřepíše a nic se nevolá
+  const pred2 = await souhrnu();
+  await page.locator('input[aria-label="Období do"]').focus();
+  await page.keyboard.type(klavesyDne(posunPV(odCil, -1)), { delay: 60 });
+  await vyjdiZPolePV(page, 'Období do');
+  await klid(page, 1200);
+  const chyba = txt(await page.locator('.prehled-obdobi-chyba').innerText().catch(() => ''));
+  over('PV8b', chyba === 'Začátek období je po jeho konci.' && (await hashPV(page)) === h1 && (await souhrnu()) === pred2
+    && (await page.locator('input[aria-label="Období od"]').inputValue()) === odCil,
+    'konec před začátkem: věta u pole, adresa ani začátek se nezmění, žádné volání', `${chyba} ${await hashPV(page)}`);
+  await snimekCely(page, 'obdobi-chyba-1280');
+  // oprava konce: platné období se zapíše
+  await page.locator('input[aria-label="Období do"]').focus();
+  await page.keyboard.type(klavesyDne(posunPV(odCil, 20)), { delay: 60 });
+  await page.keyboard.press('Enter');
+  await klid(page, 1200);
+  over('PV8c', (await hashPV(page)).includes(`do=${posunPV(odCil, 20)}`) && (await page.locator('.prehled-obdobi-chyba').count()) === 0,
+    'opravený konec (Enter): zapíše se, chyba zmizí', await hashPV(page));
+  // K datu klávesnicí
+  const kDen = posunPV(dnes, -2);
+  const pred3 = await souhrnu();
+  await page.locator('.prehled-dalsi-btn').focus();
+  await page.keyboard.press('Enter');
+  await page.waitForTimeout(150);
+  await page.locator('input[aria-label="Stav k datu"]').focus();
+  await page.keyboard.type(klavesyDne(kDen), { delay: 60 });
+  await vyjdiZPolePV(page, 'Stav k datu');
+  await klid(page, 1200);
+  const nove3 = (await volani(page)).filter((v) => v.fn === 'prehledSouhrn').slice(pred3);
+  const k = nove3[0]?.args[0]?.k_datu ?? '';
+  over('PV8d', nove3.length === 1 && !!k && denP(k) === kDen && (await hashPV(page)).includes('k='),
+    'K datu napsané klávesnicí: jedno volání s k_datu toho dne (v Praze), adresa s k=', JSON.stringify(nove3.map((v) => v.args[0].k_datu)));
+  await ctx.close();
+});
+
+await blok050('PV9 zpět a dopředu', async () => {
+  const { ctx, page } = await novaStranka('admin');
+  await jdi(page, '#/prehled/vedeni', 900);
+  await page.locator('.prehled-obdobi select').selectOption('minuly_mesic');
+  await klid(page, 800);
+  await enterPV(page, kartaPV(page, 'pocet_prodeju').locator('.kpi-proklik'));
+  await klid(page, 700);
+  const otevreno = await page.locator('.proklik-panel').count();
+  await page.goBack();
+  await klid(page, 900);
+  const zavreno = await page.locator('.proklik-panel').count();
+  const fokus = await page.evaluate(() => `${document.activeElement?.tagName}.${document.activeElement?.className}`);
+  const vybrano = await page.locator('.prehled-obdobi select').inputValue();
+  over('PV9a', otevreno === 1 && zavreno === 0 && /kpi-proklik|page-title/.test(fokus) && vybrano === 'mesic',
+    'Zpět s otevřeným panelem řádků: panel se zavře, fokus na kartu nebo nadpis, období podle adresy', JSON.stringify({ otevreno, zavreno, fokus, vybrano }));
+  // „Vlastní“ nezůstane viset: Vlastní zvolené nad výchozím měsícem, napsaný začátek (Enter), Zpět = výchozí Tento měsíc
+  // (výběr podle adresy, ne podle minulé volby), Vpřed = Vlastní s napsaným dnem
+  await jdi(page, '#/prehled/vedeni', 900);
+  const odCil = prvniDenMesicePV(dnesPV(), -2);
+  await page.locator('.prehled-obdobi select').selectOption('vlastni');
+  await page.locator('input[aria-label="Období od"]').focus();
+  await page.keyboard.type(klavesyDne(odCil), { delay: 60 });
+  await page.keyboard.press('Enter');
+  await klid(page, 900);
+  const hVlastni = await hashPV(page);
+  await page.goBack();
+  await klid(page, 900);
+  const v1 = await page.locator('.prehled-obdobi select').inputValue();
+  const vstupu1 = await page.locator('input[aria-label="Období od"]').count();
+  await page.goForward();
+  await klid(page, 900);
+  const v2 = await page.locator('.prehled-obdobi select').inputValue();
+  const od2 = await page.locator('input[aria-label="Období od"]').inputValue().catch(() => '');
+  over('PV9b', hVlastni.includes(`od=${odCil}`) && v1 === 'mesic' && vstupu1 === 0 && v2 === 'vlastni' && od2 === odCil,
+    'Zpět z vlastního období na výchozí ukáže Tento měsíc bez polí (výběr podle adresy), Vpřed zase Vlastní s napsaným dnem',
+    JSON.stringify({ hVlastni, v1, vstupu1, v2, od2 }));
+  await ctx.close();
+});
+
+await blok050('PV10 čerstvost', async () => {
+  const { ctx, page } = await novaStranka('admin', { hodiny: true });
+  await jdi(page, '#/prehled/vedeni', 900);
+  const pocet = async (fn) => (await volani(page)).filter((v) => v.fn === fn).length;
+  const m0 = await pocet('prehledMoznosti');
+  await enterPV(page, page.locator('.prehled-zalozka', { hasText: 'Finance' }));
+  await klid(page, 900);
+  const m1 = await pocet('prehledMoznosti');
+  await page.clock.runFor(5 * 60 * 1000 + 2000);
+  await klid(page, 900);
+  const m2 = await pocet('prehledMoznosti');
+  const d0 = await pocet('prehledDefinice');
+  await page.evaluate(() => { globalThis.__volackaDemoTest.prehledVerze = '2026-12-01.1'; });
+  await enterPV(page, page.locator('.prehled-zalozka', { hasText: 'Pipeline' }));
+  await klid(page, 1200);
+  const d1 = await pocet('prehledDefinice');
+  over('PV10', m1 === m0 + 1 && m2 >= m1 + 1 && d1 === d0 + 1,
+    'čerstvost: možnosti znovu při změně záložky a po 5 minutách; katalog znovu, když odpověď nese jinou definice_verze', JSON.stringify({ m0, m1, m2, d0, d1 }));
+  await ctx.close();
+});
+
+await blok050('PV11 kurzor', async () => {
+  const { ctx, page } = await novaStranka('admin');
+  await jdi(page, '#/prehled/vedeni', 900);
+  // stránky po 2 řádcích (háček mocku prehledLimit), ať jde na třetí stránku s kurzorem
+  await page.evaluate(() => { globalThis.__volackaDemoTest.prehledLimit = 2; });
+  await enterPV(page, kartaPV(page, 'otevrene').locator('.kpi-proklik'));
+  await klid(page, 700);
+  const dalsiPV = page.locator('.proklik-strankovani button', { hasText: 'Další' });
+  const celkem = Number(/z (\d+)/.exec(txt(await page.locator('.proklik-souhrn').innerText().catch(() => '')))?.[1] ?? 0);
+  await dalsiPV.click();
+  await klid(page, 600);
+  // server zahodí kurzor třetí stránky (jiný filtr nebo zdroj): jednou chyba kurzoru
+  await page.evaluate(() => {
+    let jednou = true;
+    globalThis.__volackaDemoTest.selhani = (fn) => {
+      if (fn !== 'prehledRadky' || !jednou) return null;
+      jednou = false;
+      return 'Kurzor patří k jinému filtru nebo zdroji; načtěte řádky znovu od začátku.';
+    };
+  });
+  await dalsiPV.click();
+  await klid(page, 600);
+  const chybne = (await volani(page)).filter((v) => v.fn === 'prehledRadky').pop();
+  const chyba = txt(await page.locator('.proklik-panel .prehled-chyba').innerText().catch(() => ''));
+  await page.locator('.proklik-panel .prehled-chyba button').click();
+  await klid(page, 700);
+  const radky = await page.locator('.proklik-panel tbody tr').count();
+  const posledni = (await volani(page)).filter((v) => v.fn === 'prehledRadky').pop();
+  const souhrn = txt(await page.locator('.proklik-souhrn').innerText().catch(() => ''));
+  over('PV11', celkem >= 5 && chybne?.ok === false && typeof chybne?.args[2] === 'string' && /Kurzor patří/.test(chyba) && radky === 2
+    && posledni?.args[2] === null && posledni?.ok === true && /^Řádky 1–2 z /.test(souhrn)
+    && (await page.locator('.proklik-strankovani button', { hasText: 'Předchozí' }).isDisabled()),
+    'chyba kurzoru na 3. stránce: „Zkusit znovu“ načte řádky od začátku (kurzor null, řádky 1–2, Předchozí vypnuté)',
+    JSON.stringify({ celkem, chyba, radky, kurzor: posledni?.args[2], souhrn }));
+  await page.evaluate(() => { delete globalThis.__volackaDemoTest.prehledLimit; delete globalThis.__volackaDemoTest.selhani; });
+  await ctx.close();
+});
+
+await blok050('PV12 CSV po zavření', async () => {
+  const { ctx, page } = await novaStranka('admin');
+  await jdi(page, '#/prehled/vedeni', 900);
+  let stazeni = 0;
+  page.on('download', () => { stazeni += 1; });
+  await enterPV(page, kartaPV(page, 'hodnota_prodeju').locator('.kpi-proklik'));
+  await klid(page, 700);
+  // stránky CSV (limit 200) přijdou až za 1,5 s; panel se mezitím zavře Escapem
+  await page.evaluate(() => { globalThis.__volackaDemoTest.zpozdeni = (fn, args) => (fn === 'prehledRadky' && args[3] === 200 ? 1500 : 0); });
+  await page.locator('.proklik-csv').click();
+  const bezi = txt(await page.locator('.proklik-csv-stav').innerText().catch(() => ''));
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(2500);
+  const panelu = await page.locator('.proklik-panel').count();
+  await page.evaluate(() => { delete globalThis.__volackaDemoTest.zpozdeni; });
+  over('PV12', /Připravuji CSV/.test(bezi) && panelu === 0 && stazeni === 0, 'zavřený panel zastaví běžící CSV: po zavření se nic nestáhne',
+    JSON.stringify({ bezi, panelu, stazeni }));
+  await ctx.close();
+});
 
 await browser.close();
 server.close();

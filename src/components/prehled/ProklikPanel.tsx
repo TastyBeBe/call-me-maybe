@@ -3,13 +3,17 @@
 // zůstává v něm, Escape a křížek zavřou, fokus se vrátí na kartu): řádky prehled_radky s proklik.filtr beze změny po 50 na
 // stránku (kurzor, „Další“ a „Předchozí“), počet a součet všech řádků (stejné číslo jako karta), stažení CSV až 5 000 řádků
 // po stránkách 200 (src/csv.ts: apostrof před vzorcem, telefon a e-mail zamaskované, středník, BOM pro český Excel).
+// Oprava po recenzi 18. 11. 2026: chyba kurzoru (server: „načtěte řádky znovu od začátku“) = „Zkusit znovu“ začne od první
+// stránky; součet zaokrouhlený stejně jako karta, přesný v bublině; volný text zamaskovaný jako v CSV; odkaz jen do
+// https://mail.google.com; zavřený panel zastaví běžící CSV (nic se pak nestáhne).
 
-import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
+import { useCallback, useContext, useEffect, useId, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { getApi, type DataRadky, type PrehledObalka, type PrehledProklik } from '../../api';
 import { useSession } from '../../auth';
 import { CSV_MAX_RADKU, doCsv } from '../../csv';
 import { DownloadIcon, XIcon, ZnovuIcon } from '../../icons';
-import { casText, chybaPrehledu, denText, radekZaznam, SLOUPCE_RADKU, souctyText } from '../../prehled';
+import { casText, chybaPrehledu, denText, jeChybaKurzoru, odkazGmailu, radekZaznam, SLOUPCE_RADKU, souctyPresne, souctyText } from '../../prehled';
+import { PrehledKontext } from '../../pages/prehled/kontext';
 
 const NA_STRANKU = 50;
 const CSV_STRANKA = 200;
@@ -39,6 +43,19 @@ export default function ProklikPanel({
   const [znovu, setZnovu] = useState(0);
   const [csv, setCsv] = useState<{ stav: 'nic' | 'bezi' | 'hotovo' | 'chyba'; text: string }>({ stav: 'nic', text: '' });
   const cislo = useRef(0);
+  // zavřený panel: běžící CSV skončí po rozjeté stránce a nic nestáhne
+  const zrusenoCsv = useRef(false);
+  // definice_verze odpovědí hlásí stránce (jiný katalog = načíst znovu), když panel běží uvnitř Přehledu
+  const hlasVerzi = useContext(PrehledKontext)?.hlasVerzi;
+  const hlasVerziRef = useRef(hlasVerzi);
+  hlasVerziRef.current = hlasVerzi;
+
+  useEffect(() => {
+    zrusenoCsv.current = false;
+    return () => {
+      zrusenoCsv.current = true;
+    };
+  }, []);
 
   useEffect(() => {
     const moje = ++cislo.current;
@@ -50,6 +67,7 @@ export default function ProklikPanel({
         if (moje !== cislo.current) return;
         setOdpoved(o);
         setNacita(false);
+        hlasVerziRef.current?.(o.definice_verze);
       })
       .catch((e: unknown) => {
         if (moje !== cislo.current) return;
@@ -95,6 +113,15 @@ export default function ProklikPanel({
     setStrana((s) => s + 1);
   };
   const predchozi = () => setStrana((s) => Math.max(0, s - 1));
+  // „Zkusit znovu“: po chybě kurzoru (jiný filtr nebo zdroj, neplatný kurzor) od první stránky, jinak tatáž stránka
+  const kurzorNeplati = jeChybaKurzoru(chyba);
+  const zkusZnovu = () => {
+    if (kurzorNeplati) {
+      setKurzory([null]);
+      setStrana(0);
+    }
+    setZnovu((z) => z + 1);
+  };
 
   const stahni = useCallback(async () => {
     setCsv({ stav: 'bezi', text: 'Připravuji CSV…' });
@@ -104,10 +131,12 @@ export default function ProklikPanel({
       let celkem = 0;
       do {
         const o: PrehledObalka<DataRadky> = await getApi().prehledRadky(session.token, proklik.zdroj as DataRadky['zdroj'], proklik.filtr, kurzor, CSV_STRANKA);
+        if (zrusenoCsv.current) return;
         celkem = o.data.celkem;
         radky.push(...o.data.radky.map(radekZaznam));
         kurzor = o.data.dalsi_kurzor;
       } while (kurzor && radky.length < CSV_MAX_RADKU);
+      if (zrusenoCsv.current) return;
       const vyrez = radky.slice(0, CSV_MAX_RADKU);
       const sloupce = SLOUPCE_RADKU[proklik.zdroj as DataRadky['zdroj']].map((s) => ({ klic: s.klic, nazev: s.nazev, typ: s.typ, hodnota: s.hodnota }));
       const obsah = doCsv(vyrez, sloupce);
@@ -123,7 +152,7 @@ export default function ProklikPanel({
       setTimeout(() => URL.revokeObjectURL(url), 1000);
       setCsv({ stav: 'hotovo', text: celkem > CSV_MAX_RADKU ? `Staženo prvních ${CSV_MAX_RADKU} řádků z ${celkem}.` : `Staženo ${vyrez.length} řádků.` });
     } catch (e) {
-      setCsv({ stav: 'chyba', text: `CSV se nepovedlo: ${chybaPrehledu(e)}` });
+      if (!zrusenoCsv.current) setCsv({ stav: 'chyba', text: `CSV se nepovedlo: ${chybaPrehledu(e)}` });
     }
   }, [session.token, proklik]);
 
@@ -132,6 +161,7 @@ export default function ProklikPanel({
   const od = strana * NA_STRANKU + 1;
   const doRadku = d ? strana * NA_STRANKU + d.radky.length : 0;
   const soucty = d ? souctyText(d.soucty) : null;
+  const souctyBublina = d ? souctyPresne(d.soucty) : null;
   const obdobi = `${denText(proklik.filtr.od)} – ${denText(proklik.filtr.do)}`;
 
   return (
@@ -145,20 +175,24 @@ export default function ProklikPanel({
         <p className="proklik-popis">
           {popis ? `${popis} · ` : ''}
           {obdobi}
-          {proklik.filtr.k_datu ? ` · k ${casText(proklik.filtr.k_datu)}` : ''}
+          {proklik.filtr.k_datu ? ` · stav k datu: ${casText(proklik.filtr.k_datu)}` : ''}
         </p>
         {d && !chyba && (
           <p className="proklik-souhrn" aria-live="polite">
             {d.celkem === 0 ? 'Žádné řádky' : `Řádky ${od}–${doRadku} z ${d.celkem}`}
-            {soucty ? <> · součet <strong>{soucty}</strong></> : null}
+            {soucty ? (
+              <>
+                {' '}· součet <strong title={souctyBublina && souctyBublina !== soucty ? `Přesně ${souctyBublina}` : undefined}>{soucty}</strong>
+              </>
+            ) : null}
             {d.soucet !== null ? <> · součet <strong>{d.soucet.toLocaleString('cs-CZ')} h</strong></> : null}
           </p>
         )}
         {chyba ? (
           <div className="prehled-chyba" role="alert">
             <p className="prehled-chyba-text">{chyba}</p>
-            <button type="button" className="pill-btn sm" onClick={() => setZnovu((z) => z + 1)}>
-              <ZnovuIcon size={14} /> Zkusit znovu
+            <button type="button" className="pill-btn sm" onClick={zkusZnovu}>
+              <ZnovuIcon size={14} /> {kurzorNeplati ? 'Načíst znovu od začátku' : 'Zkusit znovu'}
             </button>
           </div>
         ) : nacita && !d ? (
@@ -189,17 +223,23 @@ export default function ProklikPanel({
                   const z = radekZaznam(r);
                   return (
                     <tr key={r.radek_id} data-radek={r.radek_id}>
-                      {sloupce.map((s) => (
-                        <td key={s.klic} data-label={s.nazev}>
-                          {s.typ === 'odkaz' && typeof z[s.klic] === 'string' ? (
-                            <a href={z[s.klic] as string} target="_blank" rel="noopener noreferrer">
-                              {s.text(z)}
-                            </a>
-                          ) : (
-                            s.text(z)
-                          )}
-                        </td>
-                      ))}
+                      {sloupce.map((s) => {
+                        // odkaz z dat jen do Gmailu (https://mail.google.com), jiný se jako odkaz nevykreslí
+                        const odkaz = s.typ === 'odkaz' ? odkazGmailu(z[s.klic]) : null;
+                        return (
+                          <td key={s.klic} data-label={s.nazev}>
+                            {odkaz ? (
+                              <a href={odkaz} target="_blank" rel="noopener noreferrer">
+                                {s.text(z)}
+                              </a>
+                            ) : s.typ === 'odkaz' ? (
+                              '—'
+                            ) : (
+                              s.text(z)
+                            )}
+                          </td>
+                        );
+                      })}
                     </tr>
                   );
                 })}

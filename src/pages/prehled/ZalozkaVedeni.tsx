@@ -4,17 +4,17 @@
 import { getApi, type DataSouhrn, type KartaKlic, type Metrika } from '../../api';
 import KpiKarta from '../../components/prehled/KpiKarta';
 import { PrehledCastecne, PrehledChyba, PrehledNacita, PrehledPrazdne } from '../../components/prehled/Stavy';
-import { denText, formatCastka, nazevMetriky } from '../../prehled';
+import { denText, formatCastka, nazevMetriky, souhrnPrazdny } from '../../prehled';
 import { definiceMetriky, jednotkaMetriky, usePrehled, usePrehledData } from './kontext';
 
 const PORADI: KartaKlic[] = ['hodnota_prodeju', 'inkaso', 'pocet_prodeju', 'plneni_cile', 'uspesnost', 'otevrene', 'odhad_mesic', 'k_zasahu'];
 
-/** Žádné číslo v období: všechny karty nula nebo neznámé (karty se ukážou i tak, nula je informace). */
+/**
+ * Žádné číslo v období: dostupné karty (aspoň jedna) samé nuly nebo neznámé; karty „nedostupné“ se nepočítají, takže věta „nic
+ * tu není“ nikdy nestojí nad kartami, které říkají „nedostupné“ (oprava po recenzi 18. 11. 2026, bod 2). Karty se ukážou i tak.
+ */
 function jePrazdne(d: DataSouhrn): boolean {
-  return PORADI.every((k) => {
-    const m = d.karty[k];
-    return (m.hodnota === null || m.hodnota === 0) && m.castky.every((c) => c.hodnota === null || Number(c.hodnota) === 0);
-  });
+  return souhrnPrazdny(Object.fromEntries(PORADI.map((k) => [k, d.karty[k]])));
 }
 
 export default function ZalozkaVedeni() {

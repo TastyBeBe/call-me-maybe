@@ -3025,6 +3025,14 @@ function smiDelatKontakt(u: MockUser, kid: number): boolean {
    Demo nemá historii stavů (kontakt_historie): stav kontaktu se bere dnešní. */
 const PREHLED_JEN_SUPER = 'Přehled vidí jen super admin.';
 const PREHLED_DEFINICE_VERZE = '2026-11-17.1';
+/**
+ * definice_verze odpovědí (§2.5). Háček zkoušky `__volackaDemoTest.prehledVerze` ji změní, jako by server mezitím nasadil nový
+ * katalog (oprava po recenzi úkolu 13, bod 6: appka pak katalog prehled_definice načte znovu; e2e PV10, npm test R6a).
+ */
+function definiceVerzePrehledu(): string {
+  const v = (globalThis as { __volackaDemoTest?: { prehledVerze?: unknown } }).__volackaDemoTest?.prehledVerze;
+  return typeof v === 'string' && v ? v : PREHLED_DEFINICE_VERZE;
+}
 const FILTR_KLICE = ['od', 'do', 'lide', 'atribuce', 'segment', 'obor', 'kraj', 'mena', 'zaklad', 'k_datu', 'vyber'];
 const HODINA_MS = 3600000;
 const USEK_MEZERA_MS = 30 * 60000;
@@ -3468,7 +3476,7 @@ function prehledLideMock(me: MockUser, vstup: PrehledFiltrVstup | null | undefin
   if (f.k_datu) varovani.push({ kod: 'K_DATU_MINULOST', text: `Čísla jsou k ${denCesky(f.k_datu)} ${casCesky(f.k_datu)}; bloky bez historie (kdo psal naposledy, mlčení) jsou jen pro dnešek.` });
   return {
     api_verze: '1',
-    definice_verze: PREHLED_DEFINICE_VERZE,
+    definice_verze: definiceVerzePrehledu(),
     meta: { vygenerovano, k_datu: f.k_datu ?? vygenerovano, casove_pasmo: 'Europe/Prague', filtr: f, zdroje: zdrojePrehleduLidi(), varovani },
     data: { atribuce: f.atribuce, radky, soucet },
   };
@@ -4111,7 +4119,7 @@ function obalkaPrehledu<T>(x: KontextPrehledu | null, data: T, zdroje: ZdrojKlic
   const vygenerovano = x?.vygenerovano ?? now();
   return {
     api_verze: '1',
-    definice_verze: PREHLED_DEFINICE_VERZE,
+    definice_verze: definiceVerzePrehledu(),
     meta: { vygenerovano, k_datu: x?.f.k_datu ?? vygenerovano, casove_pasmo: 'Europe/Prague', filtr: x ? x.f : null, zdroje: zdrojeMeta(zdroje), varovani },
     data,
   };
@@ -4602,7 +4610,7 @@ function milnikyKontaktu(x: KontextPrehledu, c: Kontakt): Record<KrokTrychtyre['
 }
 const KROKY_TRYCHTYRE: { klic: KrokTrychtyre['klic']; nazev: string; zdroj: ZdrojKlicPrehledu }[] = [
   { klic: 'osloven', nazev: 'Osloven', zdroj: 'hovory' },
-  { klic: 'dovolan', nazev: 'Dovolán (spojeno)', zdroj: 'hovory' },
+  { klic: 'dovolan', nazev: 'Dovolán', zdroj: 'hovory' },
   { klic: 'zajem', nazev: 'Zájem', zdroj: 'hovory' },
   { klic: 'navrh', nazev: 'Návrh odeslán', zdroj: 'navrhy' },
   { klic: 'prodano', nazev: 'Prodáno', zdroj: 'prodeje' },
@@ -4631,13 +4639,13 @@ function krokTrychtyre(x: KontextPrehledu, kohorta: Kontakt[], krok: KrokTrychty
 }
 const KROKY_PO_NAVRHU: { klic: KrokPoNavrhu['klic']; nazev: string }[] = [
   { klic: 'navrh', nazev: 'Návrh odeslán' },
-  { klic: 'odpovedel', nazev: 'Odpověděl po návrhu' },
+  { klic: 'odpovedel', nazev: 'Odpověděl' },
   { klic: 'odmitl_nahled', nazev: 'Odmítl náhled' },
-  { klic: 'nabidka', nazev: 'Nabídka za polovinu' },
+  { klic: 'nabidka', nazev: 'Dostal nabídku za polovinu' },
   { klic: 'prijal_nabidku', nazev: 'Přijal nabídku' },
   { klic: 'odmitl_nabidku', nazev: 'Odmítl nabídku' },
-  { klic: 'nereagoval_na_nabidku', nazev: 'Nereagoval na nabídku' },
-  { klic: 'ceka_na_nabidku', nazev: 'Nabídka čeká' },
+  { klic: 'nereagoval_na_nabidku', nazev: 'Nereagoval ani na nabídku za polovinu' },
+  { klic: 'ceka_na_nabidku', nazev: 'Nabídka běží' },
   { klic: 'prodano_bez_nabidky', nazev: 'Prodáno bez nabídky' },
 ];
 /** Důvody (odmitnuti z appky i zpětné), nejnovější na kontakt a fázi. */
@@ -4694,11 +4702,11 @@ function prehledTrychtyrMock(me: MockUser, vstup: unknown): PrehledObalka<DataTr
   const stavy = STAVY_PREHLEDU.map((s) => ({ status: s.klic, nazev: s.nazev, n: kohorta.filter((c) => c.status === s.klic).length, proklik: proklik({ metrika: 'stavy_kohorty', status: s.klic }) })).filter((s) => s.n > 0);
   const poNavrhu = kohortaPoNavrhu(x);
   const data: DataTrychtyr = {
-    kohorta: { popis: 'Kontakty, kterým první hovor proběhl v období', od: x.f.od, do: x.f.do, n: kohorta.length, proklik: proklik({ metrika: 'trychtyr', krok: 'osloven' }) },
+    kohorta: { popis: 'První hovor v období', od: x.f.od, do: x.f.do, n: kohorta.length, proklik: proklik({ metrika: 'trychtyr', krok: 'osloven' }) },
     kroky,
     stavy: { popis: 'Současné rozložení stavů (stav k datu, ne trychtýř)', polozky: stavy },
     po_navrhu: {
-      kohorta: { popis: 'Klienti s prvním návrhem v období', od: x.f.od, do: x.f.do, n: poNavrhu.length, proklik: proklik({ metrika: 'po_navrhu', krok: 'navrh' }) },
+      kohorta: { popis: 'První návrh v období', od: x.f.od, do: x.f.do, n: poNavrhu.length, proklik: proklik({ metrika: 'po_navrhu', krok: 'navrh' }) },
       kroky: KROKY_PO_NAVRHU.map((k) => {
         const n = krokPoNavrhu(x, poNavrhu, k.klic).length;
         const castecne = k.klic === 'odpovedel' ? 'Odpověď z Gmailu, jinak z posledního data odpovědi klienta (částečně).' : k.klic === 'nereagoval_na_nabidku' ? 'Události sleva_vyprsela jsou jen od 2. 11. 2026.' : null;
@@ -5479,8 +5487,11 @@ function prehledRadkyMock(me: MockUser, zdroj: unknown, vstup: unknown, kurzor: 
   const x = kontextPrehledu(me, vstup, true);
   if (typeof zdroj !== 'string' || !ZDROJE_RADKU.includes(zdroj as RadkyZdroj)) fail(`Neplatný zdroj řádků: ${String(zdroj)}. Povolené: ${ZDROJE_RADKU.join(', ')}.`);
   const z = zdroj as RadkyZdroj;
-  const lim = limit === undefined || limit === null ? 50 : limit;
-  if (typeof lim !== 'number' || !Number.isInteger(lim) || lim < 1 || lim > 200) fail(`Neplatný limit: ${String(lim)} (povoleno 1 až 200).`);
+  const lim0 = limit === undefined || limit === null ? 50 : limit;
+  if (typeof lim0 !== 'number' || !Number.isInteger(lim0) || lim0 < 1 || lim0 > 200) fail(`Neplatný limit: ${String(lim0)} (povoleno 1 až 200).`);
+  // háček zkoušky `__volackaDemoTest.prehledLimit`: menší stránky, ať e2e PV11 dojde na třetí stránku s pár ukázkovými řádky
+  const limHacek = (globalThis as { __volackaDemoTest?: { prehledLimit?: unknown } }).__volackaDemoTest?.prehledLimit;
+  const lim = typeof limHacek === 'number' && Number.isInteger(limHacek) && limHacek >= 1 ? Math.min(lim0, limHacek) : lim0;
   if (x.f.vyber && !VYBER_PODLE_ZDROJE[z].includes(String(x.f.vyber.metrika))) fail('Neplatný filtr: vyber.metrika');
   const otisk = otiskFiltru(JSON.stringify({ ...x.f }));
   let offset = 0;
@@ -7827,6 +7838,10 @@ interface DemoTestHacek {
    * důvod odmítnutí výsledek hovoru nezruší (server bez migrace 072).
    */
   selhani?: (fn: string, args: unknown[]) => string | null | undefined;
+  /** Přehled vedení úkol 13, oprava po recenzi (bod 6): jiná definice_verze odpovědí, jako by server nasadil nový katalog (e2e PV10) */
+  prehledVerze?: string;
+  /** totéž, bod 4: nejvýš tolik řádků na stránku prehled_radky (e2e PV11: chyba kurzoru na třetí stránce) */
+  prehledLimit?: number;
 }
 
 function sDemoTestem(api: Api): Api {

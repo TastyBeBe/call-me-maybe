@@ -741,24 +741,36 @@ trychtýř, porovnání lidí, grafy, nastavení cílů, nákladů a výplat) do
   `prehled_moznosti.tymy` (server týmy nezná); odkaz „Porovnat v Přehledu“ ze Statistik má týž formát.
 - **Záložky** jako podstránky: Vedení, Lidé a volání, Pipeline, Klienti a sektory, Komunikace a ztráty, Finance, Dodání,
   Prognóza a data; ozubené kolo Nastavení `#/prehled/nastaveni/cile|naklady|vyplaty`. Odkazy záložek nesou celý filtr.
-- **Hlavička**: „Data k …“ (čas odpovědi, při K datu „Čísla k …“), čerstvost automatizace, pošty klientů (náhrada R28),
-  Gmailu a denního snímku, výsuvný seznam všech 22 zdrojů se stavem.
+- **Hlavička**: „Data: dnes 9:05“ (čas odpovědi, při K datu „Stav k datu: …“), čerstvost automatizace, pošty klientů
+  (náhrada R28), Gmailu a denního snímku, výsuvný seznam všech 22 zdrojů se stavem. Možnosti se načtou znovu při změně záložky
+  a nejvýš po 5 minutách, když je stránka vidět (skrytá stránka počká, až ji člověk uvidí); odpověď s jinou `definice_verze`
+  než načtený katalog = katalog `prehled_definice` znovu (kontrakt §5.17). ⚠ Oprava po recenzi 18. 11. 2026 NAHRAZUJE
+  „Data k …“ a načtení možností a katalogu jen jednou za návštěvu.
 - **Řada filtrů** (`src/components/prehled/FiltrPrehledu.tsx`): Období s předvolbami Dnes, Tento týden (po až ne), Tento
   měsíc, Minulý měsíc, Posledních 30 dní, Letos (celé kalendářní jednotky podle dne v Praze), Vlastní (dva dny); Lidé (výběr
   lidí z úkolu 10, lidé a týmy z `prehled_moznosti`); Segment, Obor (jen když specializace existují), Kraj; Měna CZK, EUR,
   CZK i EUR; „Další“: základ tabulek klientů, komu se klient počítá, stav k datu. Čipy zapnutých filtrů s křížkem a „Zrušit
   vše“ (období zůstane). Na telefonu se řada zalomí, panely jsou na šířku řady.
+  **Psané datum** (oprava po recenzi 18. 11. 2026): Vlastní od/do a Stav k datu mají v poli koncept; do adresy jde datum při
+  opuštění pole, Enteru, nebo samo po 0,8 s bez psaní, když je celé, platné a od 1. 1. 2020 (mezihodnoty roku 0002, 0020,
+  0202 se nezapíšou nikdy). Druhý konec období se nikdy potichu nepřepisuje: obrácené, delší než 730 dní nebo neúplné období
+  a budoucí k datu ukážou větu u pole a adresa zůstane. První zápis jedné úpravy přidá záznam historie, další ho nahradí.
+  Výběr období se řídí adresou: „Vlastní“ zvolené bez změny dnů platí jen pro ty dny a Zpět/Vpřed ho zruší. ⚠ NAHRAZUJE
+  zápis každé změny pole rovnou do adresy s dorovnáním druhého konce.
 - **Karta** (`src/components/prehled/KpiKarta.tsx`): hodnota podle jednotky katalogu (peníze po měnách, CZK a EUR nikdy
-  sečtené, koruny na karty zaokrouhlené), řádek pokrytí, odznak kvality vždy slovem i ikonou (úplné, částečně, nedostupné),
+  sečtené, koruny na karty zaokrouhlené, přesná částka v bublině; u CZK i EUR neznámá měna „— €“ nebo „— Kč“, nikdy
+  nezmizí), řádek pokrytí, odznak kvality vždy slovem i ikonou (úplné, částečně, nedostupné),
   důvod viditelně u čísla. Neznámé číslo je pomlčka, nikdy „0“. **„Spojeno“**: serverové `dovolano` (každý výsledek kromě
   nedovoláno) se v Přehledu jmenuje „Spojeno“ a `mira_dovolani` „Míra spojení“, s vlastní definicí (`src/prehled.ts`
   `NAZVY_APPKY`); „Dovoláno“ zůstává jen ve Statistikách (zájem + odmítnutí).
-- **„i“** (`DefinicePopover.tsx`): definice z `prehled_definice`, přirozený základ, zdroje s časem dat, kdy je číslo neúplné,
-  verze definice a katalogu; Enter otevře, Escape zavře a vrátí fokus.
+- **„i“** (`DefinicePopover.tsx`): definice z `prehled_definice`, přirozený základ, zdroje („aktuální: dnes 9:05“, od kdy),
+  kdy je číslo neúplné, verze definice a katalogu; Enter otevře, Escape zavře a vrátí fokus.
 - **Řádky** (`ProklikPanel.tsx`): klik nebo Enter na kartě otevře panel zprava s `prehled_radky` (proklik.filtr beze změny),
-  50 na stránku s kurzorem (Předchozí, Další), počet a součet všech řádků (= karta), **CSV** až 5 000 řádků po stránkách 200
-  (`src/csv.ts` `doCsv`: středník, desetinná čárka, BOM, apostrof před `= + - @`, telefon a e-mail zamaskované). Escape
-  zavře a fokus se vrátí na kartu.
+  50 na stránku s kurzorem (Předchozí, Další), počet a součet všech řádků (= karta, zaokrouhlený stejně, přesný v bublině),
+  **CSV** až 5 000 řádků po stránkách 200 (`src/csv.ts` `doCsv`: středník, desetinná čárka, BOM, apostrof před `= + - @`,
+  telefon a e-mail zamaskované; v tabulce panelu volný text zamaskovaný stejně). Odkaz z dat jen do `https://mail.google.com`.
+  Chyba kurzoru („načtěte řádky znovu od začátku“) = tlačítko načte první stránku. Escape zavře a fokus se vrátí na kartu;
+  Zpět/Vpřed s otevřeným panelem ho zavře (fokus na kartu, a když karta zmizela, na nadpis); zavřený panel zastaví běžící CSV.
 - **Stavy**: kostra karet při načítání, chyba s „Zkusit znovu“, prázdno s radou, „Část čísel je neúplná“ (varování serveru
   a neúplné metriky), pruh DEMO. Server bez migrace 073 (PGRST202 u kterékoli funkce, `BEZ_073_PREHLED`) = jen hláška
   **„Přehled potřebuje migraci 073“**, žádná čísla, nikdy ukázková data jako skutečná.
@@ -770,7 +782,9 @@ trychtýř, porovnání lidí, grafy, nastavení cílů, nákladů a výplat) do
 - **Testy**: `npm test` soubor `tests/prehled.test.mjs` (A adresa a filtr pro server, B předvolby v Praze i přes změnu času,
   C CSV, D karta a „i“, E mock jako kontrakt včetně součtu řádků = karta po stránkách, F `supabase.ts` a PGRST202, G zapojení
   a Volající); `npm run test:e2e` blok PV (dlaždice a pilulka, osm karet, filtr v adrese a odkaz s týmem, řádky a CSV,
-  klávesnice, všechny záložky, server bez 073, Volající, telefon 320/360/390).
+  klávesnice, všechny záložky, server bez 073, Volající, telefon 320/360/390; po recenzi R v testu a PV8 až PV12 v e2e:
+  datum napsané klávesnicí, obrácené období, Zpět a Vpřed s panelem a s Vlastní, čerstvost po 5 minutách a nová verze
+  katalogu, chyba kurzoru na 3. stránce, CSV zastavené zavřením panelu).
 
 ## Účty a přihlášení (produkce)
 

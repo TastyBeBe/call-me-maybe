@@ -181,6 +181,37 @@ export function zapisFiltr(f: FiltrPrehledu): string {
   return c.join('&');
 }
 
+/**
+ * Rozepsané datum (oprava po recenzi 18. 11. 2026, bod 1): pole data posílá při psaní roku mezihodnoty (0002-11-01, 0020-…,
+ * 0202-…). Do adresy smí jen celé platné datum od 1. 1. 2020; jinak zůstane rozepsané v poli.
+ */
+export function celyDen(s: string): boolean {
+  return platnyDen(s) && s >= OBDOBI_OD_MIN;
+}
+
+const TVAR_DNE = /^\d{4}-\d{2}-\d{2}$/;
+
+/** Proč nejde vlastní období zapsat (věta u pole), nebo null. Druhý konec se nikdy potichu nepřepisuje. */
+export function chybaObdobi(od: string, doDne: string): string | null {
+  if (!TVAR_DNE.test(od) || !TVAR_DNE.test(doDne)) return 'Zadejte celé datum začátku i konce.';
+  // rok před 2020 dřív než platnost dne (rok pod 100 by Date bral jako 19xx)
+  if (od < OBDOBI_OD_MIN || doDne < OBDOBI_OD_MIN) return 'Období může začínat nejdřív 1. 1. 2020.';
+  if (!platnyDen(od) || !platnyDen(doDne)) return 'Zadejte celé datum začátku i konce.';
+  if (doDne < od) return 'Začátek období je po jeho konci.';
+  if (dniMezi(od, doDne) > OBDOBI_MAX_DNI) return `Období může mít nejvýš ${OBDOBI_MAX_DNI} dní.`;
+  return null;
+}
+
+/** Proč nejde „k datu“ zapsat, nebo null (prázdné = teď, živá data). */
+export function chybaKDatu(den: string, dnes: string): string | null {
+  if (den === '') return null;
+  if (!TVAR_DNE.test(den)) return 'Zadejte celé datum.';
+  if (den < OBDOBI_OD_MIN) return 'K datu může být nejdřív 1. 1. 2020.';
+  if (!platnyDen(den)) return 'Zadejte celé datum.';
+  if (den > dnes) return 'K datu nemůže být v budoucnosti.';
+  return null;
+}
+
 /** Odkaz na záložku Přehledu se stejným filtrem (HashRouter z něj udělá #/prehled/…). */
 export function odkazZalozky(klic: string, f: FiltrPrehledu): string {
   return `/prehled/${klic}?${zapisFiltr(f)}`;

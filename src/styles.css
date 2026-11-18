@@ -4646,10 +4646,21 @@ table.kontakty.kompakt .mlceni-bunka > * {
 .prehled-stranka {
   /* vedlejší text Přehledu o stupeň tmavší než --ink-soft: drobné písmo (13 px) má na krémové kontrast přes 4,5 : 1 */
   --ink-tlumena: color-mix(in srgb, var(--ink-soft) 65%, var(--ink));
+  /* věta chyby u pole: růžová appky ztmavená inkoustem, ať drobné písmo má na krémové kontrast přes 4,5 : 1 */
+  --chyba-text: color-mix(in srgb, var(--pink) 72%, var(--ink));
   display: flex;
   flex-direction: column;
   gap: 16px;
   min-width: 0;
+}
+
+.prehled-hlava .page-title:focus {
+  outline: none;
+}
+
+.prehled-hlava .page-title:focus-visible {
+  outline: 3px solid var(--orange);
+  outline-offset: 4px;
 }
 
 .prehled-stranka .muted {
@@ -4881,6 +4892,28 @@ table.kontakty.kompakt .mlceni-bunka > * {
 .prehled-rozsah {
   font-size: 13px;
   white-space: nowrap;
+}
+
+/* rozepsané datum, které nejde zapsat (oprava po recenzi: obrácené, dlouhé nebo neúplné období, k datu v budoucnosti) */
+.prehled-obdobi-chyba,
+.prehled-k-datu-chyba {
+  margin: 0;
+  color: var(--chyba-text);
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.35;
+  max-width: 40ch;
+}
+
+.prehled-obdobi-chyba {
+  flex-basis: 100%;
+  /* věta se zalomí do šířky polí a blok Období kvůli ní nezešíří (jinak by odsunula Lidé doprava) */
+  contain: inline-size;
+}
+
+.prehled-vlastni input[aria-invalid='true'],
+.prehled-k-datu input[aria-invalid='true'] {
+  border-color: var(--chyba-text);
 }
 
 .prehled-mena {

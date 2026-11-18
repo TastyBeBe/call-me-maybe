@@ -1,7 +1,8 @@
 // SDÍLENÝ STAV PŘEHLEDU PRO ZÁLOŽKY (Přehled vedení úkol 13; úkol 14 nad ním staví obsah záložek). Stránka (PrehledPage) drží
 // filtr z adresy, možnosti (prehled_moznosti) a katalog (prehled_definice) a dává je záložkám kontextem; záložka si načte svou
 // funkci hookem usePrehledData (odpověď na starý filtr se zahodí, chyba jako věta pro člověka) a karty otevírá přes otevriProklik
-// (panel řádků s CSV). Nic z toho se nevolá pro Volajícího: stránka ho přesměruje dřív, než se cokoli načte.
+// (panel řádků s CSV). Nic z toho se nevolá pro Volajícího: stránka ho přesměruje dřív, než se cokoli načte. Každá odpověď hlásí
+// stránce svou definice_verze (hlasVerzi): jiná verze než u načteného katalogu = katalog znovu (oprava po recenzi, bod 6).
 
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import type { DataDefinice, DataMoznosti, JednotkaMetriky, Metrika, MetrikaDefinice, PrehledFiltrVstup, PrehledObalka, PrehledProklik } from '../../api/types';
@@ -26,6 +27,8 @@ export interface PrehledKontextHodnota {
   definice: PrehledObalka<DataDefinice> | null;
   /** otevře panel řádků; `odkud` dostane fokus po zavření */
   otevriProklik: (p: OtevrenyProklik, odkud?: HTMLElement | null) => void;
+  /** definice_verze odpovědi: jiná než u načteného katalogu = stránka katalog načte znovu (kontrakt §5.17) */
+  hlasVerzi: (verze: string | null | undefined) => void;
   /** dnešní den v Praze */
   dnes: string;
 }
@@ -65,7 +68,9 @@ export interface StavDat<T> {
  */
 export function usePrehledData<T>(nacti: (token: string, filtr: PrehledFiltrVstup) => Promise<PrehledObalka<T>>): StavDat<T> {
   const session = useSession();
-  const { serverFiltr, klicFiltru } = usePrehled();
+  const { serverFiltr, klicFiltru, hlasVerzi } = usePrehled();
+  const hlasVerziRef = useRef(hlasVerzi);
+  hlasVerziRef.current = hlasVerzi;
   const [data, setData] = useState<PrehledObalka<T> | null>(null);
   const [chyba, setChyba] = useState<string | null>(null);
   const [nacita, setNacita] = useState(true);
@@ -84,6 +89,7 @@ export function usePrehledData<T>(nacti: (token: string, filtr: PrehledFiltrVstu
         if (moje !== cislo.current) return;
         setData(o);
         setNacita(false);
+        hlasVerziRef.current(o.definice_verze);
       })
       .catch((e: unknown) => {
         if (moje !== cislo.current) return;

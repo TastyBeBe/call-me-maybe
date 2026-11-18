@@ -13,7 +13,10 @@
 //     obálka a metriky po 13 klíčích, peníze jako text na 2 místa po měnách, karty mají v demu hodnoty, proklik každé karty vrátí
 //     řádky se stejným součtem (i po stránkách), kurzor patří k filtru, chybové věty doslova,
 //  F) src/api/supabase.ts: PGRST202 = „Přehled potřebuje migraci 073“ (nikdy ukázková data), co jde serveru,
-//  G) zapojení: trasa #/prehled jen pro super admina, pilulka a dlaždice jen pod isSuper, stránka Volajícímu nic nevykreslí.
+//  G) zapojení: trasa #/prehled jen pro super admina, pilulka a dlaždice jen pod isSuper, stránka Volajícímu nic nevykreslí,
+//  R) oprava po recenzi (task-13-fixes.md, 18. 11. 2026): psané datum (celé platné od 2020, věta u pole), prázdno jen
+//     z dostupných karet, neznámá měna „— €“, chyba kurzoru, čerstvost a verze katalogu, součty jako karta, čeština,
+//     maskování a odkaz do Gmailu v řádcích, nadpisy, zrušení CSV, názvy trychtýře podle kontraktu.
 // Klikání (záložky, filtry, karta → řádky → CSV, klávesnice, telefon, Volající) měří tests/demo-e2e.mjs blok PV.
 // Nikdy nesahá na síť ani živou DB (fetch je podstrčený).
 // Spuštění: node tests/prehled.test.mjs (APP_ROOT=/cesta/ke/kopii pro mutace). Výsledek „ALL OK (N kontrol)“ nebo řádky
@@ -600,6 +603,90 @@ await blok('F', async () => {
     && rr.fn === 'prehled_rada' && stejne(rr.body, { p_token: 't', p_metrika: 'inkaso', p_zrnitost: 'tyden', p_filtr: { od: '2026-11-01' } })
     && kk.fn === 'prehled_kontakt' && stejne(kk.body, { p_token: 't', p_kontakt_id: 22 }),
     'co jde serveru: prehled_radky (zdroj, filtr s vyber beze změny, kurzor, limit), prehled_rada, prehled_kontakt', JSON.stringify([r, rr, kk]));
+});
+
+/* ---------------- R) oprava po recenzi (task-13-fixes.md, 18. 11. 2026) ---------------- */
+await blok('R', async () => {
+  // 1. rozepsané datum: do adresy jde jen celé platné datum od 2020, obrácené období je chyba u pole (nic se nepřepíše potichu)
+  if (F) {
+    const okF = typeof F.chybaObdobi === 'function' && typeof F.celyDen === 'function' && typeof F.chybaKDatu === 'function';
+    over('R1', okF && F.chybaObdobi('2026-11-01', '2026-11-30') === null && F.chybaObdobi('2026-11-20', '2026-11-01') === 'Začátek období je po jeho konci.'
+      && F.chybaObdobi('2019-12-31', '2020-01-05') === 'Období může začínat nejdřív 1. 1. 2020.' && F.chybaObdobi('2020-01-01', '2026-11-18') === 'Období může mít nejvýš 730 dní.'
+      && F.chybaObdobi('0202-11-01', '2026-11-30') === 'Období může začínat nejdřív 1. 1. 2020.' && F.chybaObdobi('2026-02-30', '2026-03-01') === 'Zadejte celé datum začátku i konce.'
+      && !F.celyDen('0202-11-01') && !F.celyDen('2025-11-3') && F.celyDen('2025-11-01')
+      && F.chybaKDatu('', '2026-11-18') === null && F.chybaKDatu('2026-11-19', '2026-11-18') === 'K datu nemůže být v budoucnosti.'
+      && F.chybaKDatu('0020-11-18', '2026-11-18') === 'K datu může být nejdřív 1. 1. 2020.' && F.chybaKDatu('2026-11-10', '2026-11-18') === null,
+      'rozepsané datum: celé platné datum od 1. 1. 2020; obrácené, dlouhé a neúplné období i budoucí k datu = věta u pole', okF ? '' : 'chybí chybaObdobi / celyDen / chybaKDatu');
+  }
+  if (K) {
+    const m0 = (klic, hodnota, kvalita = 'dostupne', castky = []) => zakladMetriky({ klic, nazev: klic, hodnota, kvalita, castky, duvod: kvalita === 'nedostupne' ? 'x' : null });
+    const karty = (pole) => Object.fromEntries(pole.map((m) => [m.klic, m]));
+    const vse = ['hodnota_prodeju', 'inkaso', 'pocet_prodeju', 'plneni_cile', 'uspesnost', 'otevrene', 'odhad_mesic', 'k_zasahu'];
+    const nedostupne = karty(vse.map((k) => m0(k, null, 'nedostupne')));
+    const nuly = karty(vse.map((k, i) => (i < 2 ? m0(k, null, 'dostupne', [{ mena: 'CZK', hodnota: '0.00', pokryti: { zname: 0, celkem: 0, nezname: 0, podil: null } }]) : i === 3 ? m0(k, null, 'nedostupne') : m0(k, 0))));
+    const neco = { ...nuly, k_zasahu: m0('k_zasahu', 2) };
+    over('R2', typeof K.souhrnPrazdny === 'function' && K.souhrnPrazdny(nedostupne) === false && K.souhrnPrazdny(nuly) === true && K.souhrnPrazdny(neco) === false,
+      'prázdno jen z dostupných čísel (aspoň jedno): samé „nedostupné“ prázdno nejsou, nuly a nedostupné ano, jedno číslo ne', '');
+    const dveMeny = (cz, eu) => zakladMetriky({ klic: 'hodnota_prodeju', nazev: 'Hodnota prodejů', kvalita: 'castecne', duvod: 'x', n: 2, pokryti: { zname: 1, celkem: 2, nezname: 1, podil: 0.5 },
+      castky: [{ mena: 'CZK', hodnota: cz, pokryti: { zname: 1, celkem: 1, nezname: 0, podil: 1 } }, { mena: 'EUR', hodnota: eu, pokryti: { zname: 0, celkem: 0, nezname: 0, podil: null } }] });
+    const f1 = K.formatMetriky(dveMeny('10500.00', null), 'mena');
+    const f2 = K.formatMetriky(dveMeny(null, '75.00'), 'mena');
+    const t = (x) => text([x.hlavni, ...x.dalsi].join(' | '));
+    over('R3', t(f1) === '10 500 Kč | — €' && t(f2) === '— Kč | 75 €' && !f1.prazdna && !f2.prazdna,
+      'obě měny: neznámá částka jedné měny je „— €“ nebo „— Kč“, nikdy nezmizí', `${t(f1)} / ${t(f2)}`);
+    const otevrene = zakladMetriky({ klic: 'otevrene', nazev: 'Otevřené obchody', hodnota: 4, n: 4, pokryti: { zname: 3, celkem: 4, nezname: 1, podil: 0.75 },
+      castky: [{ mena: 'CZK', hodnota: '10500.00', pokryti: { zname: 3, celkem: 3, nezname: 0, podil: 1 } }, { mena: 'EUR', hodnota: null, pokryti: { zname: 0, celkem: 1, nezname: 1, podil: 0 } }] });
+    const f3 = K.formatMetriky(otevrene, 'pocet_a_mena');
+    over('R3b', t(f3) === '4 | známá hodnota 10 500 Kč | hodnota v EUR neznámá',
+      'počet s penězi při obou měnách: měna bez známé částky „hodnota v EUR neznámá“, nikdy nezmizí', t(f3));
+    over('R4', typeof K.jeChybaKurzoru === 'function' && K.jeChybaKurzoru('Kurzor patří k jinému filtru nebo zdroji; načtěte řádky znovu od začátku.')
+      && K.jeChybaKurzoru('Neplatný kurzor.') && !K.jeChybaKurzoru('Přehled vidí jen super admin.'),
+      'chyba kurzoru se pozná (panel pak začne znovu od první stránky)', '');
+    const soucty = [{ mena: 'CZK', hodnota: '16887.91' }, { mena: 'EUR', hodnota: '75.50' }];
+    over('R8', text(K.souctyText(soucty)) === '16 888 Kč · 75,50 €' && typeof K.souctyPresne === 'function' && text(K.souctyPresne(soucty)) === '16 887,91 Kč · 75,50 €'
+      && text(K.souctyText([{ mena: 'CZK', hodnota: '100.00' }, { mena: 'EUR', hodnota: null }])) === '100 Kč · — €',
+      'součet řádků jako karta (koruny celé), přesná částka zvlášť do bubliny; neznámá měna „— €“', `${text(K.souctyText(soucty))}`);
+    const h = K.createElement;
+    const ted = new Date().toISOString();
+    const pop = K.renderToStaticMarkup(h(K.DefinicePopover, {
+      metrika: zakladMetriky({ klic: 'hovory', nazev: 'Hovory', zaklad: 'aktivita' }),
+      definice: { klic: 'hovory', verze: 1, nazev: 'Hovory', definice: 'Řádky call_log v období.', zaklad: 'aktivita', jednotka: 'pocet', zdroje: 'hovory', granularita: 'den',
+        kvalita_pravidla: 'x', platne_od: '2026-11-17' },
+      zdroje: [{ zdroj: 'hovory', od: '2026-09-02T07:41:10+00:00', aktualni_k: ted }], definiceVerze: '2026-11-17.1', vychoziOtevreno: true,
+    }));
+    over('R9', !/\bk dnes\b/.test(text(pop)) && /aktuální: dnes/.test(text(pop)) && !/\bData k\b/.test(src('src/pages/prehled/PrehledPage.tsx'))
+      && !/k \$\{casText\(/.test(src('src/components/prehled/ProklikPanel.tsx')),
+      'čeština: nikdy „k dnes …“ (popis „i“, hlavička „Data:“, panel řádků „stav k datu:“)', text(pop).slice(0, 200));
+    const odm = K.SLOUPCE_RADKU.odmitnuti.find((x) => x.klic === 'text');
+    over('R11a', /\[telefon skrytý\]/.test(odm.text({ text: 'volat 731000113 nebo psát jan@example.cz' })) && /\[e-mail skrytý\]/.test(odm.text({ text: 'psát jan@example.cz' })),
+      'volný text v panelu řádků je zamaskovaný stejně jako v CSV', odm.text({ text: 'volat 731000113' }));
+    over('R11b', typeof K.odkazGmailu === 'function' && K.odkazGmailu('https://mail.google.com/mail/u/?authuser=domovwebu@gmail.com#all/18c1') === 'https://mail.google.com/mail/u/?authuser=domovwebu@gmail.com#all/18c1'
+      && K.odkazGmailu('javascript:alert(1)') === null && K.odkazGmailu('https://zly.example/mail.google.com') === null && K.odkazGmailu('http://mail.google.com/x') === null,
+      'odkaz do Gmailu jen https://mail.google.com, jinak žádný odkaz', '');
+    const kartaH4 = K.renderToStaticMarkup(h(K.KpiKarta, { metrika: zakladMetriky({ klic: 'hovory', nazev: 'Hovory', hodnota: 3, n: 3, pokryti: { zname: 3, celkem: 3, nezname: 0, podil: 1 } }), jednotka: 'pocet', uroven: 4 }));
+    over('R11c', /<h4 class="kpi-nazev"/.test(kartaH4) && /<h4 class="kpi-nazev"/.test(src('src/pages/prehled/ZalozkaObecna.tsx').replace(/[\s\S]*/, '') + kartaH4)
+      && /uroven=\{4\}/.test(src('src/pages/prehled/ZalozkaObecna.tsx')),
+      'nadpisy: karta pod skupinou (h3) je h4 (ZalozkaObecna)', kartaH4.slice(0, 120));
+    over('R11d', /zrusenoCsv|csvZruseno/.test(src('src/components/prehled/ProklikPanel.tsx')) && /return \(\) => \{[\s\S]{0,200}(zrusenoCsv|csvZruseno)\.current = true/.test(src('src/components/prehled/ProklikPanel.tsx')),
+      'běžící CSV se zavřením panelu zruší (žádné stažení po zavření)', '');
+  }
+  if (API?.mockApi) {
+    const t = await API.mockApi.prehledTrychtyr('demo-1-x', null);
+    const kroky = t.data.kroky.map((k) => k.nazev);
+    const po = t.data.po_navrhu.kroky.map((k) => k.nazev);
+    over('R10', JSON.stringify(kroky) === JSON.stringify(['Osloven', 'Dovolán', 'Zájem', 'Návrh odeslán', 'Prodáno', 'Fakturováno', 'Zaplaceno'])
+      && JSON.stringify(po) === JSON.stringify(['Návrh odeslán', 'Odpověděl', 'Odmítl náhled', 'Dostal nabídku za polovinu', 'Přijal nabídku', 'Odmítl nabídku',
+        'Nereagoval ani na nabídku za polovinu', 'Nabídka běží', 'Prodáno bez nabídky'])
+      && t.data.kohorta.popis === 'První hovor v období' && t.data.po_navrhu.kohorta.popis === 'První návrh v období',
+      'mock trychtýře: názvy kroků a popisy kohort doslova jako kontrakt §5.4', `${kroky.join(',')} | ${po.join(',')}`);
+    globalThis.__volackaDemoTest.prehledVerze = '2026-12-01.1';
+    const v = await API.mockApi.prehledSouhrn('demo-1-x', null);
+    delete globalThis.__volackaDemoTest.prehledVerze;
+    over('R6a', v.definice_verze === '2026-12-01.1', 'háček mocku prehledVerze změní definice_verze odpovědí (e2e PV10 tak měří nové načtení katalogu)', v.definice_verze);
+  }
+  const stranka = src('src/pages/prehled/PrehledPage.tsx');
+  over('R6b', /5 \* 60 \* 1000|300000/.test(stranka) && /visibilityState/.test(stranka) && /definice_verze/.test(src('src/pages/prehled/kontext.tsx') + stranka),
+    'čerstvost: možnosti znovu při změně záložky a nejvýš po 5 minutách, když je stránka vidět; katalog znovu při jiné definice_verze', '');
 });
 
 /* ---------------- G) zapojení: jen super admin ---------------- */

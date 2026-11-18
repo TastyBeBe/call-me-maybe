@@ -107,6 +107,7 @@ export default function ZalozkaObecna({ klic }: { klic: string }) {
                   zdroje={data.meta.zdroje}
                   definiceVerze={data.definice_verze}
                   mena={filtr.mena}
+                  uroven={4}
                   onProklik={(x, tlacitko) => otevriProklik({ proklik: x.proklik!, nazev: nazevMetriky(x.klic, x.nazev) }, tlacitko)}
                 />
               ))}
