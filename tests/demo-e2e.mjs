@@ -4080,11 +4080,14 @@ await blok050('PV6 Volající', async () => {
   const h1 = await hashPV(page);
   await jdi(page, '#/prehled/finance?od=2026-11-01&do=2026-11-30&lide=1,4', 700);
   const h2 = await hashPV(page);
+  // úkol 14b: i nastavení (cíle, náklady, výplaty) Volajícího vrátí domů bez jediného volání cile_*, naklady_*, provize_*
+  await jdi(page, '#/prehled/nastaveni/vyplaty', 700);
+  const h3 = await hashPV(page);
   await jdi(page, '#/stats', 700);
   const zakazana = (await volani(page)).filter((v) => /^(prehled|cile|naklady|provize)/i.test(v.fn)).map((v) => v.fn);
-  over('PV6a', pilulka === 0 && dlazdice === 0 && h1 === '#/' && h2 === '#/' && (await page.locator('.prehled-stranka').count()) === 0 && zakazana.length === 0,
-    'Volající: žádná pilulka ani dlaždice, #/prehled ho vrátí domů, mock nedostal žádné volání prehled_*, cile_*, naklady_*, provize_*',
-    JSON.stringify({ pilulka, dlazdice, h1, h2, zakazana }));
+  over('PV6a', pilulka === 0 && dlazdice === 0 && h1 === '#/' && h2 === '#/' && h3 === '#/' && (await page.locator('.prehled-stranka').count()) === 0 && zakazana.length === 0,
+    'Volající: žádná pilulka ani dlaždice, #/prehled i nastavení ho vrátí domů, mock nedostal žádné volání prehled_*, cile_*, naklady_*, provize_*',
+    JSON.stringify({ pilulka, dlazdice, h1, h2, h3, zakazana }));
   await ctx.close();
 });
 
@@ -4526,7 +4529,10 @@ await blok050('PZ9 segment', async () => {
   await jdi(page, `#/prehled/finance?${dotaz}`, 1400);
   const naklady = await page.locator('table[data-tabulka="naklady"] tbody tr[data-radek]').evaluateAll((rs) => rs.map((r) => ({ k: r.getAttribute('data-radek'),
     castka: (r.querySelector('td[data-sloupec="castka"] .cislo-text')?.textContent ?? '').replace(/\s+/g, ' ').trim(), t: (r.textContent ?? '').replace(/\s+/g, ' ').trim() })));
-  over('PZ9b', cas.length >= 2 && cas.every((t) => /^—/.test(t) && /segment/.test(t) && !/\b0 h\b|plán —/.test(t)) && kartyCasu.length === 2 && kartyCasu.every((t) => /—/.test(t) && /segment/.test(t))
+  // ⚠ úkol 14b: věta databáze „Pracovní doba není rozdělená podle klientů; zrušte filtr.“ (kontrakt §9 bod 14) NAHRAZUJE
+  // větu mocku úkolu 14a se slovem „segmentu“
+  over('PZ9b', cas.length >= 2 && cas.every((t) => /^—/.test(t) && /není rozdělená podle klientů/.test(t) && !/\b0 h\b|plán —/.test(t)) && kartyCasu.length === 2
+    && kartyCasu.every((t) => /—/.test(t) && /není rozdělená podle klientů/.test(t))
     && naklady.length === 6 && naklady.filter((r) => r.k !== 'provize').every((r) => r.castka === '—' && /nejsou rozdělené/.test(r.t)) && /Kč/.test(naklady.find((r) => r.k === 'provize')?.castka ?? ''),
     'se segmentem: pracovní čas (tabulka i karty) „—“ s důvodem serveru, nikdy 0; náklady z evidence „—“ s důvodem, provize dál podle segmentu',
     JSON.stringify({ cas, kartyCasu: kartyCasu.map((t) => t.slice(0, 120)), naklady }));
@@ -4645,7 +4651,8 @@ await blok050('PZ6 grafy jako tabulka', async () => {
 await blok050('PZ7 Volající', async () => {
   const { ctx, page } = await novaStranka('petra');
   const hashe = [];
-  for (const z of [...Object.keys(ZALOZKY_PZ), 'nastaveni/cile']) {
+  // úkol 14b: všechny tři sekce nastavení (⚠ NAHRAZUJE jen nastaveni/cile)
+  for (const z of [...Object.keys(ZALOZKY_PZ), 'nastaveni/cile', 'nastaveni/naklady', 'nastaveni/vyplaty']) {
     await jdi(page, `#/prehled/${z}?od=2026-11-01&do=2026-11-30&lide=1,4`, 600);
     hashe.push(await hashPV(page));
   }
@@ -4769,6 +4776,304 @@ for (const sirka of [320, 360, 390]) {
     await ctx.close();
   });
 }
+
+/* ============ PN (Přehled vedení úkol 14b, Albert 17. 11. 2026, D6, D9 a D10): nastavení cílů, nákladů a výplat provizí ============ */
+// Spec §7.2 (gear „Nastavení“: Cíle, Náklady s „ověřit“, Výplaty provizí), kontrakt §4.3 až §4.5: seznam s přidáním, úpravou
+// a zrušením (zrušení až po potvrzení), věty serveru doslova, uložení se projeví v číslech záložek (náklad v Nákladech celkem,
+// cíl v Plnění cíle, výplata v Provize vyplaceno a zbývá), práva D9 a D10 (Mikuláš: cíle sobě, Honzovi a svému týmu, výplaty
+// jen svému týmu; náklady každý super admin), klávesnice a čtečky, telefon 320/360/390 bez posunu stránky do strany a snímky
+// 1280 a 390 (E2E_SNIMKY). Volajícího hlídají PV6 a PZ7 (žádné volání cile_*, naklady_*, provize_*). Na konci sladění mocku
+// s rozhodnutími databáze (kontrakt §9, 18. 11. 2026), jak je vidět v záložkách.
+const sekcePN = (page, s) => page.locator(`section[data-sekce="${s}"]`);
+const radkyPN = (page, tab) => page.locator(`table[data-tabulka="nastaveni-${tab}"] tbody tr[data-id]`).evaluateAll((rs) => rs.map((r) => ({
+  id: Number(r.getAttribute('data-id')), t: (r.textContent ?? '').replace(/\s+/g, ' ').trim(), upravit: !!r.querySelector('[data-akce="upravit"]'),
+  zrusit: !!r.querySelector('[data-akce="zrusit"]'), cteni: !!r.querySelector('.nastaveni-jen-cteni'), overit: !!r.querySelector('.overit-znacka'),
+}))).catch(() => []);
+const hlaskaPN = async (page) => txt(await page.locator('.nastaveni-hlaska').innerText().catch(() => ''));
+const chybaPN = async (page) => txt(await page.locator('.nastaveni-chyba').innerText().catch(() => ''));
+const ulozPN = async (page, formular) => {
+  await page.locator(`form[data-formular="${formular}"] button[type="submit"]`).click();
+  await klid(page, 400);
+};
+/** Číslo i se záporným znaménkem (cs-CZ může psát minus jako U+2212). */
+const cisloPN = (s) => cisloPZ(String(s ?? '').replace(/−/g, '-'));
+/** Řádek kategorie v tabulce nákladů Finance. */
+const radekFinancePN = async (page, kat) => page.locator(`table[data-tabulka="naklady"] tbody tr[data-radek="${kat}"]`).evaluate((r) => ({
+  castka: (r.querySelector('td[data-sloupec="castka"] .cislo-text')?.textContent ?? '').replace(/\s+/g, ' ').trim(),
+  overit: !!r.querySelector('.overit-znacka'), t: (r.textContent ?? '').replace(/\s+/g, ' ').trim(),
+})).catch(() => ({ castka: '', overit: false, t: '' }));
+const mesicOdPN = () => `${dnesPV().slice(0, 8)}01`;
+const ZAZNAM_PREHLEDU = /^(prehled|cile|naklady|provize)/i;
+
+await blok050('PN1 cíle', async () => {
+  const { ctx, page } = await novaStranka('admin');
+  await jdi(page, '#/prehled/vedeni', 1200);
+  const cil0 = txt(await page.locator('.prehled-cil').innerText().catch(() => ''));
+  const pokryti0 = txt(await kartaPV(page, 'plneni_cile').locator('.kpi-pokryti').innerText().catch(() => ''));
+  await enterPV(page, page.locator('.prehled-zalozka.nastaveni'));
+  await klid(page, 900);
+  const h0 = await hashPV(page);
+  const r0 = await radkyPN(page, 'cile');
+  const m0 = (await volani(page)).filter((v) => v.fn === 'prehledMoznosti').length;
+  // přidání přesného duplikátu cíle firmy: věta serveru doslova, formulář zůstane otevřený
+  await enterPV(page, sekcePN(page, 'cile').locator('button[data-akce="pridat"]'));
+  await page.waitForTimeout(150);
+  const fokus1 = await page.evaluate(() => document.activeElement?.id ?? '');
+  const popisDo = txt(await page.locator('label[for="cil-do"]').innerText().catch(() => ''));
+  await page.selectOption('#cil-metrika', 'hodnota_prodeju');
+  await page.selectOption('#cil-rozsah', 'firma');
+  await page.fill('#cil-od', mesicOdPN());
+  await page.fill('#cil-do', posledniDenMesicePV(dnesPV()));
+  await page.selectOption('#cil-mena', 'CZK');
+  await page.fill('#cil-hodnota', '80 000');
+  await ulozPN(page, 'cil');
+  const chyba1 = await chybaPN(page);
+  const roleChyby = await page.locator('.nastaveni-chyba').getAttribute('role').catch(() => null);
+  const formularPoChybe = await page.locator('form[data-formular="cil"]').count();
+  if (SNIMKY) await snimekCely(page, 'nastaveni-cile-formular-1280');
+  await page.locator('form[data-formular="cil"] button[data-akce="zpet"]').click();
+  await page.waitForTimeout(150);
+  // úprava cíle firmy na tento měsíc: 50 000 → 80 000 Kč
+  await page.locator('table[data-tabulka="nastaveni-cile"] tr[data-id="1"] button[data-akce="upravit"]').click();
+  await page.waitForTimeout(150);
+  const predvyplneno = await page.inputValue('#cil-hodnota');
+  await page.fill('#cil-hodnota', '80000');
+  await ulozPN(page, 'cil');
+  const hlaska = await hlaskaPN(page);
+  const roleHlasky = await page.locator('.nastaveni-hlaska').getAttribute('role').catch(() => null);
+  const r1 = await radkyPN(page, 'cile');
+  const zaznam = await volani(page);
+  const ulozeni = zaznam.filter((v) => v.fn === 'cileUloz');
+  const m1 = zaznam.filter((v) => v.fn === 'prehledMoznosti').length;
+  if (SNIMKY) await snimekCely(page, 'nastaveni-cile-1280');
+  await enterPV(page, page.locator('.prehled-zalozka', { hasText: 'Vedení' }));
+  await klid(page, 1200);
+  const cil1 = txt(await page.locator('.prehled-cil').innerText().catch(() => ''));
+  const pokryti1 = txt(await kartaPV(page, 'plneni_cile').locator('.kpi-pokryti').innerText().catch(() => ''));
+  over('PN1a', h0.startsWith('#/prehled/nastaveni/cile') && r0.length === 4 && r0.every((r) => r.upravit && r.zrusit) && /Celá firma/.test(r0.find((r) => r.id === 1)?.t ?? '')
+    && /50 000 Kč/.test(r0.find((r) => r.id === 1)?.t ?? '') && /Tým Mikuláš/.test(r0.find((r) => r.id === 2)?.t ?? ''),
+    'Cíle: ozubené kolo otevře #/prehled/nastaveni/cile, seznam všech 4 cílů (kdo, co, období, hodnota), Albert smí každý upravit i zrušit', JSON.stringify(r0));
+  over('PN1b', fokus1 === 'cil-metrika' && /včetně/.test(popisDo) && chyba1 === 'Stejný cíl už je zadaný (id=1): stejná metrika, rozsah, měna i období. Upravte ten.'
+    && roleChyby === 'alert' && formularPoChybe === 1 && ulozeni[0]?.ok === false && ulozeni[0]?.args[0]?.hodnota === '80000',
+    'přidání: fokus na první pole, konec období „včetně“, částka „80 000“ jde serveru jako „80000“, přesný duplikát = věta serveru (role alert), formulář zůstane',
+    JSON.stringify({ fokus1, popisDo, chyba1, roleChyby, args: ulozeni[0]?.args }));
+  over('PN1c', predvyplneno.replace(/\s/g, '') === '50000' && /Cíl uložen/.test(hlaska) && roleHlasky === 'status' && /80 000 Kč/.test(r1.find((r) => r.id === 1)?.t ?? '')
+    && ulozeni.at(-1)?.ok === true && ulozeni.at(-1)?.args[0]?.id === 1 && ulozeni.at(-1)?.args[0]?.obdobi_do === posledniDenMesicePV(dnesPV()) && m1 === m0 + 1,
+    'úprava: formulář předvyplněný, uloženo s id a obdobi_do = poslední den VČETNĚ, hláška „Cíl uložen.“ (role status), řádek 80 000 Kč, možnosti Přehledu se načetly znovu',
+    JSON.stringify({ predvyplneno, hlaska, r1: r1.find((r) => r.id === 1), args: ulozeni.at(-1)?.args, m0, m1 }));
+  over('PN1d', /50 000 Kč/.test(cil0) && /z 50 000 Kč/.test(pokryti0) && /80 000 Kč/.test(cil1) && /z 80 000 Kč/.test(pokryti1),
+    'Vedení po uložení: Plnění cíle počítá s 80 000 Kč (věta o cíli i pokrytí karty)', JSON.stringify({ cil0, pokryti0, cil1, pokryti1 }));
+  await ctx.close();
+});
+
+await blok050('PN2 náklady', async () => {
+  const { ctx, page } = await novaStranka('admin');
+  await jdi(page, '#/prehled/finance', 1200);
+  const celkem0 = cisloPN(await kartaPV(page, 'naklady_celkem').locator('.kpi-hlavni').innerText());
+  const hosting0 = await radekFinancePN(page, 'hosting');
+  await jdi(page, '#/prehled/nastaveni/naklady', 1000);
+  const r0 = await radkyPN(page, 'naklady');
+  await enterPV(page, sekcePN(page, 'naklady').locator('button[data-akce="pridat"]'));
+  await page.waitForTimeout(150);
+  await page.selectOption('#naklad-kategorie', 'hosting');
+  await page.fill('#naklad-popis', 'Hosting webu klienta');
+  await page.fill('#naklad-castka', '350');
+  await page.selectOption('#naklad-mena', 'CZK');
+  await page.selectOption('#naklad-opakovani', 'mesicne');
+  await page.fill('#naklad-od', mesicOdPN());
+  await page.check('#naklad-overit');
+  if (SNIMKY) await snimekCely(page, 'nastaveni-naklady-formular-1280');
+  await ulozPN(page, 'naklad');
+  const hlaska1 = await hlaskaPN(page);
+  const r1 = await radkyPN(page, 'naklady');
+  const novy = r1.find((r) => !r0.some((x) => x.id === r.id));
+  if (SNIMKY) await snimekCely(page, 'nastaveni-naklady-1280');
+  await jdi(page, '#/prehled/finance', 1200);
+  const celkem1 = cisloPN(await kartaPV(page, 'naklady_celkem').locator('.kpi-hlavni').innerText());
+  const hosting1 = await radekFinancePN(page, 'hosting');
+  // zrušení až po potvrzení: Escape okno zavře a řádek nechá, potvrzení ho zruší
+  await jdi(page, '#/prehled/nastaveni/naklady', 1000);
+  const tl = page.locator(`table[data-tabulka="nastaveni-naklady"] tr[data-id="${novy?.id}"] button[data-akce="zrusit"]`);
+  await enterPV(page, tl);
+  await page.waitForTimeout(200);
+  const dialog = page.locator('[role="dialog"].nastaveni-potvrzeni');
+  const dialogText = txt(await dialog.innerText().catch(() => ''));
+  const dialogAria = { modal: await dialog.getAttribute('aria-modal').catch(() => null), nadpis: await dialog.getAttribute('aria-labelledby').catch(() => null) };
+  const fokusD = await page.evaluate(() => document.activeElement?.getAttribute('data-akce') ?? '');
+  if (SNIMKY) await snimekCely(page, 'nastaveni-potvrzeni-1280');
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(200);
+  const poEsc = { dialog: await dialog.count(), radek: await page.locator(`table[data-tabulka="nastaveni-naklady"] tr[data-id="${novy?.id}"]`).count(),
+    fokus: await page.evaluate(() => document.activeElement?.getAttribute('aria-label') ?? ''), zruseni: (await volani(page)).filter((v) => v.fn === 'nakladyZrus').length };
+  await enterPV(page, tl);
+  await page.waitForTimeout(200);
+  await page.locator('[role="dialog"].nastaveni-potvrzeni button[data-akce="potvrdit"]').click();
+  await klid(page, 400);
+  const hlaska2 = await hlaskaPN(page);
+  const r2 = await radkyPN(page, 'naklady');
+  await jdi(page, '#/prehled/finance', 1200);
+  const celkem2 = cisloPN(await kartaPV(page, 'naklady_celkem').locator('.kpi-hlavni').innerText());
+  const fns = new Set((await volani(page)).map((v) => v.fn));
+  over('PN2a', r0.length === 5 && r0.filter((r) => r.overit).map((r) => r.id).join() === '5' && r0.every((r) => r.upravit && r.zrusit) && /5 000 Kč/.test(r0.find((r) => r.id === 1)?.t ?? '')
+    && /Měsíčně/.test(r0.find((r) => r.id === 1)?.t ?? '') && /Penzion Šumava/.test(r0.find((r) => r.id === 5)?.t ?? ''),
+    'Náklady: 5 řádků (seed D6 a doména), „ověřit“ jen u domény, klient u domény, opakování česky, každý super admin smí každý řádek', JSON.stringify(r0));
+  over('PN2b', /Náklad uložen/.test(hlaska1) && !!novy && novy.overit && /350 Kč/.test(novy.t) && /Hosting \(náš náklad\)/.test(novy.t) && /Hosting webu klienta/.test(novy.t),
+    'nový náklad: hláška „Náklad uložen.“, v seznamu s „ověřit“, 350 Kč, kategorie a popis', JSON.stringify({ hlaska1, novy }));
+  over('PN2c', celkem1 === celkem0 + 350 && /^350 Kč$/.test(hosting1.castka) && hosting1.overit && !hosting0.overit && /Bez zadaného nákladu/.test(hosting0.t) && !/Bez zadaného nákladu/.test(hosting1.t),
+    'Finance po uložení: Náklady celkem o 350 Kč víc, hosting 350 Kč s „ověřit“ a bez „Bez zadaného nákladu“', JSON.stringify({ celkem0, celkem1, hosting0, hosting1 }));
+  over('PN2d', /Zrušit náklad/.test(dialogText) && /350 Kč/.test(dialogText) && dialogAria.modal === 'true' && !!dialogAria.nadpis && fokusD === 'ponechat'
+    && poEsc.dialog === 0 && poEsc.radek === 1 && /^Zrušit náklad/.test(poEsc.fokus) && poEsc.zruseni === 0,
+    'potvrzení zrušení: okno (aria-modal) s tím, co se ruší, fokus na „Ponechat“; Escape okno zavře, řádek zůstane a fokus se vrátí na tlačítko',
+    JSON.stringify({ dialogText, dialogAria, fokusD, poEsc }));
+  over('PN2e', /Náklad zrušen/.test(hlaska2) && !r2.some((r) => r.id === novy?.id) && celkem2 === celkem0
+    && ['nakladySeznam', 'nakladyUloz', 'nakladyZrus'].every((f) => fns.has(f) && ZAZNAM_PREHLEDU.test(f)),
+    'po potvrzení „Náklad zrušen.“, řádek zmizí a Náklady celkem jsou zpět; volání nastavení jsou v záznamu mocku pod jmény, která hlídá kontrola Volajícího',
+    JSON.stringify({ hlaska2, r2: r2.map((r) => r.id), celkem0, celkem2, fns: [...fns].filter((f) => ZAZNAM_PREHLEDU.test(f)) }));
+  await ctx.close();
+});
+
+await blok050('PN3 výplaty', async () => {
+  const { ctx, page } = await novaStranka('admin');
+  await jdi(page, '#/prehled/finance', 1200);
+  const vypl0 = cisloPN(await kartaPV(page, 'provize_vyplaceno').locator('.kpi-hlavni').innerText());
+  const zbyva0 = cisloPN(await kartaPV(page, 'provize_zbyva').locator('.kpi-hlavni').innerText());
+  await jdi(page, '#/prehled/nastaveni/vyplaty', 1000);
+  const r0 = await radkyPN(page, 'vyplaty');
+  await enterPV(page, sekcePN(page, 'vyplaty').locator('button[data-akce="pridat"]'));
+  await page.waitForTimeout(150);
+  const komu = await page.locator('#vyplata-komu option').evaluateAll((os) => os.map((o) => o.value));
+  const den0 = await page.inputValue('#vyplata-dne');
+  await page.selectOption('#vyplata-komu', String(UID.eva));
+  await page.fill('#vyplata-castka', '500');
+  await page.fill('#vyplata-poznamka', 'Provize za říjen');
+  if (SNIMKY) await snimekCely(page, 'nastaveni-vyplaty-formular-1280');
+  await ulozPN(page, 'vyplata');
+  const hlaska = await hlaskaPN(page);
+  const r1 = await radkyPN(page, 'vyplaty');
+  if (SNIMKY) await snimekCely(page, 'nastaveni-vyplaty-1280');
+  await jdi(page, '#/prehled/finance', 1200);
+  const vypl1 = cisloPN(await kartaPV(page, 'provize_vyplaceno').locator('.kpi-hlavni').innerText());
+  const zbyva1 = cisloPN(await kartaPV(page, 'provize_zbyva').locator('.kpi-hlavni').innerText());
+  await jdi(page, '#/prehled/lide', 1200);
+  await page.locator('.lide-pohled button', { hasText: 'Obchod' }).click();
+  await page.waitForTimeout(250);
+  const eva = (await tabulkaLidiPZ(page, 'lide', 'provize_vyplaceno')).find((r) => r.jmeno === 'Eva');
+  const fns = new Set((await volani(page)).map((v) => v.fn));
+  over('PN3a', r0.length === 1 && /Petra/.test(r0[0]?.t ?? '') && /1 470 Kč/.test(r0[0]?.t ?? '') && r0[0]?.upravit && komu.length === 5 && den0 === dnesPV(),
+    'Výplaty: Petřina výplata v seznamu, Albert vybírá ze všech lidí, den výplaty předvyplněný dneškem', JSON.stringify({ r0, komu, den0 }));
+  over('PN3b', /Výplata uložena/.test(hlaska) && r1.length === 2 && r1.some((r) => /Eva/.test(r.t) && /500 Kč/.test(r.t) && /Provize za říjen/.test(r.t)),
+    'nová výplata: hláška „Výplata uložena.“ a řádek Evy s 500 Kč a poznámkou', JSON.stringify({ hlaska, r1 }));
+  over('PN3c', vypl1 === vypl0 + 500 && zbyva1 === zbyva0 - 500 && eva?.hodnota === '500 Kč' && ['provizeVyplatySeznam', 'provizeVyplataUloz'].every((f) => fns.has(f) && ZAZNAM_PREHLEDU.test(f)),
+    'Finance a Lidé po uložení: Provize vyplaceno o 500 Kč víc, zbývá o 500 Kč méně, Evě vyplaceno 500 Kč', JSON.stringify({ vypl0, vypl1, zbyva0, zbyva1, eva }));
+  await ctx.close();
+});
+
+await blok050('PN4 Mikuláš', async () => {
+  const { ctx, page } = await novaStranka('mikulas');
+  await jdi(page, '#/prehled/nastaveni/cile', 1000);
+  const rc = await radkyPN(page, 'cile');
+  await enterPV(page, sekcePN(page, 'cile').locator('button[data-akce="pridat"]'));
+  await page.waitForTimeout(150);
+  const rozsahy = await page.locator('#cil-rozsah option').evaluateAll((os) => os.map((o) => o.value));
+  await jdi(page, '#/prehled/nastaveni/vyplaty', 1000);
+  const rv = await radkyPN(page, 'vyplaty');
+  await enterPV(page, sekcePN(page, 'vyplaty').locator('button[data-akce="pridat"]'));
+  await page.waitForTimeout(150);
+  const komu = await page.locator('#vyplata-komu option').evaluateAll((os) => os.map((o) => o.value));
+  await jdi(page, '#/prehled/nastaveni/naklady', 1000);
+  const rn = await radkyPN(page, 'naklady');
+  const popis = txt(await sekcePN(page, 'naklady').locator('.prehled-blok-popis').first().innerText().catch(() => ''));
+  over('PN4a', rc.length === 4 && rc.find((r) => r.id === 2)?.upravit && rc.find((r) => r.id === 2)?.zrusit && rc.filter((r) => r.id !== 2).every((r) => !r.upravit && !r.zrusit && r.cteni),
+    'Mikuláš vidí všechny cíle; upravit a zrušit smí jen cíl svého týmu, ostatní „jen ke čtení“ (D9)', JSON.stringify(rc));
+  over('PN4b', JSON.stringify(rozsahy) === JSON.stringify(['tym:4', 'osoba:4', 'osoba:3']), 'nový cíl Mikuláše: jen Tým Mikuláš, on sám a Honza (bez firmy a lidí Alberta)', JSON.stringify(rozsahy));
+  over('PN4c', rv.length === 1 && rv[0]?.cteni && !rv[0]?.upravit && !rv[0]?.zrusit && JSON.stringify(komu) === JSON.stringify(['4', '3']),
+    'výplaty: Petřina výplata jen ke čtení, novou smí Mikuláš jen sobě a Honzovi (D10)', JSON.stringify({ rv, komu }));
+  over('PN4d', rn.length === 5 && rn.every((r) => r.upravit && r.zrusit) && popis.length > 0, 'náklady: každý super admin smí každý řádek', JSON.stringify(rn));
+  await ctx.close();
+});
+
+await blok050('PN5 klávesnice', async () => {
+  const { ctx, page } = await novaStranka('admin');
+  await jdi(page, '#/prehled/nastaveni/vyplaty', 1000);
+  await enterPV(page, sekcePN(page, 'vyplaty').locator('button[data-akce="pridat"]'));
+  await page.waitForTimeout(150);
+  const fokus1 = await page.evaluate(() => document.activeElement?.id ?? '');
+  const bezPopisku = await page.locator('form[data-formular="vyplata"] :is(input, select, textarea)').evaluateAll((els) => els.filter((e) => !(e.labels && e.labels.length > 0)).map((e) => e.id || e.name));
+  await page.fill('#vyplata-castka', '0');
+  await page.focus('#vyplata-castka');
+  await page.keyboard.press('Enter');
+  await klid(page, 300);
+  const chyba = await chybaPN(page);
+  const neplatne = await page.getAttribute('#vyplata-castka', 'aria-invalid');
+  const popsano = await page.getAttribute('#vyplata-castka', 'aria-describedby');
+  const idChyby = await page.locator('.nastaveni-chyba').getAttribute('id').catch(() => null);
+  await page.locator('form[data-formular="vyplata"] button[data-akce="zpet"]').focus();
+  await page.keyboard.press('Enter');
+  await page.waitForTimeout(200);
+  const fokus2 = await page.evaluate(() => document.activeElement?.getAttribute('data-akce') ?? '');
+  const formularu = await page.locator('form[data-formular="vyplata"]').count();
+  over('PN5a', fokus1 === 'vyplata-komu' && bezPopisku.length === 0, 'formulář z klávesnice: Enter na „Přidat“ ho otevře s fokusem na prvním poli, každé pole má popisek', JSON.stringify({ fokus1, bezPopisku }));
+  over('PN5b', chyba === 'Částka výplaty musí být kladné číslo s nejvýš dvěma desetinnými místy.' && neplatne === 'true' && !!popsano && !!idChyby && popsano.split(' ').includes(idChyby),
+    'Enter v poli odešle; věta serveru u formuláře a pole částky aria-invalid s odkazem na ni (aria-describedby)', JSON.stringify({ chyba, neplatne, popsano, idChyby }));
+  over('PN5c', fokus2 === 'pridat' && formularu === 0, '„Zpět“ formulář zavře a fokus vrátí na „Přidat výplatu“', JSON.stringify({ fokus2, formularu }));
+  await ctx.close();
+});
+
+for (const sirka of [320, 360, 390]) {
+  await blok050(`PN6 ${sirka}`, async () => {
+    const { ctx, page } = await novaStranka('admin', { sirka, vyska: 844 });
+    const vysl = {};
+    for (const s of ['cile', 'naklady', 'vyplaty']) {
+      await jdi(page, `#/prehled/nastaveni/${s}`, 1000);
+      vysl[s] = await page.evaluate(() => document.documentElement.scrollWidth);
+      if (sirka === 390) await snimekCely(page, `nastaveni-${s}-390`);
+      await enterPV(page, sekcePN(page, s).locator('button[data-akce="pridat"]'));
+      await page.waitForTimeout(200);
+      vysl[`${s}-formular`] = await page.evaluate(() => document.documentElement.scrollWidth);
+      if (sirka === 390) await snimekCely(page, `nastaveni-${s}-formular-390`);
+    }
+    await jdi(page, '#/prehled/nastaveni/naklady', 1000);
+    await enterPV(page, page.locator('table[data-tabulka="nastaveni-naklady"] button[data-akce="zrusit"]').first());
+    await page.waitForTimeout(200);
+    vysl.potvrzeni = await page.evaluate(() => document.documentElement.scrollWidth);
+    const okno = await page.locator('[role="dialog"].nastaveni-potvrzeni').boundingBox();
+    if (sirka === 390) await snimekCely(page, 'nastaveni-potvrzeni-390');
+    await page.keyboard.press('Escape');
+    over(`PN6 ${sirka}`, Object.values(vysl).every((w) => w <= sirka) && !!okno && okno.x >= 0 && okno.x + okno.width <= sirka,
+      `telefon ${sirka} px: Cíle, Náklady a Výplaty i s otevřeným formulářem a potvrzením zrušení bez posunu stránky do strany`, JSON.stringify({ ...vysl, okno }));
+    await ctx.close();
+  });
+}
+
+await blok050('PN7 sladění s databází', async () => {
+  const { ctx, page } = await novaStranka('admin');
+  // výplaty provizí s filtrem segmentu: v tabulce lidí i na kartě Financí „—“ s větou databáze (kontrakt §9 bod 17)
+  await jdi(page, '#/prehled/lide?seg=chata', 1400);
+  await page.locator('.lide-pohled button', { hasText: 'Obchod' }).click();
+  await page.waitForTimeout(250);
+  const vyplaceno = (await page.locator('table[data-tabulka="lide"] td[data-sloupec="provize_vyplaceno"]').allInnerTexts()).map(txt);
+  await jdi(page, '#/prehled/finance?seg=chata', 1400);
+  const kartaV = txt(await kartaPV(page, 'provize_vyplaceno').innerText().catch(() => ''));
+  // zadané k_datu: doba do zavolání a hovory po termínu „—“ s větou, že jsou jen pro dnešek (§9 bod 5)
+  const k = new Date(Date.now() - 2 * 3600000).toISOString();
+  await jdi(page, `#/prehled/lide?k=${k}`, 1400);
+  await page.locator('.lide-pohled button', { hasText: 'Čas' }).click();
+  await page.waitForTimeout(250);
+  const sla = (await page.locator('table[data-tabulka="lide"] td[data-sloupec="sla_prvni_kontakt_median"]').allInnerTexts()).map(txt);
+  const poTerminu = (await page.locator('table[data-tabulka="lide"] td[data-sloupec="naplanovane_po_terminu"]').allInnerTexts()).map(txt);
+  // segment se zadaným k_datu před začátkem historie: karty Vedení částečně s větou o dnešním segmentu, varování HISTORIE_OD (§9 bod 4)
+  const k2 = new Date(Date.now() - 48 * 3600000).toISOString();
+  await jdi(page, `#/prehled/vedeni?seg=chata&k=${k2}`, 1600);
+  const karta = txt(await kartaPV(page, 'hodnota_prodeju').innerText().catch(() => ''));
+  const historie = await page.locator('.prehled-castecne [data-kod="HISTORIE_OD"]').count();
+  over('PN7a', vyplaceno.length >= 2 && vyplaceno.every((t) => /^—/.test(t) && /Výplaty provizí nejsou rozdělené podle klientů/.test(t)) && /—/.test(kartaV) && /nejsou rozdělené podle klientů/.test(kartaV),
+    'výplaty se segmentem: „—“ s větou databáze v tabulce lidí i na kartě Financí, nikdy 0', JSON.stringify({ vyplaceno, kartaV: kartaV.slice(0, 160) }));
+  over('PN7b', sla.length >= 2 && sla.every((t) => /^—/.test(t) && /jen pro dnešek/.test(t)) && poTerminu.length >= 2 && poTerminu.every((t) => /^—/.test(t) && /jen pro dnešek/.test(t)),
+    'K datu: doba do zavolání a hovory po termínu „—“ s větou, že jsou jen pro dnešek', JSON.stringify({ sla, poTerminu }));
+  over('PN7c', /částečně/.test(karta) && /Segment podle dnešního stavu: historie začíná/.test(karta) && historie >= 1,
+    'segment s K datu před začátkem historie: karta „částečně“ s větou o dnešním segmentu, varování HISTORIE_OD', JSON.stringify({ karta: karta.slice(0, 200), historie }));
+  await ctx.close();
+});
 
 await browser.close();
 server.close();

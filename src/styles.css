@@ -5517,15 +5517,8 @@ table.kontakty.kompakt .mlceni-bunka > * {
   text-decoration: none;
 }
 
-.prehled-nastaveni-obsah {
-  padding: 16px 18px;
-}
-
-.prehled-nastaveni-obsah p {
-  margin: 6px 0 0;
-  max-width: 70ch;
-  line-height: 1.45;
-}
+/* obsah sekce nastavení je od úkolu 14b karta .prehled-blok (odsazení i odstavce má ona); ⚠ NAHRAZUJE odsazení a odstavce
+   kostry úkolu 13 */
 
 /* telefon */
 
@@ -5891,6 +5884,9 @@ table.kontakty.kompakt .mlceni-bunka > * {
 }
 
 .prehled-tabulka-obal {
+  /* úkol 14b: rámeček je zároveň obsahující blok, jinak text jen pro čtečky (.sr-only, position absolute) v široké tabulce
+     uteče z posunu rámečku a rozšíří celou stránku (telefon: Vedení 777 px místo 390) */
+  position: relative;
   overflow-x: auto;
   border: 2px solid var(--ink);
   border-radius: var(--r-ctl);
@@ -6351,5 +6347,198 @@ table.kontakty.kompakt .mlceni-bunka > * {
   .naklady-ma-pozn th,
   .naklady-ma-pozn td {
     border-bottom: none;
+  }
+}
+
+/* ---------- Přehled vedení: nastavení cílů, nákladů a výplat provizí (úkol 14b, Albert 17. 11. 2026, D6, D9 a D10; spec §7.2) ----------
+   Sekce je karta s nadpisem, popisem, hláškou (živá oblast), formulářem nad seznamem a tabulkou řádků. Tokeny appky (krémová,
+   inkoust, oranžová, tvrdé stíny); formulář v mřížce polí, na telefonu pod sebou. Tabulka se na telefonu (do 640 px) skládá do
+   řádků s popiskem každé buňky (data-label), stránka se do strany nikdy neposouvá. Fokus všech ovládacích prvků je vidět. */
+
+.prehled-nastaveni-obsah {
+  gap: 12px;
+}
+
+.prehled-nastaveni :is(input, select, textarea, button, a):focus-visible,
+.nastaveni-potvrzeni button:focus-visible {
+  outline: 3px solid var(--orange);
+  outline-offset: 2px;
+}
+
+.nastaveni-hlaska {
+  margin: 0;
+}
+
+.nastaveni-hlaska:empty {
+  display: block;
+  padding: 0;
+  border: 0;
+  box-shadow: none;
+  min-height: 0;
+}
+
+.nastaveni-formular {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background: var(--cream-deep);
+  border: 2px solid var(--ink);
+  border-radius: var(--r-ctl);
+  padding: 14px 16px;
+  min-width: 0;
+}
+
+.nastaveni-formular-nadpis {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 800;
+}
+
+.nastaveni-mrizka {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(210px, 100%), 1fr));
+  gap: 0 16px;
+  align-items: start;
+}
+
+.nastaveni-pole {
+  min-width: 0;
+  margin-bottom: 8px;
+}
+
+.nastaveni-pole input,
+.nastaveni-pole select {
+  min-width: 0;
+  background: var(--cream);
+}
+
+.nastaveni-pole input[aria-invalid='true'],
+.nastaveni-pole select[aria-invalid='true'] {
+  border-color: var(--pink);
+  box-shadow: 0 0 0 2px var(--pink);
+}
+
+.nastaveni-napoveda {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.35;
+  color: var(--ink-tlumena);
+}
+
+.nastaveni-overit {
+  align-self: flex-start;
+}
+
+.nastaveni-chyba {
+  margin: 0;
+}
+
+.nastaveni-formular-tlacitka {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.nastaveni-chyba-seznamu {
+  padding: 4px 0;
+}
+
+.nastaveni-nacita {
+  padding: 12px 0;
+  text-align: left;
+}
+
+.nastaveni-tabulka .nastaveni-akce {
+  white-space: nowrap;
+}
+
+.nastaveni-akce-tlacitka {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.pill-btn.nastaveni-zrusit {
+  color: color-mix(in srgb, var(--pink) 72%, var(--ink));
+}
+
+.nastaveni-jen-cteni {
+  font-size: 12.5px;
+  font-weight: 800;
+  color: var(--ink-tlumena);
+  white-space: nowrap;
+}
+
+.nastaveni-potvrzeni-co {
+  margin: 0 0 8px;
+  font-weight: 800;
+}
+
+.nastaveni-potvrzeni-dusledek {
+  margin: 0;
+}
+
+/* na širokém displeji tlačítka řádku a data vedle sebe na jednom řádku (popis se zalomí sám) */
+@media (min-width: 641px) {
+  .nastaveni-akce-tlacitka {
+    flex-wrap: nowrap;
+  }
+  .nastaveni-tabulka .nastaveni-datum,
+  .nastaveni-tabulka .nastaveni-zapsal .prehled-bunka-pozn {
+    white-space: nowrap;
+  }
+}
+
+@media (max-width: 640px) {
+  .nastaveni-formular {
+    padding: 12px;
+  }
+  .nastaveni-pole input,
+  .nastaveni-pole select {
+    font-size: 16px;
+  }
+  /* tabulka nastavení jako seznam řádků: buňka pod buňkou s popiskem, žádný posun do strany */
+  .nastaveni-tabulka thead {
+    display: none;
+  }
+  .nastaveni-tabulka,
+  .nastaveni-tabulka tbody,
+  .nastaveni-tabulka tr,
+  .nastaveni-tabulka th,
+  .nastaveni-tabulka td {
+    display: block;
+    width: 100%;
+  }
+  .nastaveni-tabulka tr {
+    border-bottom: 2px solid var(--ink);
+    padding: 6px 0;
+  }
+  .nastaveni-tabulka tbody th,
+  .nastaveni-tabulka td {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2px 10px;
+    border-bottom: none;
+    padding: 3px 4px;
+    text-align: left;
+    white-space: normal;
+  }
+  .nastaveni-tabulka td.cislo-sloupec {
+    text-align: left;
+  }
+  .nastaveni-tabulka tbody th::before,
+  .nastaveni-tabulka td::before {
+    content: attr(data-label);
+    flex: 0 0 34%;
+    font-weight: 800;
+    color: var(--ink-tlumena);
+    font-size: 12.5px;
+  }
+  .nastaveni-tabulka td > *,
+  .nastaveni-tabulka th > * {
+    min-width: 0;
+  }
+  .nastaveni-tabulka .nastaveni-akce {
+    white-space: normal;
   }
 }

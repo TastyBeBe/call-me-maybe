@@ -26,7 +26,7 @@ npm install
 npm run dev      # dev server ⚠ bez DEMO jede proti ŽIVÉ DB, viz níž
 npm run build    # produkční build do dist/ (tsc -b, zapnuté noUnusedLocals, pak vite build)
 npm run preview  # náhled produkčního buildu
-npm test         # test chování segmentu, e-mailového příznaku, volání, rozvrhu, od 056 filtrů, od úkolu 11 panelu filtrů, od 062 dovolání, od úkolu 12 časovače práce a důvodu odmítnutí, od úkolu 10 výběru lidí, od úkolu 13 Přehledu vedení a od úkolu 14a jeho záložek a grafů nad demo mockem (bez sítě, bez živé DB)
+npm test         # test chování segmentu, e-mailového příznaku, volání, rozvrhu, od 056 filtrů, od úkolu 11 panelu filtrů, od 062 dovolání, od úkolu 12 časovače práce a důvodu odmítnutí, od úkolu 10 výběru lidí, od úkolu 13 Přehledu vedení, od úkolu 14a jeho záložek a grafů a od úkolu 14b jeho nastavení (cíle, náklady, výplaty provizí) nad demo mockem (bez sítě, bez živé DB)
 npm run test:e2e # zkouška stránek v DEMO v headless prohlížeči (viz níž)
 ```
 
@@ -729,7 +729,8 @@ Manažerský přehled pro super adminy (rozhodnutí D2: Albert, Mikuláš, Kryš
 `../docs/superpowers/specs/2026-11-17-prehled-vedeni-design.md` §7.1 a §7.2, kontrakt
 `../docs/superpowers/specs/2026-11-17-prehled-kontrakt.md` §2 a §5). Úkol 13 je kostra; obsah záložek (trend proti cíli,
 trychtýř, porovnání lidí, grafy) je od úkolu 14a v oddílu níž („záložky s daty a grafy“, ⚠ NAHRAZUJE „doplní úkol 14“);
-nastavení cílů, nákladů a výplat doplní úkol 14b.
+nastavení cílů, nákladů a výplat je od úkolu 14b v oddílu „nastavení cílů, nákladů a výplat provizí“ (⚠ NAHRAZUJE „doplní
+úkol 14b“).
 
 - **Kdo**: pilulka „přehled“ v menu a dlaždice PŘEHLED na Domů jen pod `isSuper`; trasa `#/prehled/*` pod `RequireAuth
   superAdmin` a pojistka ve stránce (`src/pages/prehled/PrehledPage.tsx`): Volajícímu se nevykreslí nic, `#/prehled` ho vrátí
@@ -812,8 +813,9 @@ Více funkcí naráz (týmy) načte `usePrehledNacteni` v `kontext.tsx` (každá
   výběru. Server počítá plán za každý den období od nastavení rozvrhu, i za dny, které teprve přijdou, a svátky neodečítá
   (koordinátor 18. 11. 2026 z revize databáze), proto karty „Plán za celé období“ a „Splněno z plánu období“ (`NAZVY_APPKY`)
   a v běžícím období věta, že nízké plnění v půlce měsíce není skluz. S filtrem segmentu, oboru nebo kraje vrací server
-  pracovní čas (odpracováno, výsledků za hodinu, plán, plnění, řada hodin) nedostupný: karty, tabulka i trend ukážou „—“
-  s jeho důvodem, nikdy 0.
+  pracovní dobu (odpracováno, výsledků za hodinu, plnění, řada hodin) nedostupnou: karty, tabulka i trend ukážou „—“
+  s jeho důvodem („Pracovní doba není rozdělená podle klientů; zrušte filtr.“), nikdy 0; plán z rozvrhu klienty filtrovaný
+  není a zůstává (⚠ úkol 14b podle databáze 073 NAHRAZUJE „i plán nedostupný“).
 - **Pipeline**: karty rychlosti návrhu a nabídek za polovinu, otevřené fáze (počet, známá hodnota po měnách, bez přesné ceny,
   medián a 90. percentil ve fázi), graf **pásem stáří** 0–7 / 8–14 / 15–30 / 31+ dní (klik na pásmo = jeho řádky), kohorty
   měsíců prvního hovoru se stejně dlouhým oknem, kalibrace známky A–C a hvězdy (N), ceny nabídek, pohyby (jen z historie:
@@ -871,6 +873,65 @@ Více funkcí naráz (týmy) načte `usePrehledNacteni` v `kontext.tsx` (každá
   za všechny (⚠ NAHRAZUJE hodiny všech ÷ plány lidí s rozvrhem; mock stejně, databáze v opravě úkolu 4). Testy: Z2i až Z2l,
   Z4e až Z4h, Z5e, Z7 s překrývajícími se týmy, Z9; e2e PZ10 a rozšířené PZ1d, PZ3d, PZ3e a PZ8 (záznam volání v DEMO má
   pořadí `zacatek` a `konec`).
+
+## Přehled vedení: nastavení cílů, nákladů a výplat provizí (úkol 14b, Albert 17. 11. 2026)
+
+Ozubené kolo „Nastavení“ (`#/prehled/nastaveni/cile|naklady|vyplaty`, spec
+`../docs/superpowers/specs/2026-11-17-prehled-vedeni-design.md` §7.2, kontrakt §4.3 až §4.5) jsou od úkolu 14b formuláře nad
+funkcemi migrace 072 (⚠ NAHRAZUJE kostru úkolu 13 s větou, že zadávání teprve přijde). Každá sekce: seznam aktivních řádků ze
+serveru, „Přidat …“, u řádku „Upravit“ a „Zrušit…“ (zrušení až po potvrzení v okně), věty serveru doslova u formuláře.
+
+- **Cíle** (`NastaveniCile.tsx`, D9): `cile_seznam` (každý super admin vidí všechny cíle), `cile_uloz`, `cile_zrus`. Upravit
+  a zrušit jde jen řádek se `smi_upravit` (Albert vše; jinak svůj cíl, cíle lidí s jeho `manager_id` a cíl svého týmu), ostatní
+  „jen ke čtení“. Formulář: Co (šest metrik cíle), Pro koho (jen rozsahy, které přihlášený smí: `firma_smim_cil`,
+  `tymy[].smim_cil`, `lide[].smim_cil` z `prehled_moznosti`), Od a Do (včetně; výchozí celý tento měsíc), hodnota (u peněz
+  s měnou, počty celé). Server odmítne jen přesný duplikát (stejná metrika, rozsah, měna i období; R21), jiná délka období smí.
+- **Náklady** (`NastaveniNaklady.tsx`, D6): `naklady_seznam`, `naklady_uloz`, `naklady_zrus`; každý super admin smí každý
+  řádek. Pět kategorií evidence (Claude, Lovable, domény, hosting, jiné; provize se počítá z prodejů sama), částka ve své měně,
+  opakování (jednorázově, měsíčně, ročně), platí od a do (včetně, u jednorázového jen den platby), popis, číslo klienta
+  a „ověřit“ (částka čeká na ověření; v seznamu i ve Financích značka „ověřit“).
+- **Výplaty provizí** (`NastaveniVyplaty.tsx`, D10): `provize_vyplaty_seznam` (každý super admin vidí všechny),
+  `provize_vyplata_uloz`, `provize_vyplata_zrus`. Komu jen lidé se `smim_vyplatu` (svůj tým, Albert každého); výplata cizího
+  týmu je „jen ke čtení“. Den výplaty (výchozí dnes), za období od a do (včetně, nepovinné), poznámka.
+- **Čísla v záložkách**: uložený náklad je hned v Nákladech celkem a ve své kategorii (Finance), cíl v Plnění cíle a ve větě
+  o cíli (Vedení), výplata v Provize vyplaceno a zbývá (Finance, Lidé a volání). Po každém uložení nebo zrušení zvýší
+  `zmenaDat` v kontextu Přehledu (`kontext.tsx`) verzi dat (`verzeDat`, je v závislostech `usePrehledNacteni`, takže se data
+  záložek načtou znovu) a načte znovu možnosti (čerstvost zdrojů Cíle, Náklady, Výplaty provizí v hlavičce).
+- **Peníze a data**: každá částka ve své měně (CZK a EUR se nikdy nesčítají), pole částky bere „1 234,50“ i „1234.5“
+  (`castkaProServer` v `src/prehledNastaveni.ts`; co není číslo, jde serveru a ten odmítne svou větou), každé `do` je poslední
+  den včetně (R6; tabulka `cile` má v databázi den po, převádí server).
+- **Přístupnost**: popisek u každého pole, formulář se otevře s fokusem na prvním poli a zavře s fokusem tam, odkud se otevřel;
+  věta serveru má `role="alert"` a pole, které myslí, `aria-invalid` s odkazem na ni (`poleChyby`); hláška o uložení je živá
+  oblast (`role="status"`); okno zrušení je `role="dialog"` s fokusem na „Ponechat“, Tab zůstává v okně, Escape okno zavře.
+  Na telefonu (do 640 px) je tabulka seznamem řádků s popiskem každé buňky, stránka se do strany neposouvá.
+- **Server bez migrace 072**: PGRST202 u kterékoli funkce nastavení = věta `BEZ_072_NASTAVENI` („Nastavení Přehledu potřebuje
+  migraci 072 …“) s nadpisem „Nastavení potřebuje migraci 072“; nic se neuloží.
+- **Volající** nastavení nevidí (trasa i stránka ho vrátí domů) a appka mu nikdy nezavolá `cile_*`, `naklady_*` ani `provize_*`
+  (server by odmítl „Přehled vidí jen super admin.“).
+- **Mock** (`src/api/mock.ts`): devět funkcí nad `PREHLED_NAKLADY`, `PREHLED_CILE` a `PREHLED_VYPLATY` (ze kterých čtou souhrn,
+  finance, lidé, řada i řádky), stejné kontroly a věty ve stejném pořadí jako `db/migration_072_prehled_zaklad.sql`, práva D9
+  a D10, události `naklad_zmena`, `cil_zmena`, `vyplata_zmena` (háček `stav().udalostiNastaveni`). Volající je odmítnut u všech
+  devíti volání stejnou větou jako na serveru.
+- **Sladění mocku s rozhodnutími databáze** (kontrakt §9, záznam úkolu 4 z 18. 11. 2026): filtr segmentu (před začátkem
+  historie), oboru nebo kraje se zadaným K datu dělá metriky bloku „částečně“ s důvodem a varováním `HISTORIE_OD`; doba do
+  zavolání, hovory po termínu a „Odpověděl“ po návrhu jsou s K datu nedostupné (jen pro dnešek); náklady z evidence s výběrem
+  lidí nebo filtrem klientů nedostupné i v řadě nákladů, povinná kategorie bez zadaného nákladu dělá kategorii, Náklady celkem,
+  výsledek i řadu „částečně“ („Bez zadaného nákladu: …“), volitelná Jiné nikdy; výplaty provizí s filtrem segmentu, oboru nebo
+  kraje nedostupné (lidé, součet i Finance); v trychtýři je prodaný klient u kroků do „Prodáno“ uzavřený, u „Fakturováno“
+  a „Zaplaceno“ otevřený; hotový naplánovaný hovor (i jako výsledek pracovní doby) patří tomu, kdo ho uzavřel; pracovní doba
+  s filtrem klientů nedostupná s větou databáze (plán zůstává), bez jediného hovoru výsledků za hodinu nedostupné.
+- **Přeneseno z recenze 14a**: buňka odpracovaných hodin (i v týmech na Vedení) ukáže důvod částečného plnění plánu
+  („Bez rozvrhu: N lidí; …“) v bublině i textem a částečné hodiny mají vlastní značku „částečně“; tlačítko akčního seznamu
+  s neznámým počtem ukáže „—“, nikdy 0 (`textZobrazitPripady`); tabulka akčního seznamu `TabulkaAkci` (termín jen dnem bez
+  „0:00“) je samostatná kvůli testu. Rámeček široké tabulky (`TabulkaObal`, `.prehled-tabulka-obal`) má `position: relative`:
+  text jen pro čtečky (`.sr-only`) a cokoli dalšího s `position: absolute` v tabulce se posouvá v rámečku a stránku
+  nerozšíří (bez toho měla Vedení na telefonu 777 px).
+- **Testy**: `npm test` soubor `tests/prehlednastaveni.test.mjs` (N1 `supabase.ts` a PGRST202, N2 Volající u všech devíti volání,
+  N3 náklady, N4 cíle a D9, N5 výplaty a D10, N6 uložení v číslech záložek, N7 pomocníci formulářů, N8 tabulky, N9 zapojení)
+  a v `tests/prehledzalozky.test.mjs` Z10 (sedm pravidel sladění mocku), Z11 (věta „Bez rozvrhu“ pro 1, 2, 4 a 5 lidí), Z12
+  (termín akčního seznamu a tlačítko), Z4i (buňka týmu); `npm run test:e2e` blok PN (cíle a Plnění cíle, náklady s potvrzením
+  zrušení a Náklady celkem, výplaty a Provize vyplaceno a zbývá, práva Mikuláše, klávesnice a čtečky, telefon 320/360/390,
+  sladění v záložkách) a rozšířené PV6 a PZ7 (Volající ani v nastavení nic nezavolá).
 
 ## Účty a přihlášení (produkce)
 
@@ -1081,7 +1142,7 @@ který schvaluje Albert (u zprávy je vidět jeho stav).
 | `#/admin`     | všichni | Kontakty: celá databáze s filtry (i segment, 028) a fulltextem (i studio, město, IČO; IČO jen admin a super admin, 038); upravovat smí admin a super admin; počty u stavů a košů a celkový počet jen super admin (045, Volající stránkuje bez počtu); Volající stav, známku, kdo volal, čekání a poznámky jen u svých klientů, filtr stavu a hledání v poznámce jen nad nimi (045, 20. 10. 2026); od migrace 056 řazení podle poslední změny (Volajícímu jen mezi jeho klienty, cizí za nimi podle čísla); od migrace 057 Změněno i se změnami od automatizace, sloupec a řazení podle posledního hovoru (Volajícímu jen jeho hovory); od migrace 060 (Albert 1. 11. 2026) spojitelné filtry (víc stavů a známek, hvězda, označení, mlčení v pracovních dnech), sloupec Mlčí a hvězda u svých klientů (Volajícímu jen nad jeho klienty); ⚠ od migrace 061 (Albert 2. 11. 2026) řádky o dvou řádcích bez posunu do strany (NAHRAZUJE tabulku posouvanou v rámečku) a Volající nevidí příznak „Údaje z internetu“; ⚠ od migrace 062 (Albert 2. 11. 2026: „you can even add [it] to the contacts section“) „Zavolal/a jsem“ v 1. řádku u vlastních klientů, kterým ho přihlášený smí zapsat; ⚠ od 17. 11. 2026 (úkol 11) panel filtrů ve třech řadách s čipy a „Zrušit vše“, na telefonu okno „Filtry (n)“; od úkolu 10 (17. 11. 2026) super admin výběr lidí (Já, tým, kdokoli, Všichni) |
 | `#/oznacene`  | admin   | označení klienti — admin svoji; super admin a Albert všichni (027); filtr segmentu (028); ⚠ od migrace 060 (Albert 1. 11. 2026) „Označené k zavolání“ (`list_oznacene`): klienti, kteří víc než 5 pracovních dní mlčí (Neodpověděl na návrh, na změny), Volajícímu jen jeho, a klienti s příznakem; okno „Zavolal/a jsem“ (`zapis_hovor`, nikdy call_log), „Lhůta na zavolání do …“, stejné filtry jako Kontakty, super admin sloupec Volající, „bez volajícího“ a „Zrušit označení“ (NAHRAZUJE „jen příznaky přes list_flagged“); ⚠ od migrace 061 (Albert 2. 11. 2026) řádky o dvou řádcích bez posunu do strany s akcemi přímo v řádku („Zavolal/a jsem“, „Vyřešeno“ u příznaku, super admin „Zrušit označení“), okno s pěti výsledky (i „Nic z toho výše“) a poznámkou pro automatizaci u každého, příznak „Údaje z internetu“ jen super admin; od auditu soudržnosti (2. 11. 2026) u označeného klienta s příznakem „Chybí e-mail“ hned za skupinou „e-mail se vrátil“; ⚠ od migrace 062 (Albert 2. 11. 2026) okno se šesti výsledky (i „Chce web“, NAHRAZUJE „s pěti výsledky“) a „Zavolal/a jsem“ i u řádku jen s příznakem, když ho přihlášený smí zapsat; od migrace 063 pod lhůtou „Připomínka odeslána <den>“, když po lhůtě odešla připomínka e-mailem; ⚠ od 17. 11. 2026 (úkol 11) panel filtrů ve třech řadách (pilulky „Co je potřeba“ pod řadou filtrů) s čipy a „Zrušit vše“, na telefonu okno „Filtry (n)“; od úkolu 10 (17. 11. 2026) super admin výběr lidí (Já, tým, kdokoli, Všichni) |
 | `#/zpravy`    | admin   | vlákna s AI agenty — admin svoje; super admin vlákna všech lidí (cizí jen ke čtení, 027); Albert i automatizaci; odznak architekta u hledaného kontaktu (028); od 17. 11. 2026 (úkol 10) super admin vlákna vybraných lidí (výběr lidí) |
-| `#/prehled`   | super admin | Přehled vedení (úkol 13, Albert 17. 11. 2026, D2): záložky jako podstránky `#/prehled/<záložka>` (Vedení, Lidé a volání, Pipeline, Klienti a sektory, Komunikace a ztráty, Finance, Dodání, Prognóza a data) a `#/prehled/nastaveni/<sekce>`, filtr v adrese (`?od=…&do=…&lide=…|tym=…&seg=…&obor=…&kraj=…&mena=…&zaklad=…&atribuce=…&k=…`), karty s „i“ a řádky s CSV, od úkolu 14a tabulky, porovnání lidí a grafy (trend proti cíli, trychtýř, pásma stáří, sloupce) s „Zobrazit jako tabulku“; Volajícího vrátí domů |
+| `#/prehled`   | super admin | Přehled vedení (úkol 13, Albert 17. 11. 2026, D2): záložky jako podstránky `#/prehled/<záložka>` (Vedení, Lidé a volání, Pipeline, Klienti a sektory, Komunikace a ztráty, Finance, Dodání, Prognóza a data) a `#/prehled/nastaveni/<sekce>`, filtr v adrese (`?od=…&do=…&lide=…|tym=…&seg=…&obor=…&kraj=…&mena=…&zaklad=…&atribuce=…&k=…`), karty s „i“ a řádky s CSV, od úkolu 14a tabulky, porovnání lidí a grafy (trend proti cíli, trychtýř, pásma stáří, sloupce) s „Zobrazit jako tabulku“, od úkolu 14b nastavení `cile`, `naklady`, `vyplaty` s formuláři (D9, D10); Volajícího vrátí domů |
 | `#/uzivatele` | super admin | super admin: všichni lidé, upravuje sebe a své lidi + nový Volající (027, 042); Albert: role (Volající / Super admin, 042) a nadřízení (⚠ od migrace 024 Volající stránku nemá) |
 | `#/automatizace` | Albert | vypínač automatizace a přepínač účtu Claude                    |
 | `#/setup`     | všichni | nastavení Supabase URL + anon klíče                              |

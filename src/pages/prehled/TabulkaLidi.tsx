@@ -111,19 +111,31 @@ export default function TabulkaLidi({
       }
       const odpracovano = formatHodiny(m.hodnota);
       const znamyPlan = !!plan && plan.kvalita !== 'nedostupne' && plan.hodnota !== null;
+      const znamePlneni = znamyPlan && !!plneni && plneni.hodnota !== null;
+      // důvod částečného plnění (v součtu třeba „Bez rozvrhu: 2 lidé; …“: hodiny lidí bez rozvrhu se do plnění nepočítají) je
+      // v bublině i viditelně, ať ho najde i čtečka (úkol 14b, přeneseno z recenze 14a); věty se neopakují
+      const duvodPlneni = znamePlneni && plneni!.kvalita === 'castecne' ? plneni!.duvod : null;
       // plán je za celé období (i dny, které teprve přijdou), proto „Splněno z plánu období“, ne skluz proti dnešku
-      const bublina = [plneni && plneni.hodnota !== null ? `Splněno z plánu období: ${formatPodil(plneni.hodnota)}.` : null, m.duvod, plan?.duvod]
-        .filter(Boolean).join(' ') || null;
+      const bublina = [...new Set([znamePlneni ? `Splněno z plánu období: ${formatPodil(plneni!.hodnota!)}.` : null, m.duvod, plan?.duvod, duvodPlneni]
+        .filter((t): t is string => !!t))].join(' ') || null;
       return (
         <td key={k} data-sloupec={k} className="cislo-sloupec">
           <CisloTlacitko text={znamyPlan ? `${odpracovano} z ${formatHodiny(plan!.hodnota!)}` : `${odpracovano} · plán —`} nazev={nazevHodin}
             title={bublina} onClick={m.proklik && onProklik ? (el) => onProklik(m.proklik!, nazevHodin, el) : null}>
-            {znamyPlan && plneni && plneni.hodnota !== null ? <Metr podil={plneni.hodnota} /> : null}
+            {znamePlneni ? <Metr podil={plneni!.hodnota} /> : null}
           </CisloTlacitko>
-          {/* plnění i v textu, ne jen v bublině (oprava po recenzi, drobnost 14) */}
-          {znamyPlan && plneni && plneni.hodnota !== null ? (
-            <span className="prehled-bunka-pozn">splněno {formatPodil(plneni.hodnota)}{plneni.kvalita === 'castecne' ? ' · částečně' : ''}</span>
+          {/* částečné odpracované hodiny (třeba odhad bez časovače) mají vlastní značku jako ostatní buňky a důvod pro čtečky
+              (úkol 14b, přeneseno z recenze 14a) */}
+          {m.kvalita === 'castecne' ? (
+            <span className="prehled-bunka-pozn" title={m.duvod ?? undefined}>
+              částečně{m.duvod ? <span className="sr-only">: {m.duvod}</span> : null}
+            </span>
           ) : null}
+          {/* plnění i v textu, ne jen v bublině (oprava po recenzi, drobnost 14) */}
+          {znamePlneni ? (
+            <span className="prehled-bunka-pozn">splněno {formatPodil(plneni!.hodnota!)}{plneni!.kvalita === 'castecne' ? ' · částečně' : ''}</span>
+          ) : null}
+          {duvodPlneni ? <span className="prehled-bunka-pozn">{duvodPlneni}</span> : null}
           {!znamyPlan && plan?.duvod ? <span className="prehled-bunka-pozn">{plan.duvod}</span> : null}
         </td>
       );

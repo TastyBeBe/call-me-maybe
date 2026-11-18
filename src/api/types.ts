@@ -1692,6 +1692,99 @@ export interface DataDefinice {
   varovani: { kod: string; sablona: string }[];
 }
 
+/* ---- Přehled vedení: nastavení cílů, nákladů a výplat provizí (migrace 072, úkol 14b; kontrakt §4.3 až §4.5 a tvary §7
+   doslova; Albert 17. 11. 2026, D6, D9 a D10). Bez obálky: seznam = pole řádků, uložení = uložený řádek, zrušení = {ok, id}.
+   Každé `*_do` je poslední den VČETNĚ (R6), peníze jako desetinný text na 2 místa (R7). Volající nic z toho nedostane
+   (server „Přehled vidí jen super admin.“, appka trasu ani volání nemá). ---- */
+
+/** Kategorie evidence nákladů (§3.5): přesně pět; provize je jen ve výpočtu prehled_finance, nikdy řádek evidence. */
+export type KategorieNakladu = Exclude<KategorieVyuctovani, 'provize'>;
+/** Opakování nákladu (§3.5, zaúčtování §2.12). */
+export type OpakovaniNakladu = 'jednorazove' | 'mesicne' | 'rocne';
+/** Metrika cíle (§3.6). */
+export type MetrikaCile = CilPrehledu['metrika'];
+/** Cíl (§7 Cil, cile_seznam a cile_uloz): obdobi_do poslední den včetně, smi_upravit podle D9. */
+export type Cil = CilPrehledu;
+/** Řádek nákladů (§7 Naklad, aktivní). */
+export interface Naklad {
+  id: number;
+  kategorie: KategorieNakladu;
+  popis: string | null;
+  castka: string;
+  mena: MenaPrehledu;
+  opakovani: OpakovaniNakladu;
+  plati_od: string;
+  /** poslední den platnosti VČETNĚ; null = bez konce (u jednorázového vždy null) */
+  plati_do: string | null;
+  kontakt_id: number | null;
+  kontakt_jmeno: string | null;
+  /** částka čeká na ověření (v nastavení „ověřit“) */
+  overit: boolean;
+  zapsal: string;
+  zapsano_at: string;
+}
+/** p_naklad pro naklady_uloz (§7 NakladVstup): bez id nový řádek, s id úplná náhrada; klíče jen ke čtení se ignorují. */
+export interface NakladVstup {
+  id?: number | null;
+  kategorie: KategorieNakladu;
+  popis?: string | null;
+  /** kladná částka, nejvýš 2 desetinná místa, text („350.00“) nebo číslo */
+  castka: string | number;
+  mena: MenaPrehledu;
+  opakovani: OpakovaniNakladu;
+  /** prázdné pole formuláře jde jako null: server odpoví svou větou („Zadejte, od kterého dne náklad platí.“) */
+  plati_od: string | null;
+  plati_do?: string | null;
+  /** číslo klienta; text, který číslem není, server odmítne „Kontakt id=… neexistuje.“ (app_json_cele) */
+  kontakt_id?: number | string | null;
+  overit?: boolean;
+}
+/** p_cil pro cile_uloz (§7 CilVstup): user_id i tym_id null = cíl celé firmy (jen Albert). */
+export interface CilVstup {
+  id?: number | null;
+  metrika: MetrikaCile;
+  /** prázdné pole formuláře jde jako null (server odpoví „Neplatné datum v poli obdobi_od …“) */
+  obdobi_od: string | null;
+  /** poslední den VČETNĚ */
+  obdobi_do: string | null;
+  user_id?: number | null;
+  tym_id?: number | null;
+  mena?: MenaPrehledu | null;
+  hodnota: string | number;
+}
+/** Výplata provize (§7 Vyplata, aktivní). */
+export interface Vyplata {
+  id: number;
+  user_id: number;
+  jmeno: string;
+  castka: string;
+  mena: MenaPrehledu;
+  vyplaceno_dne: string;
+  za_obdobi_od: string | null;
+  /** včetně */
+  za_obdobi_do: string | null;
+  poznamka: string | null;
+  zapsal: string;
+  zapsano_at: string;
+}
+/** p_vyplata pro provize_vyplata_uloz (§7 VyplataVstup). */
+export interface VyplataVstup {
+  id?: number | null;
+  user_id: number;
+  castka: string | number;
+  mena: MenaPrehledu;
+  /** prázdné pole formuláře jde jako null (server odpoví „Zadejte, kdy byla provize vyplacena.“) */
+  vyplaceno_dne: string | null;
+  za_obdobi_od?: string | null;
+  za_obdobi_do?: string | null;
+  poznamka?: string | null;
+}
+/** Potvrzení zrušení (§7 OkId). */
+export interface OkId {
+  ok: true;
+  id: number;
+}
+
 /** Jednotné API rozhraní — implementuje ho reálný Supabase klient i demo mock. */
 export interface Api {
   login(username: string, password: string): Promise<Session>;
@@ -1965,4 +2058,24 @@ export interface Api {
   prehledKontakt(token: string, kontaktId: number): Promise<PrehledObalka<DataKontakt>>;
   /** Katalog metrik a registry (§5.17); appka ho drží podle definice_verze. */
   prehledDefinice(token: string): Promise<PrehledObalka<DataDefinice>>;
+  /*
+   * Přehled vedení, nastavení (migrace 072, úkol 14b, kontrakt §4.3 až §4.5): všechny jen super admin („Přehled vidí jen super
+   * admin.“ před kontrolou parametrů), bez obálky; server bez 072 (PGRST202) = chyba BEZ_072_NASTAVENI. Zrušení je měkké
+   * (řádek zmizí ze seznamu i z výpočtů, v tabulce a v událostech zůstane).
+   */
+  /** Aktivní náklady všech, plati_od sestupně (§4.3a). */
+  nakladySeznam(token: string): Promise<Naklad[]>;
+  /** Nový náklad (bez id) nebo úplná náhrada aktivního (s id); každý super admin smí každý řádek (§4.3b). */
+  nakladyUloz(token: string, naklad: NakladVstup): Promise<Naklad>;
+  nakladyZrus(token: string, id: number): Promise<OkId>;
+  /** Aktivní cíle všech (každý super admin vidí všechny), `smi_upravit` podle D9 (§4.4a). */
+  cileSeznam(token: string): Promise<Cil[]>;
+  /** Nový cíl nebo úplná náhrada v rozsahu D9; odmítne jen přesný duplikát (§4.4b, R21). */
+  cileUloz(token: string, cil: CilVstup): Promise<Cil>;
+  cileZrus(token: string, id: number): Promise<OkId>;
+  /** Aktivní výplaty provizí všech, vyplaceno_dne sestupně (§4.5a). */
+  provizeVyplatySeznam(token: string): Promise<Vyplata[]>;
+  /** Nová výplata nebo úplná náhrada: super admin svému týmu, Albert komukoli (§4.5b, D10). */
+  provizeVyplataUloz(token: string, vyplata: VyplataVstup): Promise<Vyplata>;
+  provizeVyplataZrus(token: string, id: number): Promise<OkId>;
 }

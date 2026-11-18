@@ -9,6 +9,8 @@ import type {
   AutomationStatus,
   ChatMessage,
   ChatThread,
+  Cil,
+  CilVstup,
   DruhSignalu,
   DataAkce,
   DataDefinice,
@@ -38,7 +40,10 @@ import type {
   MeInfo,
   MojiFiltry,
   MyStats,
+  Naklad,
+  NakladVstup,
   OborNika,
+  OkId,
   OznaceneFiltry,
   PrehledFiltrVstup,
   PrehledObalka,
@@ -57,6 +62,8 @@ import type {
   UpdatedUser,
   UpdateUserArgs,
   UserStats,
+  Vyplata,
+  VyplataVstup,
   VysledekDovolani,
   ZapisHovoruVysledek,
   ZajemPodleVolajicich,
@@ -141,6 +148,13 @@ export const BEZ_064_OBOR = 'Server ještě neumí volat tenhle obor (chybí na 
  */
 export const BEZ_072_DUVOD = 'Důvod odmítnutí server ještě neumí (chybí na něm migrace 072).';
 /**
+ * Migrace 072 (Přehled vedení úkol 14b, Albert 17. 11. 2026, D6, D9 a D10): nastavení cílů, nákladů a výplat provizí proti
+ * serveru bez 072 (PGRST202 u kterékoli funkce cile_*, naklady_*, provize_*). Nastavení pak ukáže jen tuhle větu a nic
+ * neuloží; záložky s čísly (073) jedou dál podle sebe.
+ */
+export const BEZ_072_NASTAVENI =
+  'Nastavení Přehledu potřebuje migraci 072. Server ji zatím nemá, takže cíle, náklady ani výplaty provizí ještě nejde zadat.';
+/**
  * Migrace 074 (Přehled vedení, Albert 17. 11. 2026, D7): výběr lidí (p_user_ids) na pěti seznamech proti serveru bez 074
  * (PGRST202). Appka parametr posílá jen s výběrem, který není „jen já“ ani „všichni“; s jedním vybraným člověkem pak stránka
  * zavolá znovu dnešní volání jednoho člověka (sLidmi v src/lide.ts), s víc lidmi ukáže tuhle hlášku. ⚠ Oprava po recenzi
@@ -161,6 +175,15 @@ async function prehledRpc<T>(fn: string, body: Record<string, unknown>): Promise
     return await rpc<T>(fn, body);
   } catch (e) {
     if (neniNaServeru(e)) throw new Error(BEZ_073_PREHLED);
+    throw e;
+  }
+}
+/** Volání nastavení Přehledu (072): PGRST202 = BEZ_072_NASTAVENI, jiná chyba (věta serveru) projde doslova. */
+async function nastaveniRpc<T>(fn: string, body: Record<string, unknown>): Promise<T> {
+  try {
+    return await rpc<T>(fn, body);
+  } catch (e) {
+    if (neniNaServeru(e)) throw new Error(BEZ_072_NASTAVENI);
     throw e;
   }
 }
@@ -891,6 +914,36 @@ export const supabaseApi: Api = {
   },
   async prehledDefinice(token: string): Promise<PrehledObalka<DataDefinice>> {
     return prehledRpc('prehled_definice', { p_token: token });
+  },
+
+  // Přehled vedení, nastavení (migrace 072, úkol 14b, kontrakt §4.3 až §4.5): parametry doslova jako server; seznam bez řádků
+  // je vždy pole (server vrací [], null by stránku nesměl shodit)
+  async nakladySeznam(token: string): Promise<Naklad[]> {
+    return (await nastaveniRpc<Naklad[] | null>('naklady_seznam', { p_token: token })) ?? [];
+  },
+  async nakladyUloz(token: string, naklad: NakladVstup): Promise<Naklad> {
+    return nastaveniRpc('naklady_uloz', { p_token: token, p_naklad: naklad });
+  },
+  async nakladyZrus(token: string, id: number): Promise<OkId> {
+    return nastaveniRpc('naklady_zrus', { p_token: token, p_id: id });
+  },
+  async cileSeznam(token: string): Promise<Cil[]> {
+    return (await nastaveniRpc<Cil[] | null>('cile_seznam', { p_token: token })) ?? [];
+  },
+  async cileUloz(token: string, cil: CilVstup): Promise<Cil> {
+    return nastaveniRpc('cile_uloz', { p_token: token, p_cil: cil });
+  },
+  async cileZrus(token: string, id: number): Promise<OkId> {
+    return nastaveniRpc('cile_zrus', { p_token: token, p_id: id });
+  },
+  async provizeVyplatySeznam(token: string): Promise<Vyplata[]> {
+    return (await nastaveniRpc<Vyplata[] | null>('provize_vyplaty_seznam', { p_token: token })) ?? [];
+  },
+  async provizeVyplataUloz(token: string, vyplata: VyplataVstup): Promise<Vyplata> {
+    return nastaveniRpc('provize_vyplata_uloz', { p_token: token, p_vyplata: vyplata });
+  },
+  async provizeVyplataZrus(token: string, id: number): Promise<OkId> {
+    return nastaveniRpc('provize_vyplata_zrus', { p_token: token, p_id: id });
   },
 
   async zobrazeneStavy(token: string): Promise<ZobrazenyStav[]> {

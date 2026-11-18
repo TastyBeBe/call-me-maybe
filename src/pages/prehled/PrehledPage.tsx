@@ -9,6 +9,8 @@
 // Oprava po recenzi 18. 11. 2026: možnosti (hlavička čerstvosti) se načtou znovu při změně záložky a nejvýš po 5 minutách, když
 // je stránka vidět; katalog znovu, když odpověď nese jinou definice_verze (kontrakt §5.17). Zpět/Vpřed s otevřeným panelem řádků
 // panel zavře (fokus na kartu, a když karta zmizela, na nadpis). ⚠ NAHRAZUJE načtení možností a katalogu jen jednou za návštěvu.
+// Úkol 14b: Nastavení (cíle, náklady, výplaty provizí) jsou formuláře nad funkcemi 072; po každém uložení nebo zrušení zmenaDat
+// zvýší verzi dat v kontextu (záložky se načtou znovu) a načte znovu možnosti (čerstvost zdrojů v hlavičce).
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Navigate, useLocation, useNavigate, useParams } from 'react-router-dom';
@@ -124,6 +126,8 @@ function PrehledObsah({ session }: { session: Session }) {
   const [obnovaMoznosti, setObnovaMoznosti] = useState(0);
   // pětiminutová obnova čerstvosti pro bloky nezávislé na filtru (kvalita dat; úkol 14a, oprava po recenzi)
   const [obnova, setObnova] = useState(0);
+  // verze dat: každé uložení nebo zrušení v Nastavení ji zvýší, záložky se pak načtou znovu (úkol 14b)
+  const [verzeDat, setVerzeDat] = useState(0);
   const verzeKatalogu = useRef<string | null>(null);
   const zkusenaVerze = useRef<string | null>(null);
   const { demo } = getConfig();
@@ -217,6 +221,12 @@ function PrehledObsah({ session }: { session: Session }) {
     return () => document.removeEventListener('visibilitychange', zaseVidet);
   }, [obnovMoznosti]);
 
+  /** Nastavení uložilo nebo zrušilo cíl, náklad či výplatu: data záložek znovu a možnosti (čerstvost zdrojů) taky. */
+  const zmenaDat = useCallback(() => {
+    setVerzeDat((v) => v + 1);
+    obnovMoznosti();
+  }, [obnovMoznosti]);
+
   const nastavFiltr = useCallback(
     (f: FiltrPrehledu, volby?: VolbyZapisu) => {
       const hledani = zapisFiltr(f);
@@ -246,8 +256,8 @@ function PrehledObsah({ session }: { session: Session }) {
   const kontext: PrehledKontextHodnota | null = useMemo(() => {
     if (!moznosti) return null;
     const serverFiltr = filtrProServer(filtr, moznosti.data.tymy);
-    return { filtr, serverFiltr, klicFiltru: JSON.stringify(serverFiltr), moznosti, definice, otevriProklik, hlasVerzi, dnes, obnova };
-  }, [filtr, moznosti, definice, otevriProklik, hlasVerzi, dnes, obnova]);
+    return { filtr, serverFiltr, klicFiltru: JSON.stringify(serverFiltr), moznosti, definice, otevriProklik, hlasVerzi, dnes, obnova, verzeDat, zmenaDat };
+  }, [filtr, moznosti, definice, otevriProklik, hlasVerzi, dnes, obnova, verzeDat, zmenaDat]);
 
   if (!znamaZalozka || (zalozka === 'nastaveni' && !NASTAVENI_SEKCE.some((s) => s.klic === sekce))) {
     return <Navigate to={{ pathname: zalozka === 'nastaveni' ? '/prehled/nastaveni/cile' : '/prehled/vedeni', search: location.search }} replace />;

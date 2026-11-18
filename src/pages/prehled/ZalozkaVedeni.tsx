@@ -5,7 +5,7 @@
 // segmenty (prehled_klienti) a akční seznam (prehled_akce, nejbližších 8 případů a všechny v řádcích karty Případy k zásahu).
 
 import { useMemo } from 'react';
-import { getApi, type DataMoznosti, type DataSouhrn, type KartaKlic, type Metrika, type MetrikaCloveka, type PrehledObalka, type DataLide } from '../../api';
+import { getApi, type DataMoznosti, type DataSouhrn, type KartaKlic, type Metrika, type MetrikaCloveka, type PrehledObalka, type DataLide, type PripadAkce } from '../../api';
 import Trychtyr from '../../components/grafy/Trychtyr';
 import { NacitanyObsah, PrehledCastecne, PrehledChyba, PrehledNacita, PrehledPrazdne, varovaniBezOpakovani } from '../../components/prehled/Stavy';
 import { Blok, CisloTlacitko, TabulkaObal } from '../../components/prehled/Tabulka';
@@ -145,6 +145,62 @@ function Segmenty() {
   );
 }
 
+/**
+ * Text tlačítka „Zobrazit … případů“ (karta Případy k zásahu). Neznámý počet „—“, nikdy 0 (úkol 14b, přeneseno z recenze 14a;
+ * ⚠ NAHRAZUJE `karta.hodnota ?? 0`).
+ */
+export function textZobrazitPripady(n: number | null): string {
+  return `Zobrazit ${n === 1 ? 'jeden případ' : pocetSlovy(n, ['# případ', 'všechny # případy', 'všech # případů'])}`;
+}
+
+/**
+ * Tabulka akčního seznamu (nejbližší případy): termín jen dnem se ukáže bez „0:00“, s časem v Praze; samostatně kvůli testu
+ * (úkol 14b, přeneseno z recenze 14a).
+ */
+export function TabulkaAkci({ pripady }: { pripady: PripadAkce[] }) {
+  return (
+    <TabulkaObal popisek="Akční seznam">
+      <table className="prehled-tabulka" data-tabulka="akce">
+        <thead>
+          <tr>
+            <th scope="col">Termín</th>
+            <th scope="col">Klient</th>
+            <th scope="col">Problém</th>
+            <th scope="col">Další krok</th>
+            <th scope="col">Vede</th>
+            <th scope="col" className="cislo-sloupec">Hodnota</th>
+          </tr>
+        </thead>
+        <tbody>
+          {pripady.map((a) => (
+            <tr key={a.kontakt_id} data-radek={a.kontakt_id}>
+              <td>
+                {/* termín jen dnem (bez času) se ukáže bez „0:00“ (oprava po recenzi, drobnost 11) */}
+                {/^\d{4}-\d{2}-\d{2}$/.test(a.termin) ? denText(a.termin) : casText(a.termin)}
+                {a.po_terminu && <span className="prehled-znacka po-terminu">po termínu</span>}
+              </td>
+              <th scope="row">
+                {a.jmeno}
+                <span className="prehled-bunka-pozn">{a.nazev_stavu}</span>
+              </th>
+              <td>
+                {a.problem}
+                {a.signaly.length > 1 && <span className="prehled-bunka-pozn">a další: {a.signaly.slice(1).map((s) => s.text).join('; ')}</span>}
+              </td>
+              <td>{a.dalsi_krok}</td>
+              <td>
+                {a.vlastnik?.display_name ?? 'nikdo'}
+                {a.vlastnik?.tym_nazev ? <span className="prehled-bunka-pozn">{a.vlastnik.tym_nazev}</span> : null}
+              </td>
+              <td className="cislo-sloupec">{souctyText(a.hodnota) ?? (a.cena_stav === 'nezname' ? 'neznámá' : '—')}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </TabulkaObal>
+  );
+}
+
 function Akce({ karta }: { karta: Metrika | null }) {
   const otevri = useOtevriRadky();
   const { filtr } = usePrehled();
@@ -157,7 +213,7 @@ function Akce({ karta }: { karta: Metrika | null }) {
       popis="Jeden případ na klienta, nejdřív ten s nejbližším termínem: kdo ho vede, co se děje a co udělat."
       ovladani={karta?.proklik ? (
         <button type="button" className="pill-btn sm akce-vse" data-sfx="none" onClick={(e) => otevri(karta.proklik!, 'Případy k zásahu', e.currentTarget)}>
-          Zobrazit {karta.hodnota === 1 ? 'jeden případ' : pocetSlovy(karta.hodnota ?? 0, ['# případ', 'všechny # případy', 'všech # případů'])}
+          {textZobrazitPripady(karta.hodnota)}
         </button>
       ) : null}
     >
@@ -187,45 +243,7 @@ function Akce({ karta }: { karta: Metrika | null }) {
                   Jeden klient může mít víc signálů najednou, proto je součet těchto počtů vyšší než počet případů ({formatPocet(o.data.souhrn.pripadu)}).
                 </p>
               )}
-              <TabulkaObal popisek="Akční seznam">
-                <table className="prehled-tabulka" data-tabulka="akce">
-                  <thead>
-                    <tr>
-                      <th scope="col">Termín</th>
-                      <th scope="col">Klient</th>
-                      <th scope="col">Problém</th>
-                      <th scope="col">Další krok</th>
-                      <th scope="col">Vede</th>
-                      <th scope="col" className="cislo-sloupec">Hodnota</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {p.map((a) => (
-                      <tr key={a.kontakt_id} data-radek={a.kontakt_id}>
-                        <td>
-                          {/* termín jen dnem (bez času) se ukáže bez „0:00“ (oprava po recenzi, drobnost 11) */}
-                          {/^\d{4}-\d{2}-\d{2}$/.test(a.termin) ? denText(a.termin) : casText(a.termin)}
-                          {a.po_terminu && <span className="prehled-znacka po-terminu">po termínu</span>}
-                        </td>
-                        <th scope="row">
-                          {a.jmeno}
-                          <span className="prehled-bunka-pozn">{a.nazev_stavu}</span>
-                        </th>
-                        <td>
-                          {a.problem}
-                          {a.signaly.length > 1 && <span className="prehled-bunka-pozn">a další: {a.signaly.slice(1).map((s) => s.text).join('; ')}</span>}
-                        </td>
-                        <td>{a.dalsi_krok}</td>
-                        <td>
-                          {a.vlastnik?.display_name ?? 'nikdo'}
-                          {a.vlastnik?.tym_nazev ? <span className="prehled-bunka-pozn">{a.vlastnik.tym_nazev}</span> : null}
-                        </td>
-                        <td className="cislo-sloupec">{souctyText(a.hodnota) ?? (a.cena_stav === 'nezname' ? 'neznámá' : '—')}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </TabulkaObal>
+              <TabulkaAkci pripady={p} />
             </>
           );
         }}

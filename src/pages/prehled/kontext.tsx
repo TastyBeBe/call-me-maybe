@@ -3,6 +3,7 @@
 // funkci hookem usePrehledData (odpověď na starý filtr se zahodí, chyba jako věta pro člověka) a karty otevírá přes otevriProklik
 // (panel řádků s CSV). Nic z toho se nevolá pro Volajícího: stránka ho přesměruje dřív, než se cokoli načte. Každá odpověď hlásí
 // stránce svou definice_verze (hlasVerzi): jiná verze než u načteného katalogu = katalog znovu (oprava po recenzi, bod 6).
+// Úkol 14b: uložení v Nastavení (cíl, náklad, výplata) zavolá zmenaDat: verzeDat + 1, takže se data záložek načtou znovu.
 
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import type { DataDefinice, DataMoznosti, JednotkaMetriky, Metrika, MetrikaDefinice, PrehledFiltrVstup, PrehledObalka, PrehledProklik } from '../../api/types';
@@ -36,6 +37,13 @@ export interface PrehledKontextHodnota {
    * které na filtru nezávisí (kvalita dat), se načtou jednou za návštěvu a znovu jen s ním, ne při každé změně filtru.
    */
   obnova: number;
+  /**
+   * Verze dat Přehledu (úkol 14b): zvýší ji každé úspěšné uložení nebo zrušení v Nastavení (cíl, náklad, výplata provize); každé
+   * načtení záložek (usePrehledNacteni) ji má mezi důvody načíst znovu, takže žádné číslo nezůstane z doby před uložením.
+   */
+  verzeDat: number;
+  /** Nastavení něco uložilo nebo zrušilo: data záložek znovu a možnosti (čerstvost zdrojů Cíle, Náklady, Výplaty provizí) taky. */
+  zmenaDat: () => void;
 }
 
 export const PrehledKontext = createContext<PrehledKontextHodnota | null>(null);
@@ -95,7 +103,7 @@ export function usePrehledNacteni<T>(
   const aktivni = volby.aktivni ?? true;
   const bezFiltru = volby.bezFiltru ?? false;
   const session = useSession();
-  const { serverFiltr, klicFiltru, hlasVerzi } = usePrehled();
+  const { serverFiltr, klicFiltru, hlasVerzi, verzeDat } = usePrehled();
   const hlasVerziRef = useRef(hlasVerzi);
   hlasVerziRef.current = hlasVerzi;
   const [data, setData] = useState<T | null>(null);
@@ -133,8 +141,9 @@ export function usePrehledNacteni<T>(
         setPro(k);
         setNacita(false);
       });
-    // serverFiltr se mění s klicFiltru (otisk); objekt sám se tvoří při každém vykreslení, proto v závislostech není
-  }, [session.token, klicNacteni, kolo, klic, aktivni]);
+    // serverFiltr se mění s klicFiltru (otisk); objekt sám se tvoří při každém vykreslení, proto v závislostech není;
+    // verzeDat = po uložení v Nastavení znovu (úkol 14b)
+  }, [session.token, klicNacteni, kolo, klic, aktivni, verzeDat]);
 
   const znovu = useCallback(() => setKolo((k) => k + 1), []);
   return { data, chyba, nacita, znovu, pro };

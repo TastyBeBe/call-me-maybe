@@ -140,6 +140,19 @@ try {
 } catch (e) {
   over('Z0f', false, 'pohyby pipeline (Pohyby ze src/pages/prehled/ZalozkaPipeline.tsx) nejdou vykreslit samostatně', String(e.message).split('\n').slice(0, 2).join(' | '));
 }
+// úkol 14b (přenesené z recenze 14a): akční seznam jako samostatná tabulka a text tlačítka „Zobrazit … případů“
+let A = null;
+try {
+  A = await balicek([
+    "export { TabulkaAkci, textZobrazitPripady } from './src/pages/prehled/ZalozkaVedeni.tsx';",
+    "export { renderToStaticMarkup } from 'react-dom/server';",
+    "export { createElement } from 'react';",
+  ]);
+} catch (e) {
+  over('Z0g', false, 'tabulka akčního seznamu (TabulkaAkci, textZobrazitPripady ze ZalozkaVedeni.tsx) nejde vykreslit samostatně', String(e.message).split('\n').slice(0, 2).join(' | '));
+}
+
+// mock jako poslední balíček: háček __volackaDemoTest (stav, naplanujDosly …) patří k instanci API.mockApi
 let API = null;
 try {
   API = await balicek(["export { mockApi } from './src/api/mock.ts';"]);
@@ -344,7 +357,8 @@ await blok('Z4', async () => {
     'záhlaví jsou tlačítka řazení (aria-sort u řazeného), „Spojeno“ místo „Dovoláno“, mini pruhy, čísla s proklikem jsou tlačítka i v součtu',
     text(html).slice(0, 200));
   // odpracováno z plánu: záhlaví říká „za celé období“; s filtrem segmentu je pracovní čas nedostupný a buňka ukáže důvod serveru
-  const BEZ_DIM = 'Pracovní čas není rozdělený podle segmentu, oboru ani kraje; zrušte tyto filtry.';
+  // (⚠ úkol 14b: věta databáze z kontraktu §9 bod 14 NAHRAZUJE „Pracovní čas není rozdělený podle segmentu, oboru ani kraje …“)
+  const BEZ_DIM = 'Pracovní doba není rozdělená podle klientů; zrušte filtr.';
   const hodiny = (r, odpr, plan, plneni) => ({ ...r, radek: { ...r.radek, metriky: { ...r.radek.metriky,
     odpracovane_hodiny: odpr === null ? metr('odpracovane_hodiny', null, { duvod: BEZ_DIM }) : metr('odpracovane_hodiny', odpr),
     planovane_hodiny: plan === null ? metr('planovane_hodiny', null, { duvod: BEZ_DIM }) : metr('planovane_hodiny', plan),
@@ -384,6 +398,27 @@ await blok('Z4', async () => {
   ] })));
   const hodnotyDim = [...dim.matchAll(/<tr[^>]*data-radek="([^"]+)"[\s\S]*?<\/tr>/g)].map((m) => text(m[0]));
   over('Z4h', /pokrytí 2 ze 4/.test(hodnotyDim[0] ?? '') && !/pokrytí/.test(hodnotyDim[1] ?? ''), 'segmenty: neúplný součet hodnoty ukáže pokrytí („pokrytí 2 ze 4“), úplný ne', hodnotyDim.join(' | '));
+  // úkol 14b (přeneseno z recenze 14a): v buňce týmu na Vedení je důvod plnění plánu součtu („Bez rozvrhu: N lidí; …“) v bublině
+  // i jako text pro oči a čtečky, a částečné odpracované hodiny mají vlastní značku „částečně“ (s důvodem pro čtečky)
+  const BEZ_ROZVRHU = 'Bez rozvrhu: 2 lidé; jejich hodiny se do plnění plánu nepočítají.';
+  const ODHAD = 'U 1 ze 4 pracovních úseků je čas odhad z výsledků hovorů, bez časovače.';
+  const tym = (odprKvalita) => ({ klic: 'tym-1', nazev: 'Tým Albert', popis: '3 lidé', druh: 'tym', radek: { ...radekLidi('soucet', null, 'Tým Albert', 10, 1, '7000.00'), metriky: {
+    ...radekLidi('soucet', null, 'Tým Albert', 10, 1, '7000.00').metriky,
+    odpracovane_hodiny: metr('odpracovane_hodiny', 12.5, odprKvalita === 'castecne' ? { kvalita: 'castecne', duvod: ODHAD } : {}),
+    planovane_hodiny: metr('planovane_hodiny', 40),
+    plneni_planu: metr('plneni_planu', 0.15, { kvalita: 'castecne', citatel: 6, jmenovatel: 40, duvod: BEZ_ROZVRHU }) } } });
+  const bunkaTymu = (r) => {
+    const html = L.renderToStaticMarkup(h(L.TabulkaLidi, { tabulka: 'tymy', popisek: 'Týmy', prvniSloupec: 'Tým', radky: [r], soucet: null, sloupce: ['odpracovane_hodiny'], mena: 'CZK', definice: null, onProklik: () => {} }));
+    return /<td[^>]*data-sloupec="odpracovane_hodiny"[^>]*>([\s\S]*?)<\/td>/.exec(html)?.[1] ?? '';
+  };
+  const b1 = bunkaTymu(tym('castecne'));
+  const b2 = bunkaTymu(tym('dostupne'));
+  const bublina1 = [...b1.matchAll(/title="([^"]*)"/g)].map((m) => m[1].replace(/\s+/g, ' ')).join(' | ');
+  const castecneKolik = (b) => (text(b).match(/částečně/g) ?? []).length;
+  over('Z4i', text(b1).includes(BEZ_ROZVRHU) && bublina1.includes(BEZ_ROZVRHU) && text(b1).includes(ODHAD) && castecneKolik(b1) === 2
+    && text(b2).includes(BEZ_ROZVRHU) && castecneKolik(b2) === 1 && /^12,5 h z 40 h/.test(text(b1)),
+    'buňka týmu: důvod plnění plánu („Bez rozvrhu: 2 lidé; …“) v bublině i viditelně; částečné hodiny vlastní značkou „částečně“ s důvodem pro čtečky',
+    JSON.stringify({ b1: text(b1), b2: text(b2), bublina1 }));
 });
 
 /* ---------------- Z9) jeden tvar množného čísla a měsíce (oprava po recenzi, drobnosti 10 a 11) ---------------- */
@@ -432,18 +467,22 @@ await blok('Z5', async () => {
   const vzor = s.flatMap((x) => x.starnuti.pasma.filter((b) => b.n > 0).map((b) => ({ x, b })))[0];
   const r = vzor ? await API.mockApi.prehledRadky(T, vzor.b.proklik.zdroj, vzor.b.proklik.filtr) : null;
   // filtr segmentu, oboru nebo kraje: pracovní čas není po klientech, server ho vrátí nedostupný s důvodem (koordinátor
-  // 18. 11. 2026, revize databáze); provize se filtrem řídí dál; řada hodin je nedostupná celá
-  const PRACE = ['odpracovane_hodiny', 'vysledku_za_hodinu', 'planovane_hodiny', 'plneni_planu'];
+  // 18. 11. 2026, revize databáze); provize se filtrem řídí dál; řada hodin je nedostupná celá. ⚠ Úkol 14b (kontrakt §9 bod 14,
+  // databáze 073): věta „Pracovní doba není rozdělená podle klientů; zrušte filtr.“ a plán z rozvrhu klienty filtrovaný není, takže
+  // zůstává; NAHRAZUJE „plán taky nedostupný“ a větu „Pracovní čas není rozdělený podle segmentu, oboru ani kraje …“ úkolu 14a.
+  const PRACE = ['odpracovane_hodiny', 'vysledku_za_hodinu', 'plneni_planu'];
+  const BEZ_KLIENTU = 'Pracovní doba není rozdělená podle klientů; zrušte filtr.';
   const seg = await API.mockApi.prehledLide(T, { segment: ['architekt'] });
   const radkySeg = [seg.data.soucet, ...seg.data.radky];
   const radaSeg = await API.mockApi.prehledRada(T, 'odpracovane_hodiny', 'den', { segment: ['architekt'] });
   const rada = await API.mockApi.prehledRada(T, 'odpracovane_hodiny', 'den', null);
-  over('Z5d', radkySeg.length >= 2 && radkySeg.every((rr) => PRACE.every((k) => rr.metriky[k]?.kvalita === 'nedostupne' && rr.metriky[k].hodnota === null && /segment/.test(rr.metriky[k].duvod ?? '')))
+  over('Z5d', radkySeg.length >= 2 && radkySeg.every((rr) => PRACE.every((k) => rr.metriky[k]?.kvalita === 'nedostupne' && rr.metriky[k].hodnota === null && rr.metriky[k].duvod === BEZ_KLIENTU))
+    && seg.data.radky.find((rr) => rr.user_id === 2)?.metriky.planovane_hodiny.kvalita !== 'nedostupne'
     && seg.data.soucet.metriky.provize_narok.kvalita !== 'nedostupne' && cele.data.soucet.metriky.odpracovane_hodiny.kvalita !== 'nedostupne'
-    && radaSeg.data.body.length > 0 && radaSeg.data.body.every((b) => b.kvalita === 'nedostupne' && b.hodnota === null && /segment/.test(b.duvod ?? ''))
+    && radaSeg.data.body.length > 0 && radaSeg.data.body.every((b) => b.kvalita === 'nedostupne' && b.hodnota === null && b.duvod === BEZ_KLIENTU)
     && rada.data.body.some((b) => b.kvalita !== 'nedostupne'),
-    'filtr segmentu: pracovní čas (odpracováno, výsledků za hodinu, plán, plnění) nedostupný s důvodem v každém řádku, provize dál; řada hodin celá nedostupná',
-    JSON.stringify({ soucet: PRACE.map((k) => [k, seg.data.soucet.metriky[k]?.kvalita, seg.data.soucet.metriky[k]?.duvod]), body: radaSeg.data.body.slice(0, 2) }));
+    'filtr segmentu: pracovní čas (odpracováno, výsledků za hodinu, plnění) nedostupný s větou databáze v každém řádku, plán z rozvrhu zůstává, provize dál; řada hodin celá nedostupná',
+    JSON.stringify({ soucet: [...PRACE, 'planovane_hodiny'].map((k) => [k, seg.data.soucet.metriky[k]?.kvalita, seg.data.soucet.metriky[k]?.duvod]), body: radaSeg.data.body.slice(0, 2) }));
   // rozhodnutí koordinátora 18. 11. 2026 (task-14a-fixes.md): plnění plánu v součtu jen za lidi s plánem; hodiny lidí bez
   // rozvrhu se do něj nepočítají (částečné s důvodem), odpracováno v součtu dál za všechny
   const dva = await API.mockApi.prehledLide(T, { lide: [2, 3] });
@@ -525,6 +564,224 @@ await blok('Z6', async () => {
     'rampa grafů (7 kroků, 4 pásma) je v tokenech appky, prostřední krok je oranžová appky', '');
   const pkg = JSON.parse(src('package.json'));
   over('Z6d', /tests\/prehledzalozky\.test\.mjs/.test(pkg.scripts.test), 'npm test pouští i tests/prehledzalozky.test.mjs', pkg.scripts.test);
+});
+
+/* ---------------- Z12) akční seznam: termín jen dnem, tlačítko s neznámým počtem (úkol 14b, přeneseno z recenze 14a) ---------------- */
+await blok('Z12', async () => {
+  if (!A) return;
+  const pripad = (id, termin, po) => ({ kontakt_id: id, jmeno: `Klient ${id}`, segment: 'chata', status: 'navrh_odeslan', nazev_stavu: 'Návrh odeslán', vlastnik: null, problem: 'Mlčí po návrhu',
+    dalsi_krok: 'Zavolat', termin, po_terminu: po, hodnota: [], cena_stav: 'nezname', signaly: [{ kod: 'navrh_mlci', text: 'Mlčí po návrhu', od: termin, termin, zdroj: 'x' }], signal_zdroj: 'x' });
+  const html = A.renderToStaticMarkup(A.createElement(A.TabulkaAkci, { pripady: [pripad(1, '2027-03-20', false), pripad(2, '2027-03-20T08:15:00+00:00', true)] }));
+  const radek = (id) => text((new RegExp(`<tr[^>]*data-radek="${id}"[^>]*>([\\s\\S]*?)</tr>`).exec(html) ?? [])[1] ?? '');
+  over('Z12a', /data-tabulka="akce"/.test(html) && /^20\. 3\. 2027 Klient 1/.test(radek(1)) && !/0:00/.test(radek(1)) && /^20\. 3\. 2027 9:15 po termínu/.test(radek(2)),
+    'akční seznam: termín jen dnem se ukáže bez „0:00“, termín s časem s časem v Praze', JSON.stringify([radek(1), radek(2)]));
+  const t = [1, 3, 12, null].map((n) => A.textZobrazitPripady(n));
+  over('Z12b', stejne(t, ['Zobrazit jeden případ', 'Zobrazit všechny 3 případy', 'Zobrazit všech 12 případů', 'Zobrazit všech — případů']),
+    'tlačítko akčního seznamu: tvar podle počtu, neznámý počet „—“ (nikdy 0)', JSON.stringify(t));
+});
+
+/* ---------------- Z10) mock podle rozhodnutí databáze 18. 11. 2026 (kontrakt §9, úkol 4; úkol 14b) ---------------- */
+// Sedm pravidel, která databáze 073 po recenzi úkolu 4 dodržuje a mock musí stejně: 1) filtr segmentu, oboru a kraje se zadaným
+// k_datu = metriky bloku částečné, 2) neuchovávaná měřená pole se zadaným k_datu nedostupná, 3) náklady z evidence s filtrem lidí
+// nebo klientů nedostupné a volitelná kategorie Jiné nikdy neúplnost, 4) výplaty s filtrem klientů nedostupné, 5) otevření
+// v trychtýři, 6) hotové naplánované hovory tomu, kdo je uzavřel, 7) pracovní doba s filtrem klientů nedostupná.
+await blok('Z10', async () => {
+  if (!API) return;
+  const api = API.mockApi;
+  const T = 'demo-1-x';
+  const hacek = globalThis.__volackaDemoTest;
+  const DNES = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Prague', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+  const posunD = (d, n) => { const [y, m, dd] = d.split('-').map(Number); return new Date(Date.UTC(y, m - 1, dd + n)).toISOString().slice(0, 10); };
+  const OD = `${DNES.slice(0, 8)}01`;
+  const DO = posunD(`${posunD(`${DNES.slice(0, 8)}28`, 4).slice(0, 8)}01`, -1);
+  const hodinZpet = (h) => new Date(Date.now() - h * 3600000).toISOString();
+  const KD_PRED = hodinZpet(48); // před začátkem historie dema (30 h zpět)
+  const KD_PO = hodinZpet(2); // po začátku historie
+  const SEG = 'Segment podle dnešního stavu: historie začíná ';
+  const OBK = 'Obor a kraj podle dnešního stavu (nejsou v historii).';
+  const radkyLidi = (o) => [o.data.soucet, ...o.data.radky];
+  // 1) filtr segmentu před začátkem historie (a obor a kraj vždy) se zadaným k_datu: každá metrika bloku castecne s důvodem
+  const denKD = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Prague', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(KD_PRED));
+  const fSeg = { od: posunD(denKD, -6), do: denKD, segment: ['chata'], k_datu: KD_PRED };
+  const souhrn = await api.prehledSouhrn(T, fSeg);
+  const rada = await api.prehledRada(T, 'hovory', 'den', fSeg);
+  const trych = await api.prehledTrychtyr(T, fSeg);
+  const lide = await api.prehledLide(T, fSeg);
+  const castecneS = (objekty, veta) => objekty.length > 0 && objekty.every((m) => m.kvalita === 'nedostupne' || (m.kvalita === 'castecne' && (m.duvod ?? '').includes(veta)));
+  const kartyDost = Object.values(souhrn.data.karty).filter((m) => m.kvalita !== 'nedostupne');
+  const metrikyLidi = (o) => radkyLidi(o).flatMap((r) => Object.entries(r.metriky).filter(([k]) => k !== 'planovane_hodiny').map(([, m]) => m));
+  const plany = (o) => radkyLidi(o).map((r) => r.metriky.planovane_hodiny);
+  over('Z10a1', kartyDost.length > 0 && castecneS(kartyDost, SEG) && souhrn.meta.varovani.some((v) => v.kod === 'HISTORIE_OD')
+    && castecneS(rada.data.body.filter((b) => b.kvalita !== 'nedostupne'), SEG) && rada.data.body.some((b) => b.kvalita !== 'nedostupne')
+    && castecneS([...trych.data.kroky, ...trych.data.po_navrhu.kroky], SEG) && trych.meta.varovani.some((v) => v.kod === 'HISTORIE_OD')
+    && castecneS(metrikyLidi(lide), SEG) && plany(lide).every((m) => !(m.duvod ?? '').includes(SEG)) && lide.meta.varovani.some((v) => v.kod === 'HISTORIE_OD'),
+    'segment se zadaným k_datu před začátkem historie: karty, sloupce řady, kroky trychtýře a metriky lidí (kromě plánu) castecne „Segment podle dnešního stavu: historie začíná …“, varování HISTORIE_OD',
+    JSON.stringify({ karty: kartyDost.map((m) => [m.klic, m.kvalita, m.duvod]).slice(0, 3), bod: rada.data.body.find((b) => b.kvalita !== 'nedostupne'), krok: trych.data.kroky[1], lide: lide.meta.varovani.map((v) => v.kod) }));
+  const fKraj = { od: OD, do: DO, kraj: ['neznamy'], k_datu: KD_PO };
+  const sKraj = await api.prehledSouhrn(T, fKraj);
+  const lKraj = await api.prehledLide(T, fKraj);
+  const lSegPo = await api.prehledLide(T, { od: OD, do: DO, segment: ['chata'], k_datu: KD_PO });
+  const lSegZive = await api.prehledLide(T, { od: OD, do: DO, segment: ['chata'] });
+  const nikde = (o, veta) => metrikyLidi(o).every((m) => !(m.duvod ?? '').includes(veta));
+  over('Z10a2', castecneS(Object.values(sKraj.data.karty).filter((m) => m.kvalita !== 'nedostupne'), OBK) && castecneS(metrikyLidi(lKraj), OBK)
+    && !lKraj.meta.varovani.some((v) => v.kod === 'HISTORIE_OD') && nikde(lSegPo, SEG) && nikde(lSegZive, SEG) && nikde(lSegZive, OBK),
+    'obor a kraj se zadaným k_datu vždy castecne „Obor a kraj podle dnešního stavu (nejsou v historii).“; segment po začátku historie a bez k_datu bez té věty',
+    JSON.stringify({ kraj: metrikyLidi(lKraj).slice(0, 2).map((m) => [m.klic, m.kvalita, m.duvod]), segPo: lSegPo.meta.varovani.map((v) => v.kod) }));
+  // 2) se zadaným k_datu: doba do zavolání, hovory po termínu a „odpověděl“ po návrhu nedostupné (R11), K_DATU_MINULOST
+  const fK = { od: OD, do: DO, k_datu: KD_PO };
+  const lK = await api.prehledLide(T, fK);
+  const tK = await api.prehledTrychtyr(T, fK);
+  const lZ = await api.prehledLide(T, { od: OD, do: DO });
+  const tZ = await api.prehledTrychtyr(T, { od: OD, do: DO });
+  const SLA = 'Komu označení patří, se nezaznamenává; doba do zavolání je jen pro dnešek.';
+  const PO_TERMINU = 'Termín naplánovaného hovoru se nezaznamenává; hovory po termínu jsou jen pro dnešek.';
+  const ODPOVEDEL = 'Poslední odpověď klienta se nezaznamenává; odpovědi po návrhu jsou jen pro dnešek.';
+  const nedost = (m, veta) => !!m && m.kvalita === 'nedostupne' && m.hodnota === null && m.duvod === veta && m.proklik === null;
+  const odp = tK.data.po_navrhu.kroky.find((k) => k.klic === 'odpovedel');
+  over('Z10b', radkyLidi(lK).every((r) => r.sla_cenzurovano === null && nedost(r.metriky.sla_prvni_kontakt_median, SLA) && nedost(r.metriky.sla_prvni_kontakt_p90, SLA)
+      && nedost(r.metriky.naplanovane_po_terminu, PO_TERMINU) && r.metriky.naplanovane_hotove.kvalita !== 'nedostupne')
+    && lK.meta.varovani.some((v) => v.kod === 'K_DATU_MINULOST') && odp?.kvalita === 'nedostupne' && odp.n === null && odp.podil === null && odp.proklik === null && odp.duvod === ODPOVEDEL
+    && radkyLidi(lZ).every((r) => typeof r.sla_cenzurovano === 'number' && r.metriky.sla_prvni_kontakt_median.kvalita !== 'nedostupne' && r.metriky.naplanovane_po_terminu.kvalita !== 'nedostupne')
+    && tZ.data.po_navrhu.kroky.find((k) => k.klic === 'odpovedel')?.kvalita !== 'nedostupne',
+    'se zadaným k_datu: doba do zavolání a hovory po termínu nedostupné s větou databáze, sla_cenzurovano null, „Odpověděl“ po návrhu nedostupný; živě dostupné',
+    JSON.stringify({ sla: lK.data.soucet.metriky.sla_prvni_kontakt_median, odp }));
+  // 3) náklady z evidence s filtrem lidí, segmentu, oboru nebo kraje: kategorie, celkem a výsledek nedostupné, provize dál; řada
+  //    nákladů celá nedostupná; bez filtru prázdná povinná kategorie (hosting) = castecne, volitelná Jiné nikdy
+  const NAKL = 'Náklady z evidence nejsou rozdělené podle lidí ani klientů; zrušte filtr.';
+  const vadyNakladu = [];
+  for (const f of [{ lide: [2] }, { segment: ['chata'] }, { obor: ['autoservis: pneuservis'] }, { kraj: ['neznamy'] }]) {
+    const fin = await api.prehledFinance(T, { od: OD, do: DO, ...f });
+    const r = await api.prehledRada(T, 'naklady_celkem', 'den', { od: OD, do: DO, ...f });
+    const kat = fin.data.naklady.kategorie;
+    const ok = kat.every((k) => (k.kategorie === 'provize' ? k.castka.kvalita !== 'nedostupne' : nedost(k.castka, NAKL) && k.castka.castky.length === 0))
+      && nedost(fin.data.naklady.celkem, NAKL) && nedost(fin.data.vysledek, NAKL) && r.data.body.length > 0 && r.data.body.every((b) => b.kvalita === 'nedostupne' && b.duvod === NAKL);
+    if (!ok) vadyNakladu.push(`${JSON.stringify(f)}: ${JSON.stringify({ celkem: fin.data.naklady.celkem.kvalita, bod: r.data.body[0] })}`);
+  }
+  over('Z10c1', vadyNakladu.length === 0, 'náklady z evidence a výsledek s filtrem lidí, segmentu, oboru nebo kraje nedostupné s větou databáze, provize podle filtru; řada nákladů celá nedostupná', vadyNakladu.join(' | '));
+  const BEZ_HOSTINGU = 'Bez zadaného nákladu: Hosting (náš náklad).';
+  const fin0 = await api.prehledFinance(T, { od: OD, do: DO });
+  const kat0 = Object.fromEntries(fin0.data.naklady.kategorie.map((k) => [k.kategorie, k.castka]));
+  const r0 = await api.prehledRada(T, 'naklady_celkem', 'mesic', { od: OD, do: DO });
+  over('Z10c2', kat0.jine.kvalita === 'dostupne' && kat0.jine.castky[0]?.hodnota === '0.00' && kat0.hosting.kvalita === 'castecne' && (kat0.hosting.duvod ?? '').includes(BEZ_HOSTINGU)
+    && (fin0.data.naklady.celkem.duvod ?? '').includes(BEZ_HOSTINGU) && !/Jiné/.test(fin0.data.naklady.celkem.duvod ?? '') && fin0.data.vysledek.kvalita === 'castecne'
+    && r0.data.body.every((b) => b.kvalita !== 'castecne' || ((b.duvod ?? '').includes(BEZ_HOSTINGU) && !/Jiné/.test(b.duvod ?? ''))) && r0.data.body.some((b) => (b.duvod ?? '').includes(BEZ_HOSTINGU)),
+    'prázdná povinná kategorie (hosting) dělá kategorii, náklady celkem, výsledek i řadu castecne „Bez zadaného nákladu: …“; prázdná volitelná Jiné je ověřená 0 a neúplnost nedělá',
+    JSON.stringify({ jine: kat0.jine, hosting: kat0.hosting, celkem: fin0.data.naklady.celkem.duvod, bod: r0.data.body[0] }));
+  // 4) výplaty s filtrem segmentu, oboru nebo kraje nedostupné v každém řádku lidí i v součtu (a ve Financích); s lidmi dál podle člověka
+  const VYPL = 'Výplaty provizí nejsou rozdělené podle klientů; zrušte filtr.';
+  const vadyVyplat = [];
+  for (const f of [{ segment: ['chata'] }, { obor: ['autoservis: pneuservis'] }, { kraj: ['neznamy'] }]) {
+    const l = await api.prehledLide(T, { od: OD, do: DO, ...f });
+    const fin = await api.prehledFinance(T, { od: OD, do: DO, ...f });
+    const ok = radkyLidi(l).every((r) => nedost(r.metriky.provize_vyplaceno, VYPL) && nedost(r.metriky.provize_zbyva, VYPL) && r.metriky.provize_vyplaceno.castky.length === 0
+      && r.metriky.provize_narok.kvalita !== 'nedostupne') && nedost(fin.data.provize.vyplaceno, VYPL) && nedost(fin.data.provize.zbyva, VYPL) && fin.data.provize.narok.kvalita !== 'nedostupne';
+    if (!ok) vadyVyplat.push(`${JSON.stringify(f)}: ${JSON.stringify(l.data.soucet.metriky.provize_vyplaceno)}`);
+  }
+  const lPetra = await api.prehledLide(T, { od: posunD(DNES, -10), do: DNES, lide: [2] });
+  over('Z10d', vadyVyplat.length === 0 && lPetra.data.radky[0]?.metriky.provize_vyplaceno.castky[0]?.hodnota === '1470.00',
+    'výplaty provizí s filtrem segmentu, oboru nebo kraje nedostupné s větou databáze v každém řádku, součtu i Financích (nárok dál); s výběrem lidí podle příjemce',
+    `${vadyVyplat.join(' | ')} || ${JSON.stringify(lPetra.data.radky[0]?.metriky.provize_vyplaceno.castky)}`);
+  // 7) pracovní doba s filtrem segmentu, oboru nebo kraje nedostupná (plán zůstává), bez zdroje hovorů výsledky za hodinu nedostupné
+  const PRACE_TXT = 'Pracovní doba není rozdělená podle klientů; zrušte filtr.';
+  const vadyPrace = [];
+  for (const f of [{ segment: ['chata'] }, { obor: ['autoservis: pneuservis'] }, { kraj: ['neznamy'] }]) {
+    const l = await api.prehledLide(T, { od: OD, do: DO, ...f });
+    const r = await api.prehledRada(T, 'odpracovane_hodiny', 'den', { od: OD, do: DO, ...f });
+    const ok = radkyLidi(l).every((rr) => ['odpracovane_hodiny', 'vysledku_za_hodinu', 'plneni_planu'].every((k) => rr.metriky[k].kvalita === 'nedostupne' && rr.metriky[k].hodnota === null && rr.metriky[k].duvod === PRACE_TXT))
+      && l.data.radky.find((rr) => rr.user_id === 2)?.metriky.planovane_hodiny.kvalita !== 'nedostupne' && r.data.body.every((b) => b.kvalita === 'nedostupne' && b.duvod === PRACE_TXT);
+    if (!ok) vadyPrace.push(`${JSON.stringify(f)}: ${JSON.stringify(l.data.soucet.metriky.odpracovane_hodiny)}`);
+  }
+  over('Z10g1', vadyPrace.length === 0, 'pracovní doba (odpracováno, výsledků za hodinu, plnění) s filtrem segmentu, oboru nebo kraje nedostupná s větou databáze, plán z rozvrhu zůstává, řada hodin celá nedostupná', vadyPrace.join(' | '));
+  if (typeof hacek.vyprazdniHovory !== 'function') {
+    over('Z10g2', false, 'háček mocku vyprazdniHovory chybí (zkouška zdroje hovorů bez dat)', '');
+  } else {
+    const obnov = hacek.vyprazdniHovory();
+    let lBez;
+    try { lBez = await api.prehledLide(T, { od: OD, do: DO }); } finally { obnov(); }
+    const lPo = await api.prehledLide(T, { od: OD, do: DO });
+    const HOVORY = 'Zdroj „Hovory“ zatím nemá žádná data.';
+    over('Z10g2', radkyLidi(lBez).every((r) => nedost(r.metriky.vysledku_za_hodinu, HOVORY) && r.metriky.hovory.kvalita === 'nedostupne' && r.metriky.hovory.hodnota === null)
+      && lPo.data.soucet.metriky.hovory.kvalita !== 'nedostupne',
+      'bez jediného hovoru (zdroj Hovory chybí): výsledků za hodinu a čísla z hovorů nedostupné, nikdy ověřená 0', JSON.stringify(lBez.data.soucet.metriky.vysledku_za_hodinu));
+  }
+  // 6) hotový naplánovaný hovor se připíše tomu, kdo ho uzavřel (coalesce(zmenil_id, user_id)); po termínu a doba do zavolání
+  //    zůstávají vlastníkovi
+  const M = 'demo-4-x';
+  const st = hacek.stav();
+  const ceka = new Set(st.zavolat.filter((z) => z.stav === 'ceka').map((z) => z.kontakt_id));
+  const kand = st.kontakty.filter((c) => ['navrh_odeslan', 'ceka_na_klienta', 'zajem', 'upravy_ve_vyrobe'].includes(c.status) && !ceka.has(c.id) && c.segment === 'chata');
+  const F6 = { od: DNES, do: DNES, lide: [3, 4] };
+  const radekU = (o, uid) => o.data.radky.find((r) => r.user_id === uid)?.metriky;
+  const l6a = await api.prehledLide(T, F6);
+  const kdy = new Date(Date.now() + 86400000).toISOString();
+  const z = await api.zavolatNaplanovat(M, kand[0].id, kdy, null, 3);
+  await api.zavolatHotovo(M, z.id, null);
+  const l6b = await api.prehledLide(T, F6);
+  hacek.naplanujDosly(kand[1].id, 3);
+  const l6c = await api.prehledLide(T, F6);
+  const hot = (o, uid) => radekU(o, uid)?.naplanovane_hotove.hodnota;
+  const kotvy = (o, uid) => radekU(o, uid)?.vysledku_za_hodinu.citatel;
+  const poT = (o, uid) => radekU(o, uid)?.naplanovane_po_terminu.hodnota;
+  over('Z10f', kand.length >= 2 && hot(l6b, 4) === hot(l6a, 4) + 1 && hot(l6b, 3) === hot(l6a, 3) && kotvy(l6b, 4) === kotvy(l6a, 4) + 1 && kotvy(l6b, 3) === kotvy(l6a, 3)
+    && poT(l6c, 3) === poT(l6b, 3) + 1 && poT(l6c, 4) === poT(l6b, 4),
+    'hovor Honzy uzavřený Mikulášem: hotový i výsledek pracovní doby u Mikuláše (kdo uzavřel), po termínu zůstává vlastníkovi',
+    JSON.stringify({ hot: [hot(l6a, 4), hot(l6b, 4), hot(l6a, 3), hot(l6b, 3)], kotvy: [kotvy(l6a, 4), kotvy(l6b, 4), kotvy(l6a, 3), kotvy(l6b, 3)], poT: [poT(l6b, 3), poT(l6c, 3)] }));
+  // 5) otevření v trychtýři: prodaný klient je u kroků do „prodáno“ včetně uzavřený, u „fakturováno“ a „zaplaceno“ otevřený
+  const F5 = { od: posunD(DNES, -60), do: DNES };
+  const t5 = await api.prehledTrychtyr(T, F5);
+  const krok = (o, k) => o.data.kroky.find((x) => x.klic === k);
+  const idsKroku = async (o, k) => new Set((await api.prehledRadky(T, krok(o, k).proklik.zdroj, krok(o, k).proklik.filtr, null, 200)).data.radky.map((r) => r.kontakt_id));
+  const seZajmem = await idsKroku(t5, 'zajem');
+  const sNavrhem = await idsKroku(t5, 'navrh');
+  const st5 = hacek.stav();
+  const otevrene = ['zajem', 'web_ve_vyrobe', 'ceka_na_klienta', 'upravy_ve_vyrobe', 'pozdeji', 'pozastaveno', 'eskalace', 'navrh_odeslan'];
+  const c5 = st5.kontakty.find((c) => seZajmem.has(c.id) && !sNavrhem.has(c.id) && otevrene.includes(c.status));
+  if (!c5) {
+    over('Z10e', false, 'v demu chybí klient kohorty se zájmem bez návrhu (zkouška otevřených v trychtýři)', '');
+  } else {
+    const puvodni = c5.status;
+    await api.updateKontakt(T, c5.id, { status: 'schvaleno' });
+    let t5b;
+    try { t5b = await api.prehledTrychtyr(T, F5); } finally { await api.updateKontakt(T, c5.id, { status: puvodni }); }
+    const prodane = await idsKroku(t5b, 'prodano');
+    const fakturovane = await idsKroku(t5b, 'fakturovano');
+    over('Z10e', krok(t5b, 'navrh').otevrenych === krok(t5, 'navrh').otevrenych - 1 && krok(t5b, 'zajem').otevrenych === krok(t5, 'zajem').otevrenych
+      && krok(t5b, 'fakturovano').otevrenych === [...prodane].filter((id) => !fakturovane.has(id)).length,
+      'trychtýř: prodaný klient bez návrhu u kroku „Návrh odeslán“ už není otevřený (do „prodáno“ včetně je prodaný uzavřený); u „Fakturováno“ je každý prodaný bez faktury otevřený',
+      JSON.stringify({ navrh: [krok(t5, 'navrh').otevrenych, krok(t5b, 'navrh').otevrenych], fakt: [krok(t5b, 'fakturovano').otevrenych, prodane.size, fakturovane.size] }));
+  }
+});
+
+/* ---------------- Z11) množné číslo věty „Bez rozvrhu“ v součtu (úkol 14b, přeneseno z recenze 14a) ---------------- */
+// Pět nových Volajících bez rozvrhu odpracuje dnes kus času (Albert jim naplánuje hovor u klienta mimo frontu, oni otevřou
+// kartu a hovor uzavřou: výsledek pracovní doby, §5.14); s Petrou (má rozvrh) v součtu: 1 člověk / jeho, 2–4 lidé / jejich,
+// 5 a víc lidí / jejich. Až na konci souboru: zakládá lidi a hovory v mocku.
+await blok('Z11', async () => {
+  if (!API) return;
+  const api = API.mockApi;
+  const T = 'demo-1-x';
+  const DNES = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Prague', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+  const st = globalThis.__volackaDemoTest.stav();
+  const ceka = new Set(st.zavolat.filter((z) => z.stav === 'ceka').map((z) => z.kontakt_id));
+  const volni = st.kontakty.filter((c) => ['navrh_odeslan', 'ceka_na_klienta', 'zajem', 'upravy_ve_vyrobe', 'web_ve_vyrobe', 'eskalace'].includes(c.status) && !ceka.has(c.id));
+  const novi = [];
+  for (let i = 0; i < 5; i += 1) {
+    const r = await api.createUser(T, `bezrozvrhu${i}`, 'heslo123', `Bez Rozvrhu ${i}`, 'admin', 1);
+    const s = await api.login(`bezrozvrhu${i}`, 'heslo123');
+    const z = await api.zavolatNaplanovat(T, volni[i].id, new Date(Date.now() + 86400000).toISOString(), null, r.user_id);
+    await api.praceTep(s.token, 'karta', volni[i].id);
+    const t0 = Date.now();
+    while (Date.now() - t0 < 3) { /* aspoň 3 ms práce mezi kartou a výsledkem */ }
+    await api.zavolatHotovo(s.token, z.id, null);
+    novi.push(r.user_id);
+  }
+  const veta = async (n) => (await api.prehledLide(T, { od: DNES, do: DNES, lide: [2, ...novi.slice(0, n)] })).data.soucet.metriky.plneni_planu;
+  const v = [];
+  for (const n of [1, 2, 4, 5]) v.push(await veta(n));
+  const ma = (m, s) => m.kvalita === 'castecne' && (m.duvod ?? '').includes(s);
+  over('Z11', ma(v[0], 'Bez rozvrhu: 1 člověk; jeho hodiny se do plnění plánu nepočítají.') && ma(v[1], 'Bez rozvrhu: 2 lidé; jejich hodiny se do plnění plánu nepočítají.')
+    && ma(v[2], 'Bez rozvrhu: 4 lidé; jejich hodiny se do plnění plánu nepočítají.') && ma(v[3], 'Bez rozvrhu: 5 lidí; jejich hodiny se do plnění plánu nepočítají.'),
+    'věta součtu „Bez rozvrhu“ ve správném tvaru: 1 člověk / jeho, 2 a 4 lidé / jejich, 5 lidí / jejich', JSON.stringify(v.map((m) => [m.kvalita, m.duvod])));
 });
 
 if (chyby === 0) {
