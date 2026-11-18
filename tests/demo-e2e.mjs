@@ -3153,11 +3153,39 @@ await blok050('FP2', async () => {
   await page.getByRole('button', { name: 'Zrušit vše', exact: true }).click();
   await klid(page, 700);
   const b = await posledni();
-  over('FP2c', !!b && b.segment === 'architekt' && !b.status && !b.statusy && !b.mlci_min && !b.cekani && !b.kos && !b.caller && !b.jen_hvezda
-    && (await page.locator('.filtr-cip').count()) === 0 && (await page.locator('select[aria-label="Filtr čekání na odpověď"]').inputValue()) === ''
-    && (await page.locator('select[aria-label="Filtr volajícího"]').inputValue()) === '' && (await page.locator('.filtr-kose').count()) === 0
+  // ⚠ rozhodnutí koordinátora 18. 11. 2026: výběr člověka je rozsah stránky jako segment, „Zrušit vše“ ho nechá (zůstane jeho
+  // čip, „Zrušit vše“ pak už není); NAHRAZUJE FP2c „zruší i volajícího“ z b34677f
+  const zbyle = (await page.locator('.filtr-cip').allInnerTexts()).map(txt);
+  over('FP2c', !!b && b.segment === 'architekt' && b.caller === 'Petra' && !b.status && !b.statusy && !b.mlci_min && !b.cekani && !b.kos && !b.jen_hvezda
+    && JSON.stringify(zbyle) === JSON.stringify(['Volající: Petra']) && (await page.getByRole('button', { name: 'Zrušit vše', exact: true }).count()) === 0
+    && (await page.locator('select[aria-label="Filtr čekání na odpověď"]').inputValue()) === ''
+    && (await page.locator('select[aria-label="Filtr volajícího"]').inputValue()) === 'Petra' && (await page.locator('.filtr-kose').count()) === 0
     && (await filtr(page, 'architekti').getAttribute('aria-pressed')) === 'true',
-    'Zrušit vše: zruší stav, mlčení, čekání, koš, hvězdu i volajícího, segment nechá', JSON.stringify(b));
+    'Zrušit vše: zruší stav, mlčení, čekání, koš a hvězdu; volajícího a segment nechá', JSON.stringify({ b, zbyle }));
+  await ctx.close();
+});
+await blok050('FP6', async () => {
+  // rozhodnutí koordinátora 18. 11. 2026 („a super admin viewing Petra's clients must stay on Petra's clients“): v Moji klienti
+  // „Zrušit vše“ zruší filtry, výběr člověka (rozsah stránky) nechá: výběr, nadpis i dotaz na server zůstanou u Petry
+  const { ctx, page } = await novaStranka('admin');
+  await jdi(page, '#/moji', 700);
+  await page.selectOption('#person-picker', String(UID.petra));
+  await klid(page, 700);
+  await vyber(page, 'Filtr statusu', ['nedovolano'], '.moji-filtry');
+  await page.locator('.moji-filtry button[aria-label="Jen s hvězdou"]').click();
+  await klid(page, 600);
+  const pred = (await page.evaluate(zmerFP)).cipy;
+  await page.getByRole('button', { name: 'Zrušit vše', exact: true }).click();
+  await klid(page, 700);
+  const posl = (await volani(page)).filter((v) => v.fn === 'myKontakty' && v.args[0] === 2000).pop();
+  const po = (await page.evaluate(zmerFP)).cipy;
+  const h1 = txt(await page.locator('h1.page-title').innerText());
+  over('FP6', JSON.stringify(pred) === JSON.stringify(['Klienti: Petra', 'Stav: Nedovoláno', 'Jen s hvězdou'])
+    && (await page.locator('#person-picker').inputValue()) === String(UID.petra) && /Klienti — Petra/.test(h1)
+    && posl?.args[2] === UID.petra && !posl?.args[4]?.status && !posl?.args[4]?.statusy && !posl?.args[4]?.jen_hvezda
+    && JSON.stringify(po) === JSON.stringify(['Klienti: Petra']) && (await page.getByRole('button', { name: 'Zrušit vše', exact: true }).count()) === 0,
+    'Moji klienti (super admin na klientech Petry): „Zrušit vše“ zruší filtry, Petru nechá (výběr, nadpis i dotaz na server)',
+    JSON.stringify({ pred, po, h1, args: posl?.args }));
   await ctx.close();
 });
 await blok050('FP3', async () => {

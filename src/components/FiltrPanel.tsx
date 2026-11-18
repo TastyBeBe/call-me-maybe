@@ -5,8 +5,11 @@
 //  1. řada: osoba (slot `lide`; úkol 10 sem dá výběr lidí) · segment · hledání (jedno pole, jedno zpoždění 300 ms),
 //  2. řada: stav · známka · neodpověděl · mlčí · čekání · hvězda · odpověděl · řazení vpravo (components/SeznamFiltry.tsx),
 //     pod ní koše čekání (jen se zapnutým čekáním) a pilulky stránky (`extra`: Označené „Co je potřeba“),
-//  3. řada: čipy zapnutých filtrů s křížkem a „Zrušit vše“: zruší všechno kromě segmentu (jako dřív „Zrušit filtry“), navíc
-//     čekání, koš, „Co je potřeba“ a výběr člověka (onZrusVse stránky). ⚠ NAHRAZUJE „Zrušit filtry“, které je nechávalo.
+//  3. řada: čipy zapnutých filtrů s křížkem a „Zrušit vše“: zruší všechno kromě segmentu a výběru člověka (jako dřív
+//     „Zrušit filtry“), navíc čekání, koš a „Co je potřeba“. ⚠ NAHRAZUJE „Zrušit filtry“, které je nechávalo. Výběr člověka
+//     je rozsah stránky („čí klienti“) jako segment, ne filtr (rozhodnutí koordinátora 18. 11. 2026: „a super admin viewing
+//     Petra's clients must stay on Petra's clients“): má jen svůj čip, který ho vrátí na výchozí, a „Zrušit vše“ ho nechá;
+//     ⚠ NAHRAZUJE „Zrušit vše vrátí i výběr člověka (onZrusVse stránky)“ z b34677f. „Zrušit vše“ je jen u čipů filtrů.
 // Telefon (do 640 px): venku zůstane segment, hledání, tlačítko „Filtry (n)“ (n = počet čipů) a čipy; osoba, řada 2, koše,
 // pilulky a řazení jsou v jednom okně odspodu (role dialog, Escape a tlačítka ho zavřou, fokus se vrátí na tlačítko).
 // Segment zůstává venku, protože ho „Zrušit vše“ nechává a čip nemá: zúžený seznam by jinak nebyl na první pohled poznat.
@@ -71,7 +74,10 @@ export interface Cip {
   zrus: () => StavFiltru;
 }
 
-/** Čip výběru lidí (řada 1, dává ho stránka, jen když výběr není výchozí): text a návrat k výchozímu výběru. */
+/**
+ * Čip výběru lidí (řada 1, dává ho stránka, jen když výběr není výchozí): text a návrat k výchozímu výběru. Počítá se do
+ * „Filtry (n)“ (na telefonu je výběr v okně), „Zrušit vše“ ho nechá (rozsah stránky jako segment).
+ */
 export interface LideCip {
   text: string;
   zrus: () => void;
@@ -117,7 +123,6 @@ export default function FiltrPanel({
   onFiltry,
   lide,
   lideCip,
-  onZrusVse,
   segment = true,
   hledat,
   razeni,
@@ -133,10 +138,8 @@ export default function FiltrPanel({
   onFiltry: (f: StavFiltru) => void;
   /** slot „Lidé“ v řadě 1 (výběr člověka stránky); na telefonu v okně */
   lide?: ReactNode;
-  /** čip výběru lidí, když není výchozí (počítá se do „Filtry (n)“, „Zrušit vše“ ho vrátí přes onZrusVse) */
+  /** čip výběru lidí, když není výchozí (počítá se do „Filtry (n)“, „Zrušit vše“ ho nechá) */
   lideCip?: LideCip | null;
-  /** co stránka vrátí navíc při „Zrušit vše“ (výběr člověka) */
-  onZrusVse?: () => void;
   /** filtr segmentu (vše / chaty / architekti / niky) */
   segment?: boolean;
   /** pole hledání: popisek pro čtečku a nápověda */
@@ -167,9 +170,9 @@ export default function FiltrPanel({
   const zmen = (patch: Partial<StavFiltru>) => onFiltry({ ...filtry, ...patch });
   const cipy = aktivniChipy(filtry);
   const pocetCipu = cipy.length + (lideCip ? 1 : 0);
+  // „Zrušit vše“ jen nad stavem filtrů: segment a výběr člověka (rozsah stránky) zůstanou
   const zrusVseKlik = () => {
     onFiltry(zrusVse(filtry));
-    onZrusVse?.();
   };
 
   // okno je jen na telefonu: širší obrazovka (otočení) ho zavře
@@ -297,7 +300,7 @@ export default function FiltrPanel({
         {pocetCipu > 0 && (
           <div className="filtr-rada filtr-cipy" role="group" aria-label="Zapnuté filtry">
             {cipTlacitka}
-            {zrusitVse}
+            {cipy.length > 0 && zrusitVse}
           </div>
         )}
       </div>
@@ -321,7 +324,7 @@ export default function FiltrPanel({
           <FiltrIcon size={16} /> {pocetCipu > 0 ? `Filtry (${pocetCipu})` : 'Filtry'}
         </button>
         {cipTlacitka}
-        {pocetCipu > 0 && zrusitVse}
+        {cipy.length > 0 && zrusitVse}
       </div>
       {otevreno && (
         <>
@@ -350,7 +353,7 @@ export default function FiltrPanel({
               <div className="filter-bar filtr-razeni-rada">{razeni}</div>
             </div>
             <div className="filtr-sheet-pata">
-              <button type="button" className="pill-btn zrusit-filtry" disabled={!lzeZrusit(filtry) && !lideCip} onClick={zrusVseKlik}>
+              <button type="button" className="pill-btn zrusit-filtry" disabled={!lzeZrusit(filtry)} onClick={zrusVseKlik}>
                 <XIcon size={15} /> Zrušit vše
               </button>
               <button type="button" className="pill-btn go filtr-sheet-hotovo" onClick={() => setOtevreno(false)}>

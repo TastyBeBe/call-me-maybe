@@ -87,7 +87,8 @@ const PAGE_SIZE = 50;
 // ⚠ Přehled vedení úkol 11 (Albert 17. 11. 2026, rozložení filtrů) NAHRAZUJE řádek filtrů se segmentem nad ním a výběrem
 // volajícího a čekání uprostřed: panel FiltrPanel (1. řada volající · segment · hledání, 2. řada filtry s čekáním a řazením
 // vpravo, pod ní koše, 3. řada čipy a „Zrušit vše“; na telefonu okno „Filtry (n)“). Čekání a koš jsou ve stavu filtrů
-// (Zrušit vše je zruší i s volajícím), hledání má jedno sdílené zpoždění (useZpozdeneHledani). Parametry serveru beze změny.
+// (Zrušit vše je zruší; vybraného volajícího nechá jako segment, rozhodnutí koordinátora 18. 11. 2026), hledání má jedno
+// sdílené zpoždění (useZpozdeneHledani). Parametry serveru beze změny.
 export default function AdminPage() {
   const session = useSession();
   // migrace 064: zástupný text hledání zmíní firmu, jen když jsou v appce niky oboru
@@ -326,7 +327,6 @@ export default function AdminPage() {
               }
             : null
         }
-        onZrusVse={() => setCaller('')}
         hledat={{
           aria: 'Hledat v kontaktech',
           placeholder: (

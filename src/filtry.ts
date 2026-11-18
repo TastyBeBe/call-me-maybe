@@ -63,7 +63,9 @@ export const PRAZDNE_FILTRY: StavFiltru = {
 
 /**
  * „Zrušit vše“ (úkol 11, Albert 17. 11. 2026): zruší každý filtr stavu i čekání, koš a pilulky „Co je potřeba“, hledání
- * a řazení (jako dřív „Zrušit filtry“); segment zůstane jako dřív. Výběr člověka (řada 1) vrací stránka sama (onZrusVse).
+ * a řazení (jako dřív „Zrušit filtry“); segment zůstane jako dřív. Výběr člověka (řada 1) není ve stavu filtrů a zůstane
+ * taky: je to rozsah stránky jako segment (rozhodnutí koordinátora 18. 11. 2026; ⚠ NAHRAZUJE „výběr člověka vrací stránka
+ * přes onZrusVse“ z b34677f).
  */
 export function zrusVse(f: StavFiltru): StavFiltru {
   return { ...PRAZDNE_FILTRY, segment: f.segment };

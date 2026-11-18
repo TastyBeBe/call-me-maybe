@@ -311,6 +311,15 @@ await blok('V', async () => {
   over('FP11d', !/aria-label="Filtr označení"/.test(oznacene) && !/Filtr čekání/.test(oznacene) && /oznacene-druhy/.test(oznacene)
     && oznacene.indexOf('filtr-rada-2') < oznacene.indexOf('oznacene-druhy'),
     'Označené: bez Neodpověděl a čekání, pilulky „Co je potřeba“ pod řadou filtrů');
+  // ⚠ rozhodnutí koordinátora 18. 11. 2026: výběr člověka je rozsah stránky jako segment, „Zrušit vše“ ho nechá. Čip osoby
+  // zůstává (je vidět i na telefonu, kde je výběr v okně) a zruší ho jen jeho křížek; „Zrušit vše“ je jen u čipů filtrů, sám
+  // čip osoby ho nemá (tlačítko by nic nezrušilo). NAHRAZUJE „Zrušit vše vrátí i výběr člověka“ (b34677f).
+  const lideCipJen = { text: 'Klienti: Petra', zrus: () => {} };
+  const jenOsoba = P.renderToStaticMarkup(h(P.FiltrPanel, props(FM.PRAZDNE_FILTRY, { lideCip: lideCipJen })));
+  const sOsobou = P.renderToStaticMarkup(h(P.FiltrPanel, props({ ...FM.PRAZDNE_FILTRY, jenHvezda: true }, { lideCip: lideCipJen })));
+  over('FP11e', /filtr-cipy/.test(jenOsoba) && /Klienti: Petra/.test(jenOsoba) && !/Zrušit vše/.test(jenOsoba)
+    && /Klienti: Petra/.test(sOsobou) && /Jen s hvězdou/.test(sOsobou) && /Zrušit vše/.test(sOsobou),
+    'počítač: čip osoby bez „Zrušit vše“, když jiný filtr zapnutý není; s filtrem čip osoby i „Zrušit vše“');
   // telefon (do 640 px): hledání a segment venku, ostatní filtry až v panelu „Filtry (n)“
   globalThis.window = { matchMedia: (q) => ({ matches: /max-width:\s*640px/.test(q), media: q, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {} }) };
   try {
@@ -326,6 +335,11 @@ await blok('V', async () => {
     const telPrazdny = P.renderToStaticMarkup(h(P.FiltrPanel, props(FM.PRAZDNE_FILTRY)));
     const t2 = /<button[^>]*filtr-telefon-btn[^>]*>([\s\S]*?)<\/button>/.exec(telPrazdny)?.[1]?.replace(/<[^>]+>/g, '').trim() ?? '';
     over('FP12c', t2 === 'Filtry' && !/Zrušit vše/.test(telPrazdny), 'telefon bez filtrů: jen „Filtry“, žádné Zrušit vše', t2);
+    // rozhodnutí koordinátora 18. 11. 2026: jen vybraný člověk = čip osoby a „Filtry (1)“, ale žádné „Zrušit vše“
+    const telOsoba = P.renderToStaticMarkup(h(P.FiltrPanel, props(FM.PRAZDNE_FILTRY, { lideCip })));
+    const t3 = /<button[^>]*filtr-telefon-btn[^>]*>([\s\S]*?)<\/button>/.exec(telOsoba)?.[1]?.replace(/<[^>]+>/g, '').trim() ?? '';
+    over('FP12d', t3 === 'Filtry (1)' && /Volající: Petra/.test(telOsoba) && !/Zrušit vše/.test(telOsoba),
+      'telefon jen s vybraným člověkem: „Filtry (1)“ a čip osoby, „Zrušit vše“ ne (osobu nechává)', t3);
   } finally {
     delete globalThis.window;
   }
@@ -349,8 +363,15 @@ await blok('Z', async () => {
   over('FP13', spatne.length === 0, 'tři stránky: jeden panel FiltrPanel, hledání jen v panelu, jedno zpoždění hledání', spatne.join(' | '));
   over('FP13b', P?.HLEDANI_ZPOZDENI_MS === 300 && (panel.match(/setTimeout\(/g) ?? []).length === 1,
     'zpoždění hledání 300 ms jako dřív, na jednom místě (FiltrPanel)', String(P?.HLEDANI_ZPOZDENI_MS));
-  over('FP13c', /zrusVse\(filtry\)/.test(panel) && /onZrusVse/.test(panel) && /role="dialog"/.test(panel) && /aria-modal="true"/.test(panel),
-    'panel: Zrušit vše přes zrusVse (a co stránka vrátí navíc), na telefonu okno role dialog');
+  // ⚠ rozhodnutí koordinátora 18. 11. 2026: „Zrušit vše“ výběr člověka nechá (rozsah stránky jako segment); NAHRAZUJE FP13c
+  // „Zrušit vše přes zrusVse a co stránka vrátí navíc (onZrusVse: výběr člověka)“ z b34677f
+  const zrusKlik = /const zrusVseKlik = \(\) => \{([\s\S]*?)\};/.exec(panel)?.[1] ?? '';
+  // kód bez komentářů (poznámky „NAHRAZUJE … onZrusVse“ v komentářích zůstávají jako historie)
+  const kod = (s) => s.replace(/\{\/\*[\s\S]*?\*\/\}/g, '').replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+  over('FP13c', zrusKlik.trim() === 'onFiltry(zrusVse(filtry));' && !/onZrusVse/.test(kod(panel)) && !/onZrusVse/.test(kod(admin + moji + ozn))
+    && /role="dialog"/.test(panel) && /aria-modal="true"/.test(panel),
+    'panel: Zrušit vše jen zrusVse (výběr člověka ani segment nemění, stránky nic navíc nevracejí), na telefonu okno role dialog',
+    zrusKlik.trim().slice(0, 120));
   // osoba v řadě 1: Kontakty výběr volajícího (i Volající, jako dřív), Moji klienti a Označené PersonPicker (jen super admin)
   over('FP13d', (admin.match(/aria-label="Filtr volajícího"/g) ?? []).length === 1 && /<option value="">Všichni volající<\/option>/.test(admin)
     && /<option value=\{session\.display_name\}>Naposledy volal\/a já<\/option>/.test(admin)

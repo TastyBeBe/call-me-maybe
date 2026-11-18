@@ -38,7 +38,9 @@
 // ⚠ Přehled vedení úkol 11 (Albert 17. 11. 2026, rozložení filtrů) NAHRAZUJE výběr člověka nad segmentem a řádek filtrů
 // s čekáním uprostřed a koši pod ním: panel FiltrPanel (1. řada člověk · segment · hledání, 2. řada filtry s čekáním
 // a řazením vpravo, pod ní koše, 3. řada čipy a „Zrušit vše“; na telefonu okno „Filtry (n)“). Čekání a koš jsou ve stavu
-// filtrů; „Zrušit vše“ je zruší a vrátí i výběr člověka na „Já“. Hledání má jedno sdílené zpoždění (useZpozdeneHledani).
+// filtrů; „Zrušit vše“ je zruší, výběr člověka nechá (rozsah stránky jako segment; rozhodnutí koordinátora 18. 11. 2026:
+// „a super admin viewing Petra's clients must stay on Petra's clients“, ⚠ NAHRAZUJE „vrátí i výběr člověka na Já“ z b34677f).
+// Hledání má jedno sdílené zpoždění (useZpozdeneHledani).
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getApi, type Kontakt, type MojiFiltry } from '../api';
@@ -293,7 +295,7 @@ export default function MojiPage() {
   };
 
   const soucet = Object.values(statusCounts).reduce((a, b) => a + b, 0);
-  // čip „Klienti: …“ a „Zrušit vše“ (úkol 11): zpět na vlastní klienty
+  // křížek čipu „Klienti: …“ (úkol 11): zpět na vlastní klienty („Zrušit vše“ výběr člověka nechá)
   const zpetNaMe = () => {
     setUserId(session.user_id);
     setSelected(null);
@@ -340,7 +342,6 @@ export default function MojiPage() {
           />
         }
         lideCip={cizi ? { text: `Klienti: ${kohoJmeno || 'vybraný člověk'}`, zrus: zpetNaMe } : null}
-        onZrusVse={zpetNaMe}
         hledat={{ aria: 'Hledat v klientech', placeholder: 'Hledat jméno, studio, telefon, web, e-mail, město, IČO, poznámku…' }}
         razeni={<RazeniSelect value={razeni} onChange={(r) => setStav({ ...stav, razeni: r })} jenMojeHovory={!isSuper} />}
         pocty={isSuper ? { stavy: statusCounts, soucet, kose: kosCounts } : undefined}

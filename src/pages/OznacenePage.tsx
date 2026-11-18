@@ -41,8 +41,9 @@
 // ⚠ Přehled vedení úkol 11 (Albert 17. 11. 2026, rozložení filtrů) NAHRAZUJE výběr člověka a segment nad řádkem filtrů
 // a pilulky „Co je potřeba“ pod ním mimo filtry: panel FiltrPanel (1. řada člověk · segment · hledání, 2. řada filtry
 // s řazením vpravo, pod ní pilulky „Co je potřeba“, 3. řada čipy a „Zrušit vše“; na telefonu okno „Filtry (n)“). Vybrané
-// druhy jsou ve stavu filtrů (stav.druhy), takže „Zrušit vše“ je zruší i s výběrem člověka; hledání má jedno sdílené
-// zpoždění (useZpozdeneHledani). Druhy se dál vybírají tady nad načtenými řádky, parametry serveru beze změny.
+// druhy jsou ve stavu filtrů (stav.druhy), takže „Zrušit vše“ je zruší; výběr člověka nechá (rozsah stránky jako segment,
+// rozhodnutí koordinátora 18. 11. 2026). Hledání má jedno sdílené zpoždění (useZpozdeneHledani). Druhy se dál vybírají tady
+// nad načtenými řádky, parametry serveru beze změny.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getApi, type Kontakt, type OznaceneFiltry } from '../api';
@@ -245,7 +246,7 @@ export default function OznacenePage() {
   };
 
   const nicNeniVubec = rows.length === 0 && !filtrZapnuty(stav) && !stav.segment && kdo === null;
-  // čip člověka a „Zrušit vše“ (úkol 11): zpět na všechny (super admin) nebo svoje (Volající)
+  // křížek čipu člověka (úkol 11): zpět na všechny (super admin) nebo svoje (Volající); „Zrušit vše“ výběr nechá
   const vsechnyLidi = () => {
     setKdo(null);
     setSelected(null);
@@ -303,7 +304,6 @@ export default function OznacenePage() {
                 zrus: vsechnyLidi,
               }
         }
-        onZrusVse={vsechnyLidi}
         kategorie={false}
         hledat={{ aria: 'Hledat v označených', placeholder: 'Hledat jméno, studio, telefon, web, e-mail, město, poznámku…' }}
         razeni={<RazeniSelect value={stav.razeni} onChange={(r) => setStav({ ...stav, razeni: r })} jenMojeHovory={!jaSuper} />}

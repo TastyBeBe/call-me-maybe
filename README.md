@@ -596,9 +596,13 @@ segmentem a výběrem člověka nad ním, výběrem volajícího a čekání upr
      „Stav: vše“, super admin i s počtem (⚠ NAHRAZUJE „Všechny statusy (n)“);
   3. řada **čipy zapnutých filtrů** (žluté, klik zruší ten filtr: osoba, stav, známka, neodpověděl, mlčí, čekání, koš,
      hvězda, odpověděl, „Co je potřeba“; segment, řazení a hledání čip nemají) a **„Zrušit vše“** (⚠ NAHRAZUJE „Zrušit
-     filtry“): zruší všechno kromě segmentu, i čekání, koš, „Co je potřeba“, hledání, řazení a výběr člověka (`zrusVse`
-     ve `src/filtry.ts` a `onZrusVse` stránky). Čekání, koš a druhy „Co je potřeba“ jsou proto ve stavu filtrů
-     (`StavFiltru.cekani`, `kos`, `druhy`); převod na parametry serveru je beze změny (stránka posílá čekání a koš sama).
+     filtry“): zruší všechno kromě segmentu a výběru člověka, i čekání, koš, „Co je potřeba“, hledání a řazení (`zrusVse`
+     ve `src/filtry.ts`). Čekání, koš a druhy „Co je potřeba“ jsou proto ve stavu filtrů (`StavFiltru.cekani`, `kos`,
+     `druhy`); převod na parametry serveru je beze změny (stránka posílá čekání a koš sama). **Výběr člověka je rozsah
+     stránky** („čí klienti“) jako segment, ne filtr (rozhodnutí koordinátora 18. 11. 2026: „a super admin viewing Petra's
+     clients must stay on Petra's clients“; ⚠ NAHRAZUJE „Zrušit vše vrátí i výběr člověka“ z commitu b34677f): má jen svůj
+     čip, jehož křížek ho vrátí na výchozí (Všichni volající, Já, Všechny), „Zrušit vše“ ho nechá a je vidět jen u čipů
+     filtrů (se samotným čipem osoby by nic nezrušilo).
 - **Telefon** (do 640 px, `useTelefon`): venku zůstane segment (Zrušit vše ho nechává a čip nemá, zúžený seznam by jinak
   nebyl poznat), hledání, tlačítko **„Filtry (n)“** (n = počet čipů) a čipy se „Zrušit vše“. Osoba, řada 2, koše,
   pilulky a řazení jsou v jednom okně odspodu (`.filtr-sheet`, role dialog, nad sloupcem prasátka): rozbalovací výběry se
@@ -614,8 +618,9 @@ segmentem a výběrem člověka nad ním, výběrem volajícího a čekání upr
 - **Testy**: `npm test` soubor `tests/filtrpanel.test.mjs` (stav a Zrušit vše, čipy, převod na server bajtově jako před
   úkolem 11 nad 600 stavy, panel vykreslený na serveru: pořadí řad a telefon, zapojení stránek) a upravené
   `tests/filtry.test.mjs` U3, U4, O16, O16b; `npm run test:e2e` blok FP (pořadí řad na 1280 px pro super admina
-  i Volajícího, čipy a Zrušit vše v Kontaktech a Označených, okno na 390, 360 a 320 px, Volající v okně) a bloky, které na
-  telefonu otevírají okno filtrů (pomocník `vFiltrech`: U, F056, R057, O060).
+  i Volajícího, čipy a Zrušit vše v Kontaktech a Označených, výběr člověka po Zrušit vše v Kontaktech i v Moji klienti
+  super admina na klientech Petry FP6, okno na 390, 360 a 320 px, Volající v okně) a bloky, které na telefonu otevírají
+  okno filtrů (pomocník `vFiltrech`: U, F056, R057, O060).
 
 ## Účty a přihlášení (produkce)
 
