@@ -10,7 +10,7 @@ import { getApi, type MenaPrehledu, type Vyplata, type VyplataVstup } from '../.
 import { PrehledPrazdne } from '../../components/prehled/Stavy';
 import { TabulkaObal } from '../../components/prehled/Tabulka';
 import { casText, denText, formatCastka } from '../../prehled';
-import { castkaDoPole, castkaProServer, datumNeboNull, jmenoOsoby, lideProVyplatu, MENY, obdobiText, poleChyby, smiVyplatu } from '../../prehledNastaveni';
+import { castkaDoPole, castkaProServer, datumNeboNull, jmenoOsoby, lideProVyplatu, MENY, obdobiText, poleChyby, smiVyplatu, vychoziPrijemceVyplaty } from '../../prehledNastaveni';
 import { usePrehled } from './kontext';
 import {
   AkceRadku, atributyPole, ChybaFormulare, ChybaNastaveni, HlaskaNastaveni, NacitaniNastaveni, PoleFormulare, PotvrzeniZruseni, useSpravaNastaveni,
@@ -98,8 +98,9 @@ export default function NastaveniVyplaty() {
   const f = s.formular;
   const chybnePole = poleChyby(s.chyba, 'vyplata');
   const ID_CHYBY = 'vyplata-chyba';
-  // výchozí příjemce: první Volající, kterému smí (výplata jde obvykle volajícímu), jinak první ze seznamu
-  const novy = (): FormularVyplaty => ({ id: null, komu: (lide.find((l) => l.role === 'admin') ?? lide[0])?.id ?? 0, castka: '', mena: 'CZK', dne: dnes, od: '', do: '', poznamka: '' });
+  // výchozí příjemce: první Volající, kterému smí (výplata jde obvykle volajícímu), jinak první ze seznamu (úkol 14c: přes
+  // isSuperAdmin ve vychoziPrijemceVyplaty, ⚠ NAHRAZUJE přímé porovnání role s klíčem admin, které hlásila kontrola pravidel 49 b)
+  const novy = (): FormularVyplaty => ({ id: null, komu: vychoziPrijemceVyplaty(lide), castka: '', mena: 'CZK', dne: dnes, od: '', do: '', poznamka: '' });
   const zRadku = (v: Vyplata): FormularVyplaty => ({
     id: v.id, komu: v.user_id, castka: castkaDoPole(v.castka), mena: v.mena, dne: v.vyplaceno_dne, od: v.za_obdobi_od ?? '', do: v.za_obdobi_do ?? '', poznamka: v.poznamka ?? '',
   });

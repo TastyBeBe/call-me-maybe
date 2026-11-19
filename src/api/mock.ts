@@ -4392,8 +4392,6 @@ const ZE = (p: number): string => {
 export const zeMock = ZE;
 /** „1 ze 4 prodejů“ (073 app_prehled_z_n): a, předložka podle b, b a jméno ve 2. pádě (jednotné číslo pro b = 1). */
 const zN = (a: number, b: number, jednotne: string, mnozne: string): string => `${a} ${ZE(b)} ${b} ${b === 1 ? jednotne : mnozne}`;
-/** „n jméno“ v 1. pádě s tvarem podle počtu (073 app_prehled_n_tvar): 1, 2 až 4, jinak. */
-const nTvar = (n: number, t1: string, t2: string, t5: string): string => `${n} ${Math.abs(n) === 1 ? t1 : Math.abs(n) >= 2 && Math.abs(n) <= 4 ? t2 : t5}`;
 /** Volný text bez e-mailové adresy a telefonního čísla s aspoň 9 číslicemi (073 app_prehled_bez_kontaktu, R20). */
 function bezKontaktu(s: string | null | undefined): string | null {
   if (s === null || s === undefined) return null;
@@ -5873,7 +5871,7 @@ function obnovyHostingu(x: KontextPrehledu): ObnovaHostingu[] {
  * prehled_finance (§5.9). ⚠ Úkol 14c (parita s 073 app_prehled_finance; NAHRAZUJE věty a pravidla úkolů 13 a 14b): věty důvodů
  * doslova jako 073 (app_prehled_m_penize „U a z n <jednotek> <věta>“, app_prehled_veta), stav k datu před historií = metriky
  * stavu nedostupne s větou HISTORIE_OD, faktury s ZDROJ_OD nebo prázdným zdrojem, pohledávky odeslané před začátkem plateb
- * castecne (5a bod 15), nabídky a výplaty s ZDROJ_OD svého zdroje (5a bod 18), hosting ARR = Σ přesných ročních cen a MRR =
+ * castecne (5a bod 15), nabídky a výplaty s ZDROJ_OD svého zdroje (5a bod 18), hosting ARR = součet přesných ročních cen a MRR =
  * ARR ÷ 12 (5a bod 16), kategorie s ověřováním „U a z n nákladů čeká částka na ověření.“ a NAKLADY_OVERIT = řádky nákladů
  * s overit zaúčtované v období a platné k datu (5a bod 17), náklady celkem a výsledek jako 073.
  */
@@ -5916,7 +5914,7 @@ function prehledFinanceMock(me: MockUser, vstup: unknown): PrehledObalka<DataFin
     obdobi > 0 ? `U ${zN(obdobi, nHost, 'prodaného klienta', 'prodaných klientů')} cena hostingu neuvádí roční období (hosting se účtuje ročně); do součtu se nepočítá.` : null]
     .filter(Boolean).join(' ') || null;
   const rocnePolozky = hosting.map(({ h }) => ({ castka: h.castka === null ? null : Number(h.castka), mena: h.mena }));
-  // ročně a ARR = Σ přesných ročních cen se stejným pokrytím a větou (důvod nahradí větu m_penize, 073), MRR = ARR ÷ 12 na 2 místa
+  // ročně a ARR = součet přesných ročních cen se stejným pokrytím a větou (důvod nahradí větu m_penize, 073), MRR = ARR ÷ 12 na 2 místa
   // ze stejného základu (filtr k datu se přidá až potom, jednou: metrikaPrehledu)
   const hostZname = rocnePolozky.filter((h) => h.castka !== null).length;
   const hostZaklad = { castky: castkyZ(rocnePolozky, x.meny), n: nHost, pokryti: pokryti(hostZname, nHost), kvalita: (hostZname < nHost ? 'castecne' : 'dostupne') as Metrika['kvalita'],
@@ -6081,7 +6079,7 @@ const OSTATNI_PRAVDEPODOBNOST = 'Ozve se později, pozastavené a eskalace se do
 /** Příspěvek otevřeného obchodu k odhadu (073 app_prehled_prognoza_vypocet): round(cena × citatel ÷ jmenovatel, 2), nikdy přes zaokrouhlenou míru. */
 const prispevekObchodu = (cena: number, citatel: number, jmenovatel: number): number => zaokr((cena * citatel) / jmenovatel, 2);
 /**
- * Vážená hodnota skupiny po měnách (073 app_prehled_prognoza, AMENDED 2026-11-19): Σ příspěvků jejích obchodů v měně, null bez míry
+ * Vážená hodnota skupiny po měnách (073 app_prehled_prognoza, AMENDED 2026-11-19): součet příspěvků jejích obchodů v měně, null bez míry
  * (jmenovatel 0) nebo bez přesné ceny v té měně. Export jen pro npm test (příklad §5.11: 1 520 700 Kč při 2 ÷ 111 = 27 400.00).
  */
 export function vazeneOdhadu(ceny: PolozkaPenez[], citatel: number, jmenovatel: number, mn: MenaPrehledu[]): CastkaJedna[] {
@@ -6142,7 +6140,7 @@ function prognozaVypocet(x: KontextPrehledu): { kDen: string; od: string; doDne:
 const penPrispevku = (j: JednotkaPrognozy): PolozkaPenez => ({ castka: j.prispevek, mena: j.cena.mena, stav: j.prispevek !== null ? 'presne' : j.cena.castka !== null ? 'nezname' : j.cena.rozbor.stav });
 /**
  * Data prognózy (i karta odhad_mesic souhrnu). ⚠ Úkol 14c (073 app_prehled_prognoza, AMENDED 2026-11-19; NAHRAZUJE „hodnota
- * skupiny × zaokrouhlená míra“ a věty úkolu 13): vážené = Σ příspěvků, základní = Σ příspěvků všech jednotek, věty doslova jako 073,
+ * skupiny × zaokrouhlená míra“ a věty úkolu 13): vážené = součet příspěvků, základní = součet příspěvků všech jednotek, věty doslova jako 073,
  * ostatní míra 0 z jejích obchodů, skupina bez historie dvě věty (Málo historie (N = 0). Jmenovatel je 0 …), vyber skupiny = krok.
  */
 function prognozaData(x: KontextPrehledu): DataPrognoza {
@@ -6353,7 +6351,7 @@ function radkyZdroje(x: KontextPrehledu, zdroj: RadkyZdroj): { radky: RadekPrehl
     case 'kontakty': {
       if (metrika === 'odhad_mesic' || metrika === 'prognoza_zakladni') {
         // jednotky odhadu s příspěvkem ke kartě (073 app_prehled_prognoza_vypocet): peníze řádku = příspěvek, řádek ukáže i plnou cenu
-        // a pravděpodobnost skupiny (prodej 1); součet = Σ příspěvků = karta (úkol 14c, AMENDED 2026-11-19; ⚠ NAHRAZUJE plné ceny
+        // a pravděpodobnost skupiny (prodej 1); součet řádků = součet příspěvků = karta (úkol 14c, AMENDED 2026-11-19; ⚠ NAHRAZUJE plné ceny
         // otevřených obchodů)
         const jed = prognozaVypocet(x).jednotky.filter((j) => vOdDo(navrhAt(j.c) ?? j.c.updated_at));
         const radky = jed.map((j) => radekKontaktu(x, j.c, {
@@ -6405,7 +6403,7 @@ function radkyZdroje(x: KontextPrehledu, zdroj: RadkyZdroj): { radky: RadekPrehl
       if (metrika === 'slevy_castka') {
         soucty = penize(prodeje.map((p) => { const pu = cenaRozborMock(p.c.cena_web); return pu.stav === 'presne' && p.cena.castka !== null && pu.mena === p.cena.mena ? { castka: Number(pu.castka) - p.cena.castka, mena: p.cena.mena } : { castka: null, mena: p.cena.mena }; }));
       } else if (metrika === 'hosting_rocne' || metrika === 'hosting_arr' || metrika === 'hosting_mrr') {
-        // ročně a ARR = Σ ročních cen, MRR = round(Σ ÷ 12, 2) (073 §5.15; úkol 14c, ⚠ NAHRAZUJE ARR = zaokrouhlené MRR × 12)
+        // ročně a ARR = součet ročních cen, MRR = round(součet ÷ 12, 2) (073 §5.15; úkol 14c, ⚠ NAHRAZUJE ARR = zaokrouhlené MRR × 12)
         const rocne = castkyZ(prodeje.map((p) => { const h = hostingRozbor(p.c.cena_hosting); return { castka: h.castka === null ? null : Number(h.castka), mena: h.mena }; }), x.meny);
         soucty = rocne.map((c) => ({ mena: c.mena, hodnota: c.hodnota === null ? null : metrika === 'hosting_mrr' ? castkaText(Number(c.hodnota) / 12) : c.hodnota }));
       } else {

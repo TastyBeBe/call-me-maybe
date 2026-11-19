@@ -227,7 +227,9 @@ function Akce({ karta }: { karta: Metrika | null }) {
           if (p.length === 0) return <PrehledPrazdne nadpis="Teď nic nečeká na zásah." text="Žádný klient nečeká na odpověď, žádná faktura ani nabídka nevisí." />;
           const signaly = o.data.souhrn.podle_signalu.filter((s) => s.n > 0);
           // klient může mít víc signálů: když je součet počtů vyšší než počet případů, řekne to věta pod nimi (jinak by nesouhlasily s kartou)
-          const vicSignalu = signaly.reduce((a, s) => a + s.n, 0) > o.data.souhrn.pripadu;
+          // počet případů je k datu null (neznámé, úkol 14c); akční seznam se ale volá jen živě
+          const pripadu = o.data.souhrn.pripadu;
+          const vicSignalu = pripadu !== null && signaly.reduce((a, s) => a + s.n, 0) > pripadu;
           return (
             <>
               {signaly.length > 0 && (
@@ -241,7 +243,7 @@ function Akce({ karta }: { karta: Metrika | null }) {
               )}
               {vicSignalu && (
                 <p className="prehled-blok-popis akce-pozn">
-                  Jeden klient může mít víc signálů najednou, proto je součet těchto počtů vyšší než počet případů ({formatPocet(o.data.souhrn.pripadu)}).
+                  Jeden klient může mít víc signálů najednou, proto je součet těchto počtů vyšší než počet případů ({formatPocet(pripadu)}).
                 </p>
               )}
               <TabulkaAkci pripady={p} />

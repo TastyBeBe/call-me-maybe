@@ -6,6 +6,7 @@
 // posledního dne, hodnota cíle v jeho jednotce) a které pole formuláře chyba serveru myslí (aria-invalid u toho pole).
 
 import type { Cil, DataMoznosti, KategorieNakladu, MenaPrehledu, MetrikaCile, OpakovaniNakladu, OsobaMoznosti } from './api/types';
+import { isSuperAdmin } from './roles';
 import { denText, formatCastka, formatHodiny } from './prehled';
 
 /** Kategorie evidence nákladů (§3.5) v pořadí registru; provize jen ve výpočtu Financí, sem nepatří. */
@@ -127,6 +128,11 @@ export function volbaZRozsahu(c: { user_id: number | null; tym_id: number | null
 
 /** Komu smí přihlášený zapsat výplatu provize (D10, smim_vyplatu: jeho tým, Albert každého), v pořadí možností. */
 export const lideProVyplatu = (m: Pick<DataMoznosti, 'lide'>): OsobaMoznosti[] => m.lide.filter((l) => l.smim_vyplatu);
+/**
+ * Výchozí příjemce nové výplaty: první Volající (role admin, i stará caller, tedy ne super admin; výplata jde obvykle volajícímu),
+ * jinak první ze seznamu, prázdný seznam 0. ⚠ Úkol 14c (kontrola pravidel 49 b: role přes isSuperAdmin, ne přímým porovnáním s klíčem admin).
+ */
+export const vychoziPrijemceVyplaty = (lide: readonly Pick<OsobaMoznosti, 'id' | 'role'>[]): number => (lide.find((l) => !isSuperAdmin(l.role)) ?? lide[0])?.id ?? 0;
 /** Smí přihlášený změnit a zrušit uloženou výplatu (právo na uloženého příjemce, jako server)? */
 export const smiVyplatu = (m: Pick<DataMoznosti, 'lide'>, userId: number): boolean => m.lide.some((l) => l.id === userId && l.smim_vyplatu);
 
