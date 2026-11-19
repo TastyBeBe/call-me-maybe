@@ -881,7 +881,7 @@ Ozubené kolo „Nastavení“ (`#/prehled/nastaveni/cile|naklady|vyplaty`, spec
 funkcemi migrace 072 (⚠ NAHRAZUJE kostru úkolu 13 s větou, že zadávání teprve přijde). Každá sekce: seznam aktivních řádků ze
 serveru, „Přidat …“, u řádku „Upravit“ a „Zrušit…“ (zrušení až po potvrzení v okně), věty serveru doslova u formuláře.
 
-- **Cíle** (`NastaveniCile.tsx`, D9): `cile_seznam` (každý super admin vidí všechny cíle), `cile_uloz`, `cile_zrus`. Upravit
+- **Cíle** (`NastaveniCile.tsx`, D9, výchozí volba): `cile_seznam` (každý super admin vidí všechny cíle), `cile_uloz`, `cile_zrus`. Upravit
   a zrušit jde jen řádek se `smi_upravit` (Albert vše; jinak svůj cíl, cíle lidí s jeho `manager_id` a cíl svého týmu), ostatní
   „jen ke čtení“ s větou serveru podle rozsahu (`procJenKCteniCile`: „Cíl pro celou firmu zadává jen Albert.“, u týmu a člověka
   „… zadává jen jeho super admin nebo Albert.“; recenze 14b, ⚠ NAHRAZUJE jednu větu pro všechny cíle). Formulář: Co (šest metrik cíle), Pro koho (jen rozsahy, které přihlášený smí: `firma_smim_cil`,
@@ -891,7 +891,7 @@ serveru, „Přidat …“, u řádku „Upravit“ a „Zrušit…“ (zrušen�
   řádek. Pět kategorií evidence (Claude, Lovable, domény, hosting, jiné; provize se počítá z prodejů sama), částka ve své měně,
   opakování (jednorázově, měsíčně, ročně), platí od a do (včetně, u jednorázového jen den platby), popis, číslo klienta
   a „ověřit“ (částka čeká na ověření; v seznamu i ve Financích značka „ověřit“).
-- **Výplaty provizí** (`NastaveniVyplaty.tsx`, D10): `provize_vyplaty_seznam` (každý super admin vidí všechny),
+- **Výplaty provizí** (`NastaveniVyplaty.tsx`, D10, výchozí volba): `provize_vyplaty_seznam` (každý super admin vidí všechny),
   `provize_vyplata_uloz`, `provize_vyplata_zrus`. Komu jen lidé se `smim_vyplatu` (svůj tým, Albert každého); výplata cizího
   týmu je „jen ke čtení“. Den výplaty (výchozí dnes), za období od a do (včetně, nepovinné), poznámka.
 - **Čísla v záložkách**: uložený náklad je hned v Nákladech celkem a ve své kategorii (Finance), cíl v Plnění cíle a ve větě
@@ -973,7 +973,7 @@ odmítnutí“.
 | `#/prehled/finance` | super admin | Finance: náklady po kategoriích i dohromady, výsledek, prodeje a faktury, platby a pohledávky, provize, hosting |
 | `#/prehled/dodani` | super admin | Dodání: fáze se stářím, blokace, práce automatizace, domény, obnovy hostingu |
 | `#/prehled/prognoza` | super admin | Prognóza a data: odhad do konce měsíce („nevalidovaný odhad“), přesnost, kvalita dat |
-| `#/prehled/nastaveni/cile`, `…/naklady`, `…/vyplaty` | super admin | Nastavení: cíle (D9), náklady (D6), výplaty provizí (D10) |
+| `#/prehled/nastaveni/cile`, `…/naklady`, `…/vyplaty` | super admin | Nastavení: cíle (D9, výchozí volba), náklady (D6), výplaty provizí (D10, výchozí volba) |
 
 Klíče záložek v adrese: `vedeni`, `lide`, `pipeline`, `klienti`, `komunikace`, `finance`, `dodani`, `prognoza`; pilulka „přehled“ v menu
 a dlaždice PŘEHLED na Domů jsou jen pod `isSuper`. Stránka se líně načítá (vlastní soubor `PrehledPage-*.js`, Volající ho nestáhne).
