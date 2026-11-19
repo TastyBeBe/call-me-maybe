@@ -21,6 +21,7 @@ import { prahaDen, prahaNaIso } from '../../praha';
 import {
   ATRIBUCE_POPISKY,
   celyDen,
+  chybaFiltru,
   chybaKDatu,
   chybaObdobi,
   cipyFiltru,
@@ -122,7 +123,8 @@ export default function RadaFiltru({
   /** Zapíše vlastní období, když je platné; jinak (s ukazChybu) ukáže větu u pole. Druhý konec zůstane, jak ho člověk nechal. */
   const zapisObdobi = (od: string, doDne: string, ukazChybu: boolean): boolean => {
     zrusCasovac('obdobi');
-    const chyba = chybaObdobi(od, doDne);
+    // úkol 14c: i začátek po dnešku a po zadaném k datu, větou serveru (app_prehled_filtr)
+    const chyba = chybaObdobi(od, doDne, dnes, filtrRef.current.k);
     if (chyba) {
       if (ukazChybu) setChybaObd(chyba);
       return false;
@@ -139,7 +141,8 @@ export default function RadaFiltru({
   /** Zapíše „k datu“ (prázdné = teď), když je platné; jinak (s ukazChybu) ukáže větu u pole. */
   const zapisKDatu = (den: string, ukazChybu: boolean): boolean => {
     zrusCasovac('k');
-    const chyba = chybaKDatu(den, dnes);
+    // úkol 14c: k datu před začátkem období server odmítne; věta serveru u pole
+    const chyba = chybaKDatu(den, dnes, filtrRef.current.od);
     if (chyba) {
       if (ukazChybu) setChybaK(chyba);
       return false;
@@ -226,7 +229,7 @@ export default function RadaFiltru({
     k[kde] = hodnota;
     setKoncept(k);
     zrusCasovac('obdobi');
-    const chyba = chybaObdobi(k.od, k.do);
+    const chyba = chybaObdobi(k.od, k.do, dnes, filtr.k);
     if (chyba === null) {
       setChybaObd(null);
       casovac.current.obdobi = window.setTimeout(() => zapisObdobi(k.od, k.do, false), ZAPIS_DATA_PO_MS);
@@ -251,7 +254,7 @@ export default function RadaFiltru({
   const zmenKDatu = (hodnota: string) => {
     setKKoncept(hodnota);
     zrusCasovac('k');
-    const chyba = hodnota ? chybaKDatu(hodnota, dnes) : 'prázdné';
+    const chyba = hodnota ? chybaKDatu(hodnota, dnes, filtr.od) : 'prázdné';
     if (chyba === null) {
       setChybaK(null);
       casovac.current.k = window.setTimeout(() => zapisKDatu(hodnota, false), ZAPIS_DATA_PO_MS);
@@ -280,6 +283,9 @@ export default function RadaFiltru({
   const cipy = cipyFiltru(filtr, { lide: shrnutiVyberu(vyber, lide, ja), segmenty, obory, kraje });
   const dalsiZapnuto = [filtr.zaklad !== 'prirozeny', filtr.atribuce !== 'posledni_zajem', !!filtr.k].filter(Boolean).length;
   const rozsahText = `${denText(filtr.od)} – ${denText(filtr.do)}`;
+  // úkol 14c: uložený filtr, který server odmítne (předvolba po zadaném k datu, třeba Dnes a k datu včera): věta serveru u období,
+  // vidět i se zavřeným „Další“; čip „K datu …“ nebo „Teď“ ji zruší (nic se potichu nepřepisuje)
+  const chybaUlozena = ukazVlastni && chybaObd ? null : chybaFiltru(filtr, dnes);
 
   return (
     <section className="card prehled-filtr" aria-label="Filtr přehledu">
@@ -325,6 +331,11 @@ export default function RadaFiltru({
           {ukazVlastni && chybaObd && (
             <p className="prehled-obdobi-chyba" id={idChybyObdobi} role="alert">
               {chybaObd}
+            </p>
+          )}
+          {chybaUlozena && (
+            <p className="prehled-obdobi-chyba prehled-filtr-chyba" role="alert">
+              {chybaUlozena}
             </p>
           )}
         </div>

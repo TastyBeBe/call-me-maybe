@@ -135,15 +135,16 @@ const idcka = (v: string | null): number[] => [...new Set((v ?? '').split(',').m
 
 /**
  * Filtr z adresy (`?od=…` i bez otazníku). Co nejde použít, je výchozí: období mimo pravidla serveru (do před od, přes 730 dní,
- * před rokem 2020) celé výchozí, neznámá měna, základ a atribuce výchozí, neplatná id pryč, k_datu v budoucnosti pryč. lide
- * a tym naráz: platí lide.
+ * před rokem 2020, ⚠ od úkolu 14c i začátek po dnešku: server ho odmítne „Neplatný filtr: od je v budoucnosti.“) celé výchozí,
+ * neznámá měna, základ a atribuce výchozí, neplatná id pryč, k_datu v budoucnosti pryč. k_datu před začátkem období zůstane
+ * (dvě pole, žádné se potichu nepřepisuje): řada filtrů u něj ukáže větu serveru (chybaFiltru). lide a tym naráz: platí lide.
  */
 export function ctiFiltr(search: string, dnes: string = dnesVPraze()): FiltrPrehledu {
   const q = new URLSearchParams(search.startsWith('?') ? search.slice(1) : search);
   const vych = vychoziFiltr(dnes);
   const od = q.get('od');
   const doDne = q.get('do');
-  const obdobiOk = platnyDen(od) && platnyDen(doDne) && od >= OBDOBI_OD_MIN && doDne >= od && dniMezi(od, doDne) <= OBDOBI_MAX_DNI;
+  const obdobiOk = platnyDen(od) && platnyDen(doDne) && od >= OBDOBI_OD_MIN && od <= dnes && doDne >= od && dniMezi(od, doDne) <= OBDOBI_MAX_DNI;
   const lide = idcka(q.get('lide'));
   const tymText = q.get('tym');
   const tym = lide.length === 0 && tymText && /^\d+$/.test(tymText) && Number(tymText) > 0 ? Number(tymText) : null;
@@ -191,24 +192,59 @@ export function celyDen(s: string): boolean {
 
 const TVAR_DNE = /^\d{4}-\d{2}-\d{2}$/;
 
-/** Proč nejde vlastní období zapsat (věta u pole), nebo null. Druhý konec se nikdy potichu nepřepisuje. */
-export function chybaObdobi(od: string, doDne: string): string | null {
+/**
+ * Dvě odmítnutí filtru serverem (migrace 073 app_prehled_filtr, kontrakt §2.7; úkol 14c): věty doslova jako server, appka je ukáže
+ * u pole dřív, než by se filtr poslal. Začátek období po dnešku (Praha) server kontroluje před „do < od“; k_datu před začátkem
+ * období (od 0:00 v Praze) odmítne, přesně od 0:00 projde.
+ */
+export const OD_V_BUDOUCNOSTI = 'Neplatný filtr: od je v budoucnosti.';
+export const K_DATU_PRED_OBDOBIM = 'Neplatný filtr: k_datu je před začátkem období.';
+
+/** k_datu (okamžik ISO) před začátkem období `od` (0:00 v Praze), jak ho odmítne server. */
+function kDatuPredObdobim(k: string | null | undefined, od: string): boolean {
+  if (!k || !platnyDen(od)) return false;
+  const t = Date.parse(k);
+  return !Number.isNaN(t) && t < zacatekDnePraha(od);
+}
+
+/**
+ * Proč nejde vlastní období zapsat (věta u pole), nebo null. Druhý konec se nikdy potichu nepřepisuje. S `dnes` (pražský den)
+ * i začátek po dnešku a s `k` (zadané k datu, ISO) i začátek po něm, obojí větou serveru (úkol 14c; bez nich jako dřív).
+ */
+export function chybaObdobi(od: string, doDne: string, dnes?: string, k?: string | null): string | null {
   if (!TVAR_DNE.test(od) || !TVAR_DNE.test(doDne)) return 'Zadejte celé datum začátku i konce.';
   // rok před 2020 dřív než platnost dne (rok pod 100 by Date bral jako 19xx)
   if (od < OBDOBI_OD_MIN || doDne < OBDOBI_OD_MIN) return 'Období může začínat nejdřív 1. 1. 2020.';
   if (!platnyDen(od) || !platnyDen(doDne)) return 'Zadejte celé datum začátku i konce.';
+  // server: od v budoucnosti dřív než do < od (app_prehled_filtr)
+  if (dnes && od > dnes) return OD_V_BUDOUCNOSTI;
   if (doDne < od) return 'Začátek období je po jeho konci.';
   if (dniMezi(od, doDne) > OBDOBI_MAX_DNI) return `Období může mít nejvýš ${OBDOBI_MAX_DNI} dní.`;
+  if (kDatuPredObdobim(k, od)) return K_DATU_PRED_OBDOBIM;
   return null;
 }
 
-/** Proč nejde „k datu“ zapsat, nebo null (prázdné = teď, živá data). */
-export function chybaKDatu(den: string, dnes: string): string | null {
+/**
+ * Proč nejde „k datu“ zapsat, nebo null (prázdné = teď, živá data). S `od` (začátek období) i den před ním větou serveru (úkol
+ * 14c): k datu je konec zvoleného dne, takže den začátku období projde.
+ */
+export function chybaKDatu(den: string, dnes: string, od?: string): string | null {
   if (den === '') return null;
   if (!TVAR_DNE.test(den)) return 'Zadejte celé datum.';
   if (den < OBDOBI_OD_MIN) return 'K datu může být nejdřív 1. 1. 2020.';
   if (!platnyDen(den)) return 'Zadejte celé datum.';
   if (den > dnes) return 'K datu nemůže být v budoucnosti.';
+  if (od && platnyDen(od) && den < od) return K_DATU_PRED_OBDOBIM;
+  return null;
+}
+
+/**
+ * Věta serveru, kterou by uložený filtr (adresa) dostal, nebo null (úkol 14c): začátek po dnešku a k datu před začátkem období.
+ * Řada filtrů ji ukáže u období, i když je „Další“ zavřené (třeba předvolba Dnes po zadaném k datu včera).
+ */
+export function chybaFiltru(f: Pick<FiltrPrehledu, 'od' | 'k'>, dnes: string): string | null {
+  if (platnyDen(f.od) && f.od > dnes) return OD_V_BUDOUCNOSTI;
+  if (kDatuPredObdobim(f.k, f.od)) return K_DATU_PRED_OBDOBIM;
   return null;
 }
 

@@ -1025,7 +1025,11 @@ export interface PrehledFiltr {
   mena: MenaPrehledu | 'obe';
   zaklad: 'prirozeny' | 'aktivita' | 'prodej' | 'faktura' | 'platba';
   k_datu: string | null;
-  /** výběr řádků prokliku (jen prehled_radky; tvar Vyber v kontraktu §7); jinde null */
+  /**
+   * výběr řádků prokliku (jen prehled_radky; tvar Vyber v kontraktu §7, appka ho jen kopíruje z prokliku, u řady přidá od a do);
+   * jinde null. ⚠ Úkol 14c (openapi k a6202706): `krok` = krok trychtýře (§5.4) nebo trychtýře po návrhu (po_navrhu), u
+   * prognoza_pravdepodobnost skupina prognózy zajem, navrh, sleva nebo ostatni (§5.11)
+   */
   vyber: Record<string, unknown> | null;
 }
 
@@ -1304,6 +1308,10 @@ export interface DataPipeline {
     duvod: string | null;
     pocatek: StavPipeline;
     nove: number | null;
+    /**
+     * na konci otevřené, na začátku v jiné neotevřené skupině než fronta (prodané, ztracené, archiv, vyřazené); úkol 14c, kontrakt
+     * §7 PohybyPipeline a §9 5a bod 8 (NAHRAZUJE „na začátku prodané nebo ztracené“)
+     */
     znovu_otevrene: number | null;
     vyhrane: number | null;
     ztracene: number | null;
@@ -1402,6 +1410,10 @@ export interface DataFinance {
 /* prehled_dodani (§5.10) */
 export interface DataDodani {
   faze: { status: StavPrehledu; nazev: string; n: number; starnuti: Starnuti; proklik: PrehledProklik | null }[];
+  /**
+   * Blokace k datu (stav a otázky z historie, §5.10): vždy castecne (otázky přibližně), před začátkem historie nedostupne s počty
+   * null; ⚠ úkol 14c (kontrakt §7 Blokace): se zadaným k_datu `priznaky` null i při castecne (flag_kind se nehistorizuje)
+   */
   blokace: {
     eskalace: number | null;
     pozastaveno: number | null;
@@ -1417,6 +1429,21 @@ export interface DataDodani {
 }
 
 /* prehled_prognoza (§5.11) */
+/**
+ * Skupina otevřených obchodů prognózy (§7 PrognozaFaze). ⚠ Úkol 14c (kontrakt §5.11 a §9 5b, AMENDED 2026-11-19): `vazene` = Σ
+ * příspěvků obchodů skupiny round(cena × citatel ÷ jmenovatel, 2) po měnách filtru, hodnota null bez míry (skupina bez historie,
+ * N = 0) nebo bez přesné ceny v té měně; `pravdepodobnost.hodnota` null bez míry (jmenovatel 0). NAHRAZUJE „přesná hodnota
+ * skupiny × zaokrouhlená míra“.
+ */
+export interface SkupinaPrognozy {
+  faze: 'zajem' | 'navrh' | 'sleva' | 'ostatni';
+  nazev: string;
+  n: number;
+  castky: CastkaMeny[];
+  nezname_n: number;
+  pravdepodobnost: Metrika;
+  vazene: CastkaJedna[];
+}
 export interface DataPrognoza {
   mesic: string;
   od: string;
@@ -1424,7 +1451,7 @@ export interface DataPrognoza {
   zbyva_dni: number;
   stitek: 'nevalidovaný odhad';
   potvrzene: Metrika;
-  otevrene: { faze: 'zajem' | 'navrh' | 'sleva' | 'ostatni'; nazev: string; n: number; castky: CastkaMeny[]; nezname_n: number; pravdepodobnost: Metrika; vazene: CastkaJedna[] }[];
+  otevrene: SkupinaPrognozy[];
   scenare: { zakladni: Metrika; jen_jiste: Metrika };
   presnost: {
     kvalita: KvalitaMetriky;
@@ -1471,12 +1498,20 @@ export interface PripadAkce {
   signaly: SignalAkce[];
   signal_zdroj: string;
 }
+/**
+ * data funkce prehled_akce (§7 DataAkce). ⚠ Úkol 14c (kontrakt §5.13, AMENDED 2026-11-19): `pripady` nejvýš 50 s nejdřívějším
+ * termínem (termín vzestupně, pak kontakt_id), celý seznam po stránkách prehled_radky('akce'); `souhrn` počítá VŠECHNY případy;
+ * se zadaným k_datu `pripady` [], `pripadu` null (neznámé, nikdy 0, R7) a `podle_signalu` [] (NAHRAZUJE pripadu jako integer a
+ * „všechny případy v jedné odpovědi“).
+ */
 export interface DataAkce {
   pripady: PripadAkce[];
-  souhrn: { pripadu: number; podle_signalu: { kod: SignalKod; nazev: string; n: number }[] };
+  souhrn: { pripadu: number | null; podle_signalu: { kod: SignalKod; nazev: string; n: number }[] };
 }
 
-/* prehled_radky (§5.15): řádek podle zdroje (pole zdroj); klíče doslova jako §7 Radek* */
+/* prehled_radky (§5.15): řádek podle zdroje (pole zdroj); klíče doslova jako §7 Radek*. ⚠ Úkol 14c (kontrakt §5.15 a §9 5b,
+   AMENDED 2026-11-19): volné texty řádků (cena_web, cena_text, popis, poznamka, text) jsou bez telefonu a e-mailu (R20: adresa
+   „[e-mail]“, číslo s aspoň 9 číslicemi „[telefon]“), CenaRozbor se dál čte z původního textu */
 interface RadekZaklad<Z extends RadkyZdroj> {
   zdroj: Z;
   radek_id: string;
@@ -1491,8 +1526,17 @@ export interface RadekKontakty extends RadekZaklad<'kontakty'> {
   nazev_stavu: string;
   rating: 'A' | 'B' | 'C' | null;
   hvezda: boolean;
+  /** text k datu bez telefonu a e-mailu (R20) */
   cena_web: string | null;
+  /** pravidlo výdělku (z původního textu) */
   cena: CenaRozbor;
+  /**
+   * jen řádky odhad_mesic a prognoza_zakladni: příspěvek k odhadu (prodej cenou, otevřený obchod round(cena × citatel ÷
+   * jmenovatel, 2)); null bez přesné ceny nebo míry a u jiných výběrů (úkol 14c, AMENDED 2026-11-19); součet řádků = karta
+   */
+  prispevek: CastkaJedna | null;
+  /** jen řádky odhadu: míra skupiny jako na kartě (prodej 1); null bez míry a u jiných výběrů */
+  pravdepodobnost: number | null;
   osoba: OsobaPrehledu | null;
   prvni_hovor_at: string | null;
   dovolano_at: string | null;
@@ -1521,6 +1565,7 @@ export interface RadekProdeje extends RadekZaklad<'prodeje'> {
   jmeno: string;
   segment: string;
   prodano_at: string;
+  /** text, ze kterého se počítalo, bez telefonu a e-mailu (R20) */
   cena_text: string | null;
   cena: CenaRozbor;
   zdroj_ceny: 'cena_web' | 'sleva';
@@ -1556,6 +1601,7 @@ export interface RadekPlatby extends RadekZaklad<'platby'> {
 export interface RadekNaklady extends RadekZaklad<'naklady'> {
   naklad_id: number | null;
   kategorie: KategorieVyuctovani;
+  /** bez telefonu a e-mailu (R20) */
   popis: string | null;
   datum: string;
   castka: string | null;
@@ -1570,14 +1616,19 @@ export interface RadekNaklady extends RadekZaklad<'naklady'> {
 export interface RadekProvize extends RadekZaklad<'provize'> {
   druh: 'narok' | 'vyplata';
   datum: string;
-  user_id: number;
-  volajici: string;
+  /**
+   * null u nároku prodeje, u kterého nikdo nezapsal zájem (provize nemá komu připadnout); volajici null tamtéž (úkol 14c, kontrakt
+   * §7 RadekProvize z 5b; NAHRAZUJE vždy vyplněné user_id a volajici)
+   */
+  user_id: number | null;
+  volajici: string | null;
   kontakt_id: number | null;
   jmeno: string | null;
   castka: string | null;
   mena: MenaPrehledu | null;
   stav_ceny: CenaStav;
   vyplata_id: number | null;
+  /** bez telefonu a e-mailu (R20) */
   poznamka: string | null;
 }
 export interface RadekOdmitnuti extends RadekZaklad<'odmitnuti'> {
@@ -1624,6 +1675,11 @@ export interface DataRadky {
   radky: RadekPrehledu[];
   dalsi_kurzor: string | null;
   celkem: number;
+  /**
+   * součet peněžního sloupce všech řádků po měnách ([] u zdrojů bez peněz); u odhad_mesic a prognoza_zakladni Σ příspěvků (= karta);
+   * seznam prázdný kvůli neznámému stavu (HISTORIE_OD, K_DATU_MINULOST) má hodnotu null v každé měně filtru (úkol 14c, AMENDED
+   * 2026-11-19; NAHRAZUJE „0.00“)
+   */
   soucty: CastkaJedna[];
   soucet: number | null;
 }
@@ -1651,6 +1707,7 @@ export interface DataKontakt {
     status_od: string | null;
     rating: 'A' | 'B' | 'C' | null;
     hvezda_at: string | null;
+    /** texty cen bez telefonu a e-mailu (R20; úkol 14c, AMENDED 2026-11-19), CenaRozbor z původního textu */
     cena_web: string | null;
     cena_hosting: string | null;
     cena: CenaRozbor;
