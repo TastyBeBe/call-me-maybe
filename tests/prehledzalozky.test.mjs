@@ -598,6 +598,9 @@ await blok('Z10', async () => {
   const hodinZpet = (h) => new Date(Date.now() - h * 3600000).toISOString();
   const KD_PRED = hodinZpet(48); // před začátkem historie dema (30 h zpět)
   const KD_PO = hodinZpet(2); // po začátku historie
+  // úkol 14c: databáze 073 odmítne k_datu před začátkem období, takže 1. dne v měsíci do 2:00 začne období dnem KD_PO
+  const denKDPo = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Prague', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(KD_PO));
+  const ODK = denKDPo < OD ? denKDPo : OD;
   const SEG = 'Segment podle dnešního stavu: historie začíná ';
   const OBK = 'Obor a kraj podle dnešního stavu (nejsou v historii).';
   const radkyLidi = (o) => [o.data.soucet, ...o.data.radky];
@@ -618,10 +621,10 @@ await blok('Z10', async () => {
     && castecneS(metrikyLidi(lide), SEG) && plany(lide).every((m) => !(m.duvod ?? '').includes(SEG)) && lide.meta.varovani.some((v) => v.kod === 'HISTORIE_OD'),
     'segment se zadaným k_datu před začátkem historie: karty, sloupce řady, kroky trychtýře a metriky lidí (kromě plánu) castecne „Segment podle dnešního stavu: historie začíná …“, varování HISTORIE_OD',
     JSON.stringify({ karty: kartyDost.map((m) => [m.klic, m.kvalita, m.duvod]).slice(0, 3), bod: rada.data.body.find((b) => b.kvalita !== 'nedostupne'), krok: trych.data.kroky[1], lide: lide.meta.varovani.map((v) => v.kod) }));
-  const fKraj = { od: OD, do: DO, kraj: ['neznamy'], k_datu: KD_PO };
+  const fKraj = { od: ODK, do: DO, kraj: ['neznamy'], k_datu: KD_PO };
   const sKraj = await api.prehledSouhrn(T, fKraj);
   const lKraj = await api.prehledLide(T, fKraj);
-  const lSegPo = await api.prehledLide(T, { od: OD, do: DO, segment: ['chata'], k_datu: KD_PO });
+  const lSegPo = await api.prehledLide(T, { od: ODK, do: DO, segment: ['chata'], k_datu: KD_PO });
   const lSegZive = await api.prehledLide(T, { od: OD, do: DO, segment: ['chata'] });
   const nikde = (o, veta) => metrikyLidi(o).every((m) => !(m.duvod ?? '').includes(veta));
   over('Z10a2', castecneS(Object.values(sKraj.data.karty).filter((m) => m.kvalita !== 'nedostupne'), OBK) && castecneS(metrikyLidi(lKraj), OBK)
@@ -629,7 +632,7 @@ await blok('Z10', async () => {
     'obor a kraj se zadaným k_datu vždy castecne „Obor a kraj podle dnešního stavu (nejsou v historii).“; segment po začátku historie a bez k_datu bez té věty',
     JSON.stringify({ kraj: metrikyLidi(lKraj).slice(0, 2).map((m) => [m.klic, m.kvalita, m.duvod]), segPo: lSegPo.meta.varovani.map((v) => v.kod) }));
   // 2) se zadaným k_datu: doba do zavolání, hovory po termínu a „odpověděl“ po návrhu nedostupné (R11), K_DATU_MINULOST
-  const fK = { od: OD, do: DO, k_datu: KD_PO };
+  const fK = { od: ODK, do: DO, k_datu: KD_PO };
   const lK = await api.prehledLide(T, fK);
   const tK = await api.prehledTrychtyr(T, fK);
   const lZ = await api.prehledLide(T, { od: OD, do: DO });

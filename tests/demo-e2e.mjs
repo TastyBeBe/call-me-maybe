@@ -4129,6 +4129,17 @@ for (const sirka of [320, 360, 390]) {
 const klavesyDne = (den) => { const [y, m, d] = den.split('-'); return `${m}${d}${y}`; };
 const prvniDenMesicePV = (den, posun) => { const [y, m] = den.split('-').map(Number); const t = new Date(Date.UTC(y, m - 1 + posun, 1)); return t.toISOString().slice(0, 10); };
 const posledniDenMesicePV = (den) => posunPV(prvniDenMesicePV(den, 1), -1);
+/**
+ * Období tohoto měsíce, které obsahuje okamžik k datu (úkol 14c): databáze 073 odmítne k_datu před začátkem období
+ * („Neplatný filtr: k_datu je před začátkem období.“), takže když okamžik padne do minulého měsíce (1. a 2. den v měsíci),
+ * začne období dnem toho okamžiku; jinak prvním dnem měsíce jako výchozí období.
+ */
+const obdobiSKPV = (k) => {
+  const dnes = dnesPV();
+  const od1 = `${dnes.slice(0, 8)}01`;
+  const dk = denP(k);
+  return `od=${dk < od1 ? dk : od1}&do=${posledniDenMesicePV(dnes)}`;
+};
 /** Opustí pole data klávesou Tab (Tab v poli data chodí po měsíci, dni, roku a tlačítku kalendáře; pak teprve ven). */
 const vyjdiZPolePV = async (page, aria) => {
   for (let i = 0; i < 6; i += 1) {
@@ -4688,7 +4699,7 @@ await blok050('PZ10 oprava po recenzi', async () => {
     JSON.stringify({ lide: lideTym.map((v) => [v.args[0]?.lide, v.zacatek]), souhrn: souhrnB && [souhrnB.zacatek, souhrnB.konec] }));
   const predK = (await volani(page)).length;
   const k = new Date(Date.now() - 2 * 86400000).toISOString();
-  await jdi(page, `#/prehled/vedeni?od=${od}&do=${doDne}&k=${encodeURIComponent(k)}`, 1600);
+  await jdi(page, `#/prehled/vedeni?${obdobiSKPV(k)}&k=${encodeURIComponent(k)}`, 1600);
   const akceK = (await volani(page)).slice(predK).filter((v) => v.fn === 'prehledAkce').length;
   const vetaK = txt(await page.locator('section[data-blok="akce"]').innerText());
   over('PZ10c', akceK === 0 && /jen pro dnešek/.test(vetaK), 'K datu: akční seznam server nevolá a řekne, že je jen pro dnešek', JSON.stringify({ akceK, vetaK: vetaK.slice(0, 120) }));
@@ -5065,22 +5076,27 @@ await blok050('PN7 sladění s databází', async () => {
   const kartaV = txt(await kartaPV(page, 'provize_vyplaceno').innerText().catch(() => ''));
   // zadané k_datu: doba do zavolání a hovory po termínu „—“ s větou, že jsou jen pro dnešek (§9 bod 5)
   const k = new Date(Date.now() - 2 * 3600000).toISOString();
-  await jdi(page, `#/prehled/lide?k=${k}`, 1400);
+  await jdi(page, `#/prehled/lide?${obdobiSKPV(k)}&k=${k}`, 1400);
   await page.locator('.lide-pohled button', { hasText: 'Čas' }).click();
   await page.waitForTimeout(250);
   const sla = (await page.locator('table[data-tabulka="lide"] td[data-sloupec="sla_prvni_kontakt_median"]').allInnerTexts()).map(txt);
   const poTerminu = (await page.locator('table[data-tabulka="lide"] td[data-sloupec="naplanovane_po_terminu"]').allInnerTexts()).map(txt);
-  // segment se zadaným k_datu před začátkem historie: karty Vedení částečně s větou o dnešním segmentu, varování HISTORIE_OD (§9 bod 4)
+  // segment se zadaným k_datu před začátkem historie: karty Vedení částečně s větou o dnešním segmentu, varování HISTORIE_OD (§9 bod 4);
+  // úkol 14c: NAHRAZUJE kartu Hodnota prodejů, ta je podle 073 (app_prehled_souhrn_data) před začátkem historie nedostupná
+  // s větou HISTORIE_OD, takže větu o segmentu nese karta Inkasa
   const k2 = new Date(Date.now() - 48 * 3600000).toISOString();
-  await jdi(page, `#/prehled/vedeni?seg=chata&k=${k2}`, 1600);
-  const karta = txt(await kartaPV(page, 'hodnota_prodeju').innerText().catch(() => ''));
+  await jdi(page, `#/prehled/vedeni?${obdobiSKPV(k2)}&seg=chata&k=${k2}`, 1600);
+  const karta = txt(await kartaPV(page, 'inkaso').innerText().catch(() => ''));
+  const kartaH = txt(await kartaPV(page, 'hodnota_prodeju').innerText().catch(() => ''));
   const historie = await page.locator('.prehled-castecne [data-kod="HISTORIE_OD"]').count();
   over('PN7a', vyplaceno.length >= 2 && vyplaceno.every((t) => /^—/.test(t) && /Výplaty provizí nejsou rozdělené podle klientů/.test(t)) && /—/.test(kartaV) && /nejsou rozdělené podle klientů/.test(kartaV),
     'výplaty se segmentem: „—“ s větou databáze v tabulce lidí i na kartě Financí, nikdy 0', JSON.stringify({ vyplaceno, kartaV: kartaV.slice(0, 160) }));
   over('PN7b', sla.length >= 2 && sla.every((t) => /^—/.test(t) && /jen pro dnešek/.test(t)) && poTerminu.length >= 2 && poTerminu.every((t) => /^—/.test(t) && /jen pro dnešek/.test(t)),
     'K datu: doba do zavolání a hovory po termínu „—“ s větou, že jsou jen pro dnešek', JSON.stringify({ sla, poTerminu }));
-  over('PN7c', /částečně/.test(karta) && /Segment podle dnešního stavu: historie začíná/.test(karta) && historie >= 1,
-    'segment s K datu před začátkem historie: karta „částečně“ s větou o dnešním segmentu, varování HISTORIE_OD', JSON.stringify({ karta: karta.slice(0, 200), historie }));
+  over('PN7c', /částečně/.test(karta) && /Segment podle dnešního stavu: historie začíná/.test(karta) && historie >= 1
+    && /Historie změn stavů a cen začíná/.test(kartaH) && !/Segment podle dnešního stavu/.test(kartaH),
+    'segment s K datu před začátkem historie: karta Inkasa „částečně“ s větou o dnešním segmentu, Hodnota prodejů nedostupná s větou o historii (073), varování HISTORIE_OD',
+    JSON.stringify({ karta: karta.slice(0, 200), kartaH: kartaH.slice(0, 200), historie }));
   await ctx.close();
 });
 

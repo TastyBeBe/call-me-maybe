@@ -11,6 +11,10 @@
 // nebo neúplné období ukáže větu u pole a adresa zůstane. První zápis jedné úpravy přidá záznam historie, další ho nahradí.
 // ⚠ NAHRAZUJE zápis každé změny pole rovnou do adresy s dorovnáním druhého konce (úkol 13, 23c94b3).
 // Výběr období se řídí adresou (bod 7): „Vlastní“ zvolené bez změny dnů platí jen pro tyhle dny a Zpět/Vpřed ho zruší.
+// Úkol 14c (parita s 073, app_prehled_filtr): začátek období v budoucnosti a k datu před začátkem období ukážou u pole větu
+// databáze („Neplatný filtr: od je v budoucnosti.“, „Neplatný filtr: k_datu je před začátkem období.“) a do adresy nejdou;
+// odkaz se začátkem v budoucnosti dostane výchozí období (ctiFiltr), odkaz s k datu před začátkem období ukáže větu u Období
+// (role alert). ⚠ NAHRAZUJE kontrolu k datu jen proti dnešku.
 
 import { useEffect, useId, useRef, useState, type FocusEvent, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { useLocation, useNavigationType } from 'react-router-dom';
