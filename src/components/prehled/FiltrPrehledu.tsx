@@ -53,14 +53,26 @@ export function lideZMoznosti(m: DataMoznosti): Clovek[] {
 /** Výběr lidí z filtru: tym = předvolba týmu, lide = zaškrtnutí lidé (Já, tým, vybraní), nic = Všichni. */
 export function vyberZFiltru(f: FiltrPrehledu, lide: readonly Clovek[], ja: number): Vyber {
   if (f.tym !== null) return { druh: 'tym', tymId: f.tym, ids: [] };
-  if (f.lide && f.lide.length > 0) return vyberZIds(f.lide, lide, ja);
+  if (f.lide && f.lide.length > 0) {
+    if (!f.aktivni) return vyberZIds(f.lide, lide, ja);
+    // „jen aktivní“ (adresa aktivni=1): Všichni aktivní, když lide jsou všichni aktivní (a nejsou to všichni), jinak předvolba s příznakem
+    const aktivniIds = lide.filter((c) => c.active).map((c) => c.id).sort((a, b) => a - b);
+    const mnozina = [...f.lide].sort((a, b) => a - b);
+    if (aktivniIds.length < lide.length && mnozina.length === aktivniIds.length && mnozina.every((x, i) => x === aktivniIds[i])) return { ...VYBER_VSICHNI, jenAktivni: true };
+    return vyberZIds(f.lide, lide, ja, true);
+  }
   return VYBER_VSICHNI;
 }
 /** Filtr z výběru lidí (stejné kódování jako odkaz „Porovnat v Přehledu“ ze Statistik, src/lide.ts). */
 export function filtrZVyberu(f: FiltrPrehledu, v: Vyber, lide: readonly Clovek[], ja: number): FiltrPrehledu {
-  if (v.druh === 'tym' && !v.jenAktivni) return { ...f, lide: null, tym: v.tymId ?? ja };
+  if (v.druh === 'tym' && !v.jenAktivni) {
+    const { aktivni: _a, ...bez } = f;
+    return { ...bez, lide: null, tym: v.tymId ?? ja };
+  }
   const ids = rozbalVyber(v, lide, ja);
-  return { ...f, lide: ids && ids.length > 0 ? ids : null, tym: null };
+  const maLide = !!ids && ids.length > 0;
+  const { aktivni: _a, ...bez } = f;
+  return { ...bez, lide: maLide ? ids : null, tym: null, ...(maLide && v.jenAktivni ? { aktivni: true as const } : {}) };
 }
 
 /** Okamžik „k datu“ z dne v Praze: konec toho dne, nejvýš teď (server budoucnost odmítne). */

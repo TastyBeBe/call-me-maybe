@@ -148,6 +148,17 @@ try {
   over('G0', false, 'stránka Přehledu (src/pages/prehled/PrehledPage.tsx) nejde sestavit', String(e.message).split('\n').slice(0, 2).join(' | '));
 }
 
+let LF = null;
+try {
+  LF = await balicek([
+    "export { vyberZFiltru, filtrZVyberu } from './src/components/prehled/FiltrPrehledu.tsx';",
+    "export { shrnutiVyberu, VYBER_VSICHNI, sJenAktivnimi, vyberZIds } from './src/lide.ts';",
+    "export * from './src/prehledFiltr.ts';",
+  ]);
+} catch (e) {
+  over('M0', false, 'výběr lidí v řadě filtrů Přehledu nejde sestavit', String(e.message).split('\n')[0]);
+}
+
 const DNES = '2026-11-18';
 
 /* ---------------- A) filtr v adrese ---------------- */
@@ -204,6 +215,43 @@ await blok('A', async () => {
     'osm záložek a nastavení (Cíle, Náklady, Výplaty provizí) v pořadí spec §7.2', JSON.stringify(F.ZALOZKY));
   over('A11', F.odkazZalozky('finance', { ...vych, tym: 4 }) === '/prehled/finance?od=2026-11-01&do=2026-11-30&tym=4',
     'odkaz záložky nese filtr (proklik i sdílený odkaz ho drží)', F.odkazZalozky('finance', { ...vych, tym: 4 }));
+});
+
+/* ---------------- M1) „jen aktivní“ přežije adresu (závěrečná recenze, M1) ---------------- */
+await blok('M1', async () => {
+  if (!LF) return;
+  const lide = [
+    { id: 1, display_name: 'Albert', role: 'super_admin', active: true, manager_id: null },
+    { id: 2, display_name: 'Mikuláš', role: 'super_admin', active: true, manager_id: null },
+    { id: 4, display_name: 'Kuba', role: 'admin', active: true, manager_id: 1 },
+    { id: 5, display_name: 'Eda', role: 'admin', active: true, manager_id: 2 },
+    { id: 6, display_name: 'Bývalý', role: 'admin', active: false, manager_id: 1 },
+  ];
+  const ja = 1;
+  const zacatek = LF.vychoziFiltr(DNES);
+  const pruchod = (vyber) => {
+    const f = LF.filtrZVyberu(zacatek, vyber, lide, ja);
+    const adr = LF.zapisFiltr(f);
+    const znovu = LF.ctiFiltr(`?${adr}`, DNES);
+    const v = LF.vyberZFiltru(znovu, lide, ja);
+    return { f, adr, znovu, v, text: LF.shrnutiVyberu(v, lide, ja), textPred: LF.shrnutiVyberu(vyber, lide, ja) };
+  };
+  const vsichniAkt = pruchod({ ...LF.VYBER_VSICHNI, jenAktivni: true });
+  over('M1a', vsichniAkt.v.jenAktivni === true && vsichniAkt.v.druh === 'vsichni' && vsichniAkt.text === vsichniAkt.textPred && vsichniAkt.text === 'Všichni aktivní (4)'
+    && /&aktivni=1/.test(vsichniAkt.adr), 'Všichni + jen aktivní: po adrese tam a zpět zůstane zaškrtnuto i text „Všichni aktivní (4)“', JSON.stringify([vsichniAkt.adr, vsichniAkt.v, vsichniAkt.text]));
+  const tymAkt = pruchod(LF.sJenAktivnimi({ druh: 'tym', tymId: 1, ids: [] }, lide, ja, true));
+  over('M1b', tymAkt.v.jenAktivni === true && tymAkt.text === tymAkt.textPred, 'Můj tým + jen aktivní: po adrese tam a zpět stejný výběr i text', JSON.stringify([tymAkt.adr, tymAkt.v, tymAkt.text, tymAkt.textPred]));
+  const vybraniAkt = pruchod(LF.vyberZIds([4, 5], lide, ja, true));
+  over('M1c', vybraniAkt.v.jenAktivni === true && vybraniAkt.text === vybraniAkt.textPred, 'vybraní lidé + jen aktivní: tam a zpět stejný výběr', JSON.stringify([vybraniAkt.adr, vybraniAkt.v, vybraniAkt.text]));
+  // staré adresy zůstanou čitelné a bez příznaku se nic nemění; příznak bez lidí a Zrušit vše ho zahodí
+  const stara = LF.ctiFiltr('?od=2026-11-01&do=2026-11-30&lide=1,2,4,5', DNES);
+  const bezLidi = LF.ctiFiltr('?od=2026-11-01&do=2026-11-30&aktivni=1', DNES);
+  const zrus = LF.zrusVseFiltry(LF.ctiFiltr(vsichniAkt.adr.length ? `?${vsichniAkt.adr}` : '', DNES));
+  over('M1d', stara.aktivni === undefined && LF.vyberZFiltru(stara, lide, ja).jenAktivni !== true && LF.zapisFiltr(stara) === 'od=2026-11-01&do=2026-11-30&lide=1,2,4,5'
+    && bezLidi.aktivni === undefined && LF.zapisFiltr(bezLidi) === 'od=2026-11-01&do=2026-11-30'
+    && zrus.aktivni === undefined && !/aktivni/.test(LF.zapisFiltr(zrus)), 'stará adresa bez příznaku čitelná jako dřív; příznak bez lidí a „Zrušit vše“ ho zahodí');
+  const vypnuto = LF.filtrZVyberu(vsichniAkt.znovu, LF.VYBER_VSICHNI, lide, ja);
+  over('M1e', vypnuto.lide === null && vypnuto.aktivni === undefined && !/aktivni/.test(LF.zapisFiltr(vypnuto)), 'vypnutí jen aktivních (Všichni) příznak z adresy odstraní');
 });
 
 /* ---------------- B) předvolby období v pražském čase ---------------- */
@@ -599,6 +647,40 @@ await blok('F', async () => {
   const rr = odeslano[odeslano.length - 1];
   await sb.prehledKontakt('t', 22);
   const kk = odeslano[odeslano.length - 1];
+  // oprava po závěrečné recenzi (M5): anglické texty PostgreSQL česky, české věty serveru beze změny
+  const veta2 = async (telo, status = 400, volani = () => sb.prehledSouhrn('t', {})) => {
+    odpoved = { status, telo: JSON.stringify(telo) };
+    try { await volani(); return 'prošlo'; } catch (e) { return e?.message; }
+  };
+  const anglicke = [
+    await veta2({ code: '57014', message: 'canceling statement due to statement timeout' }),
+    await veta2({ message: 'canceling statement due to statement timeout' }),
+    await veta2({ code: '57014', message: 'neco jineho' }, 500, () => sb.prehledLide('t', {})),
+  ];
+  over('F5a', anglicke.every((t) => t === API.CHYBA_CASOVY_LIMIT) && /^Výpočet trval příliš dlouho/.test(API.CHYBA_CASOVY_LIMIT),
+    'statement timeout (kód 57014 i jen anglický text) = česká věta o dlouhém výpočtu, Přehled i prehled_lide', JSON.stringify(anglicke));
+  const jine = [
+    await veta2({ code: '42P01', message: 'relation "x" does not exist' }),
+    await veta2({ code: 'XX000', message: 'internal error' }),
+    await veta2({ message: 'Connection terminated unexpectedly' }, 502),
+  ];
+  over('F5b', jine.every((t) => t === API.CHYBA_SERVERU_OBECNA) && !jine.some((t) => /relation|internal|Connection/i.test(t)),
+    'jiné anglické chyby serveru = obecná česká věta bez syrového textu', JSON.stringify(jine));
+  const ceske = [
+    'Přehled vidí jen super admin.',
+    'Neplatný filtr: od je v budoucnosti.',
+    'Filtr lidí je zadaný dvakrát (p_user_ids i p_filtr.lide).',
+    'Neplatný filtr: k_datu je před začátkem období.',
+  ];
+  const zpet = [];
+  for (const t of ceske) zpet.push(await veta2({ code: 'P0001', message: t }));
+  zpet.push(await veta2({ message: 'Filtr lidí je zadaný dvakrát' }));
+  zpet.push(await veta2({ message: 'Chyba serveru (500)' }, 500));
+  odpoved = { status: 404, telo: JSON.stringify({ code: 'PGRST202', message: 'Could not find the function' }) };
+  let bez073 = '';
+  try { await sb.prehledSouhrn('t', {}); } catch (e) { bez073 = e?.message; }
+  over('F5c', zpet.slice(0, 4).every((t, i) => t === ceske[i]) && zpet[4] === 'Filtr lidí je zadaný dvakrát' && zpet[5] === 'Chyba serveru (500)' && bez073 === API.BEZ_073_PREHLED,
+    'české věty serveru (P0001, s diakritikou, obecná „Chyba serveru“) a hláška BEZ_073 zůstanou doslova', JSON.stringify(zpet));
   over('F4', r.fn === 'prehled_radky' && stejne(r.body, { p_token: 't', p_zdroj: 'prodeje', p_filtr: { od: '2026-11-01', do: '2026-11-30', vyber: { metrika: 'hodnota_prodeju' } }, p_kurzor: 'abc', p_limit: 200 })
     && rr.fn === 'prehled_rada' && stejne(rr.body, { p_token: 't', p_metrika: 'inkaso', p_zrnitost: 'tyden', p_filtr: { od: '2026-11-01' } })
     && kk.fn === 'prehled_kontakt' && stejne(kk.body, { p_token: 't', p_kontakt_id: 22 }),

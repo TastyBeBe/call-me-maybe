@@ -28,6 +28,8 @@ export interface FiltrPrehledu {
   zaklad: ZakladPrehledu;
   atribuce: AtribucePrehledu;
   k: string | null;
+  /** „jen aktivní“ v Přehledu: `lide` jsou aktivní lidé vybrané předvolby (adresa `aktivni=1`; bez `lide` nemá smysl a zahodí se) */
+  aktivni?: true;
 }
 
 /** Záložky Přehledu jako podstránky #/prehled/<klíč> (spec §7.2). */
@@ -120,7 +122,9 @@ export function obdobiNaCasy(od: string, doDne: string): { odMs: number; doMs: n
 
 /** Filtr v pevném pořadí klíčů (čtení, výchozí i „Zrušit vše“ dávají stejný tvar). */
 function filtrZ(p: FiltrPrehledu): FiltrPrehledu {
-  return { od: p.od, do: p.do, lide: p.lide, tym: p.tym, segment: p.segment, obor: p.obor, kraj: p.kraj, mena: p.mena, zaklad: p.zaklad, atribuce: p.atribuce, k: p.k };
+  const zaklad = { od: p.od, do: p.do, lide: p.lide, tym: p.tym, segment: p.segment, obor: p.obor, kraj: p.kraj, mena: p.mena, zaklad: p.zaklad, atribuce: p.atribuce, k: p.k };
+  // příznak „jen aktivní“ jen s lidmi; bez něj je tvar filtru stejný jako dřív (staré adresy a porovnání)
+  return p.aktivni && p.lide && p.lide.length > 0 ? { ...zaklad, aktivni: true } : zaklad;
 }
 
 /** Výchozí filtr: Tento měsíc, všichni, CZK, přirozený základ, poslední zájem, živá data. */
@@ -163,6 +167,7 @@ export function ctiFiltr(search: string, dnes: string = dnesVPraze()): FiltrPreh
     zaklad: volba(q.get('zaklad'), ZAKLADY, 'prirozeny'),
     atribuce: volba(q.get('atribuce'), ATRIBUCE, 'posledni_zajem'),
     k: kOk ? k : null,
+    ...(q.get('aktivni') === '1' ? { aktivni: true as const } : {}),
   });
 }
 
@@ -170,7 +175,10 @@ export function ctiFiltr(search: string, dnes: string = dnesVPraze()): FiltrPreh
 export function zapisFiltr(f: FiltrPrehledu): string {
   const c: string[] = [`od=${f.od}`, `do=${f.do}`];
   const sez = (v: readonly (string | number)[]) => v.map((x) => encodeURIComponent(String(x))).join(',');
-  if (f.lide && f.lide.length > 0) c.push(`lide=${sez(f.lide)}`);
+  if (f.lide && f.lide.length > 0) {
+    c.push(`lide=${sez(f.lide)}`);
+    if (f.aktivni) c.push('aktivni=1');
+  }
   else if (f.tym !== null) c.push(`tym=${f.tym}`);
   if (f.segment.length > 0) c.push(`seg=${sez(f.segment)}`);
   if (f.obor.length > 0) c.push(`obor=${sez(f.obor)}`);
