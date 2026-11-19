@@ -298,10 +298,10 @@ export default function FiltrPanel({
         />
         {kose}
         {extra}
-        {pocetCipu > 0 && (
+        {(pocetCipu > 0 || lzeZrusit(filtry)) && (
           <div className="filtr-rada filtr-cipy" role="group" aria-label="Zapnuté filtry">
             {cipTlacitka}
-            {cipy.length > 0 && zrusitVse}
+            {lzeZrusit(filtry) && zrusitVse}
           </div>
         )}
       </div>

@@ -175,8 +175,27 @@ async function prehledRpc<T>(fn: string, body: Record<string, unknown>): Promise
     return await rpc<T>(fn, body);
   } catch (e) {
     if (neniNaServeru(e)) throw new Error(BEZ_073_PREHLED);
-    throw e;
+    throw cesky(e);
   }
+}
+
+export const CHYBA_CASOVY_LIMIT = 'Výpočet trval příliš dlouho, zkuste to prosím znovu nebo zužte období.';
+export const CHYBA_SERVERU_OBECNA = 'Server vrátil neočekávanou chybu. Zkuste to prosím znovu; když se to opakuje, dejte vědět.';
+const ANGLICKE_CHYBY = /\b(error|failed|failure|timeout|timed out|connection|deadlock|permission denied|relation|column|syntax|violates|constraint|could not|cannot|invalid|unexpected|canceling|exception|does not exist)\b/i;
+/**
+ * Chyba serveru pro člověka (Přehled, recenze M5): anglické a technické texty PostgreSQL (statement timeout, kód 57014 a další)
+ * se změní na krátkou českou větu bez syrového textu. České věty serveru (výjimky P0001: „Přehled vidí jen super admin.“,
+ * „Neplatný filtr: …“, „Filtr lidí je zadaný dvakrát …“) a věty s diakritikou projdou beze změny.
+ */
+export function ceskaChybaServeru(message: string, kod: string | null): string {
+  if (kod === '57014' || /statement timeout|canceling statement/i.test(message)) return CHYBA_CASOVY_LIMIT;
+  if (kod === 'P0001') return message;
+  if (/[áčďéěíňóřšťúůýžÁČĎÉĚÍŇÓŘŠŤÚŮÝŽ]/.test(message)) return message;
+  if (kod !== null || ANGLICKE_CHYBY.test(message)) return CHYBA_SERVERU_OBECNA;
+  return message;
+}
+function cesky(e: unknown): unknown {
+  return e instanceof RpcChyba ? new Error(ceskaChybaServeru(e.message, e.kod)) : e;
 }
 /** Volání nastavení Přehledu (072): PGRST202 = BEZ_072_NASTAVENI, jiná chyba (věta serveru) projde doslova. */
 async function nastaveniRpc<T>(fn: string, body: Record<string, unknown>): Promise<T> {
@@ -859,7 +878,7 @@ export const supabaseApi: Api = {
       return await rpc<PrehledObalka<DataLide>>('prehled_lide', { p_token: token, p_filtr: filtr });
     } catch (e) {
       if (neniNaServeru(e)) throw new Error(BEZ_073_LIDE);
-      throw e;
+      throw cesky(e);
     }
   },
 

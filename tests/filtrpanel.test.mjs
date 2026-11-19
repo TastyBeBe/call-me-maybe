@@ -320,6 +320,11 @@ await blok('V', async () => {
   over('FP11e', /filtr-cipy/.test(jenOsoba) && /Klienti: Petra/.test(jenOsoba) && !/Zrušit vše/.test(jenOsoba)
     && /Klienti: Petra/.test(sOsobou) && /Jen s hvězdou/.test(sOsobou) && /Zrušit vše/.test(sOsobou),
     'počítač: čip osoby bez „Zrušit vše“, když jiný filtr zapnutý není; s filtrem čip osoby i „Zrušit vše“');
+  // oprava po závěrečné recenzi (T11-2): samotné hledání nebo samotné řazení „Zrušit vše“ ukáže (jako dřív „Zrušit filtry“)
+  const jenHledani = P.renderToStaticMarkup(h(P.FiltrPanel, props({ ...FM.PRAZDNE_FILTRY, hledat: 'novak' })));
+  const jenRazeni = P.renderToStaticMarkup(h(P.FiltrPanel, props({ ...FM.PRAZDNE_FILTRY, razeni: 'nejstarsi' })));
+  over('FP11f', /Zrušit vše/.test(jenHledani) && /Zrušit vše/.test(jenRazeni),
+    'počítač: „Zrušit vše“ je i když je zapnuté jen hledání, nebo jen řazení');
   // telefon (do 640 px): hledání a segment venku, ostatní filtry až v panelu „Filtry (n)“
   globalThis.window = { matchMedia: (q) => ({ matches: /max-width:\s*640px/.test(q), media: q, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {} }) };
   try {
