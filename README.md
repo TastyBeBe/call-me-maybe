@@ -84,9 +84,10 @@ Eva má v demu rozvrh a je napřed. Hovory minulých dnů týdne jsou v demu jen
 Demo mock (`src/api/mock.ts`) má stejná pravidla viditelnosti jako server (migrace 023
 až 038, role z 042, z 045 jména kolegů v poznámkách, u příznaku a zámku a v hledání maskovaná, Volajícímu bez `total` a `top_prodejce`, u cizího kontaktu jen allowlist `KLICE_CIZI` se `skryto: true`, filtr stavu a hledání v poznámce jen nad jeho klienty, příznak a zámek cizího odmítnut, vlákna o cizím klientovi skrytá; ⚠ NAHRAZUJE „023 až 036“, mock už zrcadlí i 037 a 038): i hledání osobního IČO jen celým číslem a jen u kontaktů, které smí upravit, IČO
 ateliéru rovné osobnímu skryté s ním, vlastní karta ve volání napřed a strop 10 vrácení do
-fronty za hodinu (audit 1. 10., APP-4 a APP-5; `npm test` blok L). Od migrace 076 (Albert 20. 11. 2026) i právo úprav
-jako server: `canEdit` = každý super admin u každého klienta, Volající u svých (`npm test` blok SA v `tests/segment.test.mjs`;
-⚠ NAHRAZUJE „super admin jen u svých, svých lidí a klientů bez volajícího“). Chaty mají id 1 až 9
+fronty za hodinu (audit 1. 10., APP-4 a APP-5; `npm test` blok L). Od migrace 077 (Albert 20. 11. 2026 večer) i právo úprav
+jako server: `canEdit` = Albert (majitel) a Mikuláš (`mikulas`) u každého klienta (Pavel v demu není), ostatní super admini
+u svých, svých lidí a klientů bez volajícího, Volající u svých (`npm test` blok SA v `tests/segment.test.mjs`, super admina
+mimo seznam si test založí; ⚠ NAHRAZUJE 076 „každý super admin u každého klienta“). Chaty mají id 1 až 9
 a 90 až 92 (od migrace 050 i 10 až 13 a 20 až 23 pro kalendář hovorů a výdělek, viz oddíl Volání 050, od 051 i 24 bez ceny, oddíl Cena 051), falešní architekti id 300 až 303 (jen adresy `example.cz`, telefony s předvolbou 999, IČO `11111111` a `22222222` s neplatným
 kontrolním součtem): 300 a 301 jsou ve frontě, 302 je nedovolaný s příznakem a bez
 e-mailu (volala Petra), 303 má odeslaný návrh a čeká na odpověď (volal Honza).
@@ -346,8 +347,8 @@ lhůtě a doplnění přehledů ostatním klientům tick zařadí až po zapnut�
   web“ (stav odmítnuto), „Nechce, abychom ho kontaktovali“ (stav nekontaktovat) a „Mluvili jsme – co klient chce“ (text
   povinný: jde do poznámky a jako vzkaz automatizaci do vlákna kontaktu), a s „Velký zájem (hvězda)“; `zapis_hovor` nikdy nepíše call_log (statistiky, Rozvrh,
   výdělek ani fronta se nemění) a naplánovaný hovor vyřídí jako hovor z fronty (vlastní hotovo, cizí zrušený). Kdo kontakt
-  nesmí upravit (`smi_upravit` false; ⚠ od migrace 076, Albert 20. 11. 2026, to super admin není nikdy, NAHRAZUJE příklad
-  „třeba super admin cizího týmu“), dostane v okně jen „Nedovolal/a jsem se“ (server
+  nesmí upravit (`smi_upravit` false; ⚠ od migrace 077, Albert 20. 11. 2026 večer, třeba super admin mimo Alberta, Mikuláše
+  a Pavla u klienta jiného týmu, NAHRAZUJE 076 „to super admin není nikdy“), dostane v okně jen „Nedovolal/a jsem se“ (server
   ostatní odmítne); důvod u „Nechce web“ a „Nechce, abychom ho kontaktovali“ nejvýš 450 znaků jako server (recenze
   2. 11. 2026). Lhůta: „Lhůta na zavolání do <den>“ (bez slibu e-mailu; ⚠ etapa 2, migrace 063: zůstává tak, ať je
   přepínač připomínek zapnutý, nebo ne, NAHRAZUJE „Připomínka e-mailem po <den>“; odeslanou připomínku
@@ -1038,13 +1039,15 @@ jen dvě, **Volající** (klíč `admin`, stará role `caller` je s ním slouče
 Každý vidí **jen svoje** (statistiky, klienty, zprávy, označené); cizí lidi vidí super
 admin a Albert — od migrace 027 (Albert 2026-09-25) **každý super admin všechny**;
 upravovat a psát do vlákna ale dál jen u svých lidí (cizí vlákno je jen ke čtení, server
-posílá `smi_psat`). ⚠ Od migrace 076 (Albert 20. 11. 2026: „full access to all clients for all the super
-admins“) NAHRAZUJE „upravovat a psát do vlákna dál jen u svých lidí“ u klientů: **každý super admin smí
-u každého klienta** (ať patří komukoli) upravit údaje, změnit stav, zapsat hovor a poznámku, dát hvězdu,
-poslat vzkaz agentovi a psát do vlákna o něm (server `app_smi_upravit_v`; appka se dál řídí `smi_upravit`
-a `smi_psat`, demo mock `canEdit` stejně, `npm test` blok SA). Beze změny: Volající jen svoje klienty, vlákno bez
-klienta jen svých lidí, systémová vlákna automatizace jen Albert, přeřadit klienta smí super admin jen sobě nebo
-svým lidem (Albert komukoli) a lidi zakládá a přesouvá podle dosavadních pravidel. Kontakty (celou databázi) vidí všichni, jméno kolegy u kontaktu jen
+posílá `smi_psat`). ⚠ Od migrace 077 (Albert 20. 11. 2026 večer: „every super admin except for Krystof.
+Krystof shouldn't have this access. Only me, Pavel and Mikulas.“; NAHRAZUJE 076 z rána téhož dne „každý super admin
+u každého klienta“): **Albert, Mikuláš a Pavel smí u každého klienta** (ať patří komukoli) upravit údaje, změnit stav,
+zapsat hovor a poznámku, dát hvězdu, poslat vzkaz agentovi a psát do vlákna o něm (server `app_smi_upravit_v` podle
+id 1, 2 a 2211; appka se dál řídí `smi_upravit` a `smi_psat`, demo mock `canEdit` podle majitele a jména `mikulas`,
+`npm test` blok SA). Ostatní super admini (Kryštof, každý nový) dál jen u svých, svých lidí a klientů bez volajícího
+(027). Beze změny: Volající jen svoje klienty, vlákno bez klienta jen svých lidí, systémová vlákna automatizace jen
+Albert, přeřadit klienta smí super admin jen sobě nebo svým lidem (Albert komukoli) a lidi zakládá a přesouvá podle
+dosavadních pravidel. Kontakty (celou databázi) vidí všichni, jméno kolegy u kontaktu jen
 super admin a Albert („jiný volající"); ⚠ od migrace 045 (Albert 20. 10. 2026) Volající stav a průběh jen
 u svých klientů (oddíl „Volající vidí stav jen u svých klientů“ níž, NAHRAZUJE „Kontakty se stavy vidí
 všichni“). Zprávy automatizace a stránku
@@ -1150,8 +1153,9 @@ ten, kdo se odhlásil) a při startu appky (`uklidCiziPokrok` v `src/pig/progres
 blok X, e2e X a kontroly 193 a 201 v repu webdomov. Stará appka s 048 funguje (u cizí chaty ukáže e-mail jako nevyplněný).
 
 Od migrace 024/025 (Albert 2026-09-24 večer): kontakt **upravuje** jen ten, komu patří,
-jeho super admin a Albert (⚠ od migrace 076, Albert 20. 11. 2026, NAHRAZUJE „jeho super admin“: každý super admin
-u každého klienta, Volající dál jen u svých; oddíl Role výš) (server posílá u každého řádku `smi_upravit`; příznak a zámek
+jeho super admin a Albert (⚠ od migrace 077, Albert 20. 11. 2026 večer: Albert, Mikuláš a Pavel u každého klienta,
+ostatní super admini dál jen u svých, svých lidí a klientů bez volajícího, Volající jen u svých; oddíl Role výš;
+NAHRAZUJE 076 „každý super admin u každého klienta“) (server posílá u každého řádku `smi_upravit`; příznak a zámek
 smí každý admin, ⚠ od migrace 045 Volající jen u svých klientů, super admin u každého), vzkaz agentovi ke klientovi taky; kdo kontaktu volal, si ho může
 **označit jako svého klienta** (stav i fronta volání zůstávají); **uživatele** zakládá
 jen super admin (stránka Uživatelé jen pro něj); „zapsat do pravidel" je jen **návrh**,
@@ -1237,7 +1241,7 @@ který schvaluje Albert (u zprávy je vidět jeho stav).
 | `#/rozvrh`    | všichni | Rozvrh (042): týden po až ne, hodiny na den a cíl (hovorů za hodinu posílá server), plnění z hovorů, hláška pozadu / v plánu / napřed, poznámky ke dnům; Volající si ho nastaví jednou, super admin vidí přehled všech, mění a odemyká; od 17. 11. 2026 (úkol 10) super admin zúží přehled výběrem lidí, úprava je dál pro jednoho člověka |
 | `#/admin`     | všichni | Kontakty: celá databáze s filtry (i segment, 028) a fulltextem (i studio, město, IČO; IČO jen admin a super admin, 038); upravovat smí admin a super admin; počty u stavů a košů a celkový počet jen super admin (045, Volající stránkuje bez počtu); Volající stav, známku, kdo volal, čekání a poznámky jen u svých klientů, filtr stavu a hledání v poznámce jen nad nimi (045, 20. 10. 2026); od migrace 056 řazení podle poslední změny (Volajícímu jen mezi jeho klienty, cizí za nimi podle čísla); od migrace 057 Změněno i se změnami od automatizace, sloupec a řazení podle posledního hovoru (Volajícímu jen jeho hovory); od migrace 060 (Albert 1. 11. 2026) spojitelné filtry (víc stavů a známek, hvězda, označení, mlčení v pracovních dnech), sloupec Mlčí a hvězda u svých klientů (Volajícímu jen nad jeho klienty); ⚠ od migrace 061 (Albert 2. 11. 2026) řádky o dvou řádcích bez posunu do strany (NAHRAZUJE tabulku posouvanou v rámečku) a Volající nevidí příznak „Údaje z internetu“; ⚠ od migrace 062 (Albert 2. 11. 2026: „you can even add [it] to the contacts section“) „Zavolal/a jsem“ v 1. řádku u vlastních klientů, kterým ho přihlášený smí zapsat; ⚠ od 17. 11. 2026 (úkol 11) panel filtrů ve třech řadách s čipy a „Zrušit vše“, na telefonu okno „Filtry (n)“; od úkolu 10 (17. 11. 2026) super admin výběr lidí (Já, tým, kdokoli, Všichni) |
 | `#/oznacene`  | admin   | označení klienti — admin svoji; super admin a Albert všichni (027); filtr segmentu (028); ⚠ od migrace 060 (Albert 1. 11. 2026) „Označené k zavolání“ (`list_oznacene`): klienti, kteří víc než 5 pracovních dní mlčí (Neodpověděl na návrh, na změny), Volajícímu jen jeho, a klienti s příznakem; okno „Zavolal/a jsem“ (`zapis_hovor`, nikdy call_log), „Lhůta na zavolání do …“, stejné filtry jako Kontakty, super admin sloupec Volající, „bez volajícího“ a „Zrušit označení“ (NAHRAZUJE „jen příznaky přes list_flagged“); ⚠ od migrace 061 (Albert 2. 11. 2026) řádky o dvou řádcích bez posunu do strany s akcemi přímo v řádku („Zavolal/a jsem“, „Vyřešeno“ u příznaku, super admin „Zrušit označení“), okno s pěti výsledky (i „Nic z toho výše“) a poznámkou pro automatizaci u každého, příznak „Údaje z internetu“ jen super admin; od auditu soudržnosti (2. 11. 2026) u označeného klienta s příznakem „Chybí e-mail“ hned za skupinou „e-mail se vrátil“; ⚠ od migrace 062 (Albert 2. 11. 2026) okno se šesti výsledky (i „Chce web“, NAHRAZUJE „s pěti výsledky“) a „Zavolal/a jsem“ i u řádku jen s příznakem, když ho přihlášený smí zapsat; od migrace 063 pod lhůtou „Připomínka odeslána <den>“, když po lhůtě odešla připomínka e-mailem; ⚠ od 17. 11. 2026 (úkol 11) panel filtrů ve třech řadách (pilulky „Co je potřeba“ pod řadou filtrů) s čipy a „Zrušit vše“, na telefonu okno „Filtry (n)“; od úkolu 10 (17. 11. 2026) super admin výběr lidí (Já, tým, kdokoli, Všichni) |
-| `#/zpravy`    | admin   | vlákna s AI agenty — admin svoje; super admin vlákna všech lidí (cizí jen ke čtení, 027; ⚠ od migrace 076, Albert 20. 11. 2026, NAHRAZUJE „cizí jen ke čtení“ u vláken o klientovi: do vlákna o kterémkoli klientovi píše každý super admin, jen ke čtení zůstává cizí vlákno bez klienta); Albert i automatizaci; odznak architekta u hledaného kontaktu (028); od 17. 11. 2026 (úkol 10) super admin vlákna vybraných lidí (výběr lidí) |
+| `#/zpravy`    | admin   | vlákna s AI agenty — admin svoje; super admin vlákna všech lidí (cizí jen ke čtení, 027; ⚠ od migrace 077, Albert 20. 11. 2026 večer: do vlákna o kterémkoli klientovi píše Albert, Mikuláš a Pavel, jim jen ke čtení zůstává cizí vlákno bez klienta, ostatním super adminům cizí vlákno dál jen ke čtení; NAHRAZUJE 076 „každý super admin“); Albert i automatizaci; odznak architekta u hledaného kontaktu (028); od 17. 11. 2026 (úkol 10) super admin vlákna vybraných lidí (výběr lidí) |
 | `#/prehled`   | super admin | Přehled vedení (úkol 13, Albert 17. 11. 2026, D2): záložky jako podstránky `#/prehled/<záložka>` (Vedení, Lidé a volání, Pipeline, Klienti a sektory, Komunikace a ztráty, Finance, Dodání, Prognóza a data) a `#/prehled/nastaveni/<sekce>`, filtr v adrese (`?od=…&do=…&lide=…|tym=…&seg=…&obor=…&kraj=…&mena=…&zaklad=…&atribuce=…&k=…`), karty s „i“ a řádky s CSV, od úkolu 14a tabulky, porovnání lidí a grafy (trend proti cíli, trychtýř, pásma stáří, sloupce) s „Zobrazit jako tabulku“, od úkolu 14b nastavení `cile`, `naklady`, `vyplaty` s formuláři (D9, D10); od úkolu 14c filtr ukáže obě odmítnutí serveru u pole (začátek po dnešku, „k datu“ před začátkem období) a mock odpovídá databázi 073 a 074 (oddíl „Přehled vedení: souhrn po úkolu 14c“); Volajícího vrátí domů |
 | `#/uzivatele` | super admin | super admin: všichni lidé, upravuje sebe a své lidi + nový Volající (027, 042); Albert: role (Volající / Super admin, 042) a nadřízení (⚠ od migrace 024 Volající stránku nemá) |
 | `#/automatizace` | Albert | vypínač automatizace a přepínač účtu Claude                    |

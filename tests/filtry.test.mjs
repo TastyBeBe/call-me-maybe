@@ -253,13 +253,13 @@ await blok('F', async () => {
   await chyba('F6', () => api.myKontakty(petra, 200, 0, 3, null, { status: 'zajem' }), /^Klienty jiného člověka vidí jen jeho super admin\.$/,
     'Volající s filtrem klienty kolegy nedostane (věta serveru)');
   // osobní IČO jen tomu, kdo kontakt smí upravit (028). ⚠ NAHRAZUJE „Mikuláš klienty Petry (pod Albertem) upravit nesmí, osobní
-  // IČO Petřina architekta nenajde“: od migrace 076 (Albert 20. 11. 2026: „full access to all clients for all the super admins“)
-  // smí každý super admin upravit každého klienta, takže ho najde a vidí jako Albert; kdo upravit nesmí (Volající u cizího
-  // kontaktu), osobní IČO nenajde (segment.test.mjs L2 a L3)
+  // IČO Petřina architekta nenajde“: od migrace 077 (Albert 20. 11. 2026 večer: „Only me, Pavel and Mikulas“; NAHRAZUJE 076
+  // „každý super admin“) smí Mikuláš upravit každého klienta, takže ho najde a vidí jako Albert; kdo upravit nesmí (Volající
+  // u cizího kontaktu, super admin mimo seznam u klienta jiného týmu), osobní IČO nedostane (segment.test.mjs L2 a L3, SA8)
   const icoM = await api.myKontakty(mikulas, 2000, 0, 2, null, { search: '11111111' });
   const icoA = await api.myKontakty(albert, 2000, 0, 2, null, { search: '11111111' });
   over('F7', ids(icoM).includes(302) && ids(icoA).includes(302) && icoM.rows.find((r) => r.id === 302)?.ico_osobni === '11111111',
-    'osobní IČO najde, kdo kontakt smí upravit: Albert i Mikuláš u Petřina architekta 302 (076)', `${JSON.stringify(ids(icoM))} / ${JSON.stringify(ids(icoA))}`);
+    'osobní IČO najde, kdo kontakt smí upravit: Albert i Mikuláš (na seznamu 077) u Petřina architekta 302', `${JSON.stringify(ids(icoM))} / ${JSON.stringify(ids(icoA))}`);
 });
 
 /* ---------------- R) řazení podle poslední změny (list_kontakty a my_kontakty s p_razeni) ---------------- */
@@ -666,8 +666,9 @@ await blok('O', async () => {
   // bez označení a u označení kolegy (věta „… kterého máte v Označených k zavolání …“) i odmítnutí super admina „nemá otevřené
   // označení“ (060, 061): server vybere větev sám, bez označení zapíše další hovor (oznaceno false).
   const NENI = 'Dovolání zapíšete jen u svého klienta. Tenhle mezi nimi není; zapíše ho ten, kdo mu volá, jeho super admin nebo Albert.';
-  // ⚠ Od migrace 076 (Albert 20. 11. 2026) super admin smí upravit každého klienta a Volající sem s cizím nedojde (věta NENI
-  // napřed), takže věta „Tohle není váš klient — upravit ho může …“ (NENI_UPRAVIT, D2) tu už nikoho neodmítne a test ji nečeká
+  // věta D2 pro super admina, který kontakt upravit nesmí: od migrace 077 (Albert 20. 11. 2026 večer) super admin mimo Alberta,
+  // Mikuláše a Pavla u klienta jiného týmu (Volající sem s cizím nedojde, věta NENI napřed)
+  const NENI_UPRAVIT = 'Tohle není váš klient — upravit ho může ten, kdo mu volá, jeho super admin nebo Albert.';
   const ODMITL = 'Klient web odmítl, znovu mu nevoláme (Albert 2. 11. 2026). Když se ozval sám, že web chce, napište to agentovi ve vzkazu u klienta.';
   const FRONTA = 'Klient je ve frontě volání: naplánujte si hovor (Naplánovat hovor v detailu) a výsledek zapište přes Zavolat teď ve Volání.';
   const NEVEDE = 'Odmítnutí zapisuje volající, který klienta vede, jeho super admin nebo Albert. Zapište, co klient řekl, do „Mluvili jsme“ nebo „Nic z toho výše“.';
@@ -694,11 +695,16 @@ await blok('O', async () => {
     /^(Klient je ve stavu (eskalace|Eskalace), o dalším kroku rozhodne Albert nebo super admin; zapište „Nic z toho výše“ s poznámkou\.|Klient už web objednal \(stav (eskalace|Eskalace)\): .*)$/,
     'Eskalace (9): odmítnutí Volající nezapíše');
   await chyba('O9', () => api.zapisHovor(petra, 96, 'nechce', 'nechce'), presne(NEVEDE), 'sdílený klient 96 (zájem zapsal Honza): Petra odmítnutí nezapíše (D2)');
-  // ⚠ NAHRAZUJE „super admin cizího týmu bez označení nezapíše ani nedovolání (D2, smi_upravit)“: od migrace 076 (Albert
-  // 20. 11. 2026: „full access to all clients for all the super admins“) smí každý super admin upravit každého klienta
+  // Migrace 077 (Albert 20. 11. 2026 večer: „Only me, Pavel and Mikulas“): všechny klienty smí Albert, Mikuláš a Pavel (Mikuláš
+  // u Petřina klienta 95 bez označení zapíše nedovolání), ostatní super admini mají pravidlo před 076: Kryštof (v demu ho založí
+  // Albert) u klienta jiného týmu bez označení nezapíše ani nedovolání (D2, smi_upravit). ⚠ NAHRAZUJE 076 „každý super admin“.
   const m95 = await api.zapisHovor(mikulas, 95, 'nedovolano');
   over('O9', m95.ok && m95.oznaceno === false && m95.vysledek === 'nedovolano' && m95.vlakno_id === null && m95.poznamka_predana === null,
-    'super admin jiného týmu (Mikuláš u Petřina klienta 95) bez označení zapíše nedovolání (076)', JSON.stringify(m95));
+    'super admin na seznamu 077 (Mikuláš u Petřina klienta 95) bez označení zapíše nedovolání', JSON.stringify(m95));
+  await api.createUser(albert, 'krystof', 'krystof1', 'Kryštof', 'super_admin');
+  const krystof = (await api.login('krystof', 'krystof1')).token;
+  await chyba('O9', () => api.zapisHovor(krystof, 95, 'nedovolano'), presne(NENI_UPRAVIT),
+    'super admin mimo seznam 077 (Kryštof) u Petřina klienta 95 bez označení nezapíše ani nedovolání (D2, smi_upravit)');
   over('O9', (await radekA(95))?.status === stav95 && (await radekA(4))?.status === 'odmitnuto' && (await radekA(20))?.status === 'schvaleno'
     && (await radekA(9))?.status === 'eskalace' && (await radekA(96))?.status === 'navrh_odeslan', 'odmítnuté zápisy nic nezměnily');
   // naplánované hovory (D20, audit X14): dovolání vyřídí jen hovory s časem do konce dneška; vlastní hotovo, s označením cizí zrušený
@@ -715,16 +721,20 @@ await blok('O', async () => {
   const n1 = await api.zapisHovor(petra, 93, 'nedovolano');
   over('O9b', n1.ok && n1.oznaceno === true && n1.otevrene === true && n1.pokusy === 1 && oznaceniKontaktu(93)?.pokusy === 1 && !!oznaceniKontaktu(93)?.posledni_pokus_at,
     'nedovolal/a jsem se u vlastního označení: větev s označením (oznaceno true), pokus +1, označení zůstává', JSON.stringify(n1));
-  // super admin jiného týmu (Mikuláš u Petřina klienta 93 pod Albertem) u cizího označení. ⚠ NAHRAZUJE „u označení jen
-  // nedovolal/a jsem se; mluvili, hvězdu ani Chce web ne“ (smi_upravit false): od migrace 076 (Albert 20. 11. 2026: „full access
-  // to all clients for all the super admins“) zapíše všechno jako Albert (O9g), i hvězdu. Tady jen výsledek, který označení
-  // nechá otevřené (mluvili a Chce web ho uzavřou, měří je O9d, O9g a O9r), s hvězdou: Petřinu hvězdu vezme
+  // super admin na seznamu 077 (Mikuláš u Petřina klienta 93 pod Albertem) u cizího označení zapíše všechno jako Albert (O9g),
+  // i hvězdu (migrace 077, ⚠ NAHRAZUJE 076 „každý super admin“). Tady jen výsledek, který označení nechá otevřené (mluvili
+  // a Chce web ho uzavřou, měří je O9d, O9g a O9r), s hvězdou: Petřinu hvězdu vezme
   const m93 = await api.zapisHovor(mikulas, 93, 'nedovolano', null, false);
   over('O9c', m93.ok && m93.oznaceno === true && m93.otevrene === true && m93.pokusy === 2 && m93.hvezda === false && m93.hvezda_zmena === true
     && !stavO().kontakty.find((k) => k.id === 93).hvezda_at,
-    'super admin jiného týmu u cizího označení zapíše „nedovolal/a jsem se“ i s hvězdou (076), označení zůstává', JSON.stringify(m93));
+    'super admin na seznamu 077 u cizího označení zapíše „nedovolal/a jsem se“ i s hvězdou, označení zůstává', JSON.stringify(m93));
+  // super admin mimo seznam 077 (Kryštof), který kontakt upravit nesmí: u cizího označení jen „nedovolal/a jsem se“ (mluvili,
+  // hvězdu ani Chce web ne; pravidlo 062 D2 jako u super admina cizího týmu před 076). Odmítnutí nic nemění, pokusy zůstávají.
+  await chyba('O9c', () => api.zapisHovor(krystof, 93, 'mluvili', 'chce web'), presne(NENI_UPRAVIT), 'super admin mimo seznam 077 „mluvili“ u cizího označení nezapíše');
+  await chyba('O9c', () => api.zapisHovor(krystof, 93, 'nedovolano', null, true), presne(NENI_UPRAVIT), 'ani s hvězdou');
+  await chyba('O9c', () => api.zapisHovor(krystof, 93, 'chce_web'), presne(NENI_UPRAVIT), 'ani „Chce web“ (062)');
   // migrace 061: poznámka u nedovolání jde automatizaci (poznámka kontaktu a vzkaz do vlákna), označení ZŮSTÁVÁ otevřené
-  // (Albert 2. 11. 2026: „it shouldn't be removing the mark“); od 076 i od super admina jiného týmu (Mikuláš)
+  // (Albert 2. 11. 2026: „it shouldn't be removing the mark“); i od super admina na seznamu 077 (Mikuláš)
   const poznamka93 = stavO().kontakty.find((k) => k.id === 93).note;
   const n3 = await api.zapisHovor(petra, 93, 'nedovolano', 'nebere, zkusím zítra ráno');
   const s93 = stavO();
@@ -732,17 +742,22 @@ await blok('O', async () => {
     && s93.kontakty.find((k) => k.id === 93).note === `${poznamka93}\n[${dnes} Petra] Dovolání: Nedovolal/a jsem se: nebere, zkusím zítra ráno`
     && s93.zpravy.some((z) => z.thread_id === n3.vlakno_id && z.sender_type === 'admin' && z.body === 'Dovolání (Petra): Nedovolal/a jsem se: nebere, zkusím zítra ráno'),
     'nedovolal/a jsem se s poznámkou: označení otevřené, pokus +1, poznámka a vzkaz automatizaci s výsledkem napřed', JSON.stringify(n3));
-  // ⚠ NAHRAZUJE „bez práva kontakt upravit (Mikuláš) jde poznámka jen do historie (ne do poznámky kontaktu ani do vlákna)“:
-  // od migrace 076 Mikuláš Petřina klienta upravit smí, takže jeho poznámka jde automatizaci jako Petřina
+  // Mikuláš (na seznamu 077) Petřina klienta upravit smí, takže jeho poznámka jde automatizaci jako Petřina
   const poznamka93m = stavO().kontakty.find((k) => k.id === 93).note;
   const n4 = await api.zapisHovor(mikulas, 93, 'nedovolano', 'Mikuláš: nebere');
   const s93m = stavO();
   over('O9j', n4.otevrene === true && n4.pokusy === 4 && n4.poznamka_predana === true && n4.vlakno_id !== null
     && s93m.kontakty.find((k) => k.id === 93).note === `${poznamka93m}\n[${dnes} Mikuláš] Dovolání: Nedovolal/a jsem se: Mikuláš: nebere`
     && s93m.zpravy.some((z) => z.thread_id === n4.vlakno_id && z.sender_type === 'admin' && z.body === 'Dovolání (Mikuláš): Nedovolal/a jsem se: Mikuláš: nebere'),
-    'super admin jiného týmu: poznámka u nedovolání jde automatizaci (řádek v poznámce a vzkaz do vlákna, 076), označení otevřené', JSON.stringify(n4));
+    'super admin na seznamu 077: poznámka u nedovolání jde automatizaci (řádek v poznámce a vzkaz do vlákna), označení otevřené', JSON.stringify(n4));
   const n5 = await api.zapisHovor(petra, 93, 'nedovolano');
   over('O9j', n5.otevrene === true && n5.poznamka_predana === null && n5.vlakno_id === null, 'nedovolání bez poznámky: nic automatizaci, označení otevřené', JSON.stringify(n5));
+  // super admin mimo seznam 077 (Kryštof) „nedovolal/a jsem se“ u cizího označení zapíše, ale bez práva kontakt upravit jde
+  // poznámka jen do historie (ne do poznámky kontaktu ani do vlákna), jako u super admina cizího týmu před 076
+  const kn = await api.zapisHovor(krystof, 93, 'nedovolano', 'Kryštof: nebere');
+  over('O9j', kn.otevrene === true && kn.pokusy === n5.pokusy + 1 && kn.poznamka_predana === false && kn.vlakno_id === null
+    && !stavO().kontakty.find((k) => k.id === 93).note.includes('Kryštof: nebere') && !stavO().zpravy.some((z) => z.body.includes('Kryštof: nebere')),
+    'super admin mimo seznam 077: „nedovolal/a jsem se“ u cizího označení ano, poznámka jen do historie', JSON.stringify(kn));
   const text = 'web se mu líbí, chce jinou úvodní fotku';
   const m1 = await api.zapisHovor(petra, 94, 'mluvili', `  ${text}\nhned  `, true);
   const s94 = stavO();
@@ -837,11 +852,13 @@ await blok('O', async () => {
   // O11 hvězda (nastav_hvezdu): kdo smí upravit; maska kdo; důvod
   await chyba('O11', () => api.nastavHvezdu(petra, 3, true), presne('Tohle není váš klient: u kontaktu, kterému jste nevolal/a, hvězdu nevidíte ani neměníte. Dá ji ten, kdo mu volá, jeho super admin nebo Albert.'),
     'Volající u cizího kontaktu');
-  // ⚠ NAHRAZUJE „super admin bez práva kontakt upravit (Mikuláš u Petřina 93) hvězdu nedá“: od migrace 076 (Albert 20. 11. 2026)
-  // smí každý super admin upravit každého klienta, hvězdu taky (Petřinu hvězdu u 93 vzal v O9c)
+  // hvězda jako úprava kontaktu (migrace 077, Albert 20. 11. 2026 večer; ⚠ NAHRAZUJE 076 „každý super admin“): Mikuláš (na
+  // seznamu) ji Petřinu klientovi 93 dá (Petřinu vzal v O9c), Kryštof (super admin mimo seznam) ji nevezme
   const h93 = await api.nastavHvezdu(mikulas, 93, true, 'Chce web do jara');
   over('O11', h93.hvezda_kdo === 'Mikuláš' && h93.hvezda_zmena === true && h93.hvezda_duvod === 'Chce web do jara',
-    'super admin jiného týmu dá hvězdu Petřinu klientovi 93 (076)', JSON.stringify({ kdo: h93.hvezda_kdo, zmena: h93.hvezda_zmena }));
+    'super admin na seznamu 077 dá hvězdu Petřinu klientovi 93', JSON.stringify({ kdo: h93.hvezda_kdo, zmena: h93.hvezda_zmena }));
+  await chyba('O11', () => api.nastavHvezdu(krystof, 93, false), presne('Tohle není váš klient — hvězdu mu dá ten, kdo mu volá, jeho super admin nebo Albert.'),
+    'super admin mimo seznam 077 (Kryštof) bez práva kontakt upravit');
   await chyba('O11', () => api.nastavHvezdu(petra, 95, true, 'x'.repeat(301)), presne('Důvod hvězdy je moc dlouhý: nejvýš 300 znaků.'), 'důvod nejvýš 300 znaků');
   // důvod jmenuje kolegyni Evu, kterou Honza vidět nesmí (maska jmen kolegů jako u poznámky, 045)
   const h96 = await api.nastavHvezdu(petra, 96, true, 'Eva doporučila, chtějí web');

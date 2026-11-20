@@ -1183,8 +1183,9 @@ function visibleThreadIds(u: MockUser): Set<number> {
 }
 
 /** app_vlakna_moje (migrace 027): vlákna, do kterých smí PSÁT a která smí VYŘEŠIT —
- *  svých lidí + o klientovi, kterého smí upravit (systémová ne). Od migrace 076 (Albert 20. 11. 2026) smí super admin
- *  upravit každého klienta, takže píše do každého vlákna o klientovi; vlákno bez klienta jen svých lidí, systémová jen Albert. */
+ *  svých lidí + o klientovi, kterého smí upravit (systémová ne). Od migrace 077 (Albert 20. 11. 2026 večer) smí Albert,
+ *  Mikuláš a Pavel upravit každého klienta, takže píšou do každého vlákna o klientovi; ostatní super admini jen o klientech,
+ *  které smí upravit (027); vlákno bez klienta jen svých lidí, systémová jen Albert. ⚠ NAHRAZUJE 076 „každý super admin“. */
 function writableThreadIds(u: MockUser): Set<number> {
   const out = threadIdsFor(u, ownPeopleIds(u));
   for (const t of chatThreads) {
@@ -1529,18 +1530,31 @@ function maskedName(u: MockUser, name: string | null): string | null {
 }
 
 /**
- * app_smi_upravit (migrace 024, 076): obsah kontaktu (údaje, stav, poznámka, hvězda, zápis hovoru, vzkaz agentovi a psaní
- * do vlákna o klientovi) smí měnit KAŽDÝ super admin u všech klientů, ať patří komukoli (Albert je super admin, takže
- * taky), Volající (role admin) jen u svých klientů (app_rozsah_upravit), jiná role nikde. Stejné tělo jako
- * app_smi_upravit_v na serveru od migrace 076 (Albert 20. 11. 2026: „full access to all clients for all the super
- * admins“). ⚠ NAHRAZUJE „úpravy dál jen svoje lidi“ (027): super admin u svých, svých lidí a klientů bez volajícího (024).
- * Beze změny: přeřadit klienta smí super admin jen sobě nebo svým lidem (updateKontakt), systémová vlákna jen Albert
- * (writableThreadIds) a lidi zakládá a přesouvá jen super admin podle pravidel lidí.
+ * Super admini s přístupem ke všem klientům (migrace 077, Albert 20. 11. 2026 večer: „every super admin except for Krystof.
+ * Krystof shouldn't have this access. Only me, Pavel and Mikulas.“). Server je pozná podle id (1 Albert, 2 Mikuláš, 2211
+ * PavelB); demo má jiná id, proto majitel (OWNER_ID) a přihlašovací jméno. Pavel v demu není, Kryštof taky ne (test si ho
+ * zakládá sám jako super admina mimo seznam).
+ */
+const PLNY_PRISTUP_JMENA: readonly string[] = ['mikulas'];
+
+function plnyPristup(u: MockUser): boolean {
+  return u.role === 'super_admin' && (u.id === OWNER_ID || PLNY_PRISTUP_JMENA.includes(u.username));
+}
+
+/**
+ * app_smi_upravit (migrace 024, 027, 077): obsah kontaktu (údaje, stav, poznámka, hvězda, zápis hovoru, vzkaz agentovi a psaní
+ * do vlákna o klientovi) smí měnit Albert, Mikuláš a Pavel u všech klientů, ať patří komukoli (plnyPristup); ostatní super
+ * admini (Kryštof, každý nový) jen u svých, svých lidí a klientů bez volajícího (027, 024); Volající (role admin) jen
+ * u svých klientů (app_rozsah_upravit); jiná role nikde. Stejné tělo jako app_smi_upravit_v na serveru od migrace 077.
+ * ⚠ NAHRAZUJE 076 „každý super admin u všech klientů“ (Albert 20. 11. 2026 ráno: „full access to all clients for all the
+ * super admins“). Beze změny: přeřadit klienta smí super admin jen sobě nebo svým lidem (updateKontakt), systémová vlákna
+ * jen Albert (writableThreadIds) a lidi zakládá a přesouvá jen super admin podle pravidel lidí.
  */
 function canEdit(u: MockUser, kid: number): boolean {
   if (u.role !== 'admin' && u.role !== 'super_admin') return false;
-  if (u.role === 'super_admin') return true;   // migrace 076: každý super admin, majitel taky
-  return kontaktyOf(ownPeopleIds(u)).has(kid);   // Volající: ownPeopleIds = jen on sám (app_lide_pod)
+  if (plnyPristup(u)) return true;   // migrace 077: Albert, Mikuláš a Pavel
+  if (kontaktyOf(ownPeopleIds(u)).has(kid)) return true;   // 027: svoje a svých lidí (Volající jen svoje)
+  return u.role === 'super_admin' && kontaktBezMajitele(kid);   // 024: ostatní super admini i klienty bez volajícího
 }
 
 /**

@@ -670,11 +670,12 @@ for (const kdo of ['petra', 'mikulas']) {
   await ctx.close();
 }
 
-/* ============ D1) detail: osobní IČO architekta jiného týmu vidí každý super admin (migrace 076) ============ */
+/* ============ D1) detail: osobní IČO architekta jiného týmu vidí Mikuláš (na seznamu migrace 077) ============ */
 // ⚠ NAHRAZUJE „osobní IČO cizího architekta zůstane skryté i po uložení příznaku“ (Mikuláš u Petřina architekta 302; 028, 036):
-// od migrace 076 (Albert 20. 11. 2026: „full access to all clients for all the super admins“) smí každý super admin upravit
-// každého klienta, takže osobní IČO má v detailu i po uložení a vyřešení příznaku jako Albert (D2) a detail je k úpravě.
-// Kontakt, který přihlášený upravit nesmí, má od 076 jen Volající: u cizího kontaktu detail jen se základem a bez příznaku (U).
+// od migrace 077 (Albert 20. 11. 2026 večer: „Only me, Pavel and Mikulas“; NAHRAZUJE 076 „každý super admin“) smí Mikuláš
+// upravit každého klienta, takže osobní IČO má v detailu i po uložení a vyřešení příznaku jako Albert (D2) a detail je k úpravě.
+// Super admin mimo seznam (Kryštof) by detail klienta jiného týmu měl jen ke čtení a bez osobního IČO jako dřív; v demu
+// takový super admin není, měří ho npm test (segment.test.mjs, blok SA).
 {
   const { ctx, page } = await novaStranka('mikulas');
   await jdi(page, '#/admin', 600);
@@ -683,7 +684,7 @@ for (const kdo of ['petra', 'mikulas']) {
   await page.locator('table.kontakty tbody tr', { hasText: 'Jana Vzorová' }).click();
   const detail = page.locator('.drawer');
   const ico = () => detail.locator('.arch-udaje').innerText();
-  over('D1a', /IČO osobně:\s*11111111/.test(await ico()), 'Mikuláš (super admin, ne majitel): osobní IČO Petřina architekta v detailu vidí (076)', (await ico()).replace(/\s+/g, ' '));
+  over('D1a', /IČO osobně:\s*11111111/.test(await ico()), 'Mikuláš (super admin na seznamu 077, ne majitel): osobní IČO Petřina architekta v detailu vidí', (await ico()).replace(/\s+/g, ' '));
   // e-mailový příznak v detailu: e-mail zapsaný tady ho sám neruší (update_kontakt), takže
   // nápověda nesmí slibovat „zmizí sám" a posílá na Vyřešeno (revize migrace 029, kontakt 978)
   const napoveda = (await detail.locator('.flag-hint').innerText()).replace(/\s+/g, ' ');
@@ -1644,9 +1645,9 @@ await blok050('A petra', async () => {
 await blok050('A mikulas', async () => {
   const { ctx, page } = await novaStranka('mikulas');
   // ⚠ NAHRAZUJE „detail jen ke čtení (Petřin klient, super admin Honzy ho neupraví): cena webu: n/a · cena hostingu: n/a“: od
-  // migrace 076 (Albert 20. 11. 2026: „full access to all clients for all the super admins“) Mikuláš Petřina klienta upraví,
-  // takže detail má ceny v polích jako u vlastního klienta (A6): nedohodnutá cena = prázdné pole s nápovědou „n/a“, zapsaná
-  // tak, jak ji kdo zapsal; řádek ceny jen ke čtení tu není
+  // migrace 077 (Albert 20. 11. 2026 večer: „Only me, Pavel and Mikulas“; NAHRAZUJE 076 „každý super admin“) Mikuláš Petřina
+  // klienta upraví, takže detail má ceny v polích jako u vlastního klienta (A6): nedohodnutá cena = prázdné pole s nápovědou
+  // „n/a“, zapsaná tak, jak ji kdo zapsal; řádek ceny jen ke čtení tu není (ten by měl super admin mimo seznam, v demu žádný není)
   const ceny = async (hledat) => {
     await jdi(page, '#/admin', 700);
     await page.locator('input.search-input').fill(hledat);
@@ -1666,7 +1667,7 @@ await blok050('A mikulas', async () => {
   const r7 = await ceny('Penzion Šumava');
   over('A10', r10.web === '' && r10.hosting === '' && r10.napoveda === 'n/a' && r10.jenCteni === 0
     && r7.web === '4900' && r7.hosting === '190/měs' && r7.jenCteni === 0,
-    'super admin u Petřina klienta: ceny v polích k úpravě (076), nedohodnutá prázdná s nápovědou „n/a“, zapsaná tak, jak ji kdo zapsal',
+    'Mikuláš (na seznamu 077) u Petřina klienta: ceny v polích k úpravě, nedohodnutá prázdná s nápovědou „n/a“, zapsaná tak, jak ji kdo zapsal',
     JSON.stringify({ r10, r7 }));
   // Statistiky Honzy: prodej Chalupa U Studánky bez ceny = „n/a“, vlastní upozornění, do součtu ne; nečitelná cena zvlášť
   await jdi(page, '#/stats', 800);
@@ -2686,9 +2687,10 @@ await blok050('O062e petra', async () => {
   await ctx.close();
 });
 
-// O62f: super admin (Mikuláš) má tlačítko u každého klienta mimo stavy bez dovolání a u označení: Petřin 95 ano, jeho 97 ano,
-// 98 (sleva) ne. ⚠ NAHRAZUJE „Petřin 95 ne“ (tlačítko bez označení jen u klientů, které smí upravit): od migrace 076 (Albert
-// 20. 11. 2026: „full access to all clients for all the super admins“) smí super admin upravit každého klienta
+// O62f: Mikuláš (super admin na seznamu migrace 077) má tlačítko u každého klienta mimo stavy bez dovolání a u označení: Petřin
+// 95 ano, jeho 97 ano, 98 (sleva) ne. ⚠ NAHRAZUJE „Petřin 95 ne“ (tlačítko bez označení jen u klientů, které smí upravit): od
+// migrace 077 (Albert 20. 11. 2026 večer: „Only me, Pavel and Mikulas“; NAHRAZUJE 076 „každý super admin“) smí Mikuláš upravit
+// každého klienta; super admin mimo seznam by u Petřina 95 tlačítko neměl (v demu žádný není)
 await blok050('O062f mikulas', async () => {
   const { ctx, page } = await novaStranka('mikulas');
   await jdi(page, '#/admin', 700);
@@ -2696,7 +2698,7 @@ await blok050('O062f mikulas', async () => {
   const r = (re) => rs.find((x) => re.test(x.jmeno));
   over('O62f', r(/Chalupa Pod Skálou/)?.tlacitko === true && r(/Chalupa Za Humny/)?.tlacitko === true && r(/Chata Bez Zájmu/)?.tlacitko === false
     && r(/Roubenka Na Kopci/)?.tlacitko === true,
-    'super admin: bez označení u každého klienta, i Petřina 95 (076), ne ve stavu bez dovolání (jeho nabídnutá sleva 98), u označení vždy (97, 94)',
+    'Mikuláš (na seznamu 077): bez označení u každého klienta, i Petřina 95, ne ve stavu bez dovolání (jeho nabídnutá sleva 98), u označení vždy (97, 94)',
     JSON.stringify(['Skálou', 'Humny', 'Zájmu', 'Kopci'].map((j) => [j, rs.find((x) => x.jmeno.includes(j))?.tlacitko])));
   await ctx.close();
 });
@@ -2762,11 +2764,12 @@ await blok050('O062h petra', async () => {
   await ctx.close();
 });
 
-// O62i: super admin u klienta jiného týmu (Mikuláš v Petřině kalendáři u klienta 9 pod Albertem): od migrace 076 (Albert
-// 20. 11. 2026: „full access to all clients for all the super admins“) smí dovolání zapsat, takže Hotovo otevře okno Zavolal/a
-// jsem jako u Petry (O62g), zápis hovor uzavře a vzkaz jde automatizaci do vlákna klienta. ⚠ NAHRAZUJE „okno Hovor je hotový?
-// (zavolat_hotovo), bez práva kontakt upravit do vlákna nic“ (smi_upravit false; 062 a 063, audit F4): klient, kterého
-// přihlášený upravit nesmí, je od 076 jen cizí klient Volajícího a větu okna podle smi_upravit měří npm test (P8c)
+// O62i: Mikuláš (super admin na seznamu migrace 077) u klienta jiného týmu (v Petřině kalendáři u klienta 9 pod Albertem): od
+// migrace 077 (Albert 20. 11. 2026 večer: „Only me, Pavel and Mikulas“; NAHRAZUJE 076 „každý super admin“) smí dovolání zapsat,
+// takže Hotovo otevře okno Zavolal/a jsem jako u Petry (O62g), zápis hovor uzavře a vzkaz jde automatizaci do vlákna klienta.
+// ⚠ NAHRAZUJE u Mikuláše „okno Hovor je hotový? (zavolat_hotovo), bez práva kontakt upravit do vlákna nic“ (smi_upravit false;
+// 062 a 063, audit F4): to od 077 platí pro super admina mimo seznam u klienta jiného týmu (v demu žádný není) a pro cizího
+// klienta Volajícího; větu okna podle smi_upravit měří npm test (P8c), dovolání super admina mimo seznam filtry O9 a O9c
 await blok050('O062i mikulas', async () => {
   const { ctx, page } = await novaStranka('mikulas');
   await jdi(page, '#/kalendar', 700);
@@ -2790,7 +2793,7 @@ await blok050('O062i mikulas', async () => {
     && h9?.ok === true && h9.args[0] === z9?.id && /^dovolání: mluvili/.test(h9.args[1] ?? '') && s9.zavolat.find((z) => z.id === z9?.id)?.stav === 'hotovo'
     && s9.zpravy.some((m) => vl9.includes(m.thread_id) && m.sender_name === 'Mikuláš' && m.body === 'Dovolání (Mikuláš): domluveno, zaplatí do pátku')
     && /je zapsaný: mluvili jsme – co klient chce\./.test(await page.locator('.dovolani-info').innerText()),
-    'Hotovo u Petřina klienta 9 (Mikuláš, super admin jiného týmu): okno Zavolal/a jsem (ne „Hovor je hotový?“), dovolání se zapíše, hovor uzavře a vzkaz jde automatizaci (076)',
+    'Hotovo u Petřina klienta 9 (Mikuláš, na seznamu 077): okno Zavolal/a jsem (ne „Hovor je hotový?“), dovolání se zapíše, hovor uzavře a vzkaz jde automatizaci',
     JSON.stringify({ z9: z9?.id, stary, args: v?.args, ok: v?.ok, hotovo: h9?.args }));
   await ctx.close();
 });
