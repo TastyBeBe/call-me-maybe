@@ -670,7 +670,12 @@ for (const kdo of ['petra', 'mikulas']) {
   await ctx.close();
 }
 
-/* ============ D1) detail: osobní IČO cizího architekta zůstane skryté i po uložení příznaku ============ */
+/* ============ D1) detail: osobní IČO architekta jiného týmu vidí Mikuláš (na seznamu migrace 077) ============ */
+// ⚠ NAHRAZUJE „osobní IČO cizího architekta zůstane skryté i po uložení příznaku“ (Mikuláš u Petřina architekta 302; 028, 036):
+// od migrace 077 (Albert 20. 11. 2026 večer: „Only me, Pavel and Mikulas“; NAHRAZUJE 076 „každý super admin“) smí Mikuláš
+// upravit každého klienta, takže osobní IČO má v detailu i po uložení a vyřešení příznaku jako Albert (D2) a detail je k úpravě.
+// Super admin mimo seznam (Kryštof) by detail klienta jiného týmu měl jen ke čtení a bez osobního IČO jako dřív; v demu
+// takový super admin není, měří ho npm test (segment.test.mjs, blok SA).
 {
   const { ctx, page } = await novaStranka('mikulas');
   await jdi(page, '#/admin', 600);
@@ -679,7 +684,7 @@ for (const kdo of ['petra', 'mikulas']) {
   await page.locator('table.kontakty tbody tr', { hasText: 'Jana Vzorová' }).click();
   const detail = page.locator('.drawer');
   const ico = () => detail.locator('.arch-udaje').innerText();
-  over('D1a', /IČO osobně:\s*skryto/.test(await ico()), 'cizí architekt: osobní IČO je v detailu skryté', (await ico()).replace(/\s+/g, ' '));
+  over('D1a', /IČO osobně:\s*11111111/.test(await ico()), 'Mikuláš (super admin na seznamu 077, ne majitel): osobní IČO Petřina architekta v detailu vidí', (await ico()).replace(/\s+/g, ' '));
   // e-mailový příznak v detailu: e-mail zapsaný tady ho sám neruší (update_kontakt), takže
   // nápověda nesmí slibovat „zmizí sám" a posílá na Vyřešeno (revize migrace 029, kontakt 978)
   const napoveda = (await detail.locator('.flag-hint').innerText()).replace(/\s+/g, ' ');
@@ -687,16 +692,18 @@ for (const kdo of ['petra', 'mikulas']) {
   await detail.getByRole('button', { name: 'Upravit' }).click();
   await detail.getByRole('button', { name: 'Uložit příznak' }).click();
   await klid(page, 300);
-  over('D1b', /IČO osobně:\s*skryto/.test(await ico()) && !(await ico()).includes('11111111'), 'po uložení příznaku zůstane osobní IČO skryté (set_flag vrací řádek celý)',
+  over('D1b', /IČO osobně:\s*11111111/.test(await ico()), 'po uložení příznaku osobní IČO zůstane (set_flag vrací celý řádek tomu, kdo smí upravit)',
     (await ico()).replace(/\s+/g, ' '));
   await detail.getByRole('button', { name: 'Vyřešeno' }).click();
   await klid(page, 300);
-  over('D1c', /IČO osobně:\s*skryto/.test(await ico()) && !(await ico()).includes('11111111'), 'po vyřešení příznaku zůstane osobní IČO skryté (clear_flag)',
+  over('D1c', /IČO osobně:\s*11111111/.test(await ico()), 'po vyřešení příznaku osobní IČO zůstane (clear_flag)',
     (await ico()).replace(/\s+/g, ' '));
   const radek = page.locator('table.kontakty tbody tr', { hasText: 'Jana Vzorová' });
-  await detail.getByRole('button', { name: 'Zavřít' }).click();
+  await detail.locator('.drawer-close').click();
   await radek.click();
-  over('D1d', /IČO osobně:\s*skryto/.test(await ico()), 'znovu otevřený detail (řádek ze seznamu po uložení) má IČO pořád skryté', (await ico()).replace(/\s+/g, ' '));
+  over('D1d', /IČO osobně:\s*11111111/.test(await ico()), 'znovu otevřený detail (řádek ze seznamu po uložení) osobní IČO ukazuje', (await ico()).replace(/\s+/g, ' '));
+  over('D1f', (await detail.locator('.field:has(> label:text-is("Status")) > select').count()) === 1 && (await detail.locator('.cena-radek').count()) === 0,
+    'detail Petřina architekta má Mikuláš k úpravě (výběr stavu, ne řádky jen ke čtení)');
   await ctx.close();
 }
 
@@ -1637,21 +1644,31 @@ await blok050('A petra', async () => {
 });
 await blok050('A mikulas', async () => {
   const { ctx, page } = await novaStranka('mikulas');
-  // detail jen ke čtení (Petřin klient, super admin Honzy ho neupraví): „cena webu: n/a · cena hostingu: n/a“
-  const radekCeny = async (hledat) => {
+  // ⚠ NAHRAZUJE „detail jen ke čtení (Petřin klient, super admin Honzy ho neupraví): cena webu: n/a · cena hostingu: n/a“: od
+  // migrace 077 (Albert 20. 11. 2026 večer: „Only me, Pavel and Mikulas“; NAHRAZUJE 076 „každý super admin“) Mikuláš Petřina
+  // klienta upraví, takže detail má ceny v polích jako u vlastního klienta (A6): nedohodnutá cena = prázdné pole s nápovědou
+  // „n/a“, zapsaná tak, jak ji kdo zapsal; řádek ceny jen ke čtení tu není (ten by měl super admin mimo seznam, v demu žádný není)
+  const ceny = async (hledat) => {
     await jdi(page, '#/admin', 700);
     await page.locator('input.search-input').fill(hledat);
     await klid(page, 800);
     await page.locator('table.kontakty tbody tr', { hasText: hledat }).first().click(KRATKE);
     await klid(page, 500);
-    const t = txt(await page.locator('.drawer .cena-radek').innerText(KRATKE));
+    const r = {
+      web: await poleCeny(page, 'Cena webu').inputValue(KRATKE),
+      hosting: await poleCeny(page, 'Cena hostingu').inputValue(KRATKE),
+      napoveda: await poleCeny(page, 'Cena webu').getAttribute('placeholder'),
+      jenCteni: await page.locator('.drawer .cena-radek').count(),
+    };
     await page.locator('.drawer-close').click();
-    return t;
+    return r;
   };
-  const r10 = await radekCeny('Paloučku');
-  const r7 = await radekCeny('Penzion Šumava');
-  over('A10', r10 === 'cena webu: n/a · cena hostingu: n/a' && r7 === 'cena webu: 4900 · cena hostingu: 190/měs',
-    'detail jen ke čtení: nedohodnutá cena „n/a“, zapsaná tak, jak ji kdo zapsal', `${r10} | ${r7}`);
+  const r10 = await ceny('Paloučku');
+  const r7 = await ceny('Penzion Šumava');
+  over('A10', r10.web === '' && r10.hosting === '' && r10.napoveda === 'n/a' && r10.jenCteni === 0
+    && r7.web === '4900' && r7.hosting === '190/měs' && r7.jenCteni === 0,
+    'Mikuláš (na seznamu 077) u Petřina klienta: ceny v polích k úpravě, nedohodnutá prázdná s nápovědou „n/a“, zapsaná tak, jak ji kdo zapsal',
+    JSON.stringify({ r10, r7 }));
   // Statistiky Honzy: prodej Chalupa U Studánky bez ceny = „n/a“, vlastní upozornění, do součtu ne; nečitelná cena zvlášť
   await jdi(page, '#/stats', 800);
   await jenClovek(page, UID.honza);
@@ -2670,15 +2687,18 @@ await blok050('O062e petra', async () => {
   await ctx.close();
 });
 
-// O62f: super admin (Mikuláš) má tlačítko jen u klientů, které smí upravit, a u označení: Petřin 95 ne, jeho 97 ano, 98 (sleva) ne
+// O62f: Mikuláš (super admin na seznamu migrace 077) má tlačítko u každého klienta mimo stavy bez dovolání a u označení: Petřin
+// 95 ano, jeho 97 ano, 98 (sleva) ne. ⚠ NAHRAZUJE „Petřin 95 ne“ (tlačítko bez označení jen u klientů, které smí upravit): od
+// migrace 077 (Albert 20. 11. 2026 večer: „Only me, Pavel and Mikulas“; NAHRAZUJE 076 „každý super admin“) smí Mikuláš upravit
+// každého klienta; super admin mimo seznam by u Petřina 95 tlačítko neměl (v demu žádný není)
 await blok050('O062f mikulas', async () => {
   const { ctx, page } = await novaStranka('mikulas');
   await jdi(page, '#/admin', 700);
   const rs = await radky062(page);
   const r = (re) => rs.find((x) => re.test(x.jmeno));
-  over('O62f', r(/Chalupa Pod Skálou/)?.tlacitko === false && r(/Chalupa Za Humny/)?.tlacitko === true && r(/Chata Bez Zájmu/)?.tlacitko === false
+  over('O62f', r(/Chalupa Pod Skálou/)?.tlacitko === true && r(/Chalupa Za Humny/)?.tlacitko === true && r(/Chata Bez Zájmu/)?.tlacitko === false
     && r(/Roubenka Na Kopci/)?.tlacitko === true,
-    'super admin: bez označení jen u klienta, kterého smí upravit (Petřin 95 ne, jeho nabídnutá sleva 98 ne), u označení vždy (97, 94)',
+    'Mikuláš (na seznamu 077): bez označení u každého klienta, i Petřina 95, ne ve stavu bez dovolání (jeho nabídnutá sleva 98), u označení vždy (97, 94)',
     JSON.stringify(['Skálou', 'Humny', 'Zájmu', 'Kopci'].map((j) => [j, rs.find((x) => x.jmeno.includes(j))?.tlacitko])));
   await ctx.close();
 });
@@ -2744,8 +2764,12 @@ await blok050('O062h petra', async () => {
   await ctx.close();
 });
 
-// O62i: Hotovo u klienta mimo frontu, kterému přihlášený dovolání zapsat nesmí (Mikuláš v Petřině kalendáři u klienta 9 pod
-// Albertem, smi_upravit false): okno „Hovor je hotový?“ s textem jako dřív (zavolat_hotovo), žádné okno Zavolal/a jsem
+// O62i: Mikuláš (super admin na seznamu migrace 077) u klienta jiného týmu (v Petřině kalendáři u klienta 9 pod Albertem): od
+// migrace 077 (Albert 20. 11. 2026 večer: „Only me, Pavel and Mikulas“; NAHRAZUJE 076 „každý super admin“) smí dovolání zapsat,
+// takže Hotovo otevře okno Zavolal/a jsem jako u Petry (O62g), zápis hovor uzavře a vzkaz jde automatizaci do vlákna klienta.
+// ⚠ NAHRAZUJE u Mikuláše „okno Hovor je hotový? (zavolat_hotovo), bez práva kontakt upravit do vlákna nic“ (smi_upravit false;
+// 062 a 063, audit F4): to od 077 platí pro super admina mimo seznam u klienta jiného týmu (v demu žádný není) a pro cizího
+// klienta Volajícího; větu okna podle smi_upravit měří npm test (P8c), dovolání super admina mimo seznam filtry O9 a O9c
 await blok050('O062i mikulas', async () => {
   const { ctx, page } = await novaStranka('mikulas');
   await jdi(page, '#/kalendar', 700);
@@ -2753,21 +2777,24 @@ await blok050('O062i mikulas', async () => {
   await klid(page, 500);
   const z9 = (await stav(page)).zavolat.find((z) => z.kontakt_id === 9 && z.stav === 'ceka');
   await page.locator(`.zavolat-polozka[data-zavolat-id="${z9?.id}"]`).getByRole('button', { name: 'Hotovo' }).click(KRATKE);
-  const okno = page.locator('.modal', { hasText: 'Hovor je hotový?' });
+  const okno = page.locator('.dovolani-okno');
   await okno.waitFor(KRATKE);
-  const dovolani = await page.locator('.dovolani-okno').count();
-  const textOkna9 = await okno.innerText();
-  await page.locator('#zavolat-vysledek').fill('domluveno, zaplatí do pátku');
-  await okno.getByRole('button', { name: 'Hotovo' }).click();
-  await klid(page, 500);
-  const h9 = (await volani(page)).find((v) => v.fn === 'zavolatHotovo' && v.ok);
-  // migrace 063 (audit F4): Mikuláš tenhle kontakt upravit nesmí, takže okno automatizaci neslibuje a do vlákna nic nejde
+  const stary = await page.locator('.modal', { hasText: 'Hovor je hotový?' }).count();
+  await okno.getByRole('radio', { name: 'Mluvili jsme – co klient chce' }).click();
+  await okno.locator('#dovolani-text').fill('domluveno, zaplatí do pátku');
+  await okno.getByRole('button', { name: 'Zapsat hovor' }).click();
+  await klid(page, 900);
+  const v = (await volani(page)).filter((x) => x.fn === 'zapisHovor').pop();
+  // hovor kolegyně (Petřin) zapis_hovor neuzavře (D20), uzavře ho appka výsledkem „dovolání: …“ (poDovolani v KalendarPage)
+  const h9 = (await volani(page)).filter((x) => x.fn === 'zavolatHotovo').pop();
   const s9 = await stav(page);
-  const vl9 = s9.vlakna.filter((v) => v.kontakt_id === 9).map((v) => v.id);
-  over('O62i', !!z9 && dovolani === 0 && s9.zavolat.find((z) => z.id === z9?.id)?.stav === 'hotovo' && h9?.args[1] === 'domluveno, zaplatí do pátku'
-    && !(await volani(page)).some((v) => v.fn === 'zapisHovor') && !textOkna9.includes('přečte si automatizace')
-    && !s9.zpravy.some((m) => vl9.includes(m.thread_id) && /^Naplánovaný hovor hotový/.test(m.body)),
-    'Hotovo u klienta, kterému dovolání zapsat nejde: okno „Hovor je hotový?“ s výsledkem jako dřív (zavolat_hotovo), bez okna Zavolal/a jsem; bez práva kontakt upravit do vlákna nic', JSON.stringify(h9?.args));
+  const vl9 = s9.vlakna.filter((x) => x.kontakt_id === 9).map((x) => x.id);
+  over('O62i', !!z9 && stary === 0 && JSON.stringify(v?.args.slice(0, 3)) === JSON.stringify([9, 'mluvili', 'domluveno, zaplatí do pátku']) && v?.ok === true
+    && h9?.ok === true && h9.args[0] === z9?.id && /^dovolání: mluvili/.test(h9.args[1] ?? '') && s9.zavolat.find((z) => z.id === z9?.id)?.stav === 'hotovo'
+    && s9.zpravy.some((m) => vl9.includes(m.thread_id) && m.sender_name === 'Mikuláš' && m.body === 'Dovolání (Mikuláš): domluveno, zaplatí do pátku')
+    && /je zapsaný: mluvili jsme – co klient chce\./.test(await page.locator('.dovolani-info').innerText()),
+    'Hotovo u Petřina klienta 9 (Mikuláš, na seznamu 077): okno Zavolal/a jsem (ne „Hovor je hotový?“), dovolání se zapíše, hovor uzavře a vzkaz jde automatizaci',
+    JSON.stringify({ z9: z9?.id, stary, args: v?.args, ok: v?.ok, hotovo: h9?.args }));
   await ctx.close();
 });
 
@@ -4483,8 +4510,11 @@ await blok050('PZ3 porovnání lidí', async () => {
   const s2 = (await tabulkaLidiPZ(page, 'lide', 'hovory')).map((r) => r.jmeno);
   const a2 = await zahlavi.getAttribute('aria-sort');
   const vetsi = honza >= petra ? 'Honza' : 'Petra';
-  over('PZ3c', a1 === 'descending' && a2 === 'ascending' && s1[0] === vetsi && s2[1] === vetsi && (await page.locator('table[data-tabulka="lide"] .mini-pruh').count()) > 0,
-    'řazení: první klik sestupně (víc hovorů nahoře), druhý vzestupně; aria-sort u záhlaví; mini pruhy v buňkách', JSON.stringify({ a1, a2, s1, s2 }));
+  // stejný počet hovorů (ukázkové hovory se počítají za tento měsíc, 20. 11. 2026 měli oba 7) pořadí podle jména nerozliší
+  // a stabilní řazení nechá v obou směrech stejné pořadí: pak se měří jen aria-sort a mini pruhy (ten den test padal bez chyby appky)
+  const shoda = honza === petra;
+  over('PZ3c', a1 === 'descending' && a2 === 'ascending' && (shoda || (s1[0] === vetsi && s2[1] === vetsi)) && (await page.locator('table[data-tabulka="lide"] .mini-pruh').count()) > 0,
+    'řazení: první klik sestupně (víc hovorů nahoře), druhý vzestupně; aria-sort u záhlaví; mini pruhy v buňkách', JSON.stringify({ a1, a2, s1, s2, petra, honza }));
   // odpracováno proti plánu (pohled Čas)
   await page.locator('.lide-pohled button', { hasText: 'Čas' }).click();
   await page.waitForTimeout(200);
