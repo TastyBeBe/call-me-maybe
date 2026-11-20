@@ -409,7 +409,8 @@ await blok('U', async () => {
   // ⚠ migrace 060 (Albert 1. 11. 2026): příznak neodpovida je pryč, 92 má od automatizace info_neoverene (NAHRAZUJE 'neodpovida')
   over('U6e', po3?.flag_kind === pred3?.flag_kind && po3?.flag_note === pred3?.flag_note && po92?.flag_kind === 'info_neoverene', 'odmítnuté úpravy nechají data beze změny');
   const fs = await api.setFlag(mikulas, 3, 'jine', 'super admin smí');
-  over('U6f', fs.flagged_by === 'Mikuláš', 'super admin dál smí dát příznak i kontaktu, který upravit nesmí (pravidlo 24. 9. 2026)');
+  // ⚠ od migrace 076 (Albert 20. 11. 2026) smí super admin upravit každý kontakt, NAHRAZUJE popis „i kontaktu, který upravit nesmí“
+  over('U6f', fs.flagged_by === 'Mikuláš', 'super admin dál smí dát příznak každému kontaktu (pravidlo 24. 9. 2026, od 076 smí každý i upravit)');
   await api.clearFlag(albert, 3);
   // karta ve volání: kontakt, kterému Volající ještě nevolal, bez stavu a poznámek, s jeho zámkem
   const karta = await api.nextContact(petra, 'chata');
@@ -1100,10 +1101,12 @@ await blok('E', async () => {
   const honzaA = await api.myKontakty(honza, 2000, 0, null, 'architekt');
   over('E7f', honzaA.rows.map((r) => r.id).join() === '303', 'Honza má z architektů jen 303', honzaA.rows.map((r) => r.id).join());
 
+  // ⚠ NAHRAZUJE „Označené: cizí klient super admina bez osobního IČO“ (Mikuláš u Petřina architekta 302): od migrace 076
+  // (Albert 20. 11. 2026: „full access to all clients for all the super admins“) smí každý super admin upravit každého klienta
   const ozn = await api.listFlagged(mikulas, null, null);
   const r302 = ozn.find((r) => r.id === 302);
-  over('E8', !!r302 && !Object.prototype.hasOwnProperty.call(r302, 'ico_osobni') && r302.smi_upravit === false,
-    'Označené: cizí klient super admina bez osobního IČO');
+  over('E8', !!r302 && r302.ico_osobni === '11111111' && r302.smi_upravit === true,
+    'Označené: Mikuláš (super admin) u Petřina architekta 302 smí upravit, osobní IČO vidí (076)', JSON.stringify({ smi: r302?.smi_upravit }));
   const oznA = await api.listFlagged(albert, null, null);
   over('E8b', oznA.find((r) => r.id === 302)?.ico_osobni === '11111111', 'Označené: Albert osobní IČO vidí');
 });
@@ -1140,15 +1143,18 @@ await blok('L', async () => {
     over('L5b', !(await najdi(eva, '11111111')).includes(302), 'IČO ateliéru rovné osobnímu se nevyhledá přes ico_firma (032)');
     const ra = (await api.listKontakty(albert, { segment: 'architekt', limit: 50 })).rows.find((x) => x.id === 302);
     over('L5c', ra?.ico_firma === '11111111' && ra?.ico_osobni === '11111111', 'kdo smí upravit, vidí obě IČO');
-    // úpravy: Mikuláš (super admin) smí příznak a zámek, upravit 302 nesmí (Petra není jeho člověk).
-    // ⚠ NAHRAZUJE Evu (Volající): ta od 20. 10. 2026 příznak ani zámek cizího kontaktu nemění (blok U)
+    // úpravy: ⚠ NAHRAZUJE „Mikuláš (super admin) smí příznak a zámek, upravit 302 nesmí (Petra není jeho člověk), takže mu
+    // set_flag, clear_flag ani update_kontakt IČO nepošlou“ (028, 036): od migrace 076 (Albert 20. 11. 2026: „full access to all
+    // clients for all the super admins“) smí každý super admin upravit každého klienta a z úprav dostane všechno jako Albert
+    // (L6d). Kdo kontakt upravit nesmí, je od 076 jen Volající u cizího kontaktu; ten příznak ani zámek nemění (blok U) a masku
+    // 032 pro něj měří seznam (L5, L6e). (Eva tu nebyla od 20. 10. 2026 ze stejného důvodu.)
     const f = await api.setFlag(mikulas, 302, 'jine', 'test L');
-    over('L6', f.smi_upravit === false && !maKlic(f, 'ico_osobni') && !maKlic(f, 'ico_firma') && !maKlic(f, 'dph_firma'),
-      'set_flag nepošle osobní IČO ani IČO ateliéru rovné osobnímu tomu, kdo nesmí upravit (028, 036)', Object.keys(f).filter((k) => k.startsWith('ico')).join());
+    over('L6', f.smi_upravit === true && f.ico_osobni === '11111111' && f.ico_firma === '11111111' && f.dph_firma === 'neplatce',
+      'set_flag: super admin jiného týmu (Mikuláš u Petřina 302) smí upravit a dostane osobní IČO i IČO ateliéru (076)', Object.keys(f).filter((k) => k.startsWith('ico')).join());
     const c = await api.clearFlag(mikulas, 302);
-    over('L6b', !maKlic(c, 'ico_osobni') && !maKlic(c, 'ico_firma'), 'clear_flag taky ne');
+    over('L6b', c.ico_osobni === '11111111' && c.ico_firma === '11111111', 'clear_flag taky');
     const u = await api.updateKontakt(mikulas, 302, { clear_lock: true });
-    over('L6c', !maKlic(u, 'ico_osobni') && !maKlic(u, 'ico_firma'), 'update_kontakt (zámek) taky ne');
+    over('L6c', u.ico_osobni === '11111111' && u.ico_firma === '11111111', 'update_kontakt (zámek) taky');
     const fa = await api.setFlag(albert, 302, 'jine', 'test L');
     over('L6d', fa.ico_osobni === '11111111' && fa.ico_firma === '11111111' && fa.dph_firma === 'neplatce', 'Albert (smí upravit) dostane z úprav všechno');
     await api.clearFlag(albert, 302);
@@ -1386,10 +1392,12 @@ await blok('J', async () => {
   over('J3', bezKlice(bezCizihoIco({ id: 1, ico_osobni: null })), 'bez smi_upravit se IČO taky schová');
   const seznam = { id: 301, smi_upravit: false };
   over('J4', bezCizihoIco(seznam) === seznam, 'řádek bez klíče (ze seznamu) projde beze změny');
-  // přes mock: Mikuláš (super admin) nesmí upravit Petřina architekta 302, příznak ano
+  // přes mock: ⚠ NAHRAZUJE „Mikuláš (super admin) nesmí upravit Petřina architekta 302, příznak ano, takže mu set_flag osobní
+  // IČO nepošle“: od migrace 076 (Albert 20. 11. 2026) ho upravit smí, takže set_flag i pojistka bezCizihoIco mu osobní IČO
+  // nechají; kdo upravit nesmí (Volající u cizího kontaktu), příznak nedá vůbec (segment U6)
   const po = await api.setFlag(mikulas, 302, 'chybi_email', 'test J');
-  over('J5', po.smi_upravit === false && bezKlice(po), 'set_flag osobní IČO tomu, kdo nesmí upravit, nepošle (jako server)');
-  over('J6', bezKlice(bezCizihoIco(po)), 'po uložení příznaku zůstane osobní IČO cizího architekta skryté');
+  over('J5', po.smi_upravit === true && po.ico_osobni === '11111111', 'set_flag: super admin jiného týmu smí upravit, osobní IČO dostane (076)');
+  over('J6', bezCizihoIco(po).ico_osobni === '11111111', 'pojistka bezCizihoIco osobní IČO tomu, kdo smí upravit, nechá');
   // IČO ateliéru rovné osobnímu (032) bezCizihoIco schová taky, i s DPH ateliéru
   const zivn = { id: 302, ico_osobni: '11111111', ico_firma: '11111111', dph_firma: 'neplatce', firma: 'X', smi_upravit: false };
   const z = bezCizihoIco(zivn);
@@ -1660,6 +1668,63 @@ await blok('I6', async () => {
     globalThis.fetch = puvodniFetch;
     uloziste.delete('volacka_supabase_url');
     uloziste.delete('volacka_anon_key');
+  }
+});
+
+/* ---------------- SA) každý super admin smí všechny klienty (Albert 20. 11. 2026, migrace 076) ---------------- */
+// Albert 20. 11. 2026: „full access to all clients for all the super admins“. Mock = server (app_smi_upravit_v z migrace
+// 076: super admin vždy, Volající jen klienti z app_rozsah_upravit): každý super admin (nejen Albert) smí u KAŽDÉHO klienta
+// upravit údaje, změnit stav, dát hvězdu, zapsat poznámku a psát do vlákna o něm, ať klient patří komukoli. Volající
+// (role admin) dál jen svoje klienty, systémová vlákna automatizace dál jen Albert a přeřadit klienta smí super admin dál
+// jen sobě nebo svým lidem. ⚠ NAHRAZUJE „super admin upravuje a píše jen u svých, svých lidí a klientů bez volajícího“
+// (migrace 024 a 027). Měří se na Mikulášovi (super admin, ne majitel) u klienta 9, kterého volala Petra (Volající pod
+// Albertem, ne pod Mikulášem), a na vlákně 2 o něm. Běží poslední; co změní (poznámka, stav, hvězda), vrátí.
+await blok('SA', async () => {
+  const radekM = (await api.listKontakty(mikulas, { limit: 1000 })).rows;
+  over('SA1', radekM.length > 20 && radekM.every((r) => r.smi_upravit === true),
+    'Mikuláš (super admin, ne majitel) smí upravit každý kontakt v seznamu, i klienty lidí jiného super admina (smi_upravit u všech)',
+    radekM.filter((r) => r.smi_upravit !== true).map((r) => r.id).join());
+  const k9 = radekM.find((r) => r.id === 9);
+  over('SA2', k9?.last_caller === 'Petra' && k9?.skryto === false && k9?.smi_upravit === true,
+    'Petřin klient 9 (tým Alberta): Mikuláš ho vidí celého a smí ho upravit', JSON.stringify({ lc: k9?.last_caller, s: k9?.skryto, smi: k9?.smi_upravit }));
+  const a302 = radekM.find((r) => r.id === 302);
+  over('SA2b', a302?.smi_upravit === true && a302?.ico_osobni === '11111111',
+    'Petřin architekt 302: Mikuláš ho smí upravit, takže dostane i osobní IČO (028)', JSON.stringify({ smi: a302?.smi_upravit, ico: a302?.ico_osobni }));
+  const pred = (await api.listKontakty(albert, { limit: 1000 })).rows.find((r) => r.id === 9);
+  try {
+    // poznámka a stav (s důvodem, Mikuláš není Albert)
+    const pozn = `${pred.note}\n[2026-11-20 Mikuláš] Dovolal jsem se, web chce do jara.`;
+    const u1 = await api.updateKontakt(mikulas, 9, { note: pozn });
+    over('SA3', u1.note === pozn && u1.smi_upravit === true, 'Mikuláš uloží poznámku u Petřina klienta 9', JSON.stringify(u1.note));
+    const u2 = await api.updateKontakt(mikulas, 9, { status: 'zajem', status_duvod: 'Mikuláš se mu dovolal, zájem má' });
+    const po = (await api.listKontakty(albert, { limit: 1000 })).rows.find((r) => r.id === 9);
+    over('SA3b', u2.status === 'zajem' && po?.status === 'zajem' && po?.note === pozn,
+      'Mikuláš změní stav Petřina klienta 9 (s důvodem) a uložené to vidí i Albert', JSON.stringify({ u: u2.status, po: po?.status }));
+    const h = await api.nastavHvezdu(mikulas, 9, true, 'Chce web do jara');
+    over('SA3c', h.hvezda_kdo === 'Mikuláš' && !!h.hvezda_at, 'Mikuláš dá Petřinu klientovi 9 hvězdu (stejné právo jako úprava)', JSON.stringify({ kdo: h.hvezda_kdo }));
+    // vlákno o Petřině klientovi: psát a založit vzkaz agentovi
+    const v2 = await api.getThread(mikulas, 2);
+    over('SA4', v2.thread.kontakt_id === 9 && v2.thread.smi_psat === true, 'vlákno 2 o Petřině klientovi 9: Mikuláš do něj smí psát (smi_psat)',
+      JSON.stringify({ k: v2.thread.kontakt_id, smi: v2.thread.smi_psat }));
+    const m = await api.postThreadMessage(mikulas, 2, 'Klientovi jsem volal, ozve se do pátku.', false);
+    over('SA4b', m.thread_id === 2 && m.sender_name === 'Mikuláš', 'Mikuláš napíše do vlákna o Petřině klientovi');
+    const nove = await api.createThread(mikulas, 'Klient 9: web do jara', 'Připrav prosím návrh.', 9);
+    over('SA4c', typeof nove.thread_id === 'number', 'Mikuláš založí vzkaz agentovi k Petřině klientovi (025)');
+    // Volající dál jen svoje: Honza (pod Mikulášem) Petřina klienta ani Eva (pod Albertem) Honzova klienta 3 neupraví
+    await chyba('SA5', () => api.updateKontakt(honza, 9, { note: 'podvrh' }), /^Tohle není váš klient/, 'Honza (Volající) Petřina klienta 9 dál neupraví');
+    await chyba('SA5b', () => api.updateKontakt(eva, 3, { note: 'podvrh' }), /^Tohle není váš klient/, 'Eva (Volající) Honzova klienta 3 dál neupraví');
+    const radekH = (await api.listKontakty(honza, { limit: 1000 })).rows;
+    over('SA5c', radekH.some((r) => r.je_muj && r.smi_upravit === true) && radekH.filter((r) => !r.je_muj).every((r) => r.smi_upravit === false),
+      'Volající smí upravit jen svoje klienty (smi_upravit), cizí ne', radekH.filter((r) => !r.je_muj && r.smi_upravit !== false).map((r) => r.id).join());
+    await chyba('SA5d', () => api.getThread(honza, 2), /^Tohle vlákno patří někomu jinému/, 'Honza vlákno o Petřině klientovi dál nevidí (045)');
+    // systémová vlákna dál jen Albert, přeřazení dál jen na svoje lidi
+    await chyba('SA6', () => api.getThread(mikulas, 4), /^Tohle vlákno patří někomu jinému/, 'systémové vlákno automatizace (4) dál vidí jen Albert');
+    over('SA6b', (await api.listThreads(mikulas)).every((t) => t.id !== 4), 'systémové vlákno není v Mikulášových Zprávách');
+    await chyba('SA7', () => api.updateKontakt(mikulas, 9, { last_caller: 'Eva' }), /^Kontakt můžete přeřadit jen sobě nebo svým lidem/,
+      'přeřadit klienta smí Mikuláš dál jen sobě nebo svým lidem (Eva je Albertova)');
+  } finally {
+    await api.updateKontakt(albert, 9, { note: pred.note, status: pred.status });
+    if (!pred.hvezda_at) await api.nastavHvezdu(albert, 9, false);
   }
 });
 

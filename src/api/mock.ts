@@ -1183,7 +1183,8 @@ function visibleThreadIds(u: MockUser): Set<number> {
 }
 
 /** app_vlakna_moje (migrace 027): vlákna, do kterých smí PSÁT a která smí VYŘEŠIT —
- *  svých lidí + o klientovi, kterého smí upravit (systémová ne). */
+ *  svých lidí + o klientovi, kterého smí upravit (systémová ne). Od migrace 076 (Albert 20. 11. 2026) smí super admin
+ *  upravit každého klienta, takže píše do každého vlákna o klientovi; vlákno bez klienta jen svých lidí, systémová jen Albert. */
 function writableThreadIds(u: MockUser): Set<number> {
   const out = threadIdsFor(u, ownPeopleIds(u));
   for (const t of chatThreads) {
@@ -1528,14 +1529,18 @@ function maskedName(u: MockUser, name: string | null): string | null {
 }
 
 /**
- * app_smi_upravit (migrace 024): obsah kontaktu smí měnit admin jen u svých klientů,
- * super admin u svých, svých lidí a klientů bez volajícího, Albert u všech, volající nikde.
+ * app_smi_upravit (migrace 024, 076): obsah kontaktu (údaje, stav, poznámka, hvězda, zápis hovoru, vzkaz agentovi a psaní
+ * do vlákna o klientovi) smí měnit KAŽDÝ super admin u všech klientů, ať patří komukoli (Albert je super admin, takže
+ * taky), Volající (role admin) jen u svých klientů (app_rozsah_upravit), jiná role nikde. Stejné tělo jako
+ * app_smi_upravit_v na serveru od migrace 076 (Albert 20. 11. 2026: „full access to all clients for all the super
+ * admins“). ⚠ NAHRAZUJE „úpravy dál jen svoje lidi“ (027): super admin u svých, svých lidí a klientů bez volajícího (024).
+ * Beze změny: přeřadit klienta smí super admin jen sobě nebo svým lidem (updateKontakt), systémová vlákna jen Albert
+ * (writableThreadIds) a lidi zakládá a přesouvá jen super admin podle pravidel lidí.
  */
 function canEdit(u: MockUser, kid: number): boolean {
   if (u.role !== 'admin' && u.role !== 'super_admin') return false;
-  if (u.id === OWNER_ID) return true;
-  if (kontaktyOf(ownPeopleIds(u)).has(kid)) return true;   // migrace 027: úpravy dál jen svoje lidi
-  return u.role === 'super_admin' && kontaktBezMajitele(kid);
+  if (u.role === 'super_admin') return true;   // migrace 076: každý super admin, majitel taky
+  return kontaktyOf(ownPeopleIds(u)).has(kid);   // Volající: ownPeopleIds = jen on sám (app_lide_pod)
 }
 
 /**
