@@ -4507,8 +4507,11 @@ await blok050('PZ3 porovnání lidí', async () => {
   const s2 = (await tabulkaLidiPZ(page, 'lide', 'hovory')).map((r) => r.jmeno);
   const a2 = await zahlavi.getAttribute('aria-sort');
   const vetsi = honza >= petra ? 'Honza' : 'Petra';
-  over('PZ3c', a1 === 'descending' && a2 === 'ascending' && s1[0] === vetsi && s2[1] === vetsi && (await page.locator('table[data-tabulka="lide"] .mini-pruh').count()) > 0,
-    'řazení: první klik sestupně (víc hovorů nahoře), druhý vzestupně; aria-sort u záhlaví; mini pruhy v buňkách', JSON.stringify({ a1, a2, s1, s2 }));
+  // stejný počet hovorů (ukázkové hovory se počítají za tento měsíc, 20. 11. 2026 měli oba 7) pořadí podle jména nerozliší
+  // a stabilní řazení nechá v obou směrech stejné pořadí: pak se měří jen aria-sort a mini pruhy (ten den test padal bez chyby appky)
+  const shoda = honza === petra;
+  over('PZ3c', a1 === 'descending' && a2 === 'ascending' && (shoda || (s1[0] === vetsi && s2[1] === vetsi)) && (await page.locator('table[data-tabulka="lide"] .mini-pruh').count()) > 0,
+    'řazení: první klik sestupně (víc hovorů nahoře), druhý vzestupně; aria-sort u záhlaví; mini pruhy v buňkách', JSON.stringify({ a1, a2, s1, s2, petra, honza }));
   // odpracováno proti plánu (pohled Čas)
   await page.locator('.lide-pohled button', { hasText: 'Čas' }).click();
   await page.waitForTimeout(200);
