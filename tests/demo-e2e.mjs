@@ -5218,8 +5218,11 @@ await blok050('PV13 líné načtení Přehledu', async () => {
   await klid(page, 400);
   const detail = page.locator('.drawer');
   const prepinac = detail.locator('.kontrola-panel input[type=checkbox]');
+  await detail.locator('.kontrola-panel[data-kontrola-odpovedi="vypnuto"]').waitFor({ timeout: 5000 }).catch(() => undefined);
   over('KO1', (await prepinac.count()) === 1 && !(await prepinac.isChecked()), 'super admin: v detailu klienta je přepínač Kontrola odpovědí, vypnutý');
-  await prepinac.check();
+  // Přepínač je řízený serverem (zaškrtne se až po odpovědi kontrola_odpovedi_nastav), proto click, ne check.
+  await prepinac.click();
+  await detail.locator('.kontrola-panel[data-kontrola-odpovedi="zapnuto"]').waitFor({ timeout: 5000 }).catch(() => undefined);
   await klid(page, 300);
   const panel = txt(await detail.locator('.kontrola-panel').innerText());
   over('KO2', (await prepinac.isChecked()) && /Zapnul\/a Albert/.test(panel), 'po zaškrtnutí je kontrola zapnutá a ukazuje, kdo ji zapnul', panel);
