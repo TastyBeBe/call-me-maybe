@@ -10,8 +10,11 @@ import { getApi, type KontrolaOdpovedi, type NavrhKeKontrole } from '../api';
 import { audio } from '../audio';
 import { useSession } from '../auth';
 import { isSuperAdmin } from '../roles';
-import { ConfirmModal, ErrorBox, errMsg } from '../ui';
-import { NAVRH_ODZNAK, casKontroly, kontrolaPopis, navrhTlacitka, navrhVysledek } from '../kontrola';
+import { ConfirmModal, ErrorBox, STATUS_LABELS, errMsg } from '../ui';
+import { NAVRH_ODZNAK, casKontroly, kontrolaPopis, kontrolaPravo, navrhTlacitka, navrhVysledek } from '../kontrola';
+import type { KontaktStatus } from '../api/types';
+
+const nazevStavu = (s: string) => STATUS_LABELS[s as KontaktStatus] ?? s;
 
 /** Stav kontroly odpovědí kontaktu: jen super admin (ostatním null, server by stejně odmítl). */
 export function useKontrola(kontaktId: number | null | undefined, obnova: number = 0) {
@@ -80,10 +83,8 @@ export function KontrolaOdpovediPanel({ kontrola, kontaktId }: { kontrola: Kontr
             />
             Neposílat klientovi nic bez schválení
           </label>
-          <p className="muted kontrola-popis">{kontrolaPopis(k)}</p>
-          {!k.smi_menit && (
-            <p className="muted kontrola-popis">Měnit ji smí super admin, který tohoto klienta smí upravovat.</p>
-          )}
+          <p className="muted kontrola-popis">{kontrolaPopis(k, nazevStavu)}</p>
+          {!k.smi_menit && <p className="muted kontrola-popis">{kontrolaPravo(k)}</p>}
         </>
       )}
       <ErrorBox>{chyba}</ErrorBox>
@@ -97,6 +98,9 @@ export function KontrolaOdpovediPanel({ kontrola, kontaktId }: { kontrola: Kontr
         >
           {k.cekajici === 1 ? 'Jeden čekající návrh e-mailu se zruší' : `Čekající návrhy e-mailů (${k.cekajici}) se zruší`} a
           automatizace bude klientovi zase odpovídat sama podle běžných pravidel.
+          {k.pozastaveno && k.stav_pred
+            ? ` Pozastavení skončí a stav se vrátí na „${nazevStavu(k.stav_pred)}“, pokud ho mezitím nikdo nezměnil.`
+            : ''}
         </ConfirmModal>
       )}
     </div>
@@ -205,7 +209,7 @@ export function NavrhKarta({ navrh, onZmena }: { navrh: NavrhKeKontrole; onZmena
         </div>
       )}
       {!navrh.smi_rozhodnout && navrh.stav === 'ceka' && (
-        <p className="muted navrh-vysledek">Rozhodnout smí super admin, který tohoto klienta smí upravovat.</p>
+        <p className="muted navrh-vysledek">Rozhodnout smí jen ten, kdo kontrolu zapnul, Mikuláš nebo Albert.</p>
       )}
     </div>
   );

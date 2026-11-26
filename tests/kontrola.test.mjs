@@ -111,6 +111,15 @@ over('k8', K.navrhProZpravu([zaklad], { id: 50 })?.id === 7 && K.navrhProZpravu(
 over('k9', /Zapnul\/a Mikuláš 26\. 11\. 2026 9:41 · čeká na schválení: 1/.test(K.kontrolaPopis({ kontakt_id: 9, zapnuto: true, zapnul: 'Mikuláš',
   zapnul_id: 4, zapnuto_at: '2026-11-26T08:41:00Z', duvod: null, smi_menit: true, cekajici: 1, navrhy: [] })), 'popis zapnuté kontroly: kdo, kdy, kolik čeká');
 
+// --- migrace 085: pozastavení v popisu a kdo smí rozhodovat
+over('k10', /^Pozastaveno podle pokynu Mikuláš \(26\. 11\. 2026 17:05\), předtím Návrh odeslán\. Zapnul\/a Mikuláš/.test(K.kontrolaPopis({ kontakt_id: 9,
+  zapnuto: true, zapnul: 'Mikuláš', zapnul_id: 4, zapnuto_at: '2026-11-26T16:05:00Z', duvod: null, smi_menit: true, cekajici: 0, navrhy: [],
+  pozastaveno: true, pozastaveno_at: '2026-11-26T16:05:00Z', stav_pred: 'navrh_odeslan' }, (s) => (s === 'navrh_odeslan' ? 'Návrh odeslán' : s))),
+  'popis pozastaveného klienta: podle čího pokynu, kdy a předchozí stav');
+over('k11', K.kontrolaPravo({ zapnuto: true, zapnul: 'Kryštof' }) === 'Vypnout ji a schvalovat smí jen Kryštof, Mikuláš nebo Albert.'
+  && K.kontrolaPravo({ zapnuto: true, zapnul: 'Mikuláš' }) === 'Vypnout ji a schvalovat smí jen Mikuláš nebo Albert.'
+  && /Zapnout ji smí super admin/.test(K.kontrolaPravo({ zapnuto: false, zapnul: null })), 'kdo smí vypnout a schvalovat: schvalovatel, Mikuláš, Albert bez opakování');
+
 // --- demo mock
 const A = 'demo-1-test', P = 'demo-2-test';
 over('m1', /vidí jen super admin/.test(await chyba(() => mockApi.kontrolaDetail(P, 9))), 'Volající nevidí kontrolu odpovědí');

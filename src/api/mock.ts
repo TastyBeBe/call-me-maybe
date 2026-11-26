@@ -1589,8 +1589,19 @@ function kontrolaZprava(threadId: number, body: string): number {
   if (t) { t.last_message_at = msg.created_at; t.status = 'open'; }
   return msg.id;
 }
+/** Kdo smí schválit, vrátit a vypnout (migrace 085): ten, kdo kontrolu zapnul, Mikuláš a Albert (v DEMO podle účtu). */
+function kontrolaSmiRozhodnout(user: MockUser, kid: number): boolean {
+  if (user.role !== 'super_admin' || !user.active) return false;
+  return user.username === 'admin' || user.username === 'mikulas' || kontrolaZapnuta.get(kid)?.zapnul_id === user.id;
+}
+/** Jména do hlášky jako kontrola_trojice_text: schvalovatel, Mikuláš a Albert bez opakování. */
+function kontrolaTrojice(kid: number): string {
+  const j = [...new Set([kontrolaZapnuta.get(kid)?.zapnul_jmeno, 'Mikuláš', 'Albert'].filter((x): x is string => !!x))];
+  return j.length === 1 ? j[0] : `${j.slice(0, -1).join(', ')} nebo ${j[j.length - 1]}`;
+}
 function kontrolaDetailMock(user: MockUser, kid: number): KontrolaOdpovedi {
   const smi = canEdit(user, kid);
+  const rozh = kontrolaSmiRozhodnout(user, kid);
   const ko = kontrolaZapnuta.get(kid) ?? null;
   const moje = navrhyKeKontrole.filter((n) => n.kontakt_id === kid).sort((a, b) => b.id - a.id);
   return {
@@ -1600,16 +1611,20 @@ function kontrolaDetailMock(user: MockUser, kid: number): KontrolaOdpovedi {
     zapnul_id: ko?.zapnul_id ?? null,
     zapnuto_at: ko?.zapnuto_at ?? null,
     duvod: ko?.duvod ?? null,
-    smi_menit: smi,
+    smi_menit: ko ? rozh : smi,
+    pozastaveno: false,
+    pozastaveno_at: null,
+    stav_pred: null,
+    stav: kontakty.find((c) => c.id === kid)?.status ?? null,
     cekajici: moje.filter((n) => n.stav === 'ceka' || n.stav === 'schvaleno' || n.stav === 'odesila').length,
-    navrhy: moje.slice(0, 30).map((n) => navrhVen(n, smi)),
+    navrhy: moje.slice(0, 30).map((n) => navrhVen(n, rozh)),
   };
 }
 function navrhKRozhodnuti(user: MockUser, navrhId: number, sloveso: 'schvaluje' | 'vrací'): MockNavrh {
   if (user.role !== 'super_admin') fail(`Návrh e-mailu ${sloveso} jen super admin.`);
   const n = navrhyKeKontrole.find((x) => x.id === navrhId);
   if (!n) fail(`Návrh e-mailu #${navrhId} neexistuje.`);
-  if (!canEdit(user, n.kontakt_id)) fail(`Návrh e-mailu u tohoto klienta ${sloveso} jen super admin, který ho smí upravovat.`);
+  if (!kontrolaSmiRozhodnout(user, n.kontakt_id)) fail(`Návrh e-mailu u tohoto klienta ${sloveso} jen ${kontrolaTrojice(n.kontakt_id)}.`);
   if (n.stav !== 'ceka') fail(`Návrh e-mailu #${navrhId} už není ke schválení (${NAVRH_STAV_TEXT[n.stav]}).`);
   return n;
 }
@@ -8370,7 +8385,10 @@ const mockApiZaklad: Api = {
     const user = auth(token);
     if (user.role !== 'super_admin') fail('Kontrolu odpovědí smí zapnout nebo vypnout jen super admin.');
     if (!kontakty.some((c) => c.id === kontaktId)) fail(`Kontakt id=${kontaktId} neexistuje.`);
-    if (!canEdit(user, kontaktId)) fail('Kontrolu odpovědí u tohoto klienta smí měnit jen super admin, který ho smí upravovat.');
+    if (zapnout && !canEdit(user, kontaktId)) fail('Kontrolu odpovědí u tohoto klienta smí měnit jen super admin, který ho smí upravovat.');
+    if (!zapnout && kontrolaZapnuta.has(kontaktId) && !kontrolaSmiRozhodnout(user, kontaktId)) {
+      fail(`Kontrolu odpovědí u tohoto klienta smí vypnout jen ${kontrolaTrojice(kontaktId)}.`);
+    }
     if (zapnout) {
       // už zapnutá = beze změny, kontroluje dál ten, kdo ji zapnul
       if (!kontrolaZapnuta.has(kontaktId)) {

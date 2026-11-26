@@ -69,13 +69,23 @@ export function navrhVysledek(n: NavrhKeKontrole): string {
   }
 }
 
-/** Řádek pod přepínačem v detailu klienta. */
-export function kontrolaPopis(k: KontrolaOdpovedi): string {
+/** Řádek pod přepínačem v detailu klienta (od migrace 085 i pozastavení z pokynu; nazevStavu převede klíč stavu na název). */
+export function kontrolaPopis(k: KontrolaOdpovedi, nazevStavu: (s: string) => string = (s) => s): string {
   if (!k.zapnuto) {
     return 'Když je zapnuto, automatizace tomuhle klientovi nic nepošle sama: každý e-mail připraví a pošle sem ke schválení. Vypne se, jen když ji někdo odškrtne.';
   }
   const ceka = k.cekajici === 0 ? 'nic nečeká' : `čeká na schválení: ${k.cekajici}`;
-  return `Zapnul/a ${k.zapnul ?? '?'} ${casKontroly(k.zapnuto_at)} · ${ceka}. Klientovi nic neodejde bez schválení; sama se nevypne.`;
+  const zaklad = `Zapnul/a ${k.zapnul ?? '?'} ${casKontroly(k.zapnuto_at)} · ${ceka}. Klientovi nic neodejde bez schválení; sama se nevypne.`;
+  if (!k.pozastaveno) return zaklad;
+  const pred = k.stav_pred ? `, předtím ${nazevStavu(k.stav_pred)}` : '';
+  return `Pozastaveno podle pokynu ${k.zapnul ?? '?'} (${casKontroly(k.pozastaveno_at)})${pred}. ${zaklad}`;
+}
+
+/** Kdo smí kontrolu vypnout a návrhy schvalovat (od migrace 085): ten, kdo ji zapnul, Mikuláš a Albert; zapnout super admin s právem. */
+export function kontrolaPravo(k: Pick<KontrolaOdpovedi, 'zapnuto' | 'zapnul'>): string {
+  if (!k.zapnuto) return 'Zapnout ji smí super admin, který tohoto klienta smí upravovat.';
+  const jmena = [...new Set([k.zapnul ?? 'ten, kdo ji zapnul', 'Mikuláš', 'Albert'])];
+  return `Vypnout ji a schvalovat smí jen ${jmena.slice(0, -1).join(', ')} nebo ${jmena[jmena.length - 1]}.`;
 }
 
 /** Karta návrhu místo bubliny zprávy „KE SCHVÁLENÍ…“ (jen super admin, který dostal návrhy ze serveru). */
