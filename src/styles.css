@@ -6542,3 +6542,70 @@ table.kontakty.kompakt .mlceni-bunka > * {
     white-space: normal;
   }
 }
+
+/* Kontrola odpovědí (migrace 083, Albert 26. 11. 2026): přepínač v detailu klienta a karta návrhu e-mailu ve vlákně */
+.kontrola-panel {
+  margin: 14px 0 0;
+}
+.kontrola-popis {
+  font-size: 13px;
+  margin: 4px 0 0;
+}
+.badge.navrh-ok {
+  background: var(--green);
+  color: var(--paper-on-dark);
+}
+.navrh-karta {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  margin-top: 6px;
+}
+.navrh-hlava {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.navrh-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.navrh-telo {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  background: var(--cream);
+  border: var(--border);
+  border-radius: var(--r-ctl);
+  padding: 10px 12px;
+  font-size: 14px;
+}
+.navrh-vysledek {
+  font-size: 13px;
+  font-weight: 700;
+  margin: 0;
+}
+.navrh-akce {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.navrh-vraceni {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.navrh-vraceni textarea {
+  width: 100%;
+  min-height: 80px;
+  box-sizing: border-box;
+}
+@media (max-width: 560px) {
+  .navrh-akce .pill-btn {
+    flex: 1 1 100%;
+  }
+}

@@ -29,6 +29,8 @@ import {
   SendIcon,
   XIcon,
 } from '../icons';
+import { NavrhKarta, useKontrola } from '../components/KontrolaOdpovedi';
+import { navrhProZpravu } from '../kontrola';
 
 /** Relativní čas pro seznam vláken ("před 5 min", "včera", …). */
 function relTime(iso: string): string {
@@ -319,6 +321,8 @@ function ThreadView({
   const msgsRef = useRef<HTMLDivElement | null>(null);
   const threadId = detail?.thread.id ?? null;
   const msgCount = detail?.messages.length ?? 0;
+  // kontrola odpovědí (migrace 083): super admin vidí místo žádosti o schválení kartu návrhu e-mailu
+  const kontrola = useKontrola(detail?.thread.kontakt_id ?? null, msgCount);
 
   // reset rozepsané odpovědi při přepnutí vlákna
   useEffect(() => {
@@ -432,17 +436,33 @@ function ThreadView({
       </div>
 
       <div className="chat-msgs" ref={msgsRef}>
-        {messages.map((m) => (
-          <div key={m.id} className={`bubble-row ${m.sender_type}`}>
-            <div className={`bubble ${m.sender_type}`}>
-              <div className="bubble-meta">
-                {m.sender_name} · {formatDateTime(m.created_at)}
-                {pravidloPopisek(m)}
+        {messages.map((m) => {
+          const nv = navrhProZpravu(kontrola.data?.navrhy, m);
+          return (
+            <div key={m.id} className={`bubble-row ${m.sender_type}`}>
+              <div className={`bubble ${m.sender_type}`}>
+                <div className="bubble-meta">
+                  {m.sender_name} · {formatDateTime(m.created_at)}
+                  {pravidloPopisek(m)}
+                </div>
+                {nv ? (
+                  <NavrhKarta
+                    navrh={nv}
+                    onZmena={() => {
+                      void kontrola.nacti();
+                      void getApi()
+                        .getThread(session.token, thread.id)
+                        .then(onSent)
+                        .catch(() => undefined);
+                    }}
+                  />
+                ) : (
+                  m.body
+                )}
               </div>
-              {m.body}
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
 
       {!smiPsat ? (

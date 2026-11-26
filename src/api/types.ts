@@ -494,6 +494,67 @@ export interface ThreadDetail {
   messages: ChatMessage[];
 }
 
+/**
+ * Kontrola odpovědí (migrace 083, Albert 26. 11. 2026): super admin u klienta zapne kontrolu a automatizace mu nic nepošle
+ * bez schválení. Stav návrhu e-mailu, který brána odeslání uložila ke schválení.
+ */
+export type NavrhStav =
+  | 'ceka'
+  | 'schvaleno'
+  | 'odesila'
+  | 'odeslano'
+  | 'vraceno'
+  | 'nahrazeno'
+  | 'zruseno'
+  | 'neodeslano'
+  | 'chyba';
+
+/** Návrh e-mailu ke schválení (kontrola_odpovedi_detail, jen super admin). */
+export interface NavrhKeKontrole {
+  id: number;
+  kontakt_id: number;
+  stav: NavrhStav;
+  stav_text: string;
+  druh: 'odpoved' | 'nova';
+  komu: string;
+  predmet: string;
+  telo: string;
+  priloha_nazev: string | null;
+  chat_thread_id: number | null;
+  /** zpráva automatizace „KE SCHVÁLENÍ…“ ve vlákně; u super admina se místo ní ukáže karta návrhu */
+  zadost_zprava_id: number | null;
+  vytvoreno: string;
+  pripominek: number;
+  pripomenuto_at: string | null;
+  rozhodl: string | null;
+  rozhodnuto_at: string | null;
+  poznamka: string | null;
+  odeslat_po: string | null;
+  odeslano_at: string | null;
+  duvod: string | null;
+  nahrazen_id: number | null;
+  nahrazuje_id: number | null;
+  /** klient od té doby napsal: schválit nejde, agent připraví nový návrh */
+  zastaraly: boolean;
+  /** smí přihlášený schválit a vrátit (super admin, který klienta smí upravovat) */
+  smi_rozhodnout: boolean;
+}
+
+/** Přepínač kontroly odpovědí u klienta a posledních 30 návrhů (kontrola_odpovedi_detail, jen super admin). */
+export interface KontrolaOdpovedi {
+  kontakt_id: number;
+  zapnuto: boolean;
+  zapnul: string | null;
+  zapnul_id: number | null;
+  zapnuto_at: string | null;
+  duvod: string | null;
+  /** smí přihlášený přepínač měnit (super admin, který klienta smí upravovat) */
+  smi_menit: boolean;
+  /** návrhy, které čekají, jsou schválené nebo se odesílají */
+  cekajici: number;
+  navrhy: NavrhKeKontrole[];
+}
+
 export interface ListKontaktyResult {
   /**
    * Kolik řádků celkem sedí na filtr. Od migrace 045 (Albert 20. 10. 2026) u list_kontakty jen super admin
@@ -1984,6 +2045,15 @@ export interface Api {
     token: string,
     threadId: number
   ): Promise<{ ok: boolean; thread_id: number; status: string }>;
+  /* ---- kontrola odpovědí (migrace 083, Albert 26. 11. 2026; jen super admin, server to hlídá sám) ---- */
+  /** Přepínač u klienta a jeho návrhy e-mailů ke schválení. Volající dostane chybu. */
+  kontrolaDetail(token: string, kontaktId: number): Promise<KontrolaOdpovedi>;
+  /** Zapne nebo vypne kontrolu (jen super admin, který klienta smí upravovat); vypnutí zruší nerozhodnuté návrhy. */
+  kontrolaNastav(token: string, kontaktId: number, zapnout: boolean): Promise<KontrolaOdpovedi>;
+  /** Schválí návrh ve stavu ceka; odeslání zařadí automatizace do 15 minut. */
+  navrhSchvalit(token: string, navrhId: number): Promise<NavrhKeKontrole>;
+  /** Vrátí návrh s poznámkou; poznámka jde do vlákna jako zpráva člověka a agent e-mail přepíše. */
+  navrhVratit(token: string, navrhId: number, poznamka: string): Promise<NavrhKeKontrole>;
   /* ---- přepínání účtů Claude (migrace 011) ---- */
   /** Stav přepínače: kdo veze automatizaci, běžící joby, fronta (admin). */
   getAutomationStatus(token: string): Promise<AutomationStatus>;

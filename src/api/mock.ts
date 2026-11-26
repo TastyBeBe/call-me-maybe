@@ -120,6 +120,9 @@ import type {
   Session,
   StatistikyVolani,
   ThreadDetail,
+  KontrolaOdpovedi,
+  NavrhKeKontrole,
+  NavrhStav,
   ThreadScope,
   ThreadStatus,
   UpdatedUser,
@@ -1550,6 +1553,67 @@ function plnyPristup(u: MockUser): boolean {
  * super admins“). Beze změny: přeřadit klienta smí super admin jen sobě nebo svým lidem (updateKontakt), systémová vlákna
  * jen Albert (writableThreadIds) a lidi zakládá a přesouvá jen super admin podle pravidel lidí.
  */
+/* ---- kontrola odpovědí (migrace 083, Albert 26. 11. 2026) — zrcadlí db/migration_083_kontrola_odpovedi.sql ----
+   Na serveru návrh ukládá brána odeslání (orchestrator/lib.sh); v DEMO ho založí háček __volackaDemoTest.kontrolaNavrh. */
+interface MockKontrola { zapnul_id: number; zapnul_jmeno: string; zapnuto_at: string; duvod: string | null }
+type MockNavrh = Omit<NavrhKeKontrole, 'stav_text' | 'zastaraly' | 'smi_rozhodnout'> & { videno_do: string };
+const kontrolaZapnuta = new Map<number, MockKontrola>();
+const navrhyKeKontrole: MockNavrh[] = [];
+let nextNavrhId = 1;
+const NAVRH_STAV_TEXT: Record<NavrhStav, string> = {
+  ceka: 'čeká na schválení', schvaleno: 'schváleno', odesila: 'odesílá se', odeslano: 'odesláno',
+  vraceno: 'vráceno k úpravě', nahrazeno: 'nahrazeno novějším návrhem', zruseno: 'zrušeno', neodeslano: 'neodesláno',
+  chyba: 'chyba při odesílání',
+};
+const casPraha = (iso: string) =>
+  new Date(iso).toLocaleString('cs-CZ', { timeZone: 'Europe/Prague', day: 'numeric', month: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' });
+function navrhVen(n: MockNavrh, smi: boolean): NavrhKeKontrole {
+  const { videno_do, ...rest } = n;
+  const c = kontakty.find((x) => x.id === n.kontakt_id);
+  const kl = c?.last_client_reply_at ? new Date(c.last_client_reply_at).getTime() : null;
+  return {
+    ...rest,
+    stav_text: NAVRH_STAV_TEXT[n.stav],
+    zastaraly: n.stav === 'ceka' && kl !== null && kl > new Date(videno_do).getTime(),
+    smi_rozhodnout: smi,
+  };
+}
+/** zpráva automatizace (sender_type agent, „Kontrola odpovědí“); vlákno se otevře a vyskočí nahoru */
+function kontrolaZprava(threadId: number, body: string): number {
+  const msg: MockChatMessage = {
+    id: nextChatMessageId++, thread_id: threadId, sender_type: 'agent', sender_name: 'Kontrola odpovědí', body,
+    apply_always: false, created_at: now(),
+  };
+  chatMessages.push(msg);
+  const t = chatThreads.find((x) => x.id === threadId);
+  if (t) { t.last_message_at = msg.created_at; t.status = 'open'; }
+  return msg.id;
+}
+function kontrolaDetailMock(user: MockUser, kid: number): KontrolaOdpovedi {
+  const smi = canEdit(user, kid);
+  const ko = kontrolaZapnuta.get(kid) ?? null;
+  const moje = navrhyKeKontrole.filter((n) => n.kontakt_id === kid).sort((a, b) => b.id - a.id);
+  return {
+    kontakt_id: kid,
+    zapnuto: ko !== null,
+    zapnul: ko?.zapnul_jmeno ?? null,
+    zapnul_id: ko?.zapnul_id ?? null,
+    zapnuto_at: ko?.zapnuto_at ?? null,
+    duvod: ko?.duvod ?? null,
+    smi_menit: smi,
+    cekajici: moje.filter((n) => n.stav === 'ceka' || n.stav === 'schvaleno' || n.stav === 'odesila').length,
+    navrhy: moje.slice(0, 30).map((n) => navrhVen(n, smi)),
+  };
+}
+function navrhKRozhodnuti(user: MockUser, navrhId: number, sloveso: 'schvaluje' | 'vrací'): MockNavrh {
+  if (user.role !== 'super_admin') fail(`Návrh e-mailu ${sloveso} jen super admin.`);
+  const n = navrhyKeKontrole.find((x) => x.id === navrhId);
+  if (!n) fail(`Návrh e-mailu #${navrhId} neexistuje.`);
+  if (!canEdit(user, n.kontakt_id)) fail(`Návrh e-mailu u tohoto klienta ${sloveso} jen super admin, který ho smí upravovat.`);
+  if (n.stav !== 'ceka') fail(`Návrh e-mailu #${navrhId} už není ke schválení (${NAVRH_STAV_TEXT[n.stav]}).`);
+  return n;
+}
+
 function canEdit(u: MockUser, kid: number): boolean {
   if (u.role !== 'admin' && u.role !== 'super_admin') return false;
   if (plnyPristup(u)) return true;   // migrace 077: Albert, Mikuláš a Pavel
@@ -8292,6 +8356,80 @@ const mockApiZaklad: Api = {
     return { thread_id: t.id };
   },
 
+  /* ---- kontrola odpovědí (migrace 083): strážce role první, jako na serveru ---- */
+  async kontrolaDetail(token: string, kontaktId: number) {
+    await delay();
+    const user = auth(token);
+    if (user.role !== 'super_admin') fail('Kontrolu odpovědí vidí jen super admin.');
+    if (!kontakty.some((c) => c.id === kontaktId)) fail(`Kontakt id=${kontaktId} neexistuje.`);
+    return kontrolaDetailMock(user, kontaktId);
+  },
+
+  async kontrolaNastav(token: string, kontaktId: number, zapnout: boolean) {
+    await delay();
+    const user = auth(token);
+    if (user.role !== 'super_admin') fail('Kontrolu odpovědí smí zapnout nebo vypnout jen super admin.');
+    if (!kontakty.some((c) => c.id === kontaktId)) fail(`Kontakt id=${kontaktId} neexistuje.`);
+    if (!canEdit(user, kontaktId)) fail('Kontrolu odpovědí u tohoto klienta smí měnit jen super admin, který ho smí upravovat.');
+    if (zapnout) {
+      // už zapnutá = beze změny, kontroluje dál ten, kdo ji zapnul
+      if (!kontrolaZapnuta.has(kontaktId)) {
+        kontrolaZapnuta.set(kontaktId, { zapnul_id: user.id, zapnul_jmeno: user.display_name, zapnuto_at: now(), duvod: null });
+      }
+    } else if (kontrolaZapnuta.has(kontaktId)) {
+      kontrolaZapnuta.delete(kontaktId);
+      const poVlaknech = new Map<number, number[]>();
+      for (const n of navrhyKeKontrole) {
+        if (n.kontakt_id !== kontaktId || (n.stav !== 'ceka' && n.stav !== 'schvaleno')) continue;
+        n.stav = 'zruseno';
+        n.duvod = `kontrola odpovědí vypnuta (${user.display_name})`;
+        if (n.chat_thread_id !== null) poVlaknech.set(n.chat_thread_id, [...(poVlaknech.get(n.chat_thread_id) ?? []), n.id]);
+      }
+      for (const [tid, ids] of poVlaknech) {
+        kontrolaZprava(tid, `Kontrola odpovědí vypnuta (${user.display_name}, ${casPraha(now())}). `
+          + (ids.length === 1 ? `Návrh e-mailu #${ids[0]} se neodešle.` : `Návrhy e-mailů ${ids.map((i) => `#${i}`).join(', ')} se neodešlou.`)
+          + ' Automatizace teď klientovi odpovídá sama podle běžných pravidel.');
+      }
+    }
+    return kontrolaDetailMock(user, kontaktId);
+  },
+
+  async navrhSchvalit(token: string, navrhId: number) {
+    await delay();
+    const user = auth(token);
+    const n = navrhKRozhodnuti(user, navrhId, 'schvaluje');
+    if (navrhVen(n, true).zastaraly) fail('Klient mezitím napsal znovu; agent připraví nový návrh, který odpoví na všechno.');
+    n.stav = 'schvaleno';
+    n.rozhodl = user.display_name;
+    n.rozhodnuto_at = now();
+    n.odeslat_po = now();
+    return navrhVen(n, true);
+  },
+
+  async navrhVratit(token: string, navrhId: number, poznamka: string) {
+    await delay();
+    const user = auth(token);
+    if (user.role !== 'super_admin') fail('Návrh e-mailu vrací jen super admin.');
+    const pozn = poznamka.trim();
+    if (!pozn) fail('Napiš, co má agent v e-mailu změnit.');
+    if (pozn.length > 4000) fail('Poznámka je delší než 4 000 znaků.');
+    const n = navrhKRozhodnuti(user, navrhId, 'vrací');
+    if (n.chat_thread_id === null) fail(`Návrh e-mailu #${navrhId} nemá vlákno, poznámka nejde zapsat.`);
+    if (!writableThreadIds(user).has(n.chat_thread_id)) fail('Do vlákna tohoto návrhu může psát jen ten, komu klient patří, jeho super admin nebo Albert.');
+    const msg: MockChatMessage = {
+      id: nextChatMessageId++, thread_id: n.chat_thread_id, sender_type: 'admin', sender_name: user.display_name,
+      body: `Vráceno k úpravě (návrh e-mailu #${n.id}): ${pozn}`, apply_always: false, created_at: now(),
+    };
+    chatMessages.push(msg);
+    const t = chatThreads.find((x) => x.id === n.chat_thread_id);
+    if (t) { t.last_message_at = msg.created_at; t.status = 'open'; }
+    n.stav = 'vraceno';
+    n.rozhodl = user.display_name;
+    n.rozhodnuto_at = now();
+    n.poznamka = pozn;
+    return navrhVen(n, true);
+  },
+
   async resolveThread(token: string, threadId: number) {
     await delay();
     const user = authAdmin(token);
@@ -8947,6 +9085,9 @@ const mockApiZaklad: Api = {
  */
 interface DemoTestHacek {
   zpozdeni?: (fn: string, args: unknown[]) => number;
+  /** kontrola odpovědí (migrace 083): automatizace uloží e-mail kontaktu ke schválení; null = kontrola u kontaktu vypnutá */
+  kontrolaNavrh?: (kid: number, predmet?: string, telo?: string) => number | null;
+  kontrolaStav?: () => unknown;
   volani?: { fn: string; args: unknown[]; ok?: boolean; id?: number | null; chyba?: string; zacatek?: number; konec?: number }[];
   stav?: () => unknown;
   /** migrace 063: služební cesty serveru (worker, tick), appka je nevolá; test jimi ověřuje pravidla mocku */
@@ -9025,6 +9166,40 @@ function sDemoTestem(api: Api): Api {
     }
     return n;
   };
+  // kontrola odpovědí (migrace 083): automatizace uloží e-mail ke schválení (na serveru brána odeslání, kontrola_navrh_uloz)
+  hacek.kontrolaNavrh = (kid: number, predmet = 'Re: Návrh webu', telo = 'Dobrý den,\n\nposílám upravený návrh webu.\n\nS pozdravem\nAlbert Brunda') => {
+    const ko = kontrolaZapnuta.get(kid);
+    const c = kontakty.find((x) => x.id === kid);
+    if (!ko || !c) return null;
+    let t = chatThreads
+      .filter((x) => x.kontakt_id === kid && x.status === 'open' && mockScope(x) !== 'automatizace' && !x.alert_key)
+      .sort((a, b) => new Date(b.last_message_at).getTime() - new Date(a.last_message_at).getTime() || b.id - a.id)[0];
+    if (!t) {
+      t = { id: nextThreadId++, kontakt_id: kid, subject: `Kontrola odpovědí: ${c.name ?? `#${kid}`}`, status: 'open',
+            created_by: 'agent', last_message_at: now(), created_at: now() };
+      chatThreads.push(t);
+    }
+    const komu = c.email ?? `klient${kid}@example.cz`;
+    const id = nextNavrhId++;
+    const nahr = navrhyKeKontrole.filter((n) => n.kontakt_id === kid && (n.stav === 'ceka' || n.stav === 'schvaleno') && n.komu === komu);
+    for (const n of nahr) { n.stav = 'nahrazeno'; n.nahrazen_id = id; n.duvod = `nahrazeno návrhem #${id}`; }
+    const zid = kontrolaZprava(t.id, `KE SCHVÁLENÍ: návrh e-mailu #${id}. Kontrolu odpovědí u tohoto klienta zapnul/a ${ko.zapnul_jmeno} `
+      + `(${casPraha(ko.zapnuto_at)}), takže mu automatizace nic nepošle sama. E-mail odejde, až ho super admin schválí tlačítkem `
+      + '„Schválit a odeslat“ u návrhu; tlačítkem „Vrátit s poznámkou“ napíšeš agentovi, co změnit.'
+      + (nahr.length ? `\nNahrazuje návrh #${nahr[nahr.length - 1].id}, ten se už neodešle.` : '')
+      + `\n\nKomu: ${komu}\nPředmět: ${predmet}\n\n${telo}`);
+    navrhyKeKontrole.push({
+      id, kontakt_id: kid, stav: 'ceka', druh: 'odpoved', komu, predmet, telo, priloha_nazev: null, chat_thread_id: t.id,
+      zadost_zprava_id: zid, vytvoreno: now(), pripominek: 0, pripomenuto_at: null, rozhodl: null, rozhodnuto_at: null,
+      poznamka: null, odeslat_po: null, odeslano_at: null, duvod: null, nahrazen_id: null,
+      nahrazuje_id: nahr.length ? nahr[nahr.length - 1].id : null, videno_do: now(),
+    });
+    return id;
+  };
+  hacek.kontrolaStav = () => ({
+    zapnuto: [...kontrolaZapnuta.entries()].map(([kid, ko]) => ({ kontakt_id: kid, ...ko })),
+    navrhy: navrhyKeKontrole.map((n) => ({ id: n.id, kontakt_id: n.kontakt_id, stav: n.stav, rozhodl: n.rozhodl, poznamka: n.poznamka })),
+  });
   hacek.stav = () => ({
     kontakty: kontakty.map((c) => ({
       id: c.id,

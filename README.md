@@ -1023,6 +1023,30 @@ build` a `npm run test:e2e` (bloky PV, PZ, PN, LP, FP a T12 mezi 576 kontrolami,
 obsahovalo „k datu“ (jinak by 1. a 2. den v měsíci narazily na nové odmítnutí). Appka se na GitHub Pages nasazuje až po ostrém běhu migrací
 (`.github/workflows/deploy.yml` reaguje jen na `main`), pak se ověří, že živý balíček obsahuje `prehled_souhrn` a `lide-picker`.
 
+## Kontrola odpovědí 083 (Albert 26. 11. 2026)
+
+Albert: „make sure that there is an option on all the clients for super admins, that they can pause replies … It creates
+the reply, but it doesn't send it, and instead it waits for the super admin to review the email … there is like an easy
+approve button, and then there's like a text box for a note.“ Pravidla automatizace: PLAYBOOK [2026-11-26] v repozitáři
+webdomov, DB migrace `../db/migration_083_kontrola_odpovedi.sql`.
+
+- **Přepínač v detailu klienta** (`src/components/KontrolaOdpovedi.tsx`, `KontrolaOdpovediPanel`, nad „Vzkazy agentovi“):
+  „Neposílat klientovi nic bez schválení“. Vidí ho jen super admin; zaškrtnout a odškrtnout smí, kdo klienta smí upravovat
+  (`smi_menit`, server `app_smi_upravit`), ostatní super admini ho mají jen ke čtení. Pod ním kdo ho zapnul, kdy a kolik
+  návrhů čeká. Odškrtnutí s čekajícími návrhy se napřed zeptá (návrhy se zruší). Sám se nikdy nevypne.
+- **Karta návrhu e-mailu** (`NavrhKarta`) ve vlákně ve Zprávách i ve vzkazech v detailu, místo bubliny automatizace
+  „KE SCHVÁLENÍ…“ (`zadost_zprava_id`): celý e-mail (komu, předmět, příloha, text), „Schválit a odeslat“ jedním klikem
+  a „Vrátit s poznámkou“ (pole „Co má agent v e-mailu změnit…“, poznámka jde do vlákna jako zpráva člověka a agent e-mail
+  přepíše). Po rozhodnutí karta řekne, kdo a kdy rozhodl a co se stalo (odejde do 15 minut, odesláno, čeká na bránu tří
+  dnů, vráceno, nahrazeno, zrušeno, neodesláno). Rozhodovat smí super admin, který klienta smí upravovat (`smi_rozhodnout`).
+- **Volající** (role `admin`) přepínač ani karty nevidí a appka se serveru na kontrolu vůbec neptá; ve vlákně svého klienta
+  vidí zprávy automatizace jako obyčejné bubliny.
+- RPC: `kontrola_odpovedi_detail`, `kontrola_odpovedi_nastav`, `kontrola_navrh_schvalit`, `kontrola_navrh_vratit` (jen super
+  admin, strážce role je první). Žádná nová stránka, záložka ani odznak v seznamech.
+- **DEMO:** mock má přepínač i návrhy (`src/api/mock.ts`); e-mail ke schválení, jako by ho uložila automatizace, založí
+  háček `__volackaDemoTest.kontrolaNavrh(kontaktId, předmět, text)` (v DEMO je kontrola zapnutá, až ji zaškrtneš).
+- Testy: `tests/kontrola.test.mjs` (`npm test`), blok KO v `tests/demo-e2e.mjs`.
+
 ## Účty a přihlášení (produkce)
 
 - Vlastní auth v Postgresu (žádný Supabase Auth): funkce `login` vrací token,
