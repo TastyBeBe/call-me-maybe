@@ -548,8 +548,15 @@ export interface KontrolaOdpovedi {
   zapnul_id: number | null;
   zapnuto_at: string | null;
   duvod: string | null;
-  /** smí přihlášený přepínač měnit (super admin, který klienta smí upravovat) */
+  /** smí přihlášený přepínač měnit: zapnout super admin, který klienta smí upravovat; vypnout od migrace 085 jen ten, kdo
+   *  kontrolu zapnul nebo klienta pozastavil, Mikuláš nebo Albert */
   smi_menit: boolean;
+  /** od migrace 085: klient pozastavený z pokynu super admina (stav pozastaveno, předchozí stav stav_pred) */
+  pozastaveno?: boolean;
+  pozastaveno_at?: string | null;
+  stav_pred?: string | null;
+  /** aktuální stav kontaktu */
+  stav?: string | null;
   /** návrhy, které čekají, jsou schválené nebo se odesílají */
   cekajici: number;
   navrhy: NavrhKeKontrole[];
