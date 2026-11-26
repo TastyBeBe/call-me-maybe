@@ -110,6 +110,9 @@ import {
   XIcon,
 } from '../icons';
 import { useZobrazenyStav } from '../zobrazeni';
+import { KontrolaOdpovediPanel, NavrhKarta, useKontrola } from './KontrolaOdpovedi';
+import { navrhProZpravu } from '../kontrola';
+import type { NavrhKeKontrole } from '../api';
 
 /**
  * Migrace 045, recenze 20. 10. 2026: Volající dostává řádky kolegů v poznámce jako „jiný volající“ a jsou pro něj
@@ -329,7 +332,20 @@ function FlagPanel({
  * `obnova` (migrace 062): číslo, které detail zvedne po uložení poznámky; vzkazy se pak potichu načtou znovu (nové řádky
  * poznámky dostane automatizace jako vzkaz „Poznámka (jméno): …“ do vlákna kontaktu, rozhodnutí D15).
  */
-function KontaktThreads({ kontakt, canWrite, obnova = 0 }: { kontakt: Kontakt; canWrite: boolean; obnova?: number }) {
+function KontaktThreads({
+  kontakt,
+  canWrite,
+  obnova = 0,
+  navrhy,
+  onNavrh,
+}: {
+  kontakt: Kontakt;
+  canWrite: boolean;
+  obnova?: number;
+  /** kontrola odpovědí (migrace 083): návrhy e-mailů ke schválení, jen super admin; bublina žádosti se nahradí kartou */
+  navrhy?: NavrhKeKontrole[];
+  onNavrh?: () => void;
+}) {
   const session = useSession();
   const [details, setDetails] = useState<ThreadDetail[]>([]);
   const [loading, setLoading] = useState(true);
@@ -428,17 +444,30 @@ function KontaktThreads({ kontakt, canWrite, obnova = 0 }: { kontakt: Kontakt; c
                 {d.thread.status === 'open' ? 'otevřeno' : 'vyřešeno'}
               </span>
             </div>
-            {d.messages.map((m: ChatMessage) => (
-              <div key={m.id} className={`bubble-row ${m.sender_type}`}>
-                <div className={`bubble ${m.sender_type}`}>
-                  <div className="bubble-meta">
-                    {m.sender_name} · {formatDateTime(m.created_at)}
-                    {pravidloPopisek(m)}
+            {d.messages.map((m: ChatMessage) => {
+              const nv = navrhProZpravu(navrhy, m);
+              return (
+                <div key={m.id} className={`bubble-row ${m.sender_type}`}>
+                  <div className={`bubble ${m.sender_type}`}>
+                    <div className="bubble-meta">
+                      {m.sender_name} · {formatDateTime(m.created_at)}
+                      {pravidloPopisek(m)}
+                    </div>
+                    {nv ? (
+                      <NavrhKarta
+                        navrh={nv}
+                        onZmena={() => {
+                          onNavrh?.();
+                          void load(true);
+                        }}
+                      />
+                    ) : (
+                      m.body
+                    )}
                   </div>
-                  {m.body}
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         ))
       )}
@@ -708,6 +737,8 @@ export default function KontaktDrawer({
   const [savedFlash, setSavedFlash] = useState(false);
   // migrace 062 (D15): po uložení poznámky se vzkazy agentovi načtou znovu (nové řádky v nich má automatizace)
   const [obnovaVlaken, setObnovaVlaken] = useState(0);
+  // kontrola odpovědí (migrace 083): jen super admin dostane přepínač a karty návrhů (useKontrola jinak nic nenačte)
+  const kontrola = useKontrola(kontakt.id, obnovaVlaken);
 
   // Obsah kontaktu (stav, e-mail, ceny, poznámku) smí měnit jen ten, komu kontakt patří,
   // jeho super admin a Albert — rozhoduje server (smi_upravit, migrace 024). Příznak
@@ -1090,10 +1121,14 @@ export default function KontaktDrawer({
         {/* Vzkaz agentovi je pro workera závazný pokyn, takže ke klientovi píše jen ten, kdo ho
             smí upravovat (migrace 025): volající svůj klient (je_muj), admin a super admin
             podle smi_upravit (migrace 024). Server to hlídá sám. */}
+        {/* Kontrola odpovědí (migrace 083, Albert 26. 11. 2026): jen super admin; zapnout a vypnout smí, kdo klienta smí upravit */}
+        <KontrolaOdpovediPanel kontrola={kontrola} kontaktId={kontakt.id} />
         <KontaktThreads
           kontakt={kontakt}
           canWrite={readOnly ? kontakt.je_muj !== false : kontakt.smi_upravit !== false}
           obnova={obnovaVlaken}
+          navrhy={kontrola.data?.navrhy}
+          onNavrh={() => void kontrola.nacti()}
         />
       </div>
     </>

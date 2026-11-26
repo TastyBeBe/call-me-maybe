@@ -5208,6 +5208,64 @@ await blok050('PV13 líné načtení Přehledu', async () => {
     'super admin: soubor Přehledu až s první návštěvou, do té doby kostra karet (Stavy), pak stránka', JSON.stringify({ predNavstevou, sA, kostra, nadpis }));
 });
 
+// KONTROLA ODPOVĚDÍ (migrace 083, Albert 26. 11. 2026): super admin zaškrtne v detailu klienta „Kontrola odpovědí“,
+// automatizace uloží e-mail ke schválení (háček kontrolaNavrh, na serveru brána odeslání), vlákno vyskočí nahoru, ve vlákně
+// je karta s celým e-mailem, schválení jedním klikem a vrácení s poznámkou; Volající přepínač ani karty nevidí.
+{
+  const { ctx, page } = await novaStranka('admin');
+  await jdi(page, '#/admin', 600);
+  await page.locator('table.kontakty tbody tr', { hasText: 'Chata Jizerky' }).first().click();
+  await klid(page, 400);
+  const detail = page.locator('.drawer');
+  const prepinac = detail.locator('.kontrola-panel input[type=checkbox]');
+  await detail.locator('.kontrola-panel[data-kontrola-odpovedi="vypnuto"]').waitFor({ timeout: 5000 }).catch(() => undefined);
+  over('KO1', (await prepinac.count()) === 1 && !(await prepinac.isChecked()), 'super admin: v detailu klienta je přepínač Kontrola odpovědí, vypnutý');
+  // Přepínač je řízený serverem (zaškrtne se až po odpovědi kontrola_odpovedi_nastav), proto click, ne check.
+  await prepinac.click();
+  await detail.locator('.kontrola-panel[data-kontrola-odpovedi="zapnuto"]').waitFor({ timeout: 5000 }).catch(() => undefined);
+  await klid(page, 300);
+  const panel = txt(await detail.locator('.kontrola-panel').innerText());
+  over('KO2', (await prepinac.isChecked()) && /Zapnul\/a Albert/.test(panel), 'po zaškrtnutí je kontrola zapnutá a ukazuje, kdo ji zapnul', panel);
+  const n1 = await page.evaluate(() => globalThis.__volackaDemoTest.kontrolaNavrh(9, 'Re: Návrh webu', 'Dobrý den,\n\nposílám upravený návrh webu.'));
+  await jdi(page, '#/zpravy', 600);
+  const prvni = txt(await page.locator('.thread-item').first().innerText());
+  over('KO3', /Klient neodpovídá/.test(prvni), 'vlákno klienta se žádostí o schválení je v seznamu nahoře', prvni);
+  await page.locator('.thread-item', { hasText: 'Klient neodpovídá' }).first().click();
+  await klid(page, 500);
+  const karta = page.locator(`.navrh-karta[data-navrh="${n1}"]`);
+  const kt = txt(await karta.innerText().catch(() => ''));
+  over('KO4', (await karta.count()) === 1 && /posílám upravený návrh webu/.test(kt) && /Komu:/.test(kt) && /Předmět: Re: Návrh webu/.test(kt),
+    'karta návrhu ve vlákně ukazuje celý e-mail, komu a předmět', kt);
+  await karta.getByRole('button', { name: 'Schválit a odeslat' }).click();
+  await klid(page, 400);
+  const po = txt(await page.locator(`.navrh-karta[data-navrh="${n1}"]`).innerText().catch(() => ''));
+  over('KO5', (await page.locator(`.navrh-karta[data-navrh="${n1}"][data-stav="schvaleno"]`).count()) === 1 && /Schválil\/a Albert/.test(po)
+    && (await page.locator(`.navrh-karta[data-navrh="${n1}"]`).getByRole('button', { name: 'Schválit a odeslat' }).count()) === 0,
+    'jedním klikem schváleno: karta ukáže, kdo a kdy, tlačítko zmizí', po);
+  const n2 = await page.evaluate(() => globalThis.__volackaDemoTest.kontrolaNavrh(9, 'Re: Cena', 'Druhý návrh s cenou.'));
+  await jdi(page, '#/zpravy', 500);
+  await page.locator('.thread-item', { hasText: 'Klient neodpovídá' }).first().click();
+  await klid(page, 500);
+  const k2 = page.locator(`.navrh-karta[data-navrh="${n2}"]`);
+  await k2.getByRole('button', { name: 'Vrátit s poznámkou' }).click();
+  await k2.locator('textarea').fill('Bez ceny prosím');
+  await k2.getByRole('button', { name: 'Vrátit agentovi' }).click();
+  await klid(page, 500);
+  const vlakno = txt(await page.locator('.chat-msgs').innerText());
+  over('KO6', (await page.locator(`.navrh-karta[data-navrh="${n2}"][data-stav="vraceno"]`).count()) === 1
+    && vlakno.includes(`Vráceno k úpravě (návrh e-mailu #${n2}): Bez ceny prosím`), 'vrácení s poznámkou: karta vrácená a poznámka je ve vlákně jako zpráva', vlakno.slice(-400));
+  await ctx.close();
+  const v = await novaStranka('petra');
+  await jdi(v.page, '#/moji', 600);
+  await v.page.locator('table tbody tr', { hasText: 'Chata Jizerky' }).first().click().catch(() => undefined);
+  await klid(v.page, 400);
+  over('KO7', (await v.page.locator('.drawer .kontrola-panel').count()) === 0 && (await v.page.locator('.navrh-karta').count()) === 0,
+    'Volající: přepínač ani karty návrhů v detailu nevidí');
+  const vs = await volani(v.page);
+  over('KO8', !vs.some((x) => /^kontrola|^navrh/.test(x.fn)), 'Volající: appka se na kontrolu odpovědí serveru vůbec neptá', JSON.stringify(vs.map((x) => x.fn).filter((f) => /kontrol|navrh/.test(f))));
+  await v.ctx.close();
+}
+
 await browser.close();
 server.close();
 rmSync(OUT, { recursive: true, force: true });

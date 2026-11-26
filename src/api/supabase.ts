@@ -57,6 +57,8 @@ import type {
   Session,
   StatistikyVolani,
   ThreadDetail,
+  KontrolaOdpovedi,
+  NavrhKeKontrole,
   ThreadScope,
   ThreadStatus,
   UpdatedUser,
@@ -698,6 +700,24 @@ export const supabaseApi: Api = {
       p_token: token,
       p_thread_id: threadId,
     });
+  },
+
+  /* ---- kontrola odpovědí (migrace 083) ---- */
+
+  async kontrolaDetail(token: string, kontaktId: number) {
+    return rpc<KontrolaOdpovedi>('kontrola_odpovedi_detail', { p_token: token, p_kontakt_id: kontaktId });
+  },
+
+  async kontrolaNastav(token: string, kontaktId: number, zapnout: boolean) {
+    return rpc<KontrolaOdpovedi>('kontrola_odpovedi_nastav', { p_token: token, p_kontakt_id: kontaktId, p_zapnout: zapnout });
+  },
+
+  async navrhSchvalit(token: string, navrhId: number) {
+    return rpc<NavrhKeKontrole>('kontrola_navrh_schvalit', { p_token: token, p_navrh_id: navrhId });
+  },
+
+  async navrhVratit(token: string, navrhId: number, poznamka: string) {
+    return rpc<NavrhKeKontrole>('kontrola_navrh_vratit', { p_token: token, p_navrh_id: navrhId, p_poznamka: poznamka });
   },
 
   /* ---- přepínání účtů Claude (migrace 011) ---- */
