@@ -36,6 +36,7 @@ import StatsPage from './pages/StatsPage';
 import UzivatelePage from './pages/UzivatelePage';
 import ZpravyPage from './pages/ZpravyPage';
 import KeSchvaleniPage from './pages/KeSchvaleniPage';
+import { LegendaTlacitko } from './components/Legenda';
 import { obnovOdznaky } from './components/WebNaMiru';
 import { nastavOdznaky, pocetCeka } from './superKlient';
 import PigLayer from './pig/PigLayer';
@@ -342,6 +343,8 @@ function TopBar() {
         )}
       </nav>
       <span className="spacer" />
+      {/* Legenda (Albert 27. 11. 2026): co znamená každý stav a odznak, pro všechny role */}
+      <LegendaTlacitko />
       <SoundMenu />
       {demo && (
         <Link to="/setup" style={{ textDecoration: 'none' }} data-sfx="none">

@@ -5332,6 +5332,39 @@ await blok050('SK', async () => {
   await a.ctx.close();
 });
 
+// LEGENDA (Albert 27. 11. 2026): tlačítko „legenda“ v horní liště pro každou roli, okno s větou u každého štítku, zavře se
+// Escapem, na telefonu bez posouvání do strany.
+for (const kdo of ['petra', 'admin']) {
+  await blok050(`LG ${kdo}`, async () => {
+    const { ctx, page } = await novaStranka(kdo);
+    await jdi(page, '#/', 500);
+    const btn = page.getByRole('button', { name: 'legenda' });
+    over(`LG1 ${kdo}`, (await btn.count()) === 1, 'v horní liště je tlačítko legenda');
+    await btn.click();
+    const okno = page.locator('.legenda-okno');
+    await okno.waitFor({ timeout: 4000 });
+    const radky = okno.locator('li[data-legenda]');
+    const n = await radky.count();
+    const prazdne = [];
+    for (let i = 0; i < n; i += 1) {
+      const r = radky.nth(i);
+      const t = txt(await r.innerText());
+      const chip = txt(await r.locator('.badge').first().innerText().catch(() => ''));
+      if (!chip || t.length - chip.length < 10) prazdne.push(await r.getAttribute('data-legenda'));
+    }
+    over(`LG2 ${kdo}`, n >= 40 && prazdne.length === 0, 'každý řádek legendy má štítek a větu', `${n} řádků; bez věty: ${prazdne.join(', ')}`);
+    over(`LG3 ${kdo}`, (await okno.locator('li[data-legenda="znacky:WebNaMiruOdznak"]').count()) === 1, 'legenda vysvětluje odznak Web na míru');
+    await page.setViewportSize({ width: 375, height: 812 });
+    await klid(page, 300);
+    const w = await page.evaluate(() => document.documentElement.scrollWidth);
+    over(`LG4 ${kdo}`, w <= 375, 'legenda na telefonu bez posouvání do strany', `scrollWidth ${w}`);
+    await page.keyboard.press('Escape');
+    await klid(page, 200);
+    over(`LG5 ${kdo}`, (await page.locator('.legenda-okno').count()) === 0, 'Escape legendu zavře');
+    await ctx.close();
+  });
+}
+
 await browser.close();
 server.close();
 rmSync(OUT, { recursive: true, force: true });
