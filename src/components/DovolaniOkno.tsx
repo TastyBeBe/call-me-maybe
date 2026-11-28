@@ -56,7 +56,8 @@ import {
   useOkno,
 } from '../ui';
 import { zobrazenyStav } from '../zobrazeni';
-import { WebNaMiruPrepinac } from './WebNaMiru';
+import { WebNaMiruPrepinac, ulozWebNaMiru } from './WebNaMiru';
+import type { WnmVolba } from '../superKlient';
 
 /** Nejvýš znaků poznámky dovolání (jako poznámka z hovoru v resolve_call, 2 000). */
 export const DOVOLANI_MAX = 2000;
@@ -301,6 +302,8 @@ export default function DovolaniOkno({
   const [chyba, setChyba] = useState('');
   // Přehled vedení úkol 12 (D8): důvod odmítnutí jen u „Nechce web“ klienta s návrhem
   const [volbaDuvodu, setVolbaDuvodu] = useState<VolbaDuvodu>(PRAZDNA_VOLBA);
+  // Web na míru (oprava 28. 11. 2026, nález 1d): volba se podrží a pošle až po zapsaném hovoru (server pak čte stav po hovoru)
+  const [wnm, setWnm] = useState<WnmVolba | null>(null);
   const ptatSeNaDuvod = vysledek === 'nechce' && chceDuvod(kontakt);
   const chybiDuvod = ptatSeNaDuvod && duvodChybi(volbaDuvodu) !== null;
   const okno = useRef<HTMLDivElement>(null);
@@ -342,6 +345,8 @@ export default function DovolaniOkno({
       audio.play('success');
       // úkol 12 (D8): důvod až po uloženém hovoru; chyba hovor nevrací, jen se připíše do věty pro stránku
       let duvodVeta = '';
+      // Web na míru až po uloženém hovoru (spec 8.14; oprava 28. 11. 2026): chyba hovor nevrací, jen se připíše do věty
+      const wnmVeta = await ulozWebNaMiru(session.token, kontakt.id, wnm);
       if (ptatSeNaDuvod) {
         const neulozen = await ulozDuvod(getApi(), session.token, kontakt.id, fazeOdmitnuti(kontakt.status), volbaDuvodu);
         if (neulozen) {
@@ -354,7 +359,8 @@ export default function DovolaniOkno({
           (v?.poznamka_predana === false ? ' Poznámka se uložila jen k záznamu pokusu, v appce ji nikdo neuvidí.' : '') +
           // migrace 062: kterou větev server vybral (oznaceno)
           vetaOznaceni(v?.oznaceno, oznaceno, vysledek) +
-          duvodVeta,
+          duvodVeta +
+          wnmVeta,
         { vysledek, text: volba?.text ?? vysledek, poznamka: text.trim() || null, odpoved: v ?? null }
       );
     } catch (e) {
@@ -483,9 +489,9 @@ export default function DovolaniOkno({
               <HvezdaIcon size={16} plna={hvezda} /> Velký zájem (hvězda)
             </label>
           )}
-          {/* Web na míru (migrace 086, Albert 27. 11. 2026): Volající ho zapne i během hovoru, uloží se hned (server to dovolí
-              u karty, kterou volá) */}
-          <WebNaMiruPrepinac kontaktId={kontakt.id} />
+          {/* Web na míru (migrace 086, Albert 27. 11. 2026): Volající ho zapne i během hovoru; ⚠ od 28. 11. 2026 se volba
+              uloží až po zapsání hovoru (odlozit), NAHRAZUJE „uloží se hned“ */}
+          <WebNaMiruPrepinac kontaktId={kontakt.id} odlozit onVolba={setWnm} />
         </div>
         {/* mimo posouvané tělo okna: chyba serveru i tlačítka jsou vidět vždy */}
         <ErrorBox>{chyba}</ErrorBox>

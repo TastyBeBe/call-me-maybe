@@ -45,9 +45,11 @@ export function navrhVysledek(n: NavrhKeKontrole): string {
   const kdo = n.rozhodl ? `${n.rozhodl} ${casKontroly(n.rozhodnuto_at)}` : '';
   switch (n.stav) {
     case 'ceka':
+      // migrace 086, oprava 28. 11. 2026 (nález 3): poznámka u čekajícího návrhu = odkazy v něm záchyt nemohl ověřit (DB);
+      // při odeslání je kontrola ověří znovu
       return n.zastaraly
         ? 'Klient mezitím napsal znovu: tenhle návrh už neodpovídá na všechno, agent připraví nový. Schválit ho nejde, jen vrátit s poznámkou.'
-        : '';
+        : n.duvod ? `Pozor: ${n.duvod}.` : '';
     case 'schvaleno':
       return n.odeslat_po && new Date(n.odeslat_po).getTime() > Date.now() + 60_000
         ? `Schválil/a ${kdo}. Zatím neodešel: ${n.duvod ?? 'brána tří dnů'}, odejde sám nejdřív ${casKontroly(n.odeslat_po)}.`

@@ -6657,6 +6657,32 @@ table.kontakty.kompakt .mlceni-bunka > * {
 .badge.web-na-miru {
   white-space: nowrap;
 }
+/* oprava 28. 11. 2026 (nález 12): v řádcích seznamů „na míru“ a „bez náhledu“ vedle sebe, na úzkém řádku se zalomí (žádný
+   posun do strany, e2e O61a) */
+.web-na-miru-odznaky {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  vertical-align: middle;
+  max-width: 100%;
+}
+.web-na-miru-bez {
+  white-space: nowrap;
+}
+/* zrušení Web na míru se napřed potvrdí přímo pod přepínačem (i v okně po hovoru, kde by druhé okno překrylo první) */
+.web-na-miru-potvrzeni {
+  margin: 8px 0 0;
+  padding: 8px 10px;
+  border: 2px solid var(--orange);
+  border-radius: var(--r-ctl);
+  background: var(--cream);
+}
+.web-na-miru-potvrzeni-tlacitka {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 6px;
+}
 
 /* Legenda (Albert 27. 11. 2026): tlačítko v horní liště a okno s vysvětlením každého stavu a odznaku */
 .legenda-btn {

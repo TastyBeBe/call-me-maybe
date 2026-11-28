@@ -1053,12 +1053,16 @@ webdomov, DB migrace `../db/migration_083_kontrola_odpovedi.sql`.
   i u karty, kterou právě volá, super admin u kohokoli. Pod ním volba „Chce i náš náhled“ / „Nechce náš náhled, jen náhled
   na míru“. Označení zapne kontrolu odpovědí se schvalovatelem = odpovědný super admin; dokud trvá, kontrolu nejde
   odškrtnout. Server: `super_klient_detail`, `super_klient_nastav` (bez migrace 086 se přepínač neukáže).
+  ⚠ Od 28. 11. 2026 (opravy po nezávislé recenzi): zaškrtnutí nic neuloží, napřed se zeptá „chce / nechce“; zrušení se
+  napřed potvrdí; v okně „Zavolal/a jsem“ a na kartě hovoru se volba jen podrží a uloží až po zapsaném výsledku hovoru
+  (`ulozWebNaMiru`); přepnutí volby schvalování nepřevezme (jen nové označení).
 - **Odznak** „Web na míru“ (a „bez našeho náhledu“) v hlavičce detailu a na kartě hovoru, v seznamech kompaktní „na míru“
-  (`super_klienti_odznaky`, načtené jednou za přihlášení a po každé změně).
+  a u „nechce“ ještě „bez náhledu“ vidět i na telefonu (`super_klienti_odznaky`, načtené jednou za přihlášení a po každé změně).
 - **Stránka „ke schválení“** (pilulka s počtem, jen super admin, `#/ke-schvaleni`): návrhy e-mailů, o kterých smí rozhodnout,
   super klienti nahoře; u karty přehled klienta, „Profil klienta“, „Vlákno v appce“ (`#/zpravy?vlakno=<id>`) a „Celá
-  konverzace v Gmailu“; schválení a vrácení stejnou kartou jako ve vlákně (`ke_schvaleni_seznam`).
-- DEMO: Petřin kontakt 95 je super klient s čekajícím návrhem. Testy: `tests/superKlient.test.mjs`, e2e blok SK.
+  konverzace v Gmailu“; schválení a vrácení stejnou kartou jako ve vlákně (`ke_schvaleni_seznam`). Počet na pilulce bere
+  jen `ke_schvaleni_pocet` a jen když je stránka vidět.
+- DEMO: Petřin kontakt 95 je super klient s čekajícím návrhem. Testy: `tests/superKlient.test.mjs`, e2e bloky SK a SKV.
 
 ## Účty a přihlášení (produkce)
 

@@ -31,7 +31,8 @@ import {
 import { isSuperAdmin } from '../roles';
 import ZavolatModal, { PREPLANOVAT_NEJDRIV_MIN } from '../components/ZavolatModal';
 import PrehledPanel from '../components/PrehledPanel';
-import { WebNaMiruOdznak, WebNaMiruPrepinac } from '../components/WebNaMiru';
+import { WebNaMiruOdznak, WebNaMiruPrepinac, ulozWebNaMiru } from '../components/WebNaMiru';
+import type { WnmVolba } from '../superKlient';
 import DuvodOdmitnuti, { DUVOD_NEULOZEN, PRAZDNA_VOLBA, chceDuvod, duvodChybi, fazeOdmitnuti, ulozDuvod, type VolbaDuvodu } from '../components/DuvodOdmitnuti';
 import { nastavKartu } from '../pracovniCas';
 import {
@@ -189,6 +190,8 @@ export default function CallPage() {
   // Kliknul na číslo (tel:). Karta je pak rozdělaná: přepnutí segmentu ji tiše nevrátí
   // a „Přepnout hned“ nabídne zapsat Nedovoláno (audit APP-3).
   const [vytoceno, setVytoceno] = useState(false);
+  // Web na míru (oprava 28. 11. 2026, nález 1d): volba z karty se podrží a pošle až po zapsaném výsledku hovoru (spec 8.14)
+  const [wnm, setWnm] = useState<WnmVolba | null>(null);
 
   // Migrace 050 (Albert 21. 10. 2026): `zavolatId` = „Zavolat teď“ u naplánovaného hovoru (z kalendáře, z upozornění):
   // karta přijde přes zavolat_vzit místo next_contact a projde stejnou kontrolou pozdních odpovědí (reqId). Zvolený
@@ -221,6 +224,7 @@ export default function CallPage() {
     setHvezda(false);
     setNote('');
     setVytoceno(false);
+    setWnm(null);
     let next: Kontakt | null = null;
     try {
       if (zavolatId === null && jeObor(seg) && !nikaVolatelna(seg)) {
@@ -510,6 +514,9 @@ export default function CallPage() {
           audio.play('error');
         }
       }
+      // Web na míru až po uloženém výsledku (server čte stav po hovoru); chyba hovor nevrací, jen se ukáže nad další kartou
+      const wnmVeta = await ulozWebNaMiru(session.token, kontakt.id, wnm);
+      if (wnmVeta) hlaska = [hlaska, `${kontaktJmeno(kontakt)}:${wnmVeta}`].filter(Boolean).join(' ');
       // úkol 12 (D8): důvod odmítnutí až po uloženém výsledku; chyba hovor nevrací, jen se ukáže nad další kartou
       if (outcome === 'odmitnuto' && extra.duvod) {
         const neulozen = await ulozDuvod(getApi(), session.token, kontakt.id, fazeOdmitnuti(kontakt.status), extra.duvod);
@@ -806,8 +813,9 @@ export default function CallPage() {
             )}
           </div>
         )}
-        {/* Web na míru (migrace 086, Albert 27. 11. 2026): přepínač i u karty, kterou Volající právě volá (server pozná zámek) */}
-        <WebNaMiruPrepinac kontaktId={kontakt.id} />
+        {/* Web na míru (migrace 086, Albert 27. 11. 2026): přepínač i u karty, kterou Volající právě volá (server pozná zámek);
+            ⚠ od 28. 11. 2026 se volba uloží až po zapsání výsledku hovoru (odlozit), NAHRAZUJE „uloží se hned“ */}
+        <WebNaMiruPrepinac kontaktId={kontakt.id} odlozit onVolba={setWnm} />
 
         {/* Migrace 060 (Albert 1. 11. 2026): přehled klienta nad poznámkami jen u vlastního klienta (opakovaný hovor,
             karta z kalendáře); karta kontaktu, kterému Volající ještě nevolal, ho nemá (045). Bez faktů navíc se neukáže. */}

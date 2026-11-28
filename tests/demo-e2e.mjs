@@ -5274,13 +5274,63 @@ await blok050('SK', async () => {
   await jdi(v.page, '#/moji', 700);
   const radek = v.page.locator('table tbody tr', { hasText: 'Chata U Rybníka' }).first();
   const okenko = radek.locator('button.zavolal-btn');
+  const nastav = async () => (await volani(v.page)).filter((x) => x.fn === 'superKlientNastav');
   if (await okenko.count()) {
     await okenko.click();
     const okno = v.page.locator('.dovolani-okno');
     await okno.waitFor({ timeout: 4000 }).catch(() => undefined);
     await klid(v.page, 400);
     over('SK0', (await okno.locator('.web-na-miru-prepinac input[type=checkbox]').count()) === 1, 'okno „Zavolal/a jsem“ má přepínač Web na míru');
-    await v.page.keyboard.press('Escape');
+    // oprava 28. 11. 2026 (nezávislá recenze, nález 1d): zaškrtnutí se napřed zeptá na náhled a nic neuloží; okno volbu podrží
+    // a pošle ji až po zapsaném hovoru (server pak čte stav klienta po hovoru)
+    await okno.locator('.web-na-miru-prepinac input[type=checkbox]').click();
+    await klid(v.page, 200);
+    const radia = okno.locator('.web-na-miru-prepinac input[type=radio]');
+    over('SK0b', (await okno.locator('.web-na-miru-prepinac[data-web-na-miru="vyber"]').count()) === 1 && (await radia.count()) === 2
+      && !(await radia.nth(0).isChecked()) && !(await radia.nth(1).isChecked()) && (await nastav()).length === 0,
+      'okno po hovoru: zaškrtnutí se napřed zeptá chce/nechce, nic se neuloží');
+    await radia.nth(1).click();
+    await klid(v.page, 200);
+    over('SK0c', /Po zapsání hovoru se zapne Web na míru: klient nechce/.test(txt(await okno.locator('.web-na-miru-prepinac').innerText()))
+      && (await nastav()).length === 0, 'okno po hovoru: volba „nechce“ se jen podrží (uloží se po zapsání hovoru)');
+    await okno.getByRole('radio', { name: 'Nedovolal/a jsem se' }).click();
+    await okno.locator('#dovolani-text').fill('nebral to (zkouška SK)');
+    await okno.getByRole('button', { name: 'Zapsat hovor' }).click();
+    await klid(v.page, 800);
+    const vs = await volani(v.page);
+    const iz = vs.findIndex((x) => x.fn === 'zapisHovor' && x.ok);
+    const is = vs.findIndex((x) => x.fn === 'superKlientNastav');
+    over('SK0d', iz >= 0 && is > iz && JSON.stringify(vs[is]?.args.slice(1)) === '[true,false]' && vs[is]?.ok === true,
+      'okno po hovoru: Web na míru se uložil až po zapsaném hovoru, s volbou „nechce“', JSON.stringify(vs.filter((x) => /zapisHovor|superKlient/.test(x.fn)).map((x) => [x.fn, x.args, x.ok])));
+    await v.page.setViewportSize({ width: 375, height: 812 });
+    await klid(v.page, 300);
+    const bez = radek.locator('.web-na-miru-bez');
+    over('SK0e', (await bez.count()) === 1 && (await bez.isVisible()) && txt(await bez.innerText()) === 'bez náhledu',
+      'na telefonu je v řádku seznamu „bez náhledu“ vidět bez najetí myší (nález 12)');
+    await v.page.setViewportSize({ width: 1280, height: 900 });
+    await klid(v.page, 200);
+    // zrušení se napřed potvrdí (nález 2): „Ponechat“ nic nezmění, „Zrušit Web na míru“ zruší
+    await radek.click();
+    await klid(v.page, 500);
+    const pr = v.page.locator('.drawer .web-na-miru-prepinac');
+    await pr.waitFor({ timeout: 5000 }).catch(() => undefined);
+    const pocet0 = (await nastav()).length;
+    await pr.locator('input[type=checkbox]').click();
+    await klid(v.page, 200);
+    over('SK12', (await pr.locator('.web-na-miru-potvrzeni').count()) === 1 && (await nastav()).length === pocet0
+      && (await pr.locator('input[type=checkbox]').isChecked()), 'odškrtnutí se napřed zeptá „Opravdu zrušit Web na míru?“ a nic nezruší');
+    await pr.getByRole('button', { name: 'Ponechat' }).click();
+    await klid(v.page, 200);
+    over('SK12b', (await pr.locator('.web-na-miru-potvrzeni').count()) === 0 && (await nastav()).length === pocet0
+      && (await pr.getAttribute('data-web-na-miru')) === 'nechce', '„Ponechat“ označení nechá');
+    await pr.locator('input[type=checkbox]').click();
+    await pr.getByRole('button', { name: 'Zrušit Web na míru' }).click();
+    await pr.locator('[data-web-na-miru="ne"]').waitFor({ timeout: 5000 }).catch(() => undefined);
+    await v.page.locator('.drawer .web-na-miru-prepinac[data-web-na-miru="ne"]').waitFor({ timeout: 5000 }).catch(() => undefined);
+    const posl = (await nastav()).pop();
+    over('SK12c', JSON.stringify(posl?.args.slice(1)) === '[false,null]' && posl?.ok === true, 'po potvrzení se označení zruší',
+      JSON.stringify(posl));
+    await v.page.locator('.drawer-close').first().click();
     await klid(v.page, 300);
   }
   await radek.click();
@@ -5288,13 +5338,17 @@ await blok050('SK', async () => {
   const prepinac = v.page.locator('.drawer .web-na-miru-prepinac input[type=checkbox]');
   await v.page.locator('.drawer .web-na-miru-prepinac').waitFor({ timeout: 5000 }).catch(() => undefined);
   over('SK1', (await prepinac.count()) === 1 && !(await prepinac.isChecked()), 'Volající: v detailu svého klienta je přepínač Web na míru, vypnutý');
+  const pocet1 = (await nastav()).length;
   await prepinac.click();
-  await v.page.locator('.drawer .web-na-miru-prepinac[data-web-na-miru="chce"]').waitFor({ timeout: 5000 }).catch(() => undefined);
+  await v.page.locator('.drawer .web-na-miru-prepinac[data-web-na-miru="vyber"]').waitFor({ timeout: 5000 }).catch(() => undefined);
+  over('SK1b', (await v.page.locator('.drawer .web-na-miru-prepinac[data-web-na-miru="vyber"]').count()) === 1
+    && (await nastav()).length === pocet1, 'detail: zaškrtnutí napřed zeptá chce/nechce a nic neuloží (dřív hned „chce“)');
   await v.page.locator('.drawer .web-na-miru-prepinac input[type=radio]').nth(1).click();
   await v.page.locator('.drawer .web-na-miru-prepinac[data-web-na-miru="nechce"]').waitFor({ timeout: 5000 }).catch(() => undefined);
   await klid(v.page, 300);
   const t = txt(await v.page.locator('.drawer .web-na-miru-prepinac').innerText());
-  over('SK2', /schvaluje Albert/.test(t), 'po označení schvaluje e-maily Petřin nadřízený (Albert)', t);
+  over('SK2', /schvaluje Albert/.test(t) && JSON.stringify((await nastav()).pop()?.args.slice(1)) === '[true,false]',
+    'po výběru „nechce“ se označení uloží a schvaluje e-maily Petřin nadřízený (Albert)', t);
   over('SK3', (await v.page.locator('.drawer h2 .badge.web-na-miru').count()) === 1
     && (await v.page.locator('.drawer h2 .badge', { hasText: 'bez našeho náhledu' }).count()) === 1,
     'odznak Web na míru a „bez našeho náhledu“ v hlavičce detailu');
@@ -5304,6 +5358,11 @@ await blok050('SK', async () => {
     'Volající: #/ke-schvaleni ho vrátí jinam a karty nevidí', v.page.url());
   await v.ctx.close();
   const a = await novaStranka('admin');
+  // oprava 28. 11. 2026 (nález 9): pilulka v horní liště bere jen počet, ne celou stránku Ke schválení
+  await jdi(a.page, '#/', 800);
+  const pv = (await volani(a.page)).map((x) => x.fn);
+  over('SK15', pv.includes('keSchvaleniPocet') && !pv.includes('keSchvaleni'), 'horní lišta bere jen počet návrhů (ke_schvaleni_pocet)',
+    JSON.stringify(pv.filter((f) => /keSchvaleni/.test(f))));
   await jdi(a.page, '#/ke-schvaleni', 800);
   const karty = a.page.locator('.ke-schvaleni-karta');
   await karty.first().waitFor({ timeout: 5000 }).catch(() => undefined);
@@ -5332,6 +5391,35 @@ await blok050('SK', async () => {
   await a.ctx.close();
 });
 
+// WEB NA MÍRU NA KARTĚ HOVORU (oprava 28. 11. 2026, nezávislá recenze, nález 1d; spec 8.14): volba se podrží a uloží až po
+// zapsaném výsledku hovoru, aby server četl stav klienta po hovoru (výjimky stavů Q2)
+await blok050('SKV', async () => {
+  const { ctx, page } = await novaStranka('petra');
+  await jdi(page, '#/call', 600);
+  const x = await kartaId(page);
+  const pr = page.locator('.call-card .web-na-miru-prepinac');
+  await pr.waitFor({ timeout: 5000 }).catch(() => undefined);
+  const nast = async () => (await volani(page)).filter((v) => v.fn === 'superKlientNastav');
+  over('SKV1', (await pr.count()) === 1, 'karta hovoru má přepínač Web na míru (Volající, karta, kterou volá)');
+  await pr.locator('input[type=checkbox]').click();
+  await pr.locator('input[type=radio]').nth(0).click();
+  await klid(page, 200);
+  over('SKV2', (await nast()).length === 0 && /Po zapsání hovoru se zapne Web na míru: klient chce/.test(txt(await pr.innerText().catch(() => ''))),
+    'karta hovoru: volba „chce“ se jen podrží, nic se neuloží');
+  await page.getByRole('button', { name: 'Mají zájem' }).click(KRATKE);
+  const formular = page.locator('.zajem-form');
+  await formular.locator('.segmented button', { hasText: /^B$/ }).click();
+  await formular.getByRole('button', { name: /Uložit a další/ }).click();
+  await klid(page, 900);
+  const vs = await volani(page);
+  const ir = vs.findIndex((v) => v.fn === 'resolveCall' && v.ok && v.args[0]?.kontakt_id === x);
+  const is = vs.findIndex((v) => v.fn === 'superKlientNastav');
+  over('SKV3', ir >= 0 && is > ir && vs[is]?.args[0] === x && JSON.stringify(vs[is]?.args.slice(1)) === '[true,true]' && vs[is]?.ok === true,
+    'karta hovoru: Web na míru se uložil až po zapsaném zájmu, s volbou „chce“',
+    JSON.stringify(vs.filter((v) => /resolveCall|superKlient/.test(v.fn)).map((v) => [v.fn, v.args, v.ok])));
+  await ctx.close();
+});
+
 // LEGENDA (Albert 27. 11. 2026): tlačítko „legenda“ v horní liště pro každou roli, okno s větou u každého štítku, zavře se
 // Escapem, na telefonu bez posouvání do strany.
 for (const kdo of ['petra', 'admin']) {
@@ -5354,6 +5442,10 @@ for (const kdo of ['petra', 'admin']) {
     }
     over(`LG2 ${kdo}`, n >= 40 && prazdne.length === 0, 'každý řádek legendy má štítek a větu', `${n} řádků; bez věty: ${prazdne.join(', ')}`);
     over(`LG3 ${kdo}`, (await okno.locator('li[data-legenda="znacky:WebNaMiruOdznak"]').count()) === 1, 'legenda vysvětluje odznak Web na míru');
+    // oprava 28. 11. 2026 (nález 12): kontrola odpovědí sama a brána tří dnů u schváleného e-mailu
+    over(`LG6 ${kdo}`, (await okno.locator('li[data-legenda="funkce:kontrola_odpovedi"]').count()) === 1, 'legenda vysvětluje Kontrolu odpovědí');
+    over(`LG7 ${kdo}`, /tří dnů|3 dny/.test(txt(await okno.locator('li[data-legenda="navrh:schvaleno"]').innerText().catch(() => ''))),
+      'schválený e-mail v legendě zmiňuje bránu tří dnů');
     await page.setViewportSize({ width: 375, height: 812 });
     await klid(page, 300);
     const w = await page.evaluate(() => document.documentElement.scrollWidth);

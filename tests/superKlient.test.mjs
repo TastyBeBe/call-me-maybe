@@ -104,6 +104,18 @@ over('s1e', S.pocetCeka({ pocet_ceka: 4, navrhy: [] }) === 4 && S.pocetCeka(null
 over('s1f', S.prepinacViditelny({ viditelne: false }) === false && S.prepinacViditelny({ viditelne: true }) === true
   && S.prepinacViditelny(null) === false, 'kdo vidí přepínač');
 
+// --- s1g až s1j (oprava 28. 11. 2026, nezávislá recenze, nálezy 1d, 2 a 12): přepínač se napřed zeptá na náhled, okno po
+// hovoru volbu jen podrží, zrušení se potvrdí, v řádcích seznamu je „bez náhledu“ vidět bez najetí myší
+over('s1g', S.wnmMeni({ oznacen: false, chce_nahled: null }, { zapnout: true, chce: false }) === true
+  && S.wnmMeni({ oznacen: true, chce_nahled: false }, { zapnout: true, chce: false }) === false
+  && S.wnmMeni({ oznacen: false }, { zapnout: true, chce: null }) === false
+  && S.wnmMeni({ oznacen: true, chce_nahled: true }, { zapnout: false, chce: null }) === true
+  && S.wnmMeni({ oznacen: false }, { zapnout: false, chce: null }) === false && S.wnmMeni({ oznacen: false }, null) === false,
+  'volba přepínače mění jen to, co se opravdu změní (zapnutí bez výběru náhledu nikdy)');
+over('s1h', /Po zapsání hovoru se zapne Web na míru: klient nechce/.test(S.wnmOdlozeneText({ zapnout: true, chce: false }))
+  && /zruší/.test(S.wnmOdlozeneText({ zapnout: false, chce: null })) && S.wnmOdlozeneText(null) === '', 'věta o podržené volbě v okně po hovoru');
+over('s1i', /Opravdu zrušit Web na míru/.test(S.ZRUSIT_OTAZKA) && S.BEZ_NAHLEDU_KRATCE === 'bez náhledu', 'potvrzení zrušení a krátký odznak');
+
 // --- s2 demo mock (tokeny demo-<id>-test: 1 Albert, 2 Petra, 4 Mikuláš)
 const A = 'demo-1-test', P = 'demo-2-test';
 const svuj = hacek.mojeKontaktId?.(2);
@@ -127,6 +139,22 @@ d = await mockApi.superKlientDetail(P, cizi);
 over('s2h', d.viditelne === false && d.oznacen === undefined, 'Volající nevidí Web na míru cizího klienta', JSON.stringify(d));
 d = await mockApi.superKlientNastav(P, svuj, false, null);
 over('s2i', d.oznacen === false && (await mockApi.kontrolaDetail(A, svuj)).zapnuto === true, 'zrušení označení nechá kontrolu zapnutou');
+// s2j až s2m (oprava 28. 11. 2026, nálezy 9 a 10): počet bez návrhů, převzetí jen při novém označení, maska jména kolegy
+over('s2j', /Ke schválení vidí jen super admin/.test(await chyba(() => mockApi.keSchvaleniPocet(P))), 'Volající nedostane počet Ke schválení');
+const poc = await mockApi.keSchvaleniPocet(A);
+over('s2k', poc.pocet_ceka === (await mockApi.keSchvaleni(A)).pocet_ceka && !('navrhy' in poc), 'počet na pilulce = počet stránky, bez návrhů',
+  JSON.stringify(poc));
+over('s2l0', typeof hacek.kontrolaSchvalovatel === 'function', 'háček kontrolaSchvalovatel (schvalovatel jako po převzetí jinde)');
+hacek.kontrolaSchvalovatel?.(svuj, 4);                          // kontrola Petřina klienta: schvaluje Mikuláš
+d = await mockApi.superKlientNastav(P, svuj, true, false);      // NOVÉ označení: převezme odpovědný super admin
+over('s2l', d.prevzeti === 'prevzato' && d.schvalovatel === 'Albert', 'nové označení převezme schvalování', JSON.stringify(d));
+hacek.kontrolaSchvalovatel?.(svuj, 4);
+d = await mockApi.superKlientNastav(P, svuj, true, true);       // přepnutí volby u existujícího označení
+over('s2m', d.prevzeti === 'beze_zmeny' && d.schvalovatel !== 'Albert', 'přepnutí chce/nechce v appce schvalování nepřevezme',
+  JSON.stringify(d));
+d = await mockApi.superKlientDetail(P, 95);
+over('s2n', d.viditelne === false || d.oznacil === 'Petra', 'Volající vidí u svého DEMO klienta, že označila ona', JSON.stringify(d));
+await mockApi.superKlientNastav(P, svuj, false, null);
 
 // --- s3 co posílá supabase.ts
 odeslano.length = 0;
@@ -135,7 +163,7 @@ const p = odeslano.find((x) => x.url.endsWith('/rpc/super_klient_nastav'));
 over('s3a', p && p.body.p_token === 't' && p.body.p_kontakt_id === 9 && p.body.p_zapnout === true && p.body.p_chce_nahled === false,
   'tělo super_klient_nastav', JSON.stringify(p));
 for (const [f, rpcJm, args] of [['superKlientDetail', 'super_klient_detail', ['t', 9]], ['keSchvaleni', 'ke_schvaleni_seznam', ['t']],
-  ['superKlientiOdznaky', 'super_klienti_odznaky', ['t']]]) {
+  ['keSchvaleniPocet', 'ke_schvaleni_pocet', ['t']], ['superKlientiOdznaky', 'super_klienti_odznaky', ['t']]]) {
   odeslano.length = 0;
   await supabaseApi[f](...args).catch(() => {});
   over('s3b-' + f, odeslano.some((x) => x.url.endsWith('/rpc/' + rpcJm)), `${f} volá ${rpcJm}`);
@@ -149,6 +177,22 @@ over('s4d', /<RequireAuth superAdmin>\s*<KeSchvaleniPage/.test(cti('src/App.tsx'
 over('s4e', /ke schválení/.test(cti('src/App.tsx')) && /isSuper && \(/.test(cti('src/App.tsx')), 'pilulka „ke schválení“ jen u super admina');
 over('s4f', /KONTROLA_ZUSTAVA/.test(cti('src/components/KontrolaOdpovedi.tsx')), 'detail říká, proč kontrolu nejde odškrtnout');
 over('s4g', /searchParams\.get\('vlakno'\)/.test(cti('src/pages/ZpravyPage.tsx')), 'Zprávy otevřou vlákno z adresy (?vlakno=)');
+// s4h až s4l (oprava 28. 11. 2026): pilulka jen počet a jen viditelná stránka; okno po hovoru a karta hovoru pošlou Web na
+// míru až po zapsaném výsledku; přepínač bez výchozího „chce“ a se zrušením až po potvrzení
+const appSrc = cti('src/App.tsx');
+const hook = appSrc.slice(appSrc.indexOf('function useKeSchvaleniPocet'), appSrc.indexOf('function PracovniCasovac'));
+over('s4h', /keSchvaleniPocet\(token\)/.test(hook) && !/keSchvaleni\(token\)/.test(hook) && /visibilityState === 'hidden'/.test(hook)
+  && /visibilitychange/.test(hook), 'pilulka bere jen počet a jen když je stránka vidět');
+const dov = cti('src/components/DovolaniOkno.tsx');
+over('s4i', /<WebNaMiruPrepinac kontaktId=\{kontakt\.id\} odlozit onVolba=\{setWnm\} \/>/.test(dov)
+  && dov.indexOf('ulozWebNaMiru(') > dov.indexOf('getApi().zapisHovor('), 'okno po hovoru: Web na míru až po zapsaném hovoru');
+const call = cti('src/pages/CallPage.tsx');
+over('s4j', /<WebNaMiruPrepinac kontaktId=\{kontakt\.id\} odlozit onVolba=\{setWnm\} \/>/.test(call)
+  && call.indexOf('ulozWebNaMiru(') > call.indexOf('getApi().resolveCall('), 'karta hovoru: Web na míru až po zapsaném výsledku');
+const wnmSrc = cti('src/components/WebNaMiru.tsx');
+over('s4k', !/chce_nahled \?\? true\)/.test(wnmSrc) && /setVybiram\(true\)/.test(wnmSrc) && /setPotvrdit\(true\)/.test(wnmSrc),
+  'přepínač: zaškrtnutí napřed zeptá na náhled, odškrtnutí napřed potvrdí');
+over('s4l', /BEZ_NAHLEDU_KRATCE/.test(wnmSrc), 'v řádcích seznamu je „bez náhledu“ vidět bez najetí myší');
 
 console.log(chyby ? `SOME FAILED (${chyby} z ${pocet})` : `ALL OK (${pocet} kontrol)`);
 process.exit(chyby ? 1 : 0);
