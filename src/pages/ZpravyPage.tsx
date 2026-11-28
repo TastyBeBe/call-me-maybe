@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
   getApi,
   type ChatThread,
@@ -622,6 +623,16 @@ export default function ZpravyPage() {
     setSelectedId(id);
     void loadDetail(id);
   };
+
+  // Web na míru (migrace 086): odkaz „Vlákno v appce“ ze stránky Ke schválení otevře vlákno rovnou (#/zpravy?vlakno=<id>)
+  const [searchParams] = useSearchParams();
+  const vlaknoZAdresy = Number(searchParams.get('vlakno'));
+  useEffect(() => {
+    if (Number.isInteger(vlaknoZAdresy) && vlaknoZAdresy > 0) {
+      setSelectedId(vlaknoZAdresy);
+      void loadDetail(vlaknoZAdresy);
+    }
+  }, [vlaknoZAdresy, loadDetail]);
 
   /** Jedna porucha = jedno kliknutí, i když o ní přišlo devět hlášení. */
   const resolveWholeAlert = async (key: string) => {

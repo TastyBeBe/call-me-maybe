@@ -31,6 +31,7 @@ import {
 import { isSuperAdmin } from '../roles';
 import ZavolatModal, { PREPLANOVAT_NEJDRIV_MIN } from '../components/ZavolatModal';
 import PrehledPanel from '../components/PrehledPanel';
+import { WebNaMiruOdznak, WebNaMiruPrepinac } from '../components/WebNaMiru';
 import DuvodOdmitnuti, { DUVOD_NEULOZEN, PRAZDNA_VOLBA, chceDuvod, duvodChybi, fazeOdmitnuti, ulozDuvod, type VolbaDuvodu } from '../components/DuvodOdmitnuti';
 import { nastavKartu } from '../pracovniCas';
 import {
@@ -797,6 +798,7 @@ export default function CallPage() {
           <div className="call-row">
             <span className="k">status</span>
             <StatusBadge status={kontakt.status} kontaktId={kontakt.id} />
+            <WebNaMiruOdznak kontaktId={kontakt.id} />
             {kontakt.last_caller && (
               <span className="muted" style={{ fontSize: 13 }}>
                 naposledy volal/a {kontakt.last_caller}
@@ -804,6 +806,8 @@ export default function CallPage() {
             )}
           </div>
         )}
+        {/* Web na míru (migrace 086, Albert 27. 11. 2026): přepínač i u karty, kterou Volající právě volá (server pozná zámek) */}
+        <WebNaMiruPrepinac kontaktId={kontakt.id} />
 
         {/* Migrace 060 (Albert 1. 11. 2026): přehled klienta nad poznámkami jen u vlastního klienta (opakovaný hovor,
             karta z kalendáře); karta kontaktu, kterému Volající ještě nevolal, ho nemá (045). Bez faktů navíc se neukáže. */}

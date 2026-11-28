@@ -562,6 +562,54 @@ export interface KontrolaOdpovedi {
   navrhy: NavrhKeKontrole[];
 }
 
+/* ---- super klienti, web na míru (migrace 086, Albert 27. 11. 2026) ---- */
+export type SuperKlientFaze = 'ceka_na_zadani' | 'zadani_prijato' | 'prvni_verze';
+export interface SuperKlientDetail {
+  kontakt_id: number;
+  /** false = tenhle uživatel Web na míru u kontaktu nevidí (cizí klient Volajícího); pak nic dalšího */
+  viditelne: boolean;
+  smi_menit: boolean;
+  oznacen?: boolean;
+  chce_nahled?: boolean | null;
+  faze?: SuperKlientFaze | null;
+  faze_text?: string | null;
+  oznacil?: string | null;
+  oznaceno_at?: string | null;
+  /** odpovědný super admin (nadřízený volajícího, volající super admin, jinak Albert) */
+  odpovedny?: string | null;
+  odpovedny_id?: number | null;
+  kontrola_zapnuta?: boolean;
+  schvalovatel?: string | null;
+  pozastaveno?: boolean;
+  /** jen super admin */
+  zadani_shrnuti?: string | null;
+  zadani_at?: string | null;
+  zadani_prilohy?: string[];
+  web_url?: string | null;
+  prvni_verze_at?: string | null;
+  /** jen ve výsledku super_klient_nastav */
+  prevzeti?: 'beze_zmeny' | 'zapnuto' | 'prevzato' | 'odlozeno_pozastaveno';
+  zruseno_navrhu?: number;
+  /** nový náhled ze šablony, který označení zařadilo (rozhodnutí koordinátora 28. 11. 2026, Q2) */
+  nahled_job_id?: number | null;
+}
+export interface SuperKlientOdznak {
+  kontakt_id: number;
+  chce_nahled: boolean;
+  faze: SuperKlientFaze;
+}
+export interface KeSchvaleniPolozka {
+  navrh: NavrhKeKontrole;
+  super_klient: { chce_nahled: boolean; faze: SuperKlientFaze; faze_text: string } | null;
+  schvalovatel: string | null;
+  gmail_thread_id: string | null;
+  kontakt: Kontakt;
+}
+export interface KeSchvaleni {
+  pocet_ceka: number;
+  navrhy: KeSchvaleniPolozka[];
+}
+
 export interface ListKontaktyResult {
   /**
    * Kolik řádků celkem sedí na filtr. Od migrace 045 (Albert 20. 10. 2026) u list_kontakty jen super admin
@@ -2061,6 +2109,15 @@ export interface Api {
   navrhSchvalit(token: string, navrhId: number): Promise<NavrhKeKontrole>;
   /** Vrátí návrh s poznámkou; poznámka jde do vlákna jako zpráva člověka a agent e-mail přepíše. */
   navrhVratit(token: string, navrhId: number, poznamka: string): Promise<NavrhKeKontrole>;
+  /* ---- super klienti, web na míru (migrace 086, Albert 27. 11. 2026; co kdo smí, hlídá server) ---- */
+  /** Stav označení u kontaktu; Volající jen u klienta, kterého smí označit (svého nebo karty, kterou volá). */
+  superKlientDetail(token: string, kontaktId: number): Promise<SuperKlientDetail>;
+  /** Označí nebo zruší Web na míru (a volbu našeho náhledu); zapne kontrolu odpovědí se schvalovatelem = odpovědný super admin. */
+  superKlientNastav(token: string, kontaktId: number, zapnout: boolean, chceNahled: boolean | null): Promise<SuperKlientDetail>;
+  /** Stránka Ke schválení: návrhy e-mailů, o kterých super admin smí rozhodnout, super klienti napřed (jen super admin). */
+  keSchvaleni(token: string): Promise<KeSchvaleni>;
+  /** Odznaky Web na míru do seznamů: super admin všechny, Volající jen svoje. */
+  superKlientiOdznaky(token: string): Promise<SuperKlientOdznak[]>;
   /* ---- přepínání účtů Claude (migrace 011) ---- */
   /** Stav přepínače: kdo veze automatizaci, běžící joby, fronta (admin). */
   getAutomationStatus(token: string): Promise<AutomationStatus>;

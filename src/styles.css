@@ -6609,3 +6609,51 @@ table.kontakty.kompakt .mlceni-bunka > * {
     flex: 1 1 100%;
   }
 }
+
+/* Web na míru, super klienti (migrace 086, Albert 27. 11. 2026): přepínač v detailu, okně po hovoru a na kartě hovoru,
+   odznak v seznamech a stránka Ke schválení. Barvy z palety appky, žádná nová rodina barev. */
+.web-na-miru-prepinac {
+  margin-top: 10px;
+}
+.web-na-miru-volba {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  margin: 4px 0 0 22px;
+}
+.web-na-miru-popis {
+  margin: 4px 0 0;
+  font-size: 13px;
+}
+.badge.web-na-miru {
+  background: var(--green);
+  color: var(--paper-on-dark);
+}
+.ke-schvaleni-karta {
+  margin: 12px 0;
+  padding: 12px;
+  overflow-wrap: anywhere;
+}
+.ke-schvaleni-meta {
+  font-size: 13px;
+  margin-top: 2px;
+}
+.ke-schvaleni-odkazy {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+@media (max-width: 480px) {
+  .web-na-miru-volba {
+    flex-direction: column;
+    margin-left: 0;
+  }
+  .ke-schvaleni-odkazy .btn {
+    flex: 1 1 100%;
+    text-align: center;
+  }
+}
+.badge.web-na-miru {
+  white-space: nowrap;
+}

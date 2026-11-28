@@ -56,6 +56,7 @@ import {
   useOkno,
 } from '../ui';
 import { zobrazenyStav } from '../zobrazeni';
+import { WebNaMiruPrepinac } from './WebNaMiru';
 
 /** Nejvýš znaků poznámky dovolání (jako poznámka z hovoru v resolve_call, 2 000). */
 export const DOVOLANI_MAX = 2000;
@@ -482,6 +483,9 @@ export default function DovolaniOkno({
               <HvezdaIcon size={16} plna={hvezda} /> Velký zájem (hvězda)
             </label>
           )}
+          {/* Web na míru (migrace 086, Albert 27. 11. 2026): Volající ho zapne i během hovoru, uloží se hned (server to dovolí
+              u karty, kterou volá) */}
+          <WebNaMiruPrepinac kontaktId={kontakt.id} />
         </div>
         {/* mimo posouvané tělo okna: chyba serveru i tlačítka jsou vidět vždy */}
         <ErrorBox>{chyba}</ErrorBox>

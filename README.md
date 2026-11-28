@@ -1047,6 +1047,19 @@ webdomov, DB migrace `../db/migration_083_kontrola_odpovedi.sql`.
   háček `__volackaDemoTest.kontrolaNavrh(kontaktId, předmět, text)` (v DEMO je kontrola zapnutá, až ji zaškrtneš).
 - Testy: `tests/kontrola.test.mjs` (`npm test`), blok KO v `tests/demo-e2e.mjs`.
 
+## Web na míru a Ke schválení (migrace 086, Albert 27. 11. 2026)
+
+- **Přepínač „Web na míru“** v detailu klienta, v okně „Zavolal/a jsem“ a na kartě hovoru: Volající ho zapne u svého klienta
+  i u karty, kterou právě volá, super admin u kohokoli. Pod ním volba „Chce i náš náhled“ / „Nechce náš náhled, jen náhled
+  na míru“. Označení zapne kontrolu odpovědí se schvalovatelem = odpovědný super admin; dokud trvá, kontrolu nejde
+  odškrtnout. Server: `super_klient_detail`, `super_klient_nastav` (bez migrace 086 se přepínač neukáže).
+- **Odznak** „Web na míru“ (a „bez našeho náhledu“) v hlavičce detailu a na kartě hovoru, v seznamech kompaktní „na míru“
+  (`super_klienti_odznaky`, načtené jednou za přihlášení a po každé změně).
+- **Stránka „ke schválení“** (pilulka s počtem, jen super admin, `#/ke-schvaleni`): návrhy e-mailů, o kterých smí rozhodnout,
+  super klienti nahoře; u karty přehled klienta, „Profil klienta“, „Vlákno v appce“ (`#/zpravy?vlakno=<id>`) a „Celá
+  konverzace v Gmailu“; schválení a vrácení stejnou kartou jako ve vlákně (`ke_schvaleni_seznam`).
+- DEMO: Petřin kontakt 95 je super klient s čekajícím návrhem. Testy: `tests/superKlient.test.mjs`, e2e blok SK.
+
 ## Účty a přihlášení (produkce)
 
 - Vlastní auth v Postgresu (žádný Supabase Auth): funkce `login` vrací token,

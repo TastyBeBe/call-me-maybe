@@ -13,6 +13,7 @@ import { isSuperAdmin } from '../roles';
 import { ConfirmModal, ErrorBox, STATUS_LABELS, errMsg } from '../ui';
 import { NAVRH_ODZNAK, casKontroly, kontrolaPopis, kontrolaPravo, navrhTlacitka, navrhVysledek } from '../kontrola';
 import type { KontaktStatus } from '../api/types';
+import { KONTROLA_ZUSTAVA, odznakPro } from '../superKlient';
 
 const nazevStavu = (s: string) => STATUS_LABELS[s as KontaktStatus] ?? s;
 
@@ -49,6 +50,8 @@ export function KontrolaOdpovediPanel({ kontrola, kontaktId }: { kontrola: Kontr
   const [chyba, setChyba] = useState('');
   if (!kontrola.jaSuper) return null;
   const k = kontrola.data;
+  // Web na míru (migrace 086): u označeného klienta kontrolu odškrtnout nejde (server to odmítne taky)
+  const superDrzi = !!k && k.zapnuto && !!odznakPro(kontaktId);
   const nastav = async (zapnout: boolean) => {
     setBusy(true);
     setChyba('');
@@ -74,7 +77,7 @@ export function KontrolaOdpovediPanel({ kontrola, kontaktId }: { kontrola: Kontr
             <input
               type="checkbox"
               checked={k.zapnuto}
-              disabled={busy || !k.smi_menit}
+              disabled={busy || !k.smi_menit || superDrzi}
               onChange={(e) => {
                 if (e.target.checked) void nastav(true);
                 else if (k.cekajici > 0) setPotvrdit(true);
@@ -85,6 +88,7 @@ export function KontrolaOdpovediPanel({ kontrola, kontaktId }: { kontrola: Kontr
           </label>
           <p className="muted kontrola-popis">{kontrolaPopis(k, nazevStavu)}</p>
           {!k.smi_menit && <p className="muted kontrola-popis">{kontrolaPravo(k)}</p>}
+          {superDrzi && <p className="muted kontrola-popis">{KONTROLA_ZUSTAVA}</p>}
         </>
       )}
       <ErrorBox>{chyba}</ErrorBox>

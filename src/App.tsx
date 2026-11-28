@@ -1,4 +1,4 @@
-import { Component, lazy, Suspense, useEffect, useRef, type ErrorInfo, type ReactNode } from 'react';
+import { Component, lazy, Suspense, useEffect, useRef, useState, type ErrorInfo, type ReactNode } from 'react';
 import {
   Link,
   Navigate,
@@ -35,6 +35,9 @@ import SetupPage from './pages/SetupPage';
 import StatsPage from './pages/StatsPage';
 import UzivatelePage from './pages/UzivatelePage';
 import ZpravyPage from './pages/ZpravyPage';
+import KeSchvaleniPage from './pages/KeSchvaleniPage';
+import { obnovOdznaky } from './components/WebNaMiru';
+import { nastavOdznaky, pocetCeka } from './superKlient';
 import PigLayer from './pig/PigLayer';
 import SoundMenu from './SoundMenu';
 import { useZavolat, ZavolatProvider } from './zavolat';
@@ -153,8 +156,28 @@ function ZobrazeniNacitani() {
   useEffect(() => {
     if (token) void nactiZobrazeneStavy(token);
     else zapomenZobrazeneStavy();
+    // Web na míru (migrace 086): odznaky do seznamů jednou za přihlášení, po odhlášení zapomenout
+    if (token) obnovOdznaky(token);
+    else nastavOdznaky([]);
   }, [token]);
   return null;
+}
+
+/** Počet návrhů e-mailů, které čekají na schválení přihlášeným super adminem (pilulka „ke schválení“, migrace 086). */
+function useKeSchvaleniPocet(token: string | null, jeSuper: boolean): number {
+  const [pocet, setPocet] = useState(0);
+  useEffect(() => {
+    if (!token || !jeSuper) {
+      setPocet(0);
+      return;
+    }
+    let zivy = true;
+    const nacti = () => getApi().keSchvaleni(token).then((k) => { if (zivy) setPocet(pocetCeka(k)); }).catch(() => undefined);
+    void nacti();
+    const t = setInterval(nacti, 60000);
+    return () => { zivy = false; clearInterval(t); };
+  }, [token, jeSuper]);
+  return pocet;
 }
 
 /**
@@ -183,6 +206,7 @@ function TopBar() {
   // Stránka „Jak volat“ (Albert 9. 11. 2026): Albertovy návody (skript a slovníček) z registru; odkaz v menu, jen když
   // nějaké návody v registru jsou. NAHRAZUJE odkaz jen při zvolené nice z kroku B9 (stránka s pokyny od agenta odstraněná).
   const maNavody = useMaNavody();
+  const keSchvaleni = useKeSchvaleniPocet(session?.token ?? null, !!session && isSuperAdmin(session.role));
   if (!session) return null;
   const isAdmin = isAdminRole(session.role);
   const isSuper = isSuperAdmin(session.role);
@@ -293,6 +317,16 @@ function TopBar() {
                 className={({ isActive }) => `nav-pill${isActive ? ' active' : ''}`}
               >
                 uživatelé
+              </NavLink>
+            )}
+            {/* Web na míru (migrace 086): e-maily ke schválení, jen super admin */}
+            {isSuper && (
+              <NavLink
+                to="/ke-schvaleni"
+                data-sfx="none"
+                className={({ isActive }) => `nav-pill${isActive ? ' active' : ''}`}
+              >
+                ke schválení{keSchvaleni > 0 ? ` (${keSchvaleni})` : ''}
               </NavLink>
             )}
             {isOwner && (
@@ -422,6 +456,15 @@ export default function App() {
           element={
             <RequireAuth superAdmin>
               <UzivatelePage />
+            </RequireAuth>
+          }
+        />
+        {/* Web na míru (migrace 086, Albert 27. 11. 2026): návrhy e-mailů ke schválení, jen super admin */}
+        <Route
+          path="/ke-schvaleni"
+          element={
+            <RequireAuth superAdmin>
+              <KeSchvaleniPage />
             </RequireAuth>
           }
         />
