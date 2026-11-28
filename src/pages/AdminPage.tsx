@@ -41,6 +41,7 @@ import {
   ArrowRightIcon,
   SearchIcon,
 } from '../icons';
+import { WebNaMiruOdznak } from '../components/WebNaMiru';
 
 const PAGE_SIZE = 50;
 
@@ -471,7 +472,7 @@ export default function AdminPage() {
                   <td role="cell" className="row-name kompakt-hlavni">
                     {/* migrace 061: příznak „Údaje z internetu“ jen super adminovi */}
                     <HvezdaPrepinac kontakt={r} onZmena={onHvezda} /> <FlagBadge kontakt={priznakProRoli(r, isSuper)} compact />{' '}
-                    <SegmentBadge kontakt={r} compact /> {kontaktJmeno(r)}
+                    <SegmentBadge kontakt={r} compact /> {kontaktJmeno(r)} <WebNaMiruOdznak kontaktId={r.id} compact />
                   </td>
                   <td role="cell" className="kompakt-hlavni tel-cell">{r.phone || '—'}</td>
                   {/* migrace 062: „Zavolal/a jsem“ v 1. řádku jen u vlastního řádku (u cizího kontaktu prázdná buňka, CSS ji

@@ -111,6 +111,7 @@ import {
 } from '../icons';
 import { useZobrazenyStav } from '../zobrazeni';
 import { KontrolaOdpovediPanel, NavrhKarta, useKontrola } from './KontrolaOdpovedi';
+import { WebNaMiruOdznak, WebNaMiruPrepinac } from './WebNaMiru';
 import { navrhProZpravu } from '../kontrola';
 import type { NavrhKeKontrole } from '../api';
 
@@ -853,7 +854,7 @@ export default function KontaktDrawer({
             <XIcon size={20} />
           </button>
           <p className="eyebrow">kontakt #{kontakt.id}</p>
-          <h2>{kontaktJmeno(kontakt)}</h2>
+          <h2>{kontaktJmeno(kontakt)} <WebNaMiruOdznak kontaktId={kontakt.id} /></h2>
           <p className="meta-line">
             <PhoneIcon size={15} /> {kontakt.phone || '—'}
             {kontakt.obor ? ` · obor: ${kontakt.obor}` : ''} <SegmentBadge kontakt={kontakt} />
@@ -889,7 +890,7 @@ export default function KontaktDrawer({
           <XIcon size={20} />
         </button>
         <p className="eyebrow">kontakt #{kontakt.id}</p>
-        <h2>{kontaktJmeno(kontakt)}</h2>
+        <h2>{kontaktJmeno(kontakt)} <WebNaMiruOdznak kontaktId={kontakt.id} /></h2>
         <p className="meta-line">
           <PhoneIcon size={15} /> {kontakt.phone || '—'} · obor: {kontakt.obor}{' '}
           <SegmentBadge kontakt={kontakt} />
@@ -1122,6 +1123,8 @@ export default function KontaktDrawer({
             smí upravovat (migrace 025): volající svůj klient (je_muj), admin a super admin
             podle smi_upravit (migrace 024). Server to hlídá sám. */}
         {/* Kontrola odpovědí (migrace 083, Albert 26. 11. 2026): jen super admin; zapnout a vypnout smí, kdo klienta smí upravit */}
+        {/* Web na míru (migrace 086): označení zapne kontrolu odpovědí, proto se panel kontroly po změně načte znovu */}
+        <WebNaMiruPrepinac kontaktId={kontakt.id} onZmena={() => void kontrola.nacti()} />
         <KontrolaOdpovediPanel kontrola={kontrola} kontaktId={kontakt.id} />
         <KontaktThreads
           kontakt={kontakt}

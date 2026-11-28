@@ -84,6 +84,7 @@ import {
   zmenenoKdy,
 } from '../ui';
 import { SearchIcon } from '../icons';
+import { WebNaMiruOdznak } from '../components/WebNaMiru';
 
 /**
  * Kolik řádků se načte najednou. ⚠ ZVEDNUTO z 500 (Albert 2026-09-24): Mikuláš má
@@ -442,6 +443,7 @@ export default function MojiPage() {
                   {/* 2. řádek: údaje s malým popiskem (data-label), zalomí se podle šířky */}
                   <td role="cell">
                     <StatusBadge status={r.status} kontaktId={r.id} />
+                    <WebNaMiruOdznak kontaktId={r.id} compact />
                   </td>
                   <td role="cell" className="znamka-cell" data-label="známka">
                     {jenZaklad(r) ? <Skryto /> : r.rating ? <span className="badge rating">{r.rating}</span> : <span className="muted">—</span>}

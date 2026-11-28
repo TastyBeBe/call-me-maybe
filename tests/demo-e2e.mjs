@@ -5266,6 +5266,72 @@ await blok050('PV13 líné načtení Přehledu', async () => {
   await v.ctx.close();
 }
 
+// WEB NA MÍRU (migrace 086, Albert 27. 11. 2026): Volající označí svého klienta v detailu (a přepínač má i v okně „Zavolal/a
+// jsem“), odznak v hlavičce, pilulku „ke schválení“ a stránku má jen super admin, karta ukazuje souhrn a odkazy, schválení
+// a vrácení s poznámkou fungují, na telefonu se stránka do strany neposouvá.
+await blok050('SK', async () => {
+  const v = await novaStranka('petra');
+  await jdi(v.page, '#/moji', 700);
+  const radek = v.page.locator('table tbody tr', { hasText: 'Chata U Rybníka' }).first();
+  const okenko = radek.locator('button.zavolal-btn');
+  if (await okenko.count()) {
+    await okenko.click();
+    const okno = v.page.locator('.dovolani-okno');
+    await okno.waitFor({ timeout: 4000 }).catch(() => undefined);
+    await klid(v.page, 400);
+    over('SK0', (await okno.locator('.web-na-miru-prepinac input[type=checkbox]').count()) === 1, 'okno „Zavolal/a jsem“ má přepínač Web na míru');
+    await v.page.keyboard.press('Escape');
+    await klid(v.page, 300);
+  }
+  await radek.click();
+  await klid(v.page, 500);
+  const prepinac = v.page.locator('.drawer .web-na-miru-prepinac input[type=checkbox]');
+  await v.page.locator('.drawer .web-na-miru-prepinac').waitFor({ timeout: 5000 }).catch(() => undefined);
+  over('SK1', (await prepinac.count()) === 1 && !(await prepinac.isChecked()), 'Volající: v detailu svého klienta je přepínač Web na míru, vypnutý');
+  await prepinac.click();
+  await v.page.locator('.drawer .web-na-miru-prepinac[data-web-na-miru="chce"]').waitFor({ timeout: 5000 }).catch(() => undefined);
+  await v.page.locator('.drawer .web-na-miru-prepinac input[type=radio]').nth(1).click();
+  await v.page.locator('.drawer .web-na-miru-prepinac[data-web-na-miru="nechce"]').waitFor({ timeout: 5000 }).catch(() => undefined);
+  await klid(v.page, 300);
+  const t = txt(await v.page.locator('.drawer .web-na-miru-prepinac').innerText());
+  over('SK2', /schvaluje Albert/.test(t), 'po označení schvaluje e-maily Petřin nadřízený (Albert)', t);
+  over('SK3', (await v.page.locator('.drawer h2 .badge.web-na-miru').count()) === 1
+    && (await v.page.locator('.drawer h2 .badge', { hasText: 'bez našeho náhledu' }).count()) === 1,
+    'odznak Web na míru a „bez našeho náhledu“ v hlavičce detailu');
+  over('SK4', (await v.page.locator('nav a', { hasText: 'ke schválení' }).count()) === 0, 'Volající nemá pilulku Ke schválení');
+  await jdi(v.page, '#/ke-schvaleni', 500);
+  over('SK5', !/#\/ke-schvaleni/.test(v.page.url()) && (await v.page.locator('.ke-schvaleni-karta').count()) === 0,
+    'Volající: #/ke-schvaleni ho vrátí jinam a karty nevidí', v.page.url());
+  await v.ctx.close();
+  const a = await novaStranka('admin');
+  await jdi(a.page, '#/ke-schvaleni', 800);
+  const karty = a.page.locator('.ke-schvaleni-karta');
+  await karty.first().waitFor({ timeout: 5000 }).catch(() => undefined);
+  const prvniText = txt(await karty.first().innerText().catch(() => ''));
+  over('SK6', (await karty.count()) >= 1 && /zadání přijato/.test(prvniText), 'super admin: karta DEMO super klienta je nahoře', prvniText.slice(0, 200));
+  over('SK7', (await a.page.locator('nav a', { hasText: 'ke schválení' }).count()) === 1, 'super admin má pilulku Ke schválení');
+  const prvni = karty.first();
+  over('SK8', (await prvni.getByRole('button', { name: 'Profil klienta' }).count()) === 1
+    && (await prvni.getByRole('link', { name: 'Vlákno v appce' }).count()) === 1, 'karta má Profil klienta a Vlákno v appce');
+  await prvni.getByRole('button', { name: 'Schválit a odeslat' }).click();
+  await klid(a.page, 600);
+  over('SK9', /Schválil\/a Albert/.test(txt(await a.page.locator('.ke-schvaleni-karta').first().innerText())), 'schválení jedním klikem na stránce');
+  const n2 = await a.page.evaluate(() => globalThis.__volackaDemoTest.kontrolaNavrh(95, 'Re: Doplnění', 'Druhý návrh.'));
+  await jdi(a.page, '#/', 300);
+  await jdi(a.page, '#/ke-schvaleni', 600);
+  const k2 = a.page.locator(`.ke-schvaleni-karta[data-ke-schvaleni="${n2}"]`);
+  await k2.getByRole('button', { name: 'Vrátit s poznámkou' }).click();
+  await k2.locator('textarea').fill('Kratší prosím');
+  await k2.getByRole('button', { name: 'Vrátit agentovi' }).click();
+  await klid(a.page, 600);
+  over('SK10', (await a.page.locator(`.ke-schvaleni-karta[data-ke-schvaleni="${n2}"]`).count()) === 0, 'vrácení s poznámkou ze stránky (karta zmizí)');
+  await a.page.setViewportSize({ width: 375, height: 812 });
+  await klid(a.page, 300);
+  const w = await a.page.evaluate(() => document.documentElement.scrollWidth);
+  over('SK11', w <= 375, 'Ke schválení na telefonu bez posouvání do strany', `scrollWidth ${w}`);
+  await a.ctx.close();
+});
+
 await browser.close();
 server.close();
 rmSync(OUT, { recursive: true, force: true });

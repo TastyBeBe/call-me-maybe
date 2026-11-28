@@ -94,6 +94,7 @@ import {
   priznakVidi,
 } from '../ui';
 import { CheckIcon, FlagIcon } from '../icons';
+import { WebNaMiruOdznak } from '../components/WebNaMiru';
 
 /** Druhy řádku Označených: kategorie otevřeného označení a druh příznaku (jako p_druhy na serveru). */
 function druhyRadku(r: Kontakt): string[] {
@@ -486,6 +487,7 @@ export default function OznacenePage() {
                     </td>
                     <td role="cell" className="ozn-status">
                       <StatusBadge status={r.status} kontaktId={r.id} />
+                      <WebNaMiruOdznak kontaktId={r.id} compact />
                     </td>
                     {/* počet pracovních dní je od naší poslední zprávy, „mlčí od“ u návrhu od prvního návrhu: dvě různá data,
                         každé se svým popiskem (recenze 2. 11. 2026, NAHRAZUJE „6 prac. dní od 1. 9.“) */}

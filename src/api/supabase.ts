@@ -59,6 +59,9 @@ import type {
   ThreadDetail,
   KontrolaOdpovedi,
   NavrhKeKontrole,
+  KeSchvaleni,
+  SuperKlientDetail,
+  SuperKlientOdznak,
   ThreadScope,
   ThreadStatus,
   UpdatedUser,
@@ -718,6 +721,36 @@ export const supabaseApi: Api = {
 
   async navrhVratit(token: string, navrhId: number, poznamka: string) {
     return rpc<NavrhKeKontrole>('kontrola_navrh_vratit', { p_token: token, p_navrh_id: navrhId, p_poznamka: poznamka });
+  },
+
+  /* ---- super klienti, web na míru (migrace 086); server bez 086 (PGRST202) = nikdo není super klient ---- */
+
+  async superKlientDetail(token: string, kontaktId: number) {
+    try {
+      return await rpc<SuperKlientDetail>('super_klient_detail', { p_token: token, p_kontakt_id: kontaktId });
+    } catch (e) {
+      if (neniNaServeru(e)) return { kontakt_id: kontaktId, viditelne: false, smi_menit: false };
+      throw e;
+    }
+  },
+
+  async superKlientNastav(token: string, kontaktId: number, zapnout: boolean, chceNahled: boolean | null) {
+    return rpc<SuperKlientDetail>('super_klient_nastav', {
+      p_token: token, p_kontakt_id: kontaktId, p_zapnout: zapnout, p_chce_nahled: chceNahled,
+    });
+  },
+
+  async keSchvaleni(token: string) {
+    return rpc<KeSchvaleni>('ke_schvaleni_seznam', { p_token: token });
+  },
+
+  async superKlientiOdznaky(token: string) {
+    try {
+      return await rpc<SuperKlientOdznak[]>('super_klienti_odznaky', { p_token: token });
+    } catch (e) {
+      if (neniNaServeru(e)) return [];
+      throw e;
+    }
   },
 
   /* ---- přepínání účtů Claude (migrace 011) ---- */
