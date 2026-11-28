@@ -123,6 +123,7 @@ import type {
   KontrolaOdpovedi,
   NavrhKeKontrole,
   KeSchvaleni,
+  KeSchvaleniPocet,
   KeSchvaleniPolozka,
   SuperKlientDetail,
   SuperKlientFaze,
@@ -1726,6 +1727,12 @@ function superUkazkaZaloz(): void {
   ulozDemoNavrh(kid, 'Re: Nový web chalupy', 'Dobrý den,\n\nděkuji za zadání i skicu. Podle nich vám připravím nový náhled zdarma a ozvu '
     + 'se, jakmile bude hotový.\n\nS pozdravem,\nAlbert Brunda\n775 300 309');
 }
+/** Volajícímu jméno jiného Volajícího „jiný volající“ (jako app_jmena_kolegu v 045; super admini a Albert zůstávají). */
+function oznacilPro(u: MockUser, jmeno: string): string {
+  if (u.role === 'super_admin' || jmeno === u.display_name) return jmeno;
+  const o = users.find((x) => x.display_name === jmeno);
+  return o && o.role !== 'super_admin' && o.id !== 1 ? 'jiný volající' : jmeno;
+}
 function superDetailMock(u: MockUser, kid: number): SuperKlientDetail {
   const smi = superSmiOznacit(u, kid);
   const sa = u.role === 'super_admin' && u.active;
@@ -1735,7 +1742,7 @@ function superDetailMock(u: MockUser, kid: number): SuperKlientDetail {
   const odp = superOdpovedny(kid, u.role === 'admin' ? u : null);
   const d: SuperKlientDetail = {
     kontakt_id: kid, viditelne: true, smi_menit: smi, oznacen: !!s, chce_nahled: s ? s.chce_nahled : null,
-    faze: s ? s.faze : null, faze_text: s ? SUPER_FAZE_TEXT[s.faze] : null, oznacil: s ? s.oznacil : null,
+    faze: s ? s.faze : null, faze_text: s ? SUPER_FAZE_TEXT[s.faze] : null, oznacil: s ? oznacilPro(u, s.oznacil) : null,
     oznaceno_at: s ? s.oznaceno_at : null, odpovedny: odp.display_name, odpovedny_id: odp.id, kontrola_zapnuta: !!ko,
     schvalovatel: ko ? ko.zapnul_jmeno : null, pozastaveno: !!ko?.pozastaveno_at,
   };
@@ -8591,21 +8598,27 @@ const mockApiZaklad: Api = {
       return { ...superDetailMock(user, kontaktId), prevzeti, zruseno_navrhu: 0 };
     }
     const s = superKlienti.get(kontaktId);
+    const nove = !s;
+    // jako super_klient_navrhy_sablony_zrus (086, oprava 28. 11. 2026): „nechce“ zruší návrhy s odkazem na náhled ze šablony,
+    // i při prvním označení
+    const zrusSablonu = () => {
+      const host = c?.live_url ? c.live_url.replace(/^https?:\/\//, '').replace(/\/.*$/, '').toLowerCase() : '';
+      if (!host) return;
+      for (const n of navrhyKeKontrole) {
+        if (n.kontakt_id !== kontaktId || (n.stav !== 'ceka' && n.stav !== 'schvaleno')) continue;
+        if (!`${n.predmet} ${n.telo}`.toLowerCase().includes(host)) continue;
+        n.stav = 'zruseno';
+        n.duvod = 'klient nechce náš náhled (Web na míru): e-mail odkazuje na náhled ze šablony';
+        zruseno += 1;
+      }
+    };
     if (!s) {
       superKlienti.set(kontaktId, { chce_nahled: chceNahled ?? true, faze: 'ceka_na_zadani', oznacil: user.display_name, oznaceno_at: now(),
                                     zadani_shrnuti: null, zadani_at: null, web_url: null });
+      if (chceNahled === false) zrusSablonu();
     } else if (chceNahled !== null && chceNahled !== s.chce_nahled) {
       s.chce_nahled = chceNahled;
-      const host = c?.live_url ? c.live_url.replace(/^https?:\/\//, '').replace(/\/.*$/, '').toLowerCase() : '';
-      if (!chceNahled && host) {
-        for (const n of navrhyKeKontrole) {
-          if (n.kontakt_id !== kontaktId || (n.stav !== 'ceka' && n.stav !== 'schvaleno')) continue;
-          if (!`${n.predmet} ${n.telo}`.toLowerCase().includes(host)) continue;
-          n.stav = 'zruseno';
-          n.duvod = 'klient nechce náš náhled (Web na míru): e-mail odkazuje na náhled ze šablony';
-          zruseno += 1;
-        }
-      }
+      if (!chceNahled) zrusSablonu();
     }
     const odp = superOdpovedny(kontaktId, user.role === 'admin' ? user : null);
     const ko = kontrolaZapnuta.get(kontaktId) as (MockKontrola & { pozastaveno_at?: string | null }) | undefined;
@@ -8613,7 +8626,7 @@ const mockApiZaklad: Api = {
       kontrolaZapnuta.set(kontaktId, { zapnul_id: odp.id, zapnul_jmeno: odp.display_name, zapnuto_at: now(),
                                        duvod: `Web na míru (označil/a ${user.display_name})` });
       prevzeti = 'zapnuto';
-    } else if (ko.zapnul_id !== odp.id) {
+    } else if (nove && ko.zapnul_id !== odp.id) {   // appka převezme schvalování jen při NOVÉM označení (086, 28. 11. 2026)
       if (ko.pozastaveno_at) prevzeti = 'odlozeno_pozastaveno';
       else { ko.zapnul_id = odp.id; ko.zapnul_jmeno = odp.display_name; prevzeti = 'prevzato'; }
     }
@@ -8643,6 +8656,14 @@ const mockApiZaklad: Api = {
       || Number(b.navrh.stav === 'ceka') - Number(a.navrh.stav === 'ceka')
       || String(a.navrh.vytvoreno).localeCompare(String(b.navrh.vytvoreno)) || a.navrh.id - b.navrh.id);
     return { pocet_ceka: moje.filter((n) => n.stav === 'ceka').length, navrhy };
+  },
+
+  async keSchvaleniPocet(token: string): Promise<KeSchvaleniPocet> {
+    await delay();
+    const user = auth(token);
+    superUkazkaZaloz();
+    if (user.role !== 'super_admin') fail('Ke schválení vidí jen super admin.');
+    return { pocet_ceka: navrhyKeKontrole.filter((n) => n.stav === 'ceka' && kontrolaSmiRozhodnout(user, n.kontakt_id)).length };
   },
 
   async superKlientiOdznaky(token: string): Promise<SuperKlientOdznak[]> {
@@ -9318,6 +9339,8 @@ interface DemoTestHacek {
   /** Web na míru (migrace 086): první demo kontakt, který Volající smí upravit, a první, který nesmí */
   mojeKontaktId?: (userId: number) => number | null;
   ciziKontaktId?: (userId: number) => number | null;
+  /** oprava 28. 11. 2026 (nález 10a): zapnutou kontrolu kontaktu schvaluje jiný člověk (jako po převzetí jinde); false = kontrola není */
+  kontrolaSchvalovatel?: (kid: number, userId: number) => boolean;
   volani?: { fn: string; args: unknown[]; ok?: boolean; id?: number | null; chyba?: string; zacatek?: number; konec?: number }[];
   stav?: () => unknown;
   /** migrace 063: služební cesty serveru (worker, tick), appka je nevolá; test jimi ověřuje pravidla mocku */
@@ -9372,6 +9395,14 @@ function sDemoTestem(api: Api): Api {
     return u ? (kontakty.find((c) => c.id !== 95 && !canEdit(u, c.id) && c.lock_by !== u.id)?.id ?? null) : null;
   };
   hacek.pripominkaOdeslana = pripominkaOznaceniOdeslana;
+  hacek.kontrolaSchvalovatel = (kid: number, userId: number) => {
+    const ko = kontrolaZapnuta.get(kid);
+    const u = users.find((x) => x.id === userId);
+    if (!ko || !u) return false;
+    ko.zapnul_id = u.id;
+    ko.zapnul_jmeno = u.display_name;
+    return true;
+  };
   hacek.vyprazdniHovory = () => {
     const zaloha = callLog.splice(0, callLog.length);
     return () => {

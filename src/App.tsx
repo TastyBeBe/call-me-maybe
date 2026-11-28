@@ -36,6 +36,7 @@ import StatsPage from './pages/StatsPage';
 import UzivatelePage from './pages/UzivatelePage';
 import ZpravyPage from './pages/ZpravyPage';
 import KeSchvaleniPage from './pages/KeSchvaleniPage';
+import { LegendaTlacitko } from './components/Legenda';
 import { obnovOdznaky } from './components/WebNaMiru';
 import { nastavOdznaky, pocetCeka } from './superKlient';
 import PigLayer from './pig/PigLayer';
@@ -163,7 +164,11 @@ function ZobrazeniNacitani() {
   return null;
 }
 
-/** Počet návrhů e-mailů, které čekají na schválení přihlášeným super adminem (pilulka „ke schválení“, migrace 086). */
+/**
+ * Počet návrhů e-mailů, které čekají na schválení přihlášeným super adminem (pilulka „ke schválení“, migrace 086).
+ * ⚠ Od 28. 11. 2026 (nezávislá recenze, nález 9) NAHRAZUJE „celá stránka Ke schválení každých 60 s“: jen počet
+ * (ke_schvaleni_pocet) a jen když je stránka vidět; při návratu do záložky hned znovu.
+ */
 function useKeSchvaleniPocet(token: string | null, jeSuper: boolean): number {
   const [pocet, setPocet] = useState(0);
   useEffect(() => {
@@ -172,10 +177,14 @@ function useKeSchvaleniPocet(token: string | null, jeSuper: boolean): number {
       return;
     }
     let zivy = true;
-    const nacti = () => getApi().keSchvaleni(token).then((k) => { if (zivy) setPocet(pocetCeka(k)); }).catch(() => undefined);
-    void nacti();
+    const nacti = () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+      void getApi().keSchvaleniPocet(token).then((k) => { if (zivy) setPocet(pocetCeka(k)); }).catch(() => undefined);
+    };
+    nacti();
     const t = setInterval(nacti, 60000);
-    return () => { zivy = false; clearInterval(t); };
+    document.addEventListener('visibilitychange', nacti);
+    return () => { zivy = false; clearInterval(t); document.removeEventListener('visibilitychange', nacti); };
   }, [token, jeSuper]);
   return pocet;
 }
@@ -342,6 +351,8 @@ function TopBar() {
         )}
       </nav>
       <span className="spacer" />
+      {/* Legenda (Albert 27. 11. 2026): co znamená každý stav a odznak, pro všechny role */}
+      <LegendaTlacitko />
       <SoundMenu />
       {demo && (
         <Link to="/setup" style={{ textDecoration: 'none' }} data-sfx="none">

@@ -588,10 +588,14 @@ export interface SuperKlientDetail {
   web_url?: string | null;
   prvni_verze_at?: string | null;
   /** jen ve výsledku super_klient_nastav */
-  prevzeti?: 'beze_zmeny' | 'zapnuto' | 'prevzato' | 'odlozeno_pozastaveno';
+  prevzeti?: 'beze_zmeny' | 'zapnuto' | 'prevzato' | 'odlozeno_pozastaveno' | 'ponechano';
   zruseno_navrhu?: number;
   /** nový náhled ze šablony, který označení zařadilo (rozhodnutí koordinátora 28. 11. 2026, Q2) */
   nahled_job_id?: number | null;
+  /** proč se nový náhled nezařadil (oprava 28. 11. 2026: rozestavěný náhled, rozdělaný job, strop tahů, nika …) */
+  nahled_prekazka?: string | null;
+  /** kolik čekajících jobů z označení zrušení nebo „nechce“ ukončilo */
+  ukonceno_jobu?: number;
 }
 export interface SuperKlientOdznak {
   kontakt_id: number;
@@ -608,6 +612,10 @@ export interface KeSchvaleniPolozka {
 export interface KeSchvaleni {
   pocet_ceka: number;
   navrhy: KeSchvaleniPolozka[];
+}
+/** Jen počet pro pilulku „ke schválení“ (ke_schvaleni_pocet, oprava 28. 11. 2026). */
+export interface KeSchvaleniPocet {
+  pocet_ceka: number;
 }
 
 export interface ListKontaktyResult {
@@ -2116,6 +2124,8 @@ export interface Api {
   superKlientNastav(token: string, kontaktId: number, zapnout: boolean, chceNahled: boolean | null): Promise<SuperKlientDetail>;
   /** Stránka Ke schválení: návrhy e-mailů, o kterých super admin smí rozhodnout, super klienti napřed (jen super admin). */
   keSchvaleni(token: string): Promise<KeSchvaleni>;
+  /** Jen počet čekajících návrhů (horní lišta; super admin) */
+  keSchvaleniPocet(token: string): Promise<KeSchvaleniPocet>;
   /** Odznaky Web na míru do seznamů: super admin všechny, Volající jen svoje. */
   superKlientiOdznaky(token: string): Promise<SuperKlientOdznak[]>;
   /* ---- přepínání účtů Claude (migrace 011) ---- */

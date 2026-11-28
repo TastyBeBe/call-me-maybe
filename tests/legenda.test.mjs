@@ -88,8 +88,14 @@ over('l4', bez.length === 0, 'každý odznak (komponenta) má řádek v legendě
 const polozky = L.legenda();
 over('l5', polozky.length >= 40 && polozky.every((p) => p.vysvetleni.length >= 10 && !/TODO|\?\?\?/.test(p.vysvetleni)),
   'řádky legendy jsou opravdové věty', polozky.filter((p) => p.vysvetleni.length < 10).map((p) => p.klic).join(', '));
-over('l6', ['stav', 'priznak', 'oznaceni', 'znamka', 'cekani', 'kos', 'navrh', 'znacky'].every((s) => polozky.some((p) => p.skupina === s)),
+over('l6', ['stav', 'priznak', 'oznaceni', 'znamka', 'cekani', 'kos', 'navrh', 'funkce', 'znacky'].every((s) => polozky.some((p) => p.skupina === s)),
   'legenda má všechny skupiny');
+// l8, l9 (oprava 28. 11. 2026, nezávislá recenze, nález 12): legenda vysvětluje i kontrolu odpovědí samu a schválený e-mail
+// říká, že čeká i na bránu tří dnů (083 D4), ne jen „do 15 minut“
+over('l8', polozky.some((p) => p.skupina === 'funkce' && p.klic === 'kontrola_odpovedi' && /schválení/.test(p.vysvetleni)),
+  'legenda vysvětluje Kontrolu odpovědí');
+over('l9', /3 dny|tří dnů/.test(L.VYSVETLENI.navrh?.schvaleno ?? ''), 'schválený e-mail v legendě zmiňuje bránu tří dnů',
+  L.VYSVETLENI.navrh?.schvaleno ?? '');
 // l7: zapojení: tlačítko v horní liště pro všechny role
 const app = readFileSync(join(ROOT, 'src/App.tsx'), 'utf8');
 over('l7', /<LegendaTlacitko \/>/.test(app), 'tlačítko legendy je v horní liště');

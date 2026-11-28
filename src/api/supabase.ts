@@ -60,6 +60,7 @@ import type {
   KontrolaOdpovedi,
   NavrhKeKontrole,
   KeSchvaleni,
+  KeSchvaleniPocet,
   SuperKlientDetail,
   SuperKlientOdznak,
   ThreadScope,
@@ -742,6 +743,16 @@ export const supabaseApi: Api = {
 
   async keSchvaleni(token: string) {
     return rpc<KeSchvaleni>('ke_schvaleni_seznam', { p_token: token });
+  },
+
+  // jen počet pro pilulku (oprava 28. 11. 2026): horní lišta netahá celé návrhy; server bez ní (PGRST202) = 0
+  async keSchvaleniPocet(token: string) {
+    try {
+      return await rpc<KeSchvaleniPocet>('ke_schvaleni_pocet', { p_token: token });
+    } catch (e) {
+      if (neniNaServeru(e)) return { pocet_ceka: 0 };
+      throw e;
+    }
   },
 
   async superKlientiOdznaky(token: string) {

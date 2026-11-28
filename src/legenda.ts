@@ -59,7 +59,9 @@ export const VYSVETLENI: Record<string, Record<string, string>> = {
   },
   navrh: {
     ceka: 'Návrh e-mailu čeká, až ho super admin schválí nebo vrátí s poznámkou.',
-    schvaleno: 'Schválený e-mail; automatizace ho odešle do 15 minut.',
+    // ⚠ oprava 28. 11. 2026 (nález 12): schválený e-mail čeká i na bránu tří dnů (083 D4), NAHRAZUJE „odešle do 15 minut“
+    schvaleno: 'Schválený e-mail; automatizace ho odešle do 15 minut, ale klientovi, který nám od naší poslední zprávy '
+      + 'neodpověděl, nejdřív 3 dny po ní (brána tří dnů); karta řekne, kdy odejde.',
     odesila: 'E-mail se právě odesílá.',
     odeslano: 'E-mail odešel klientovi.',
     vraceno: 'Vrácený s poznámkou; agent e-mail přepíše.',
@@ -67,6 +69,11 @@ export const VYSVETLENI: Record<string, Record<string, string>> = {
     zruseno: 'Zrušený návrh; neodejde.',
     neodeslano: 'Neodešel, protože klient mezitím napsal nebo se něco změnilo.',
     chyba: 'Odeslání selhalo; automatizace to zkusí znovu.',
+  },
+  // Kontrola odpovědí sama (spec super klientů §2.6, oprava 28. 11. 2026, nález 12)
+  funkce: {
+    kontrola_odpovedi: 'Kontrola odpovědí: automatizace klientovi nic nepošle sama, každý e-mail připraví a dá super adminovi '
+      + 'ke schválení; u klienta s Web na míru je zapnutá vždy.',
   },
   znacky: {
     StatusBadge: 'Stav klienta (co který stav znamená, je výš u stavů).',
@@ -85,7 +92,7 @@ const SKUPINY: Record<string, Record<string, unknown>> = {
 };
 export const NAZVY_SKUPIN: Record<string, string> = {
   stav: 'Stavy klientů', priznak: 'Příznaky', oznaceni: 'Označení k zavolání', znamka: 'Známky', cekani: 'Čekání na klienta',
-  kos: 'Jak dlouho klient čeká', navrh: 'Návrhy e-mailů ke schválení', znacky: 'Odznaky',
+  kos: 'Jak dlouho klient čeká', navrh: 'Návrhy e-mailů ke schválení', funkce: 'Kontrola odpovědí', znacky: 'Odznaky',
 };
 const ODZNAKY_NAZEV: Record<string, string> = {
   StatusBadge: 'Stav', FlagBadge: 'Příznak', OznaceniBadge: 'Označení', HvezdaOdznak: 'Hvězda', SegmentBadge: 'Druh klienta',
@@ -99,7 +106,7 @@ export interface LegendaPolozka {
   vysvetleni: string;
 }
 
-/** Celá legenda v pořadí appky: stavy, příznaky, označení, známky, čekání, koše, návrhy e-mailů, odznaky. */
+/** Celá legenda v pořadí appky: stavy, příznaky, označení, známky, čekání, koše, návrhy e-mailů, kontrola odpovědí, odznaky. */
 export function legenda(): LegendaPolozka[] {
   const ven: LegendaPolozka[] = [];
   for (const [sk, mapa] of Object.entries(SKUPINY)) {
@@ -108,6 +115,7 @@ export function legenda(): LegendaPolozka[] {
     }
   }
   for (const k of Object.keys(NAVRH_ODZNAK)) ven.push({ skupina: 'navrh', klic: k, stitek: k, vysvetleni: VYSVETLENI.navrh[k] ?? '' });
+  ven.push({ skupina: 'funkce', klic: 'kontrola_odpovedi', stitek: 'Kontrola odpovědí', vysvetleni: VYSVETLENI.funkce.kontrola_odpovedi });
   for (const [k, v] of Object.entries(VYSVETLENI.znacky)) {
     ven.push({ skupina: 'znacky', klic: k, stitek: ODZNAKY_NAZEV[k] ?? k, vysvetleni: v });
   }
